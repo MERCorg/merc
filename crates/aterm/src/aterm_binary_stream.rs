@@ -63,26 +63,35 @@ impl From<u8> for PacketType {
     }
 }
 
-/// \brief Writes terms in a streamable binary aterm format to an output stream.
-/// \details The streamable aterm format:
+/// Writes terms in a streamable binary aterm format to an output stream.
+/// 
+/// # The streamable aterm format:
 ///
-///          Aterms (and function symbols) are written as packets (with an identifier in the header) and their
-///          indices are derived from the number of aterms, resp. symbols, that occur before them in this stream. For each term
-///          we first ensure that its arguments and symbol are written to the stream (avoiding duplicates). Then its
-///          symbol index followed by a number of indices (depending on the arity) for its argments are written as integers.
-///          Packet headers also contain a special value to indicate that the read term should be visible as output as opposed to
-///          being only a subterm.
-///          The start of the stream is a zero followed by a header and a version and a term with function symbol index zero
-///          indicates the end of the stream.
+/// Aterms (and function symbols) are written as packets (with an identifier in the header) and their
+/// indices are derived from the number of aterms, resp. symbols, that occur before them in this stream. For each term
+/// we first ensure that its arguments and symbol are written to the stream (avoiding duplicates). Then its
+/// symbol index followed by a number of indices (depending on the arity) for its argments are written as integers.
+/// Packet headers also contain a special value to indicate that the read term should be visible as output as opposed to
+/// being only a subterm.
+/// The start of the stream is a zero followed by a header and a version and a term with function symbol index zero
+/// indicates the end of the stream.
 ///
 pub struct BinaryATermOutputStream<W: Write> {
     stream: BitStreamWriter<W>,
+
+    /// Stores the function symbols and the number of bits needed to encode their indices.
     function_symbols: IndexedSet<Symbol>,
     function_symbol_index_width: u8,
 
-    terms: IndexedSet<ATerm>, // Using string representation as key for simplicity
+    /// Stores the terms and the number of bits needed to encode their indices.
+    terms: IndexedSet<ATerm>,
     term_index_width: u8,
+
+    /// Indicates whether the stream has been flushed.
     flushed: bool,
+
+    /// Local stack to avoid recursive function calls when writing terms.
+    stack: VecDeque<(ATerm, bool)>,
 }
 
 /// Returns the number of bits needed to represent the given value.
@@ -120,6 +129,7 @@ impl<W: Write> BinaryATermOutputStream<W> {
             function_symbol_index_width: 1,
             terms: IndexedSet::new(),
             term_index_width: 1,
+            stack: VecDeque::new(),
             flushed: false,
         })
     }
@@ -127,17 +137,18 @@ impl<W: Write> BinaryATermOutputStream<W> {
     /// \brief Writes an aterm in a compact binary format where subterms are shared. The term that is
     ///        written itself is not shared whenever it occurs as the argument of another term.
     pub fn put(&mut self, term: &ATerm) -> Result<(), MCRL3Error> {
-        let mut stack = VecDeque::new();
-        stack.push_back((term.clone(), false));
+        self.stack.push_back((term.clone(), false));
 
-        while let Some((current_term, write_ready)) = stack.pop_back() {
-            let is_output = stack.is_empty();
+        while let Some((current_term, write_ready)) = self.stack.pop_back() {
+            // Indicates that this term is output and not a subterm, these should always be written.
+            let is_output = self.stack.is_empty();
 
             if !self.terms.contains(&current_term) || is_output {
                 if write_ready {
                     if is_int_term(&current_term) {
                         let int_term = ATermIntRef::from(current_term.copy());
                         if is_output {
+                            // If the integer is output, write the header and just an integer
                             self.stream.write_bits(PacketType::ATermIntOutput as u64, PACKET_BITS)?;
                             self.stream.write_integer(int_term.value() as u64)?;
                         } else {
@@ -145,7 +156,7 @@ impl<W: Write> BinaryATermOutputStream<W> {
 
                             self.stream.write_bits(PacketType::ATerm as u64, PACKET_BITS)?;
                             self.stream
-                                .write_bits(symbol_index as u64, self.function_symbol_index_width)?;
+                                .write_bits(symbol_index as u64, self.function_symbol_index_width())?;
                             self.stream.write_integer(int_term.value() as u64)?;
                         }
                     } else {
@@ -158,30 +169,35 @@ impl<W: Write> BinaryATermOutputStream<W> {
 
                         self.stream.write_bits(packet_type as u64, PACKET_BITS)?;
                         self.stream
-                            .write_bits(symbol_index as u64, self.function_symbol_index_width)?;
+                            .write_bits(symbol_index as u64, self.function_symbol_index_width())?;
 
                         for arg in current_term.arguments() {
                             let index = self.terms.index(&arg).expect("Argument must already be written");
-                            self.stream.write_bits(*index as u64, self.term_index_width)?;
+                            self.stream.write_bits(*index as u64, self.term_index_width())?;
                         }
                     }
 
                     if !is_output {
-                        self.terms.insert(current_term);
+                        let (_, inserted) = self.terms.insert(current_term);
+                        assert!(inserted, "This term should have a new index assigned.");
                         self.term_index_width = bits_for_value(self.terms.len());
                     }
                 } else {
                     // Add current term back to stack for writing after processing arguments
-                    stack.push_back((current_term.clone(), true));
+                    self.stack.push_back((current_term.clone(), true));
 
                     // Add arguments to stack for processing first
-                    for arg in current_term.arguments().rev() {
+                    for arg in current_term.arguments() {
                         if !self.terms.contains(&arg) {
-                            stack.push_back((arg.protect(), false));
+                            println!("Adding term {}", arg);
+                            self.stack.push_back((arg.protect(), false));
                         }
                     }
                 }
             }
+
+            // This term was already written and as such should be skipped. This can happen if
+            // one term has two equal subterms.
         }
 
         Ok(())
@@ -194,7 +210,7 @@ impl<W: Write> BinaryATermOutputStream<W> {
     pub fn flush(&mut self) -> Result<(), std::io::Error> {
         // Write the end of stream marker
         self.stream.write_bits(PacketType::ATerm as u64, PACKET_BITS)?;
-        self.stream.write_bits(0, self.function_symbol_index_width)?;
+        self.stream.write_bits(0, self.function_symbol_index_width())?;
         self.stream.flush()?;
         self.flushed = true;
         Ok(())
@@ -213,6 +229,35 @@ impl<W: Write> BinaryATermOutputStream<W> {
         }
 
         Ok(*index)
+    }
+    
+    /// Returns the current bit width needed to encode a function symbol index.
+    ///
+    /// In debug builds, this asserts that the cached width equals the
+    /// computed width based on the current number of function symbols.
+    fn function_symbol_index_width(&self) -> u8 {
+        let expected = bits_for_value(self.function_symbols.len());
+        debug_assert_eq!(
+            self.function_symbol_index_width,
+            expected,
+            "function_symbol_index_width does not match bits_for_value",
+        );
+
+        self.function_symbol_index_width
+    }
+
+    /// Returns the current bit width needed to encode a term index.
+    ///
+    /// In debug builds, this asserts that the cached width equals the
+    /// computed width based on the current number of terms.
+    fn term_index_width(&self) -> u8 {
+        let expected = bits_for_value(self.terms.len());
+        debug_assert_eq!(
+            self.term_index_width,
+            expected,
+            "term_index_width does not match bits_for_value",
+        );
+        self.term_index_width
     }
 }
 
@@ -263,18 +308,18 @@ impl<R: Read> BinaryATermInputStream<R> {
         })
     }
 
+    /// Reads the next ATerm from the binary aterm input stream. None is returned when the end of the stream is reached.
     pub fn get(&mut self) -> Result<Option<ATerm>, MCRL3Error> {
         loop {
             let header = self.stream.read_bits(PACKET_BITS)?;
             let packet = PacketType::from(header as u8);
 
-            println!("Read packet {packet:?}");
-
             match packet {
                 PacketType::FunctionSymbol => {
                     let name = self.stream.read_string()?;
                     let arity = self.stream.read_integer()? as usize;
-                    self.function_symbols.push(Symbol::new(name, arity));
+                    let symbol = Symbol::new(name, arity);
+                    self.function_symbols.push(symbol);
                     self.function_symbol_index_width = bits_for_value(self.function_symbols.len());
                 }
                 PacketType::ATermIntOutput => {
@@ -282,7 +327,7 @@ impl<R: Read> BinaryATermInputStream<R> {
                     return Ok(Some(ATermInt::new(value).into()));
                 }
                 PacketType::ATerm | PacketType::ATermOutput => {
-                    let symbol_index = self.stream.read_bits(self.function_symbol_index_width)? as usize;
+                    let symbol_index = self.stream.read_bits(self.function_symbol_index_width())? as usize;
                     if symbol_index == 0 {
                         // End of stream marker
                         return Ok(None);
@@ -303,7 +348,7 @@ impl<R: Read> BinaryATermInputStream<R> {
                     } else {
                         let mut arguments = Vec::with_capacity(symbol.arity());
                         for _ in 0..symbol.arity() {
-                            let arg_index = self.stream.read_bits(self.term_index_width)? as usize;
+                            let arg_index = self.stream.read_bits(self.term_index_width())? as usize;
                             arguments.push(self.terms[arg_index].clone());
                         }
 
@@ -320,41 +365,70 @@ impl<R: Read> BinaryATermInputStream<R> {
             }
         }
     }
+    
+    /// Returns the current bit width needed to encode a function symbol index.
+    ///
+    /// In debug builds, this asserts that the cached width equals the
+    /// computed width based on the current number of function symbols.
+    fn function_symbol_index_width(&self) -> u8 {
+        let expected = bits_for_value(self.function_symbols.len());
+        debug_assert_eq!(
+            self.function_symbol_index_width,
+            expected,
+            "function_symbol_index_width does not match bits_for_value",
+        );
+
+        self.function_symbol_index_width
+    }
+
+    /// Returns the current bit width needed to encode a term index.
+    ///
+    /// In debug builds, this asserts that the cached width equals the
+    /// computed width based on the current number of terms.
+    fn term_index_width(&self) -> u8 {
+        let expected = bits_for_value(self.terms.len());
+        debug_assert_eq!(
+            self.term_index_width,
+            expected,
+            "term_index_width does not match bits_for_value",
+        );
+        self.term_index_width
+    }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use mcrl3_utilities::random_test;
+#[cfg(test)]
+mod tests {
+    use mcrl3_utilities::random_test;
 
-//     use crate::random_term;
+    use crate::random_term;
 
-//     use super::*;
+    use super::*;
 
-//     #[test]
-//     fn test_random_binary_stream() {
-//         random_test(1, |rng| {
-//             let input: Vec<_> = (0..20)
-//                 .map(|_| random_term(rng, &[("f".into(), 2), ("g".into(), 1)], &["a".into(), "b".into()], 1))
-//                 .collect();
+    #[test]
+    fn test_random_binary_stream() {
+        random_test(1, |rng| {
+            let input: Vec<_> = (0..20)
+                .map(|_| random_term(rng, &[("f".into(), 2), ("g".into(), 1)], &["a".into(), "b".into()], 1))
+                .collect();
 
-//             let mut stream: Vec<u8> = Vec::new();
+            let mut stream: Vec<u8> = Vec::new();
 
-//             let mut output_stream = BinaryATermOutputStream::new(&mut stream).unwrap();
-//             for term in &input {
-//                 output_stream.put(term).unwrap();
-//             }
-//             output_stream.flush().expect("Flushing the output to the stream");
-//             drop(output_stream); // Explicitly drop to release the mutable borrow
+            let mut output_stream = BinaryATermOutputStream::new(&mut stream).unwrap();
+            for term in &input {
+                output_stream.put(term).unwrap();
+            }
+            output_stream.flush().expect("Flushing the output to the stream");
+            drop(output_stream); // Explicitly drop to release the mutable borrow
 
-//             let mut input_stream = BinaryATermInputStream::new(&stream[..]).unwrap();
-//             for term in &input {
-//                 println!("Term {}", term);
-//                 debug_assert_eq!(
-//                     *term,
-//                     input_stream.get().unwrap().unwrap(),
-//                     "The read term must match the term that we have written"
-//                 );
-//             }
-//         });
-//     }
-// }
+            let mut input_stream = BinaryATermInputStream::new(&stream[..]).unwrap();
+            for term in &input {
+                println!("Term {}", term);
+                debug_assert_eq!(
+                    *term,
+                    input_stream.get().unwrap().unwrap(),
+                    "The read term must match the term that we have written"
+                );
+            }
+        });
+    }
+}

@@ -286,11 +286,8 @@ impl<T: Hash + Eq, S: BuildHasher> IndexedSet<T, S> {
         Q: Hash + Equivalent<T>,
     {
         // Compute the hash using our hash_builder
-        let hash = self.hasher.hash_one(element);
-
-        // Create a temporary entry with the computed hash for lookup
-        let temp_entry = IndexEntry { index: 0, hash };
-        self.index.contains(&temp_entry)
+        let equivalent = IndexValueEquivalent::new(element, &self.hasher, &self.table);
+        self.index.contains(&equivalent)
     }
 }
 
@@ -448,6 +445,7 @@ mod tests {
                 indices.insert(*element, index);
             }
 
+            // Check if the indices match the previously stored ones.
             for (index, value) in &set {
                 assert_eq!(
                     indices[value], index,
@@ -455,12 +453,13 @@ mod tests {
                 );
             }
 
+            // Remove some elements from the set.
             for value in &mut input.iter().take(10) {
                 set.remove(value);
                 indices.remove(value);
             }
 
-            // Check consistency of the indexed set.
+            // Check consistency of the indexed set after removals.
             for (index, value) in &set {
                 assert_eq!(
                     indices[value], index,
@@ -473,6 +472,17 @@ mod tests {
                     set.get(*index) == Some(value),
                     "Index {} should still match element {:?}",
                     *index,
+                    value
+                );
+            }
+
+            // Check the contains function
+            for value in &input {
+                let contains = indices.contains_key(value);
+                assert_eq!(
+                    set.contains(value),
+                    contains,
+                    "The contains function returned an incorrect result for value {:?}",
                     value
                 );
             }
