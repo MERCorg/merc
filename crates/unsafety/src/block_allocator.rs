@@ -3,7 +3,6 @@ use std::{alloc::Layout, array, fmt, mem::ManuallyDrop, ptr::{self, NonNull}, sy
 use allocator_api2::alloc::{AllocError, Allocator};
 use itertools::Itertools;
 
-
 /// This is a slab allocator or also called block allocator for a concrete type `T`. It stores blocks of `Size` to minimize the overhead of individual memory allocations (which are typically in the range of one or two words).
 /// 
 /// Behaves like `Allocator`, except that it only allocates for layouts of `T`.
