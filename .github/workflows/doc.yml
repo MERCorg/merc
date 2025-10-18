@@ -37,7 +37,6 @@ jobs:
         with:
           packages: grcov, libfontconfig1-dev, libfreetype6-dev
           version: 1.0
-        if: matrix.os == 'ubuntu-latest'
 
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
