@@ -1,3 +1,4 @@
+use core::num;
 use std::collections::VecDeque;
 use std::io::Error;
 use std::io::ErrorKind;
@@ -63,6 +64,15 @@ impl From<u8> for PacketType {
     }
 }
 
+pub trait ATermStreamable {
+    /// Writes the object to the given binary aterm output stream.
+    fn write<W: Write>(&self, stream: &mut BinaryATermWriter<W>) -> Result<(), MCRL3Error>;
+
+    /// Reads the object from the given binary aterm input stream.
+    fn read<R: Read>(stream: &mut BinaryATermReader<R>) -> Result<Self, MCRL3Error>
+        where Self: Sized;
+}
+
 /// Writes terms in a streamable binary aterm format to an output stream.
 /// 
 /// # The streamable aterm format:
@@ -76,7 +86,7 @@ impl From<u8> for PacketType {
 /// The start of the stream is a zero followed by a header and a version and a term with function symbol index zero
 /// indicates the end of the stream.
 ///
-pub struct BinaryATermOutputStream<W: Write> {
+pub struct BinaryATermWriter<W: Write> {
     stream: BitStreamWriter<W>,
 
     /// Stores the function symbols and the number of bits needed to encode their indices.
@@ -103,7 +113,7 @@ fn bits_for_value(value: usize) -> u8 {
     }
 }
 
-impl<W: Write> BinaryATermOutputStream<W> {
+impl<W: Write> BinaryATermWriter<W> {
     /// Creates a new binary ATerm output stream with the given writer.
     ///
     /// # Arguments
@@ -136,7 +146,7 @@ impl<W: Write> BinaryATermOutputStream<W> {
 
     /// \brief Writes an aterm in a compact binary format where subterms are shared. The term that is
     ///        written itself is not shared whenever it occurs as the argument of another term.
-    pub fn put(&mut self, term: &ATerm) -> Result<(), MCRL3Error> {
+    pub fn write(&mut self, term: &ATerm) -> Result<(), MCRL3Error> {
         self.stack.push_back((term.clone(), false));
 
         while let Some((current_term, write_ready)) = self.stack.pop_back() {
@@ -202,6 +212,18 @@ impl<W: Write> BinaryATermOutputStream<W> {
 
         Ok(())
     }
+    
+    /// Write an exact size iterator into the stream
+    pub fn write_iter<I>(&mut self, iter: I) -> Result<(), MCRL3Error>
+    where
+        I: ExactSizeIterator<Item = ATerm>,
+    {
+        self.stream.write_integer(iter.len() as u64)?;
+        for ldd in iter {
+            self.write(&ldd)?;
+        }
+        Ok(())
+    }
 
     /// Flushes any remaining data and writes the end-of-stream marker.
     ///
@@ -261,7 +283,7 @@ impl<W: Write> BinaryATermOutputStream<W> {
     }
 }
 
-impl<W: Write> Drop for BinaryATermOutputStream<W> {
+impl<W: Write> Drop for BinaryATermWriter<W> {
     fn drop(&mut self) {
         if !self.flushed {
             self.flush().expect("Panicked while flushing the stream when dropped");
@@ -269,7 +291,7 @@ impl<W: Write> Drop for BinaryATermOutputStream<W> {
     }
 }
 
-pub struct BinaryATermInputStream<R: Read> {
+pub struct BinaryATermReader<R: Read> {
     stream: BitStreamReader<R>,
     function_symbols: Vec<Symbol>,
     function_symbol_index_width: u8,
@@ -277,7 +299,9 @@ pub struct BinaryATermInputStream<R: Read> {
     term_index_width: u8,
 }
 
-impl<R: Read> BinaryATermInputStream<R> {
+impl<R: Read> BinaryATermReader<R> {
+
+    /// Checks for the header and initializes the binary aterm input stream.
     pub fn new(reader: R) -> Result<Self, MCRL3Error> {
         let mut stream = BitStreamReader::new(reader);
 
@@ -309,7 +333,7 @@ impl<R: Read> BinaryATermInputStream<R> {
     }
 
     /// Reads the next ATerm from the binary aterm input stream. None is returned when the end of the stream is reached.
-    pub fn get(&mut self) -> Result<Option<ATerm>, MCRL3Error> {
+    pub fn read(&mut self) -> Result<Option<ATerm>, MCRL3Error> {
         loop {
             let header = self.stream.read_bits(PACKET_BITS)?;
             let packet = PacketType::from(header as u8);
@@ -365,6 +389,15 @@ impl<R: Read> BinaryATermInputStream<R> {
             }
         }
     }
+
+    /// Reads a iterator of ATerms from the stream.
+    pub fn read_iter(&mut self) -> Result<ATermReadIter<'_, R>, MCRL3Error> {
+        let number_of_elements = self.stream.read_integer()? as usize;
+        Ok(ATermReadIter {
+            reader: self,
+            remaining: number_of_elements,
+        })
+    }
     
     /// Returns the current bit width needed to encode a function symbol index.
     ///
@@ -396,6 +429,42 @@ impl<R: Read> BinaryATermInputStream<R> {
     }
 }
 
+/// A read iterator for ATerms from a binary aterm input stream.
+pub struct ATermReadIter<'a, R: Read> {
+    reader: &'a mut BinaryATermReader<R>,
+    remaining: usize,
+}
+
+impl<'a, R: Read> Iterator for ATermReadIter<'a, R> {
+    type Item = Result<ATerm, MCRL3Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+
+        self.remaining -= 1;
+        match self.reader.read() {
+            Ok(Some(term)) => Some(Ok(term)),
+            Ok(None) => Some(Err(Error::new(
+                ErrorKind::UnexpectedEof,
+                "Unexpected end of stream while reading iterator",
+            ).into())),
+            Err(e) => Some(Err(e)),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl<'a, R: Read> ExactSizeIterator for ATermReadIter<'a, R> {
+    fn len(&self) -> usize {
+        self.remaining
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use mcrl3_utilities::random_test;
@@ -413,19 +482,47 @@ mod tests {
 
             let mut stream: Vec<u8> = Vec::new();
 
-            let mut output_stream = BinaryATermOutputStream::new(&mut stream).unwrap();
+            let mut output_stream = BinaryATermWriter::new(&mut stream).unwrap();
             for term in &input {
-                output_stream.put(term).unwrap();
+                output_stream.write(term).unwrap();
             }
             output_stream.flush().expect("Flushing the output to the stream");
             drop(output_stream); // Explicitly drop to release the mutable borrow
 
-            let mut input_stream = BinaryATermInputStream::new(&stream[..]).unwrap();
+            let mut input_stream = BinaryATermReader::new(&stream[..]).unwrap();
             for term in &input {
                 println!("Term {}", term);
                 debug_assert_eq!(
                     *term,
-                    input_stream.get().unwrap().unwrap(),
+                    input_stream.read().unwrap().unwrap(),
+                    "The read term must match the term that we have written"
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn test_random_binary_stream_iter() {
+        random_test(1, |rng| {
+            let input: Vec<_> = (0..20)
+                .map(|_| random_term(rng, &[("f".into(), 2), ("g".into(), 1)], &["a".into(), "b".into()], 1))
+                .collect();
+
+            let mut stream: Vec<u8> = Vec::new();
+
+            let mut output_stream = BinaryATermWriter::new(&mut stream).unwrap();
+            output_stream.write_iter(input.iter().cloned()).unwrap();
+            output_stream.flush().expect("Flushing the output to the stream");
+            drop(output_stream); // Explicitly drop to release the mutable borrow
+
+            let mut input_stream = BinaryATermReader::new(&stream[..]).unwrap();
+            let read_iter = input_stream.read_iter().unwrap();
+            for (term_written, term_read) in input.iter().zip(read_iter) {
+                let term_read = term_read.expect("Reading term from stream must succeed");
+                println!("Term {}", term_written);
+                debug_assert_eq!(
+                    *term_written,
+                    term_read,
                     "The read term must match the term that we have written"
                 );
             }
