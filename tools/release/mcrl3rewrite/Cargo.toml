@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 mcrl3_aterm.workspace = true
 mcrl3_data.workspace = true
+mcrl3_gui.workspace = true
 mcrl3_rec-tests.workspace = true
 mcrl3_sabre-compiling.workspace = true
 mcrl3_sabre.workspace = true

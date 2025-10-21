@@ -1,11 +1,15 @@
+use std::ffi::OsStr;
 use std::fs::File;
 use std::io::BufWriter;
 use std::io::stdout;
+use std::path::Path;
 use std::process::ExitCode;
 
 use clap::Parser;
+use clap::Subcommand;
 use clap::ValueEnum;
 
+use mcrl3_gui::verbosity::Verbosity;
 use mcrl3_lts::read_aut;
 use mcrl3_lts::write_aut;
 use mcrl3_reduction::branching_bisim_sigref;
@@ -17,6 +21,7 @@ use mcrl3_reduction::strong_bisim_sigref_naive;
 use mcrl3_unsafety::print_allocator_metrics;
 use mcrl3_utilities::MCRL3Error;
 use mcrl3_utilities::Timing;
+use mcrl3_version::Version;
 
 #[derive(Clone, Debug, ValueEnum)]
 enum Equivalence {
@@ -28,54 +33,110 @@ enum Equivalence {
 
 #[derive(clap::Parser, Debug)]
 #[command(name = "Maurice Laveaux", about = "A command line rewriting tool")]
-struct Cli {
-    equivalence: Equivalence,
+struct Cli {    
+    #[arg(long, default_value_t = false, help = "Print the version of this tool")]
+    version: bool,
 
-    filename: String,
+    #[arg(short, long, default_value_t = Verbosity::Quiet, help = "Sets the verbosity of the logger")]
+    verbosity: Verbosity,
+    
+    #[command(subcommand)]
+    commands: Option<Commands>,
+
 
     output: Option<String>,
 
-    #[arg(short, long)]
-    tau: Option<Vec<String>>,
-
     #[arg(long)]
-    time: bool,
+    timings: bool,
+}
+
+/// Defines the subcommands for this tool.
+#[derive(Debug, Subcommand)]
+enum Commands {
+    Info(InfoArgs),
+    Reduce(ReduceArgs),
+}
+
+#[derive(clap::Args, Debug)]
+#[command(about = "Prints information related to the given LTS")]
+struct InfoArgs {
+    filename: String,
+}
+
+#[derive(clap::Args, Debug)]
+#[command(about = "Reduces the given explicit LTS modulo an equivalent relation")]
+struct ReduceArgs {
+    filename: String,
+
+    equivalence: Equivalence,
+
+    #[arg(short, long, help="List of actions that are considered tau actions", value_delimiter = ',')]
+    tau: Option<Vec<String>>,
 }
 
 fn main() -> Result<ExitCode, MCRL3Error> {
-    env_logger::init();
-
     let cli = Cli::parse();
+    
+    env_logger::Builder::new()
+        .filter_level(cli.verbosity.log_level_filter())
+        .init();
 
-    let file = File::open(cli.filename)?;
+    if cli.version {
+        eprintln!("{}", Version);
+        return Ok(ExitCode::SUCCESS);
+    }
 
     let mut timing = Timing::new();
-    let lts = read_aut(&file, cli.tau.unwrap_or_default())?;
-    print_allocator_metrics();
 
-    let (preprocessed_lts, partition) = match cli.equivalence {
-        Equivalence::StrongBisim => strong_bisim_sigref(lts, &mut timing),
-        Equivalence::StrongBisimNaive => strong_bisim_sigref_naive(lts, &mut timing),
-        Equivalence::BranchingBisim => branching_bisim_sigref(lts, &mut timing),
-        Equivalence::BranchingBisimNaive => branching_bisim_sigref_naive(lts, &mut timing),
-    };
+    if let Some(command) = cli.commands {
+        match command {
+            Commands::Info(args) => {    
+                let path = Path::new(&args.filename);
+                if path.extension().and_then(OsStr::to_str) == Some("aut") {
+                    let file = File::open(path)?;
+                    let lts = read_aut(&file, Vec::new())?;
+                    println!("Number of states: {}", lts.num_of_states())
+                } else {
+                    return Err("Unsupported file format for LTS info.".into());                    
+                }
+            },
+            Commands::Reduce(args) => {
+                let path = Path::new(&args.filename);
+                if path.extension().and_then(OsStr::to_str) == Some("aut") {
+                    let file = File::open(path)?;
+                    let lts = read_aut(&file, args.tau.unwrap_or_default())?;
+                    print_allocator_metrics();
 
-    let mut quotient_time = timing.start("quotient");
-    let quotient_lts = quotient_lts(
-        &preprocessed_lts,
-        &partition,
-        matches!(cli.equivalence, Equivalence::BranchingBisim)
-            || matches!(cli.equivalence, Equivalence::BranchingBisimNaive),
-    );
-    if let Some(file) = cli.output {
-        let mut writer = BufWriter::new(File::create(file)?);
-        write_aut(&mut writer, &quotient_lts)?;
-    } else {
-        write_aut(&mut stdout(), &quotient_lts)?;
+                    let (preprocessed_lts, partition) = match args.equivalence {
+                        Equivalence::StrongBisim => strong_bisim_sigref(lts, &mut timing),
+                        Equivalence::StrongBisimNaive => strong_bisim_sigref_naive(lts, &mut timing),
+                        Equivalence::BranchingBisim => branching_bisim_sigref(lts, &mut timing),
+                        Equivalence::BranchingBisimNaive => branching_bisim_sigref_naive(lts, &mut timing),
+                    };
+
+                    let mut quotient_time = timing.start("quotient");
+                    let quotient_lts = quotient_lts(
+                        &preprocessed_lts,
+                        &partition,
+                        matches!(args.equivalence, Equivalence::BranchingBisim)
+                            || matches!(args.equivalence, Equivalence::BranchingBisimNaive),
+                    );
+                    if let Some(file) = cli.output {
+                        let mut writer = BufWriter::new(File::create(file)?);
+                        write_aut(&mut writer, &quotient_lts)?;
+                    } else {
+                        write_aut(&mut stdout(), &quotient_lts)?;
+                    }
+
+                    quotient_time.finish();
+                } else {
+                    return Err("Unsupported file format for LTS info.".into());                    
+                }
+            },
+        }
     }
-    quotient_time.finish();
 
-    if cli.time {
+    if cli.timings {
         timing.print();
     }
 
