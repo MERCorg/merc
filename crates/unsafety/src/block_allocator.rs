@@ -3,7 +3,6 @@ use std::array;
 use std::fmt;
 use std::mem::ManuallyDrop;
 use std::ptr::NonNull;
-use std::ptr::{self};
 use std::sync::Mutex;
 
 use allocator_api2::alloc::AllocError;
