@@ -1,5 +1,6 @@
 use std::fmt;
 
+use log::debug;
 use mcrl3_utilities::ByteCompressedVec;
 use mcrl3_utilities::CompressedEntry;
 use mcrl3_utilities::TagIndex;
@@ -123,9 +124,9 @@ impl LabelledTransitionSystem {
             }
         });
 
-        println!("States {}", states.metrics());
-        println!("Transition labels {}", transition_labels.metrics());
-        println!("Transition to {}", transition_to.metrics());
+        debug!("States {}", states.metrics());
+        debug!("Transition labels {}", transition_labels.metrics());
+        debug!("Transition to {}", transition_to.metrics());
 
         LabelledTransitionSystem {
             initial_state,
