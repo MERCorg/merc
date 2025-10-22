@@ -5,7 +5,7 @@ use bitstream_io::BitRead;
 use bitstream_io::BitReader;
 use bitstream_io::BitWrite;
 use bitstream_io::BitWriter;
-use bitstream_io::LittleEndian;
+use bitstream_io::Endianness;
 
 use mcrl3_utilities::MCRL3Error;
 
@@ -24,8 +24,8 @@ pub const fn encoding_size<T>() -> usize {
 ///
 /// # Details
 /// Implementation taken from <https://techoverflow.net/2013/01/25/efficiently-encoding-variable-length-integers-in-cc/>
-pub fn write_u64_variablelength<W: Write>(
-    stream: &mut BitWriter<W, LittleEndian>,
+pub fn write_u64_variablelength<W: Write, E: Endianness>(
+    stream: &mut BitWriter<W, E>,
     mut value: u64,
 ) -> Result<(), MCRL3Error> {
     // While more than 7 bits of data are left, occupy the last output byte
@@ -42,7 +42,7 @@ pub fn write_u64_variablelength<W: Write>(
 }
 
 /// Decodes an unsigned variable-length integer using the MSB algorithm.
-pub fn read_u64_variablelength<R: Read>(stream: &mut BitReader<R, LittleEndian>) -> Result<u64, MCRL3Error> {
+pub fn read_u64_variablelength<R: Read, E: Endianness>(stream: &mut BitReader<R, E>) -> Result<u64, MCRL3Error> {
     let mut value: u64 = 0;
     for i in 0..encoding_size::<u64>() {
         let byte = stream.read::<8, u8>()?;
@@ -63,6 +63,7 @@ pub fn read_u64_variablelength<R: Read>(stream: &mut BitReader<R, LittleEndian>)
 mod tests {
     use super::*;
 
+    use bitstream_io::BigEndian;
     use rand::Rng;
 
     use mcrl3_utilities::random_test;
@@ -73,10 +74,10 @@ mod tests {
             let value = rng.random();
 
             let mut stream: [u8; encoding_size::<u64>()] = [0; encoding_size::<u64>()];
-            let mut writer = BitWriter::new(&mut stream[0..]);
+            let mut writer = BitWriter::<_, BigEndian>::new(&mut stream[0..]);
             write_u64_variablelength(&mut writer, value).unwrap();
 
-            let mut reader = BitReader::new(&stream[0..]);
+            let mut reader = BitReader::<_, BigEndian>::new(&stream[0..]);
             let result = read_u64_variablelength(&mut reader).unwrap();
 
             assert_eq!(result, value);
