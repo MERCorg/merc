@@ -90,7 +90,7 @@ cosmic-text = "0.14"
 femtovg = { version = "0.19", features = ["wgpu"] }
 glam = "0.30"
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
-slint = { version = "1.13", features = ["compat-1-2", "std", "accessibility", 
+slint = { version = "1.14", features = ["compat-1-2", "std", "accessibility", 
     "backend-winit", "renderer-skia"], default-features = false}
 slint-build = "1.13"
 tiny-skia = "0.11"
