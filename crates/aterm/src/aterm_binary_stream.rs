@@ -280,7 +280,7 @@ impl<W: Write> ATermWrite for BinaryATermWriter<W> {
     where
         I: ExactSizeIterator<Item = ATerm>,
     {
-        self.stream.write_integer(iter.len() as u64)?;
+        self.write_aterm(&ATermInt::new(iter.len()))?;
         for ldd in iter {
             self.write_aterm(&ldd)?;
         }
@@ -410,6 +410,7 @@ impl<R: Read> ATermRead for BinaryATermReader<R> {
         loop {
             let header = self.stream.read_bits(PACKET_BITS)?;
             let packet = PacketType::from(header as u8);
+            debug_trace!("Read packet: {:?}", packet);
 
             match packet {
                 PacketType::FunctionSymbol => {
@@ -422,6 +423,7 @@ impl<R: Read> ATermRead for BinaryATermReader<R> {
                 }
                 PacketType::ATermIntOutput => {
                     let value = self.stream.read_integer()?.try_into()?;
+                    debug_trace!("Output int term: {}", ATermInt::new(value));
                     return Ok(Some(ATermInt::new(value).into()));
                 }
                 PacketType::ATerm | PacketType::ATermOutput => {
@@ -441,12 +443,6 @@ impl<R: Read> ATermRead for BinaryATermReader<R> {
                     if is_int_symbol(symbol) {
                         let value = self.stream.read_integer()?.try_into()?;
                         let term = ATermInt::new(value);
-
-                        if packet == PacketType::ATermOutput {
-                            debug_trace!("Output int term: {term}");
-                            return Ok(Some(term.into()));
-                        }                          
-                        
                         debug_trace!("Read int term: {term}");
                         self.terms.push(term.into());
                         self.term_index_width = bits_for_value(self.terms.len());
@@ -489,10 +485,12 @@ impl<R: Read> ATermRead for BinaryATermReader<R> {
             ).into());
         }
 
-        let number_of_elements = self.stream.read_integer()? as usize;
+        let number_of_elements: ATermInt = self.read_aterm()?
+            .ok_or("Missing number of elements for iterator")?
+            .into();
         Ok(ATermReadIter {
             reader: self,
-            remaining: number_of_elements,
+            remaining: number_of_elements.value(),
         })
     }
 }

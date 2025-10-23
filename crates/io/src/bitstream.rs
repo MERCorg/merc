@@ -119,7 +119,7 @@ impl<R: Read> BitStreamRead for BitStreamReader<R> {
             .reserve(length.try_into().expect("String size exceeds usize!"));
 
         for _ in 0..length {
-            let byte = self.reader.read::<8, u64>()? as u8;
+            let byte = self.reader.read::<8, u8>()?;
             self.text_buffer.push(byte);
         }
 
