@@ -1,9 +1,9 @@
 use std::cell::RefCell;
-use std::io::Read;
-use std::io::Write;
 
-use mcrl3_io::BitStreamReader;
-use mcrl3_io::BitStreamWriter;
+use mcrl3_aterm::ATerm;
+use mcrl3_aterm::ATermRead;
+use mcrl3_io::BitStreamRead;
+use mcrl3_io::BitStreamWrite;
 use mcrl3_utilities::IndexedSet;
 use mcrl3_utilities::MCRL3Error;
 
@@ -24,15 +24,14 @@ const BLF_VERSION: u64 = 0x8306;
 /// been visited it is written to the stream as 0:[value, down_index,
 /// right_index]. An output LDD (as returned by
 /// binary_ldd_istream::get()) is written as 1:index.
-pub struct BinaryLddWriter<W: Write> {
-    writer: BitStreamWriter<W>,
+pub struct BinaryLddWriter<W: BitStreamWrite> {
+    writer: W,
     nodes: RefCell<IndexedSet<Ldd>>,
 }
 
-impl<W: Write> BinaryLddWriter<W> {
-    pub fn new(writer: W, storage: &mut Storage) -> Result<Self, MCRL3Error> {
+impl<W: BitStreamWrite> BinaryLddWriter<W> {
+    pub fn new(mut writer: W, storage: &mut Storage) -> Result<Self, MCRL3Error> {
         // Write the header of the binary LDD format.
-        let mut writer = BitStreamWriter::new(writer);
         writer.write_bits(BLF_MAGIC, 16)?;
         writer.write_bits(BLF_VERSION, 16)?;
 
@@ -48,7 +47,7 @@ impl<W: Write> BinaryLddWriter<W> {
     }
 
     /// Writes an LDD to the stream.
-    pub fn write(&mut self, ldd: &Ldd, storage: &Storage) -> Result<(), MCRL3Error> {
+    pub fn write_ldd(&mut self, ldd: &Ldd, storage: &Storage) -> Result<(), MCRL3Error> {
         for (node, Data(value, down, right)) in iter_nodes(storage, ldd, |node| {
             // Skip any LDD that we have already inserted in the stream
             !self.nodes.borrow().contains(node)
@@ -89,16 +88,14 @@ impl<W: Write> BinaryLddWriter<W> {
     }
 }
 
-pub struct BinaryLddReader<R: Read> {
-    reader: BitStreamReader<R>,
+pub struct BinaryLddReader<R: BitStreamRead> {
+    reader: R,
     nodes: Vec<Ldd>,
 }
 
-impl<R: Read> BinaryLddReader<R> {
+impl<R: BitStreamRead> BinaryLddReader<R> {
     /// Inserts the header into the stream and initializes the reader.
-    pub fn new(reader: R) -> Result<Self, MCRL3Error> {
-        let mut reader = BitStreamReader::new(reader);
-
+    pub fn new(mut reader: R) -> Result<Self, MCRL3Error> {
         // Read and verify the header of the binary LDD format.
         let magic = reader.read_bits(16)?;
         if magic != BLF_MAGIC {
@@ -119,7 +116,7 @@ impl<R: Read> BinaryLddReader<R> {
     }
 
     /// Reads an LDD from the stream.
-    pub fn read(&mut self, storage: &mut Storage) -> Result<Ldd, MCRL3Error> {
+    pub fn read_ldd(&mut self, storage: &mut Storage) -> Result<Ldd, MCRL3Error> {
         loop {
             let is_output = self.reader.read_bits(1)? == 1;
 
@@ -143,8 +140,22 @@ impl<R: Read> BinaryLddReader<R> {
     }
 }
 
+impl<R: BitStreamRead + ATermRead> ATermRead for BinaryLddReader<R> {
+    fn read_aterm(&mut self) -> Result<Option<ATerm>, MCRL3Error> {
+        ATermRead::read_aterm(&mut self.reader)
+    }
+
+    fn read_iaterm_ter(
+        &mut self,
+    ) -> Result<Box<dyn ExactSizeIterator<Item = Result<ATerm, MCRL3Error>> + '_>, MCRL3Error> {
+        self.reader.read_iaterm_ter()
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use mcrl3_io::BitStreamReader;
+    use mcrl3_io::BitStreamWriter;
     use mcrl3_utilities::random_test;
 
     use crate::test_utility::from_iter;
@@ -164,19 +175,20 @@ mod tests {
                 })
                 .collect();
 
-            let mut stream: Vec<u8> = Vec::new();
+            let mut vector: Vec<u8> = Vec::new();
+            let stream = BitStreamWriter::new(&mut vector);
 
-            let mut output_stream = BinaryLddWriter::new(&mut stream, &mut storage).unwrap();
+            let mut output_stream = BinaryLddWriter::new(stream, &mut storage).unwrap();
             for term in &input {
-                output_stream.write(term, &storage).unwrap();
+                output_stream.write_ldd(term, &storage).unwrap();
             }
             drop(output_stream); // Explicitly drop to release the mutable borrow
 
-            let mut input_stream = BinaryLddReader::new(&stream[..]).unwrap();
+            let mut input_stream = BinaryLddReader::new(BitStreamReader::new(&vector[..])).unwrap();
             for term in &input {
                 debug_assert_eq!(
                     *term,
-                    input_stream.read(&mut storage).unwrap(),
+                    input_stream.read_ldd(&mut storage).unwrap(),
                     "The read LDD must match the LDD that we have written"
                 );
             }

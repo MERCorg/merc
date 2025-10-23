@@ -12,6 +12,39 @@ use mcrl3_number::read_u64_variablelength;
 use mcrl3_number::write_u64_variablelength;
 use mcrl3_utilities::MCRL3Error;
 
+/// Trait for writing bit-level data.
+pub trait BitStreamWrite {
+    /// Writes the least significant bits from a u64 value.
+    ///
+    /// # Preconditions
+    /// - number_of_bits must be <= 64
+    fn write_bits(&mut self, value: u64, number_of_bits: u8) -> Result<(), MCRL3Error>;
+
+    /// Writes a string prefixed with its length as a variable-width integer.
+    fn write_string(&mut self, s: &str) -> Result<(), MCRL3Error>;
+
+    /// Writes a u64 value using variable-width encoding.
+    fn write_integer(&mut self, value: u64) -> Result<(), MCRL3Error>;
+
+    /// Flushes any remaining bits to the underlying writer.
+    fn flush(&mut self) -> Result<(), MCRL3Error>;
+}
+
+/// Trait for reading bit-level data.
+pub trait BitStreamRead {
+    /// Reads bits into the least significant bits of a u64.
+    ///
+    /// # Preconditions
+    /// - number_of_bits must be <= 64
+    fn read_bits(&mut self, number_of_bits: u8) -> Result<u64, MCRL3Error>;
+
+    /// Reads a length-prefixed string.
+    fn read_string(&mut self) -> Result<String, MCRL3Error>;
+
+    /// Reads a variable-width encoded integer.
+    fn read_integer(&mut self) -> Result<u64, MCRL3Error>;
+}
+
 /// Writer for bit-level output operations using an underlying writer.
 pub struct BitStreamWriter<W: Write> {
     writer: BitWriter<W, BigEndian>,
@@ -23,36 +56,6 @@ impl<W: Write> BitStreamWriter<W> {
         Self {
             writer: BitWriter::new(writer),
         }
-    }
-
-    /// Writes the least significant bits from a u64 value.
-    ///
-    /// # Preconditions
-    /// - number_of_bits must be <= 64
-    pub fn write_bits(&mut self, value: u64, number_of_bits: u8) -> Result<(), MCRL3Error> {
-        assert!(number_of_bits <= 64);
-        Ok(self.writer.write_var(number_of_bits as u32, value)?)
-    }
-
-    /// Writes a string prefixed with its length as a variable-width integer.
-    pub fn write_string(&mut self, s: &str) -> Result<(), MCRL3Error>{
-        self.write_integer(s.len() as u64)?;
-        for byte in s.as_bytes() {
-            self.writer.write::<8, u64>(*byte as u64)?;
-        }
-        Ok(())
-    }
-
-    /// Writes a usize value using variable-width encoding.
-    pub fn write_integer(&mut self, value: u64) -> Result<(), MCRL3Error> {
-        write_u64_variablelength(&mut self.writer, value)?;
-        Ok(())
-    }
-
-    /// Flushes any remaining bits to the underlying writer.
-    pub fn flush(&mut self) -> Result<(), MCRL3Error> {
-        self.writer.byte_align()?;
-        Ok(self.writer.flush()?)
     }
 }
 
@@ -76,18 +79,40 @@ impl<R: Read> BitStreamReader<R> {
             text_buffer: Vec::with_capacity(128),
         }
     }
+}
 
-    /// Reads bits into the least significant bits of a u64.
-    ///
-    /// # Preconditions
-    /// - number_of_bits must be <= 64
-    pub fn read_bits(&mut self, number_of_bits: u8) -> Result<u64, MCRL3Error> {
+impl<W: Write> BitStreamWrite for BitStreamWriter<W> {
+    fn write_bits(&mut self, value: u64, number_of_bits: u8) -> Result<(), MCRL3Error> {
+        assert!(number_of_bits <= 64);
+        Ok(self.writer.write_var(number_of_bits as u32, value)?)
+    }
+
+    fn write_string(&mut self, s: &str) -> Result<(), MCRL3Error> {
+        self.write_integer(s.len() as u64)?;
+        for byte in s.as_bytes() {
+            self.writer.write::<8, u64>(*byte as u64)?;
+        }
+        Ok(())
+    }
+
+    fn write_integer(&mut self, value: u64) -> Result<(), MCRL3Error> {
+        write_u64_variablelength(&mut self.writer, value)?;
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<(), MCRL3Error> {
+        self.writer.byte_align()?;
+        Ok(self.writer.flush()?)
+    }
+}
+
+impl<R: Read> BitStreamRead for BitStreamReader<R> {
+    fn read_bits(&mut self, number_of_bits: u8) -> Result<u64, MCRL3Error> {
         assert!(number_of_bits <= 64);
         Ok(self.reader.read_var(number_of_bits as u32)?)
     }
 
-    /// Reads a length-prefixed string.
-    pub fn read_string(&mut self) -> Result<String, MCRL3Error> {
+    fn read_string(&mut self) -> Result<String, MCRL3Error> {
         let length = self.read_integer()?;
         self.text_buffer.clear();
         self.text_buffer
@@ -101,8 +126,7 @@ impl<R: Read> BitStreamReader<R> {
         Ok(String::from_utf8(self.text_buffer.clone()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?)
     }
 
-    /// Reads a variable-width encoded integer.
-    pub fn read_integer(&mut self) -> Result<u64, MCRL3Error> {
+    fn read_integer(&mut self) -> Result<u64, MCRL3Error> {
         read_u64_variablelength(&mut self.reader)
     }
 }
