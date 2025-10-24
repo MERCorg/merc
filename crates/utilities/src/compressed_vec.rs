@@ -3,9 +3,11 @@ use std::marker::PhantomData;
 
 use crate::BytesFormatter;
 
-/// A vector data structure that stores objects in a byte compressed format
+/// A vector data structure that stores objects in a byte compressed format. The basic idea is that elements of type `T` impplement the `CompressedEntry` trait which allows them to be converted to and from a byte representation. The vector dynamically adjusts the number of bytes used per entry based on the maximum size of the entries added so far.
 ///
-/// The `drop()` function of `T` is never called.
+/// For numbers this means that we only store the number of bytes required to represent the largest number added so far. Note that the number of bytes used per entry is only increased over time as larger entries are added.
+/// 
+/// TODO: The `drop()` function of `T` is never called.
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct ByteCompressedVec<T> {
     data: Vec<u8>,
@@ -18,6 +20,15 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
         ByteCompressedVec {
             data: Vec::new(),
             bytes_per_entry: 0,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Initializes a ByteCompressedVec with the given capacity and (minimal) bytes per entry.
+    pub fn with_capacity(capacity: usize, bytes_per_entry: usize) -> ByteCompressedVec<T> {
+        ByteCompressedVec {
+            data: Vec::with_capacity(capacity * bytes_per_entry),
+            bytes_per_entry,
             _marker: PhantomData,
         }
     }
@@ -144,10 +155,19 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
 
     /// Swaps the entries at the given indices.
     pub fn swap(&mut self, index1: usize, index2: usize) {
-        let entry1 = self.index(index1);
-        let entry2 = self.index(index2);
-        self.set(index1, entry2);
-        self.set(index2, entry1);
+        if index1 != index2 {
+            let start1 = index1 * self.bytes_per_entry;
+            let start2 = index2 * self.bytes_per_entry;
+            
+            // Create a temporary buffer for one entry
+            let temp = T::from_bytes(&self.data[start1..start1 + self.bytes_per_entry]);
+            
+            // Copy entry2 to entry1's position
+            self.data.copy_within(start2..start2 + self.bytes_per_entry, start1);
+            
+            // Copy temp to entry2's position
+            temp.to_bytes(&mut self.data[start2..start2 + self.bytes_per_entry]);
+        }
     }
 
     /// Resizes the vector to the given length, filling new entries with the provided value.

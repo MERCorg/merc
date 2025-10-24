@@ -1,9 +1,11 @@
+use itertools::Itertools;
 use mcrl3_utilities::ByteCompressedVec;
 use mcrl3_utilities::CompressedEntry;
 
 use crate::LabelIndex;
 use crate::StateIndex;
 
+/// This struct helps in building a labelled transition system by accumulating transitions efficiently.
 pub struct LtsBuilder {
     transition_from: ByteCompressedVec<StateIndex>,
     transition_labels: ByteCompressedVec<LabelIndex>,
@@ -16,6 +18,15 @@ impl LtsBuilder {
             transition_from: ByteCompressedVec::new(),
             transition_labels: ByteCompressedVec::new(),
             transition_to: ByteCompressedVec::new(),
+        }
+    }
+
+    /// Initializes the builder with pre-allocated capacity for states and transitions.
+    pub fn with_capacity(num_of_states: usize, num_of_labels: usize, num_of_transitions: usize) -> Self {
+        Self {
+            transition_from: ByteCompressedVec::with_capacity(num_of_transitions, num_of_states.bytes_required()),
+            transition_labels: ByteCompressedVec::with_capacity(num_of_transitions, num_of_labels.bytes_required()),
+            transition_to: ByteCompressedVec::with_capacity(num_of_transitions, num_of_states.bytes_required()),
         }
     }
 
@@ -38,6 +49,7 @@ impl LtsBuilder {
             )
         });
 
+        // Put the arrays in the sorted order
         let permutation = |i: usize| indices[i];
         permute(&mut self.transition_from, &permutation);
         permute(&mut self.transition_labels, &permutation);
@@ -50,6 +62,7 @@ impl LtsBuilder {
             .iter()
             .zip(self.transition_labels.iter())
             .zip(self.transition_to.iter())
+            .dedup()
             .map(|((from, label), to)| (from, label, to))
     }
 }
@@ -77,5 +90,19 @@ where
             }
             current = next;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use mcrl3_utilities::random_test;
+
+    use super::*;
+
+    #[test]
+    fn test_permute() {
+        random_test(100, |rng| {
+
+        });
     }
 }

@@ -1,6 +1,6 @@
 use log::debug;
-use mcrl3_lts::LabelIndex;
 use mcrl3_lts::LabelledTransitionSystem;
+use mcrl3_lts::LtsBuilder;
 use mcrl3_lts::StateIndex;
 use mcrl3_utilities::TagIndex;
 
@@ -83,8 +83,8 @@ pub fn quotient_lts(
     eliminate_tau_loops: bool,
 ) -> LabelledTransitionSystem {
     let start = std::time::Instant::now();
-    // Introduce the transitions based on the block numbers
-    let mut transitions: Vec<(StateIndex, LabelIndex, StateIndex)> = Vec::default();
+    // Introduce the transitions based on the block numbers, the number of blocks is a decent approximation for the number of transitions.
+    let mut transitions = LtsBuilder::with_capacity(partition.num_of_blocks(), lts.num_of_labels(), partition.num_of_blocks());
 
     for state_index in lts.iter_states() {
         for transition in lts.outgoing_transitions(state_index) {
@@ -99,19 +99,24 @@ pub fn quotient_lts(
                 );
 
                 // Make sure to keep the outgoing transitions sorted.
-                transitions.push((StateIndex::new(block.value()), transition.label, StateIndex::new(to_block.value())));
+                transitions.add_transition(
+                    StateIndex::new(block.value()),
+                    transition.label,
+                    StateIndex::new(to_block.value()),
+                );
             }
         }
     }
 
     // Remove duplicates.
-    transitions.sort_unstable();
-    transitions.dedup();
+    let start2 = std::time::Instant::now();
+    transitions.remove_duplicates();
+    debug!("Time remove duplications: {:.3}s", start2.elapsed().as_secs_f64());
 
     let result = LabelledTransitionSystem::new(
         StateIndex::new(partition.block_number(lts.initial_state_index()).value()),
         Some(partition.num_of_blocks()),
-        || transitions.iter().cloned(),
+        || transitions.iter(),
         lts.labels().into(),
         lts.hidden_labels().into(),
     );
