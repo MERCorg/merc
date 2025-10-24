@@ -5,8 +5,5 @@
 #![forbid(unsafe_code)]
 
 mod symbolic_lts;
-mod symbolic_refinement;
-mod utility;
 
 pub use symbolic_lts::*;
-pub use symbolic_refinement::*;
