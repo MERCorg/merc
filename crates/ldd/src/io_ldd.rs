@@ -4,6 +4,7 @@ use mcrl3_aterm::ATerm;
 use mcrl3_aterm::ATermRead;
 use mcrl3_io::BitStreamRead;
 use mcrl3_io::BitStreamWrite;
+use mcrl3_number::bits_for_value;
 use mcrl3_utilities::IndexedSet;
 use mcrl3_utilities::MCRL3Error;
 
@@ -37,8 +38,8 @@ impl<W: BitStreamWrite> BinaryLddWriter<W> {
 
         // Add the true and false constants
         let mut nodes = IndexedSet::new();
-        nodes.insert(storage.empty_vector().clone());
         nodes.insert(storage.empty_set().clone());
+        nodes.insert(storage.empty_vector().clone());
 
         Ok(Self {
             writer,
@@ -84,7 +85,7 @@ impl<W: BitStreamWrite> BinaryLddWriter<W> {
 
     /// Returns the number of bits required to represent an LDD index.
     fn ldd_index_width(nodes: &IndexedSet<Ldd>) -> u8 {
-        (nodes.len().ilog2() + 1) as u8 // Assume that size is one larger to contain the input ldd.
+        bits_for_value(nodes.len()) + 1 // Assume that size is one larger to contain the input ldd.
     }
 }
 
@@ -109,8 +110,8 @@ impl<R: BitStreamRead> BinaryLddReader<R> {
 
         // Add the true and false constants
         let mut nodes = Vec::new();
-        nodes.push(Storage::default().empty_vector().clone());
         nodes.push(Storage::default().empty_set().clone());
+        nodes.push(Storage::default().empty_vector().clone());
 
         Ok(Self { reader, nodes })
     }
@@ -150,7 +151,7 @@ impl<R: BitStreamRead> BinaryLddReader<R> {
 
     /// Returns the number of bits required to represent an LDD index.
     fn ldd_index_width(&self, input: bool) -> u8 {
-        ((self.nodes.len() + input as usize).ilog2() + 1) as u8 // Assume that size is one larger to contain the input ldd.
+        bits_for_value(self.nodes.len() + input as usize) as u8 // Assume that size is one larger to contain the input ldd.
     }
 }
 
@@ -159,6 +160,16 @@ impl<R: BitStreamRead + ATermRead> ATermRead for BinaryLddReader<R> {
         to self.reader {
             fn read_aterm(&mut self) -> Result<Option<ATerm>, MCRL3Error>;
             fn read_aterm_iter(&mut self) -> Result<impl ExactSizeIterator<Item = Result<ATerm, MCRL3Error>>, MCRL3Error>;
+        }
+    }
+}
+
+impl<R: BitStreamRead> BitStreamRead for BinaryLddReader<R> {
+    delegate::delegate! {
+        to self.reader {
+            fn read_bits(&mut self, num_bits: u8) -> Result<u64, MCRL3Error>;
+            fn read_integer(&mut self) -> Result<u64, MCRL3Error>;
+            fn read_string(&mut self) -> Result<String, MCRL3Error>;
         }
     }
 }
