@@ -3,6 +3,7 @@ use std::mem::swap;
 use bumpalo::Bump;
 use log::debug;
 use log::trace;
+use mcrl3_io::TimeProgress;
 use mcrl3_lts::IncomingTransitions;
 use mcrl3_lts::LabelIndex;
 use mcrl3_lts::LabelledTransitionSystem;
@@ -231,6 +232,16 @@ where
 
     // Used to keep track of dirty blocks.
     let mut worklist = vec![BlockIndex::new(0)];
+    
+    let mut progress = TimeProgress::new(
+        |(iteration, blocks)| {
+            debug!(
+                "Iteration {iteration}, found {blocks} blocks...",
+            );
+        },
+        5,
+    );
+
 
     while let Some(block_index) = worklist.pop() {
         // Clear the current partition to start the next blocks.
@@ -317,11 +328,8 @@ where
         trace!("Iteration {iteration} partition {partition}");
 
         iteration += 1;
-        if num_of_blocks + 1000 <= partition.num_of_blocks() {
-            // Only print a message when new blocks have been found.
-            debug!("Iteration {iteration}, found {} blocks", partition.num_of_blocks());
-            num_of_blocks = partition.num_of_blocks();
-        }
+
+        progress.print((iteration, partition.num_of_blocks()));
     }
 
     trace!("Refinement partition {partition}");
@@ -356,9 +364,18 @@ where
     let mut old_count = 1;
     let mut iteration = 0;
 
+    let mut progress = TimeProgress::new(
+        |(iteration, blocks)| {
+            debug!(
+                "Iteration {iteration}, found {blocks} blocks...",
+            );
+        },
+        5,
+    );
+
     while old_count != id.len() {
         old_count = id.len();
-        debug!("Iteration {iteration}, found {old_count} blocks");
+        progress.print((iteration, old_count));
         swap(&mut partition, &mut next_partition);
 
         // Clear the current partition to start the next blocks.
