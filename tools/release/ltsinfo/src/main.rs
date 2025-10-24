@@ -10,6 +10,7 @@ use clap::Subcommand;
 use clap::ValueEnum;
 
 use mcrl3_gui::verbosity::Verbosity;
+use mcrl3_ldd::Storage;
 use mcrl3_lts::read_aut;
 use mcrl3_lts::write_aut;
 use mcrl3_reduction::branching_bisim_sigref;
@@ -18,6 +19,7 @@ use mcrl3_reduction::quotient_lts;
 use mcrl3_reduction::strong_bisim_sigref;
 use mcrl3_reduction::strong_bisim_sigref_naive;
 
+use mcrl3_symbolic::read_symbolic_lts;
 use mcrl3_unsafety::print_allocator_metrics;
 use mcrl3_utilities::MCRL3Error;
 use mcrl3_utilities::Timing;
@@ -79,6 +81,7 @@ fn main() -> Result<ExitCode, MCRL3Error> {
     
     env_logger::Builder::new()
         .filter_level(cli.verbosity.log_level_filter())
+        .parse_default_env()
         .init();
 
     if cli.version {
@@ -92,18 +95,24 @@ fn main() -> Result<ExitCode, MCRL3Error> {
         match command {
             Commands::Info(args) => {    
                 let path = Path::new(&args.filename);
-                if path.extension().and_then(OsStr::to_str) == Some("aut") {
-                    let file = File::open(path)?;
+                let file = File::open(path)?;
+
+                if path.extension() == Some(OsStr::new("aut")) {
                     let lts = read_aut(&file, Vec::new())?;
                     println!("Number of states: {}", lts.num_of_states())
+                } else if path.extension() == Some(OsStr::new("sym"))  {
+                    let mut storage = Storage::new();
+                    let lts = read_symbolic_lts(&file, &mut storage)?;
+                    println!("Number of states: {}", mcrl3_ldd::len(&mut storage, lts.states()))
                 } else {
-                    return Err("Unsupported file format for LTS info.".into());                    
+                    return Err("Unsupported LTS file format.".into());                    
                 }
             },
             Commands::Reduce(args) => {
                 let path = Path::new(&args.filename);
-                if path.extension().and_then(OsStr::to_str) == Some("aut") {
-                    let file = File::open(path)?;
+                let file = File::open(path)?;
+
+                if  path.extension() == Some(OsStr::new("aut")) {
                     let lts = read_aut(&file, args.tau.unwrap_or_default())?;
                     print_allocator_metrics();
 
@@ -129,8 +138,12 @@ fn main() -> Result<ExitCode, MCRL3Error> {
                     }
 
                     quotient_time.finish();
+                } else if path.extension() == Some(OsStr::new("sym"))  {
+                    let mut storage = Storage::new();
+                    let lts = read_symbolic_lts(&file, &mut storage)?;
+                    
                 } else {
-                    return Err("Unsupported file format for LTS info.".into());                    
+                    return Err("Unsupported file format for LTS reduce.".into());                    
                 }
             },
         }

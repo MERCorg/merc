@@ -7,8 +7,10 @@ rust-version.workspace = true
 
 [dependencies]
 mcrl3_gui.workspace = true
+mcrl3_ldd.workspace = true
 mcrl3_lts.workspace = true
 mcrl3_reduction.workspace = true
+mcrl3_symbolic.workspace = true
 mcrl3_unsafety.workspace = true
 mcrl3_utilities.workspace = true
 mcrl3_version.workspace = true
