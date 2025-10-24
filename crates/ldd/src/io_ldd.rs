@@ -141,7 +141,7 @@ impl<R: BitStreamRead> BinaryLddReader<R> {
                     self.nodes.len()
                 ))?,
                 self.nodes.get(right_index).ok_or(format!(
-                    "Read invalid right lddindex {right_index}, length {}",
+                    "Read invalid right ldd index {right_index}, length {}",
                     self.nodes.len()
                 ))?,
             );
