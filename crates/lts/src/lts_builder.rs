@@ -39,6 +39,8 @@ impl LtsBuilder {
 
     /// Removes duplicated transitions from the added transitions.
     pub fn remove_duplicates(&mut self) {
+        debug_assert!(self.transition_from.len() == self.transition_labels.len() && self.transition_from.len() == self.transition_to.len(), "All transition arrays must have the same length");
+
         // Sort the three arrays based on (from, label, to)
         let mut indices: Vec<usize> = (0..self.transition_from.len()).collect();
         indices.sort_unstable_by_key(|&i| {
@@ -62,8 +64,8 @@ impl LtsBuilder {
             .iter()
             .zip(self.transition_labels.iter())
             .zip(self.transition_to.iter())
-            .dedup()
             .map(|((from, label), to)| (from, label, to))
+            .dedup()
     }
 }
 
@@ -95,14 +97,54 @@ where
 
 #[cfg(test)]
 mod tests {
-    use mcrl3_utilities::random_test;
+    use std::vec;
 
     use super::*;
+    
+    use rand::Rng;
+
+    use mcrl3_utilities::random_test;
+
+    #[test]
+    fn random_remove_duplicates() {
+        random_test(100, |rng| {
+            let mut builder = LtsBuilder::new();
+
+            for _ in 0..rng.random_range(0..1000) {
+                let from = StateIndex::new(rng.random_range(0..100));
+                let label = LabelIndex::new(rng.random_range(0..50));
+                let to = StateIndex::new(rng.random_range(0..100));
+                builder.add_transition(from, label, to);
+            }
+
+            builder.remove_duplicates();
+
+            let transitions = builder.iter().collect::<Vec<_>>();
+            debug_assert!(transitions.iter().all_unique(), "Transitions should be unique after removing duplicates");
+        });
+    }
 
     #[test]
     fn test_permute() {
         random_test(100, |rng| {
+            // Generate random vector to permute
+            let elements = (0..rng.random_range(1..100)).map(|_| rng.random_range(0..1000)).collect::<Vec<_>>();
 
+            let mut vec = ByteCompressedVec::with_capacity(elements.len(), 0);
+            for &el in &elements {
+                vec.push(el);
+            }
+
+            println!("Original vector: {:?}", elements);
+            println!("Vector before permutation: {:?}", vec.iter().collect::<Vec<_>>());
+
+            let permutation = (0..elements.len()).map(|_| rng.random_range(0..elements.len())).collect::<Vec<_>>();
+            permute(&mut vec, |i| permutation[i]);
+
+            // Check that the permutation was applied correctly
+            for i in 0..elements.len() {
+                debug_assert_eq!(vec.index(i), elements[permutation[i]], "Element at index {} should be {}", i, elements[permutation[i]]);
+            }
         });
     }
 }
