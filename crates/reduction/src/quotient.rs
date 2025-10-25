@@ -1,8 +1,12 @@
+use std::time::Instant;
+
 use log::debug;
 use mcrl3_lts::LabelledTransitionSystem;
 use mcrl3_lts::LtsBuilder;
 use mcrl3_lts::StateIndex;
 use mcrl3_utilities::TagIndex;
+
+use crate::BlockPartition;
 
 /// A zero sized tag for the block.
 pub struct BlockTag {}
@@ -77,14 +81,18 @@ pub trait Partition {
 /// Returns a new LTS based on the given partition.
 ///
 /// All states in a single block are replaced by a single representative state.
-pub fn quotient_lts(
+pub fn quotient_lts_naive(
     lts: &LabelledTransitionSystem,
     partition: &impl Partition,
     eliminate_tau_loops: bool,
 ) -> LabelledTransitionSystem {
     let start = std::time::Instant::now();
     // Introduce the transitions based on the block numbers, the number of blocks is a decent approximation for the number of transitions.
-    let mut transitions = LtsBuilder::with_capacity(partition.num_of_blocks(), lts.num_of_labels(), partition.num_of_blocks());
+    let mut transitions = LtsBuilder::with_capacity(
+        partition.num_of_blocks(),
+        lts.num_of_labels(),
+        partition.num_of_blocks(),
+    );
 
     for state_index in lts.iter_states() {
         for transition in lts.outgoing_transitions(state_index) {
@@ -98,7 +106,6 @@ pub fn quotient_lts(
                     "Quotienting assumes that the block numbers do not exceed the number of blocks"
                 );
 
-                // Make sure to keep the outgoing transitions sorted.
                 transitions.add_transition(
                     StateIndex::new(block.value()),
                     transition.label,
@@ -109,9 +116,72 @@ pub fn quotient_lts(
     }
 
     // Remove duplicates.
-    let start2 = std::time::Instant::now();
     transitions.remove_duplicates();
-    debug!("Time remove duplications: {:.3}s", start2.elapsed().as_secs_f64());
+
+    let result = LabelledTransitionSystem::new(
+        StateIndex::new(partition.block_number(lts.initial_state_index()).value()),
+        Some(partition.num_of_blocks()),
+        || transitions.iter(),
+        lts.labels().into(),
+        lts.hidden_labels().into(),
+    );
+    debug!("Time quotient: {:.3}s", start.elapsed().as_secs_f64());
+    result
+}
+
+/// Optimised implementation for block partitions.
+/// 
+/// Chooses a single state in the block as representative. If BRANCHING then the chosen state is a bottom state.
+pub fn quotient_lts_block<const BRANCHING: bool>(lts: &LabelledTransitionSystem, partition: &BlockPartition) -> LabelledTransitionSystem {
+    let start = Instant::now();
+    let mut transitions = LtsBuilder::new();
+
+    for block in (0..partition.num_of_blocks()).map(BlockIndex::new) {
+        // Pick any state in the block
+        let mut candidate = if let Some(state) = partition.iter_block(block).next() {
+            state
+        } else {
+            panic!("Found empty block {}", block);
+        };
+
+        if BRANCHING {
+            // DFS into a bottom state.
+            let mut found = false;
+            while !found {
+                found = true;
+
+                if let Some(trans) = lts.outgoing_transitions(candidate).find(|trans| {
+                    lts.is_hidden_label(trans.label) && partition.block_number(trans.to) == block
+                }) {
+                    found = false;
+                    candidate = trans.to;
+                }
+            }
+        }
+
+        if BRANCHING {
+            for trans in lts.outgoing_transitions(candidate) {
+                // Candidate is a bottom state, so add all transitions.
+                debug_assert!(
+                    !(lts.is_hidden_label(trans.label) && partition.block_number(trans.to) == block),
+                    "This state is not bottom {}", block
+                );
+
+                transitions.add_transition(
+                    StateIndex::new(*block),
+                    trans.label, 
+                    StateIndex::new(*partition.block_number(trans.to)),
+                );
+            }
+        }
+        
+        debug_assert!(
+            !partition.block(block).is_empty(),
+            "Blocks in the partition should not be empty"
+        );
+    }
+    // Remove duplicates.
+    transitions.remove_duplicates();
 
     let result = LabelledTransitionSystem::new(
         StateIndex::new(partition.block_number(lts.initial_state_index()).value()),

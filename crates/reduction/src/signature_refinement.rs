@@ -1,6 +1,7 @@
 use std::mem::swap;
 
 use bumpalo::Bump;
+use clap::ValueEnum;
 use log::debug;
 use log::trace;
 use mcrl3_io::TimeProgress;
@@ -13,6 +14,8 @@ use rustc_hash::FxHashSet;
 
 use mcrl3_utilities::Timing;
 
+use crate::quotient_lts_block;
+use crate::quotient_lts_naive;
 use crate::BlockIndex;
 use crate::BlockPartition;
 use crate::BlockPartitionBuilder;
@@ -27,11 +30,41 @@ use crate::is_tau_hat;
 use crate::preprocess_branching;
 use crate::strong_bisim_signature;
 
+#[derive(Clone, Debug, ValueEnum)]
+pub enum Equivalence {
+    StrongBisim,
+    StrongBisimNaive,
+    BranchingBisim,
+    BranchingBisimNaive,
+}
+
+/// Reduces the given LTS modulo the given equivalence using signature refinement
+pub fn reduce(lts: LabelledTransitionSystem, equivalence: Equivalence, timing: &mut Timing) -> LabelledTransitionSystem {
+    match equivalence {
+        Equivalence::StrongBisim => {
+            let (lts, partition) = strong_bisim_sigref(lts, timing);
+            quotient_lts_block::<false>(&lts, &partition)
+        },
+        Equivalence::StrongBisimNaive => {
+            let (lts, partition) = strong_bisim_sigref_naive(lts, timing);
+            quotient_lts_naive(&lts, &partition, false)
+        },
+        Equivalence::BranchingBisim => {
+            let (lts, partition) = branching_bisim_sigref(lts, timing);
+            quotient_lts_block::<true>(&lts, &partition)
+        }
+        Equivalence::BranchingBisimNaive => {
+            let (lts, partition) = branching_bisim_sigref_naive(lts, timing);
+            quotient_lts_naive(&lts, &partition, true)
+        }
+    }
+}
+
 /// Computes a strong bisimulation partitioning using signature refinement
 pub fn strong_bisim_sigref(
     lts: LabelledTransitionSystem,
     timing: &mut Timing,
-) -> (LabelledTransitionSystem, IndexedPartition) {
+) -> (LabelledTransitionSystem, BlockPartition) {
     let mut timepre = timing.start("preprocess");
     let incoming = IncomingTransitions::new(&lts);
     timepre.finish();
@@ -53,7 +86,7 @@ pub fn strong_bisim_sigref(
     );
 
     time.finish();
-    (lts, partition.into())
+    (lts, partition)
 }
 
 /// Computes a strong bisimulation partitioning using signature refinement
@@ -74,7 +107,7 @@ pub fn strong_bisim_sigref_naive(
 pub fn branching_bisim_sigref(
     lts: LabelledTransitionSystem,
     timing: &mut Timing,
-) -> (LabelledTransitionSystem, IndexedPartition) {
+) -> (LabelledTransitionSystem, BlockPartition) {
     let mut timepre = timing.start("preprocess");
     let (preprocessed_lts, _preprocess_partition) = preprocess_branching(lts);
     let incoming = IncomingTransitions::new(&preprocessed_lts);
@@ -146,7 +179,7 @@ pub fn branching_bisim_sigref(
     time.finish();
 
     // Combine the SCC partition with the branching bisimulation partition.
-    (preprocessed_lts, partition.into())
+    (preprocessed_lts, partition)
 }
 
 /// Computes a branching bisimulation partitioning using signature refinement without dirty blocks.
@@ -227,7 +260,6 @@ where
 
     // Refine partitions until stable.
     let mut iteration = 0usize;
-    let mut num_of_blocks = 0;
     let mut states = Vec::new();
 
     // Used to keep track of dirty blocks.
@@ -241,7 +273,6 @@ where
         },
         5,
     );
-
 
     while let Some(block_index) = worklist.pop() {
         // Clear the current partition to start the next blocks.
@@ -260,6 +291,9 @@ where
         if BRANCHING {
             partition.mark_backward_closure(block_index, incoming);
         }
+
+        // Blocks above this number are new in this iteration.
+        let num_blocks = partition.num_of_blocks();
 
         for new_block_index in
             partition.partition_marked_with(block_index, &mut split_builder, |state_index, partition| {
@@ -296,9 +330,9 @@ where
                 for &state_index in &states {
                     for transition in incoming.incoming_transitions(state_index) {
                         if BRANCHING {
-                            // Mark incoming states in other blocks, or visible actions.
+                            // Mark incoming states into old blocks, or visible actions.
                             if !lts.is_hidden_label(transition.label)
-                                || partition.block_number(transition.to) != partition.block_number(state_index)
+                                || partition.block_number(transition.to) < num_blocks
                             {
                                 let other_block = partition.block_number(transition.to);
 

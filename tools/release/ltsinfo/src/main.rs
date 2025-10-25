@@ -15,23 +15,17 @@ use mcrl3_lts::read_aut;
 use mcrl3_lts::write_aut;
 use mcrl3_reduction::branching_bisim_sigref;
 use mcrl3_reduction::branching_bisim_sigref_naive;
-use mcrl3_reduction::quotient_lts;
+use mcrl3_reduction::reduce;
 use mcrl3_reduction::strong_bisim_sigref;
 use mcrl3_reduction::strong_bisim_sigref_naive;
 
+use mcrl3_reduction::Equivalence;
 use mcrl3_symbolic::read_symbolic_lts;
 use mcrl3_unsafety::print_allocator_metrics;
 use mcrl3_utilities::MCRL3Error;
 use mcrl3_utilities::Timing;
 use mcrl3_version::Version;
 
-#[derive(Clone, Debug, ValueEnum)]
-enum Equivalence {
-    StrongBisim,
-    StrongBisimNaive,
-    BranchingBisim,
-    BranchingBisimNaive,
-}
 
 #[derive(clap::Parser, Debug)]
 #[command(name = "Maurice Laveaux", about = "A command line rewriting tool")]
@@ -115,28 +109,15 @@ fn main() -> Result<ExitCode, MCRL3Error> {
                     let lts = read_aut(&file, args.tau.unwrap_or_default())?;
                     print_allocator_metrics();
 
-                    let (preprocessed_lts, partition) = match args.equivalence {
-                        Equivalence::StrongBisim => strong_bisim_sigref(lts, &mut timing),
-                        Equivalence::StrongBisimNaive => strong_bisim_sigref_naive(lts, &mut timing),
-                        Equivalence::BranchingBisim => branching_bisim_sigref(lts, &mut timing),
-                        Equivalence::BranchingBisimNaive => branching_bisim_sigref_naive(lts, &mut timing),
-                    };
+                    let reduced_lts = reduce(lts, args.equivalence, &mut timing);
 
-                    let mut quotient_time = timing.start("quotient");
-                    let quotient_lts = quotient_lts(
-                        &preprocessed_lts,
-                        &partition,
-                        matches!(args.equivalence, Equivalence::BranchingBisim)
-                            || matches!(args.equivalence, Equivalence::BranchingBisimNaive),
-                    );
                     if let Some(file) = args.output {
                         let mut writer = BufWriter::new(File::create(file)?);
-                        write_aut(&mut writer, &quotient_lts)?;
+                        write_aut(&mut writer, &reduced_lts)?;
                     } else {
-                        write_aut(&mut stdout(), &quotient_lts)?;
+                        write_aut(&mut stdout(), &reduced_lts)?;
                     }
 
-                    quotient_time.finish();
                 } else if path.extension() == Some(OsStr::new("sym"))  {
                     let mut storage = Storage::new();
                     let lts = read_symbolic_lts(&file, &mut storage)?;

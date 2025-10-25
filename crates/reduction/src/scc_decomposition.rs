@@ -6,17 +6,17 @@ use mcrl3_lts::LabelIndex;
 use mcrl3_lts::LabelledTransitionSystem;
 use mcrl3_lts::StateIndex;
 
+use crate::quotient_lts_naive;
 use crate::BlockIndex;
 use crate::IndexedPartition;
 use crate::Partition;
-use crate::quotient_lts;
 use crate::sort_topological;
 
 /// Computes the strongly connected tau component partitioning of the given LTS.
 pub fn tau_scc_decomposition(lts: &LabelledTransitionSystem) -> IndexedPartition {
     let partition = scc_decomposition(lts, &|_, label_index, _| lts.is_hidden_label(label_index));
     if cfg!(debug_assertions) {
-        let quotient_lts = quotient_lts(lts, &partition, true);
+        let quotient_lts = quotient_lts_naive(lts, &partition, true);
         debug_assert!(!has_tau_loop(&quotient_lts), "The SCC decomposition contains tau-loops");
     }
     partition
@@ -187,7 +187,6 @@ mod tests {
     use test_log::test;
 
     use crate::Partition;
-    use crate::quotient_lts;
 
     use super::*;
 
@@ -223,7 +222,7 @@ mod tests {
         random_test(100, |rng| {
             let lts = random_lts(rng, 10, 3, 3);
             let partitioning = tau_scc_decomposition(&lts);
-            let reduction = quotient_lts(&lts, &partitioning, true);
+            let reduction = quotient_lts_naive(&lts, &partitioning, true);
 
             // Check that states in a strongly connected component are reachable from each other.
             for state_index in lts.iter_states() {

@@ -6,12 +6,12 @@ use mcrl3_lts::LabelledTransitionSystem;
 use mcrl3_lts::StateIndex;
 use rustc_hash::FxHashSet;
 
+use crate::quotient_lts_naive;
 use crate::BlockIndex;
 use crate::Partition;
 
 use super::BlockPartition;
 use super::IndexedPartition;
-use super::quotient_lts;
 use super::reorder_partition;
 use super::sort_topological;
 use super::tau_scc_decomposition;
@@ -230,7 +230,7 @@ pub fn branching_bisim_signature_inductive(
 /// sorted signature see `branching_bisim_signature_sorted`.
 pub fn preprocess_branching(lts: LabelledTransitionSystem) -> (LabelledTransitionSystem, IndexedPartition) {
     let scc_partition = tau_scc_decomposition(&lts);
-    let tau_loop_free_lts = quotient_lts(&lts, &scc_partition, true);
+    let tau_loop_free_lts = quotient_lts_naive(&lts, &scc_partition, true);
     drop(lts);
 
     // Sort the states according to the topological order of the tau transitions.

@@ -146,10 +146,19 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
     where
         T: Ord,
     {
-        let mut elements: Vec<T> = self.iter_range(begin, end).collect();
-        elements.sort_unstable();
-        for (i, element) in elements.into_iter().enumerate() {
-            self.set(begin + i, element);
+        for i in 0..self.len() {
+            for j in i + 1..self.len() {
+                let a_start = i * self.bytes_per_entry;
+                let b_start = j * self.bytes_per_entry;
+
+                let a = T::from_bytes(&self.data[a_start..a_start + self.bytes_per_entry]);
+                let b = T::from_bytes(&self.data[b_start..b_start + self.bytes_per_entry]);
+
+                if a > b {
+                    // Swap the chunks in-place
+                    self.swap(a_start, b_start);
+                }
+            }
         }
     }
 
