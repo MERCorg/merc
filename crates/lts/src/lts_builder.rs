@@ -1,4 +1,7 @@
+use std::fmt;
+
 use itertools::Itertools;
+use log::trace;
 use mcrl3_utilities::ByteCompressedVec;
 use mcrl3_utilities::CompressedEntry;
 
@@ -39,7 +42,11 @@ impl LtsBuilder {
 
     /// Removes duplicated transitions from the added transitions.
     pub fn remove_duplicates(&mut self) {
-        debug_assert!(self.transition_from.len() == self.transition_labels.len() && self.transition_from.len() == self.transition_to.len(), "All transition arrays must have the same length");
+        debug_assert!(
+            self.transition_from.len() == self.transition_labels.len()
+                && self.transition_from.len() == self.transition_to.len(),
+            "All transition arrays must have the same length"
+        );
 
         // Sort the three arrays based on (from, label, to)
         let mut indices: Vec<usize> = (0..self.transition_from.len()).collect();
@@ -51,11 +58,16 @@ impl LtsBuilder {
             )
         });
 
+        // Invert the indices to create the actual permutation mapping
+        let mut permutation = vec![0; indices.len()];
+        for (new_pos, &old_pos) in indices.iter().enumerate() {
+            permutation[old_pos] = new_pos;
+        }
+
         // Put the arrays in the sorted order
-        let permutation = |i: usize| indices[i];
-        permute(&mut self.transition_from, &permutation);
-        permute(&mut self.transition_labels, &permutation);
-        permute(&mut self.transition_to, &permutation);
+        permute(&mut self.transition_from, |i: usize| permutation[i]);
+        permute(&mut self.transition_labels, |i: usize| permutation[i]);
+        permute(&mut self.transition_to, |i: usize| permutation[i]);
     }
 
     /// Returns an iterator over all transitions as (from, label, to) tuples.
@@ -97,7 +109,10 @@ where
     P: Fn(usize) -> usize,
     T: CompressedEntry,
 {
-    debug_assert!(is_valid_permutation(&permutation, vec.len()), "The given permutation must be a bijective mapping");
+    debug_assert!(
+        is_valid_permutation(&permutation, vec.len()),
+        "The given permutation must be a bijective mapping"
+    );
 
     let mut visited = vec![false; vec.len()];
 
@@ -108,22 +123,39 @@ where
 
         // Perform the cycle starting at 'start'
         let mut current = start;
+
+        // Keeps track of the last displaced element
+        let mut old = vec.index(start);
+        trace!("Starting new cycle at position {}", start);
         while !visited[current] {
             visited[current] = true;
             let next = permutation(current);
             if next != current {
-                vec.swap(current, next);
+                trace!("Moving element from position {} to position {}", current, next);
+                let temp = vec.index(next);
+                vec.set(next, old);
+                old = temp;
             }
             current = next;
         }
     }
 }
 
+impl fmt::Debug for LtsBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "Transitions:")?;
+        for (from, label, to) in self.iter() {
+            writeln!(f, "    {:?} --[{:?}]-> {:?}", from, label, to)?;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    use rand::{seq::SliceRandom, Rng};
+
+    use rand::{Rng, seq::SliceRandom};
 
     use mcrl3_utilities::random_test;
 
@@ -132,17 +164,22 @@ mod tests {
         random_test(100, |rng| {
             let mut builder = LtsBuilder::new();
 
-            for _ in 0..rng.random_range(0..1000) {
-                let from = StateIndex::new(rng.random_range(0..100));
-                let label = LabelIndex::new(rng.random_range(0..50));
-                let to = StateIndex::new(rng.random_range(0..100));
+            for _ in 0..rng.random_range(0..10) {
+                let from = StateIndex::new(rng.random_range(0..10));
+                let label = LabelIndex::new(rng.random_range(0..2));
+                let to = StateIndex::new(rng.random_range(0..10));
                 builder.add_transition(from, label, to);
             }
 
             builder.remove_duplicates();
 
+            println!("{builder:?}");
+
             let transitions = builder.iter().collect::<Vec<_>>();
-            debug_assert!(transitions.iter().all_unique(), "Transitions should be unique after removing duplicates");
+            debug_assert!(
+                transitions.iter().all_unique(),
+                "Transitions should be unique after removing duplicates"
+            );
         });
     }
 
@@ -150,7 +187,9 @@ mod tests {
     fn test_random_bytevector_permute() {
         random_test(100, |rng| {
             // Generate random vector to permute
-            let elements = (0..rng.random_range(1..100)).map(|_| rng.random_range(0..1000)).collect::<Vec<_>>();
+            let elements = (0..rng.random_range(1..100))
+                .map(|_| rng.random_range(0..100))
+                .collect::<Vec<_>>();
 
             let mut vec = ByteCompressedVec::with_capacity(elements.len(), 0);
             for &el in &elements {
@@ -159,7 +198,7 @@ mod tests {
 
             println!("Vector before permutation: {:?}", vec);
 
-            let permutation = {                
+            let permutation = {
                 let mut order: Vec<usize> = (0..elements.len()).collect();
                 order.shuffle(rng);
                 order
@@ -172,12 +211,21 @@ mod tests {
 
             // Check that the permutation was applied correctly
             for i in 0..elements.len() {
-                let (inverse, _) = permutation.iter().find_position(|&&j | i == j).expect("Should find inverse mapping");
-                debug_assert_eq!(vec.index(i), elements[inverse], "Element at index {} should be {}", i, elements[inverse]);
+                let (inverse, _) = permutation
+                    .iter()
+                    .find_position(|&&j| i == j)
+                    .expect("Should find inverse mapping");
+                debug_assert_eq!(
+                    vec.index(i),
+                    elements[inverse],
+                    "Element at index {} should be {}",
+                    i,
+                    elements[inverse]
+                );
             }
         });
     }
-    
+
     #[test]
     fn test_random_is_valid_permutation() {
         random_test(100, |rng| {

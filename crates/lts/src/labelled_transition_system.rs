@@ -1,6 +1,5 @@
 use std::fmt;
 
-use log::debug;
 use mcrl3_utilities::ByteCompressedVec;
 use mcrl3_utilities::CompressedEntry;
 use mcrl3_utilities::TagIndex;
@@ -267,8 +266,8 @@ impl fmt::Display for LabelledTransitionSystem {
         writeln!(f, "Number of states: {}", self.num_of_states())?;
         writeln!(f, "Number of action labels: {}", self.labels.len())?;
         writeln!(f, "Number of transitions: {}", self.num_of_transitions())?;
-        writeln!(f, "States {}", self.states.metrics());
-        writeln!(f, "Transition labels {}", self.transition_labels.metrics());
+        writeln!(f, "States {}", self.states.metrics())?;
+        writeln!(f, "Transition labels {}", self.transition_labels.metrics())?;
         write!(f, "Transition to {}", self.transition_to.metrics())
     }
 }
