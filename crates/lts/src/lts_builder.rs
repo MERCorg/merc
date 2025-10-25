@@ -69,12 +69,36 @@ impl LtsBuilder {
     }
 }
 
+/// Returns true iff the given permutation is a bijective mapping within the 0..max range.
+pub fn is_valid_permutation<P>(permutation: P, max: usize) -> bool
+where
+    P: Fn(usize) -> usize,
+{
+    let mut visited = vec![false; max];
+
+    for i in 0..max {
+        // Out of bounds
+        if permutation(i) >= max {
+            return false;
+        }
+
+        if visited[permutation(i)] {
+            return false;
+        }
+        visited[permutation(i)] = true;
+    }
+
+    true
+}
+
 /// Permutes a vector in place according to the given permutation function.
 fn permute<T, P>(vec: &mut ByteCompressedVec<T>, permutation: P)
 where
     P: Fn(usize) -> usize,
     T: CompressedEntry,
 {
+    debug_assert!(is_valid_permutation(&permutation, vec.len()), "The given permutation must be a bijective mapping");
+
     let mut visited = vec![false; vec.len()];
 
     for start in 0..vec.len() {
@@ -97,16 +121,14 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::vec;
-
     use super::*;
     
-    use rand::Rng;
+    use rand::{seq::SliceRandom, Rng};
 
     use mcrl3_utilities::random_test;
 
     #[test]
-    fn random_remove_duplicates() {
+    fn test_random_remove_duplicates() {
         random_test(100, |rng| {
             let mut builder = LtsBuilder::new();
 
@@ -125,7 +147,7 @@ mod tests {
     }
 
     #[test]
-    fn test_permute() {
+    fn test_random_bytevector_permute() {
         random_test(100, |rng| {
             // Generate random vector to permute
             let elements = (0..rng.random_range(1..100)).map(|_| rng.random_range(0..1000)).collect::<Vec<_>>();
@@ -135,16 +157,52 @@ mod tests {
                 vec.push(el);
             }
 
-            println!("Original vector: {:?}", elements);
-            println!("Vector before permutation: {:?}", vec.iter().collect::<Vec<_>>());
+            println!("Vector before permutation: {:?}", vec);
 
-            let permutation = (0..elements.len()).map(|_| rng.random_range(0..elements.len())).collect::<Vec<_>>();
+            let permutation = {                
+                let mut order: Vec<usize> = (0..elements.len()).collect();
+                order.shuffle(rng);
+                order
+            };
+
             permute(&mut vec, |i| permutation[i]);
+
+            println!("Permutation: {:?}", permutation);
+            println!("Vector after permutation: {:?}", vec);
 
             // Check that the permutation was applied correctly
             for i in 0..elements.len() {
-                debug_assert_eq!(vec.index(i), elements[permutation[i]], "Element at index {} should be {}", i, elements[permutation[i]]);
+                let (inverse, _) = permutation.iter().find_position(|&&j | i == j).expect("Should find inverse mapping");
+                debug_assert_eq!(vec.index(i), elements[inverse], "Element at index {} should be {}", i, elements[inverse]);
             }
+        });
+    }
+    
+    #[test]
+    fn test_random_is_valid_permutation() {
+        random_test(100, |rng| {
+            // Generate a valid permutation.
+            let valid_permutation: Vec<usize> = {
+                let mut order: Vec<usize> = (0..100).collect();
+                order.shuffle(rng);
+                order
+            };
+
+            assert!(is_valid_permutation(|i| valid_permutation[i], valid_permutation.len()));
+
+            // Generate an invalid permutation (duplicate entries).
+            let invalid_permutation = [0, 1, 2, 3, 4, 5, 6, 7, 8, 8];
+            assert!(!is_valid_permutation(
+                |i| invalid_permutation[i],
+                invalid_permutation.len()
+            ));
+
+            // Generate an invalid permutation (missing entries).
+            let invalid_permutation = [0, 1, 3, 4, 5, 6, 7, 8];
+            assert!(!is_valid_permutation(
+                |i| invalid_permutation[i],
+                invalid_permutation.len()
+            ));
         });
     }
 }

@@ -1,6 +1,7 @@
 use log::debug;
 use log::trace;
 
+use mcrl3_lts::is_valid_permutation;
 use mcrl3_lts::LabelIndex;
 use mcrl3_lts::LabelledTransitionSystem;
 use mcrl3_lts::StateIndex;
@@ -127,7 +128,7 @@ where
     F: Fn(LabelIndex, StateIndex) -> bool,
     P: Fn(StateIndex) -> StateIndex,
 {
-    debug_assert!(is_valid_permutation(&permutation, lts.num_of_states()));
+    debug_assert!(is_valid_permutation(|i| permutation(StateIndex::new(i)).value(), lts.num_of_states()));
 
     // Check that each vertex appears before its successors.
     for state_index in lts.iter_states() {
@@ -149,34 +150,10 @@ where
     true
 }
 
-/// Returns true if the given permutation is a valid permutation.
-fn is_valid_permutation<P>(permutation: P, max: usize) -> bool
-where
-    P: Fn(StateIndex) -> StateIndex,
-{
-    let mut visited = vec![false; max];
-
-    for i in (0..max).map(StateIndex::new) {
-        // Out of bounds
-        if permutation(i) >= max {
-            return false;
-        }
-
-        if visited[permutation(i)] {
-            return false;
-        }
-
-        visited[permutation(i)] = true;
-    }
-
-    // Check that all entries are visited.
-    visited.iter().all(|&v| v)
-}
-
 #[cfg(test)]
 mod tests {
 
-    use mcrl3_lts::random_lts;
+    use mcrl3_lts::{is_valid_permutation, random_lts};
     use mcrl3_utilities::random_test;
     use rand::seq::SliceRandom;
     use test_log::test;
@@ -212,37 +189,6 @@ mod tests {
             trace!("{:?}", new_lts);
 
             assert_eq!(new_lts.num_of_labels(), lts.num_of_labels());
-        });
-    }
-
-    #[test]
-    fn test_random_is_valid_permutation() {
-        random_test(100, |rng| {
-            let lts = random_lts(rng, 10, 15, 2);
-
-            // Generate a valid permutation.
-            let mut rng = rand::rng();
-            let valid_permutation: Vec<StateIndex> = {
-                let mut order: Vec<StateIndex> = (0..lts.num_of_states()).map(StateIndex::new).collect();
-                order.shuffle(&mut rng);
-                order
-            };
-
-            assert!(is_valid_permutation(|i| valid_permutation[i], valid_permutation.len()));
-
-            // Generate an invalid permutation (duplicate entries).
-            let invalid_permutation = [0, 1, 2, 3, 4, 5, 6, 7, 8, 8].map(StateIndex::new);
-            assert!(!is_valid_permutation(
-                |i| invalid_permutation[i],
-                invalid_permutation.len()
-            ));
-
-            // Generate an invalid permutation (missing entries).
-            let invalid_permutation = [0, 1, 3, 4, 5, 6, 7, 8].map(StateIndex::new);
-            assert!(!is_valid_permutation(
-                |i| invalid_permutation[i],
-                invalid_permutation.len()
-            ));
         });
     }
 }
