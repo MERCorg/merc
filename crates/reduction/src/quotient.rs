@@ -79,8 +79,8 @@ pub trait Partition {
 }
 
 /// Returns a new LTS based on the given partition.
-///
-/// All states in a single block are replaced by a single representative state.
+/// 
+/// The naive version will add the transitions of all states in the block to the quotient LTS.
 pub fn quotient_lts_naive(
     lts: &LabelledTransitionSystem,
     partition: &impl Partition,
