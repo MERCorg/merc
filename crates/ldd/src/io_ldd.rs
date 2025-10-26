@@ -86,8 +86,10 @@ impl<W: BitStreamWrite> BinaryLddWriter<W> {
     }
 
     /// Returns the number of bits required to represent an LDD index.
+    /// This matches the reader: when writing a node definition we've already
+    /// inserted the current node, so we use the current number of nodes.
     fn ldd_index_width(nodes: &IndexedSet<Ldd>) -> u8 {
-        bits_for_value(nodes.len()) + 1 // Assume that size is one larger to contain the input ldd.
+        bits_for_value(nodes.len())
     }
 }
 
