@@ -70,6 +70,9 @@ impl IncomingTransitions {
         state2incoming.push(TransitionIndex::new(transition_labels.len()));
 
         // Sort the incoming transitions such that silent transitions come first.
+        //
+        // TODO: This could be more efficient by simply grouping them instead of sorting, perhaps some group using a predicate.
+        let mut pairs = Vec::new();
         for state_index in 0..num_states {
             let state = state2incoming.index(state_index);
             let next_state = state2incoming.index(state_index + 1);
@@ -79,14 +82,13 @@ impl IncomingTransitions {
             let end = next_state.start;
 
             // Extract, sort, and put back
-            let mut pairs: Vec<_> = (start..end)
-                .map(|i| (transition_labels.index(i), transition_from.index(i)))
-                .collect();
+            pairs.clear();
+            pairs.extend((start..end).map(|i| (transition_labels.index(i), transition_from.index(i))));
             pairs.sort_unstable_by_key(|(label, _)| *label);
 
-            for (i, (label, from)) in pairs.into_iter().enumerate() {
-                transition_labels.set(start + i, label);
-                transition_from.set(start + i, from);
+            for (i, (label, from)) in pairs.iter().enumerate() {
+                transition_labels.set(start + i, *label);
+                transition_from.set(start + i, *from);
             }
         }
 

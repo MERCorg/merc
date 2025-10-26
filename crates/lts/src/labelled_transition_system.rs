@@ -59,8 +59,8 @@ impl LabelledTransitionSystem {
         let mut num_of_transitions = 0;
         for (from, _, to) in transition_iter() {
             // Ensure that the states vector is large enough.
-            while states.len() <= *from.max(to) {
-                states.push(State::default());
+            if states.len() <= *from.max(to) {
+                states.resize_with(*from.max(to) + 1, State::default);
             }
 
             states.update(*from, |entry| entry.outgoing_start += 1);
@@ -75,8 +75,8 @@ impl LabelledTransitionSystem {
         });
 
         // Place the transitions, and increment the end for every state.
-        let mut transition_labels = bytevec![LabelIndex::new(0); num_of_transitions];
-        let mut transition_to = bytevec![StateIndex::new(0); num_of_transitions];
+        let mut transition_labels = bytevec![LabelIndex::new(labels.len()); num_of_transitions];
+        let mut transition_to = bytevec![StateIndex::new(states.len()); num_of_transitions];
         for (from, label, to) in transition_iter() {
             states.update(*from, |entry| {
                 transition_labels.set(entry.outgoing_start, label);

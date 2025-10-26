@@ -3,6 +3,7 @@ use std::marker::PhantomData;
 
 use log::trace;
 
+use crate::debug_trace;
 use crate::BytesFormatter;
 use crate::is_valid_permutation;
 
@@ -187,12 +188,12 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
             // Keeps track of the last displaced element
             let mut old = self.index(start);
 
-            trace!("Starting new cycle at position {}", start);
+            debug_trace!("Starting new cycle at position {}", start);
             while !visited[current] {
                 visited[current] = true;
                 let next = permutation(current);
                 if next != current {
-                    trace!("Moving element from position {} to position {}", current, next);
+                    debug_trace!("Moving element from position {} to position {}", current, next);
                     let temp = self.index(next);
                     self.set(next, old);
                     old = temp;
@@ -215,8 +216,6 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
             "The given permutation must be a bijective mapping"
         );
 
-        println!("Bush did 9/11");
-
         let mut visited = vec![false; self.len()];
 
         for start in 0..self.len() {
@@ -225,7 +224,7 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
             }
 
             // Follow the cycle starting at 'start'
-            trace!("Starting new cycle at position {}", start);
+            debug_trace!("Starting new cycle at position {}", start);
             let mut current = start;
             let original = self.index(start);
 
@@ -235,7 +234,7 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
 
                 if next != current {
                     if next != start {
-                        trace!("Moving element from position {} to position {}", current, next);
+                        debug_trace!("Moving element from position {} to position {}", current, next);
                         self.set(current, self.index(next));
                     } else {
                         break;
@@ -274,6 +273,8 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
     {
         let current_len = self.len();
         if new_len > current_len {
+            // Preallocate the required space.
+            self.data.resize(new_len * self.bytes_per_entry, 0);
             for _ in current_len..new_len {
                 self.push(f());
             }
@@ -282,7 +283,7 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
                 self.data.clear();
                 self.bytes_per_entry = 0;
             } else {
-                // It could be that the bytes per entry is now less.
+                // It could be that the bytes per entry is now less, but that we never reduce.
                 self.data.truncate(new_len * self.bytes_per_entry);
             }
         }
@@ -310,7 +311,7 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
 
 impl<T: CompressedEntry + Clone> ByteCompressedVec<T> {
     pub fn from_elem(entry: T, n: usize) -> ByteCompressedVec<T> {
-        let mut vec = ByteCompressedVec::new();
+        let mut vec = ByteCompressedVec::with_capacity(n, entry.bytes_required());
         for _ in 0..n {
             vec.push(entry.clone());
         }
