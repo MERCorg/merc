@@ -64,6 +64,7 @@ fn main() -> Result<ExitCode, MCRL3Error> {
 
     env_logger::Builder::new()
         .filter_level(cli.verbosity.log_level_filter())
+        .parse_default_env()
         .init();
 
     if cli.version {
