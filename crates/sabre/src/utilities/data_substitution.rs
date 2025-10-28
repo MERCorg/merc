@@ -1,3 +1,6 @@
+
+#![forbid(unsafe_code)]
+
 use mcrl3_aterm::Protected;
 use mcrl3_aterm::Term;
 use mcrl3_aterm::ThreadTermPool;

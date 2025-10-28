@@ -1,3 +1,6 @@
+
+#![forbid(unsafe_code)]
+
 use log::info;
 use mcrl3_aterm::THREAD_TERM_POOL;
 use mcrl3_aterm::ThreadTermPool;

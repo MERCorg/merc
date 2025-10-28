@@ -1,3 +1,6 @@
+
+#![forbid(unsafe_code)]
+
 use log::info;
 use mcrl3_data::DataApplication;
 use mcrl3_data::DataExpression;

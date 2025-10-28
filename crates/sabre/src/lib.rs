@@ -4,8 +4,6 @@
 //!
 //! This crate does not use unsafe code.
 
-#![forbid(unsafe_code)]
-
 mod innermost_rewriter;
 mod matching;
 mod naive_rewriter;

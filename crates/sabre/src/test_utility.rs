@@ -1,3 +1,6 @@
+
+#![forbid(unsafe_code)]
+
 use ahash::AHashSet;
 use mcrl3_aterm::ATerm;
 use mcrl3_data::to_untyped_data_expression;

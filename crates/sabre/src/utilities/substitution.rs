@@ -1,3 +1,6 @@
+
+#![forbid(unsafe_code)]
+
 use mcrl3_aterm::ATerm;
 use mcrl3_aterm::ATermRef;
 use mcrl3_aterm::Protected;
