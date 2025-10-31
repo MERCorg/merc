@@ -12,6 +12,7 @@ use mcrl3_unsafety::StablePointer;
 use mcrl3_utilities::ProtectionIndex;
 use mcrl3_utilities::readable_string;
 
+use crate::Markable;
 use crate::SharedSymbol;
 use crate::THREAD_TERM_POOL;
 
@@ -99,6 +100,20 @@ impl<'a> Symb<'a, '_> for SymbolRef<'a> {
 
     fn shared(&self) -> &SymbolIndex {
         &self.shared
+    }
+}
+
+impl Markable for SymbolRef<'_> {
+    fn mark(&self, marker: &mut crate::Marker) {
+        marker.mark_symbol(self);
+    }
+
+    fn contains_term(&self, _term: &crate::aterm::ATermRef<'_>) -> bool {
+        false
+    }
+
+    fn len(&self) -> usize {
+        1
     }
 }
 

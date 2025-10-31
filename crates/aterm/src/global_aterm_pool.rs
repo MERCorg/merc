@@ -457,6 +457,11 @@ impl Marker<'_> {
             }
         }
     }
+
+    /// Marks the given symbol as being reachable.
+    pub fn mark_symbol(&mut self, symbol: &SymbolRef<'_>) {
+        self.marked_symbols.insert(symbol.shared().copy());
+    }
 }
 
 #[cfg(test)]
