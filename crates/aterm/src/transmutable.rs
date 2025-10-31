@@ -1,7 +1,10 @@
 use std::collections::VecDeque;
 use std::mem::transmute;
 
+use mcrl3_utilities::IndexedSet;
+
 use crate::aterm::ATermRef;
+use crate::SymbolRef;
 
 pub trait Transmutable {
     type Target<'a>
@@ -27,6 +30,18 @@ impl Transmutable for ATermRef<'static> {
     }
 }
 
+impl Transmutable for SymbolRef<'static> {
+    type Target<'a> = SymbolRef<'a>;
+
+    fn transmute_lifetime<'a>(&self) -> &'a Self::Target<'a> {
+        unsafe { transmute::<&Self, &'a SymbolRef<'a>>(self) }
+    }
+
+    fn transmute_lifetime_mut<'a>(&mut self) -> &'a mut Self::Target<'a> {
+        unsafe { transmute::<&mut Self, &'a mut SymbolRef<'a>>(self) }
+    }
+}
+
 impl<T: Transmutable> Transmutable for Option<T> {
     type Target<'a>
         = Option<T>
@@ -42,10 +57,7 @@ impl<T: Transmutable> Transmutable for Option<T> {
     }
 }
 
-impl<T> Transmutable for Vec<T>
-where
-    T: Transmutable,
-{
+impl<T: Transmutable> Transmutable for Vec<T> {
     type Target<'a>
         = Vec<T::Target<'a>>
     where
@@ -60,10 +72,7 @@ where
     }
 }
 
-impl<T> Transmutable for VecDeque<T>
-where
-    T: Transmutable,
-{
+impl<T: Transmutable> Transmutable for VecDeque<T> {
     type Target<'a>
         = Vec<T::Target<'a>>
     where
@@ -75,5 +84,49 @@ where
 
     fn transmute_lifetime_mut<'a>(&mut self) -> &'a mut Self::Target<'a> {
         unsafe { transmute::<&mut Self, &'a mut Vec<T::Target<'a>>>(self) }
+    }
+}
+
+impl<T: Transmutable> Transmutable for IndexedSet<T> {
+    type Target<'a>
+        = IndexedSet<T::Target<'a>>
+    where
+        T: 'a;
+
+    fn transmute_lifetime<'a>(&self) -> &'a Self::Target<'a> {
+        unsafe { transmute::<&Self, &'a IndexedSet<T::Target<'a>>>(self) }
+    }
+
+    fn transmute_lifetime_mut<'a>(&mut self) -> &'a mut Self::Target<'a> {
+        unsafe { transmute::<&mut Self, &'a mut IndexedSet<T::Target<'a>>>(self) }
+    }
+}
+
+// In Rust Its not yet possible to implement it for any tuples, so we implement it for some common sizes.
+impl<T1: Transmutable, T2: Transmutable> Transmutable for (T1, T2) {
+    type Target<'a>
+        = (T1::Target<'a>, T2::Target<'a>)
+    where
+        T1: 'a,
+        T2: 'a;
+
+    fn transmute_lifetime<'a>(&self) -> &'a Self::Target<'a> {
+        unsafe { transmute::<&Self, &'a (T1::Target<'a>, T2::Target<'a>)>(self) }
+    }
+
+    fn transmute_lifetime_mut<'a>(&mut self) -> &'a mut Self::Target<'a> {
+        unsafe { transmute::<&mut Self, &'a mut (T1::Target<'a>, T2::Target<'a>)>(self) }
+    }
+}
+
+impl Transmutable for bool {
+    type Target<'a> = bool;
+
+    fn transmute_lifetime<'a>(&self) -> &'a Self::Target<'a> {
+        unsafe { transmute::<&Self, &'a bool>(self) }
+    }
+
+    fn transmute_lifetime_mut<'a>(&mut self) -> &'a mut Self::Target<'a> {
+        unsafe { transmute::<&Self, &'a mut bool>(self) }
     }
 }
