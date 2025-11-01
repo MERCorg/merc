@@ -11,6 +11,9 @@ use mcrl3_utilities::PhantomUnsend;
 use mcrl3_utilities::ProtectionIndex;
 
 use crate::Markable;
+use crate::Symb;
+#[cfg(debug_assertions)]
+use crate::SymbolRef;
 use crate::THREAD_TERM_POOL;
 use crate::Term;
 use crate::Transmutable;
@@ -113,8 +116,13 @@ impl<C> Drop for Protected<C> {
 pub struct ProtectedWriteGuard<'a, C: Markable> {
     reference: GcMutexGuard<'a, C>,
 
+    /// Terms that have been protected during the lifetime of this guard.
     #[cfg(debug_assertions)]
     protected: RefCell<Vec<ATermRef<'static>>>,
+
+    /// Symbols that have been protected during the lifetime of this guard.
+    #[cfg(debug_assertions)]
+    protected_symbols: RefCell<Vec<SymbolRef<'static>>>,
 }
 
 impl<'a, C: Markable> ProtectedWriteGuard<'a, C> {
@@ -123,6 +131,7 @@ impl<'a, C: Markable> ProtectedWriteGuard<'a, C> {
         return ProtectedWriteGuard {
             reference,
             protected: RefCell::new(vec![]),
+            protected_symbols: RefCell::new(vec![]),
         };
 
         #[cfg(not(debug_assertions))]
@@ -144,6 +153,22 @@ impl<'a, C: Markable> ProtectedWriteGuard<'a, C> {
             transmute::<ATermRef<'_>, ATermRef<'static>>(term.copy())
         }
     }
+
+    /// Yields a symbol to insert into the container.
+    /// 
+    /// The invariant to uphold is that the resulting symbol MUST be inserted into the container.
+    pub fn protect_symbol<'b>(&self, symbol: &'b impl Symb<'a, 'b>) -> SymbolRef<'static> {
+        unsafe {
+            // Store symbols that are marked as protected to check if they are
+            // actually in the container when the protection is dropped.
+            #[cfg(debug_assertions)]
+            self.protected_symbols
+                .borrow_mut()
+                .push(transmute::<SymbolRef<'_>, SymbolRef<'static>>(symbol.copy()));
+
+            transmute::<SymbolRef<'_>, SymbolRef<'static>>(symbol.copy())
+        }   
+    }
 }
 
 #[cfg(debug_assertions)]
@@ -154,6 +179,13 @@ impl<C: Markable> Drop for ProtectedWriteGuard<'_, C> {
                 debug_assert!(
                     self.reference.contains_term(term),
                     "Term was protected but not actually inserted"
+                );
+            }
+
+            for symbol in self.protected_symbols.borrow().iter() {
+                debug_assert!(
+                    self.reference.contains_symbol(symbol),
+                    "Symbol was protected but not actually inserted"
                 );
             }
         }

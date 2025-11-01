@@ -152,6 +152,10 @@ impl Markable for ATermRef<'_> {
         term == self
     }
 
+    fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
+        self.get_head_symbol() == *symbol
+    }
+
     fn len(&self) -> usize {
         1
     }
@@ -288,6 +292,10 @@ impl Markable for ATerm {
 
     fn contains_term(&self, term: &ATermRef<'_>) -> bool {
         *term == self.term
+    }
+
+    fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
+        self.get_head_symbol() == *symbol
     }
 
     fn len(&self) -> usize {

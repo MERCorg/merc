@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 
 use mcrl3_utilities::IndexedSet;
 
-use crate::Marker;
+use crate::{Marker, SymbolRef};
 use crate::aterm::ATermRef;
 use crate::gc_mutex::GcMutex;
 
@@ -17,6 +17,9 @@ pub trait Markable {
 
     /// Should return true iff the given term is contained in the object. Used for runtime checks.
     fn contains_term(&self, term: &ATermRef<'_>) -> bool;
+
+    /// Should return true iff the given symbol is contained in the object. Used for runtime checks.
+    fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool;
 
     /// Returns the number of terms in the instance, used to delay garbage collection.
     fn len(&self) -> usize;
@@ -38,6 +41,10 @@ impl<T: Markable> Markable for Vec<T> {
         self.iter().any(|v| v.contains_term(term))
     }
 
+    fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
+        self.iter().any(|v| v.contains_symbol(symbol))
+    }
+
     fn len(&self) -> usize {
         self.len()
     }
@@ -53,6 +60,10 @@ impl<T: Markable> Markable for VecDeque<T> {
     fn contains_term(&self, term: &ATermRef<'_>) -> bool {
         self.iter().any(|v| v.contains_term(term))
     }
+    
+    fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
+        self.iter().any(|v| v.contains_symbol(symbol))
+    }
 
     fn len(&self) -> usize {
         self.len()
@@ -66,6 +77,10 @@ impl<T: Markable> Markable for GcMutex<T> {
 
     fn contains_term(&self, term: &ATermRef<'_>) -> bool {
         self.read().contains_term(term)
+    }
+    
+    fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
+        self.read().contains_symbol(symbol)
     }
 
     fn len(&self) -> usize {
@@ -82,6 +97,10 @@ impl<T: Markable> Markable for IndexedSet<T>{
 
     fn contains_term(&self, term: &ATermRef<'_>) -> bool {
         self.iter().any(|(_, v)| v.contains_term(term))
+    }
+    
+    fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
+        self.iter().any(|(_, v)| v.contains_symbol(symbol))
     }
 
     fn len(&self) -> usize {
@@ -104,6 +123,14 @@ impl<T: Markable> Markable for Option<T> {
         }
     }
 
+    fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
+        if let Some(value) = self {
+            value.contains_symbol(symbol)
+        } else {
+            false
+        }
+    }
+
     fn len(&self) -> usize {
         if let Some(value) = self { value.len() } else { 0 }
     }
@@ -120,6 +147,10 @@ impl<T1: Markable, T2: Markable> Markable for (T1, T2) {
         self.0.contains_term(term) || self.1.contains_term(term)
     }
 
+    fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
+        self.0.contains_symbol(symbol) || self.1.contains_symbol(symbol)
+    }
+
     fn len(&self) -> usize {
         self.0.len() + self.1.len()
     }
@@ -131,6 +162,10 @@ impl Markable for bool {
     }
 
     fn contains_term(&self, _term: &ATermRef<'_>) -> bool {
+        false
+    }
+
+    fn contains_symbol(&self, _symbol: &SymbolRef<'_>) -> bool {
         false
     }
 

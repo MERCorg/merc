@@ -112,6 +112,10 @@ impl Markable for SymbolRef<'_> {
         false
     }
 
+    fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
+        self == symbol
+    }
+
     fn len(&self) -> usize {
         1
     }
