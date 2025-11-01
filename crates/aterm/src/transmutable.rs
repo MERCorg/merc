@@ -74,16 +74,16 @@ impl<T: Transmutable> Transmutable for Vec<T> {
 
 impl<T: Transmutable> Transmutable for VecDeque<T> {
     type Target<'a>
-        = Vec<T::Target<'a>>
+        = VecDeque<T::Target<'a>>
     where
         T: 'a;
 
     fn transmute_lifetime<'a>(&self) -> &'a Self::Target<'a> {
-        unsafe { transmute::<&Self, &'a Vec<T::Target<'a>>>(self) }
+        unsafe { transmute::<&Self, &'a VecDeque<T::Target<'a>>>(self) }
     }
 
     fn transmute_lifetime_mut<'a>(&mut self) -> &'a mut Self::Target<'a> {
-        unsafe { transmute::<&mut Self, &'a mut Vec<T::Target<'a>>>(self) }
+        unsafe { transmute::<&mut Self, &'a mut VecDeque<T::Target<'a>>>(self) }
     }
 }
 
