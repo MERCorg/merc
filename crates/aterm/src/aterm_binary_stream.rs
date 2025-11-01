@@ -1,3 +1,12 @@
+//!
+//! # The binary aterm stream format
+//!
+//! 8:0 16:BAF_MAGIC 16:BAF_VERSION
+//!
+//! After that every packet started with a header
+//! 2:Header
+//!
+
 #![forbid(unsafe_code)]
 
 use std::collections::VecDeque;
@@ -18,6 +27,8 @@ use mcrl3_utilities::debug_trace;
 use crate::ATerm;
 use crate::ATermInt;
 use crate::ATermIntRef;
+use crate::ATermRef;
+use crate::Protected;
 use crate::Symb;
 use crate::Symbol;
 use crate::SymbolRef;
@@ -323,11 +334,11 @@ pub struct BinaryATermReader<R: Read> {
     stream: BitStreamReader<R>,
 
     /// Stores the function symbols read so far, and the width needed to encode their indices.
-    function_symbols: Vec<Symbol>,
+    function_symbols: Protected<Vec<SymbolRef<'static>>>,
     function_symbol_index_width: u8,
 
     /// Stores the terms read so far, and the width needed to encode their indices.
-    terms: Vec<ATerm>,
+    terms: Protected<Vec<ATermRef<'static>>>,
     term_index_width: u8,
 
     /// Indicates whether the end of stream marker has already been encountered.
@@ -353,15 +364,16 @@ impl<R: Read> BinaryATermReader<R> {
             .into());
         }
 
-        let mut function_symbols = Vec::new();
         // The term with function symbol index 0 indicates the end of the stream
-        function_symbols.push(Symbol::new(String::new(), 0));
+        let mut function_symbols = Protected::new(Vec::new());
+        let end_of_stream_symbol = Symbol::new("end_of_stream".to_string(), 0);
+        function_symbols.write().push(end_of_stream_symbol.copy());
 
         Ok(Self {
             stream,
             function_symbols,
             function_symbol_index_width: 1,
-            terms: Vec::new(),
+            terms: Protected::new(Vec::new()),
             term_index_width: 1,
             ended: false,
         })
@@ -372,7 +384,7 @@ impl<R: Read> BinaryATermReader<R> {
     /// In debug builds, this asserts that the cached width equals the
     /// computed width based on the current number of function symbols.
     fn function_symbol_index_width(&self) -> u8 {
-        let expected = bits_for_value(self.function_symbols.len());
+        let expected = bits_for_value(self.function_symbols.read().len());
         debug_assert_eq!(
             self.function_symbol_index_width, expected,
             "function_symbol_index_width does not match bits_for_value",
@@ -391,7 +403,7 @@ impl<R: Read> BinaryATermReader<R> {
     /// In debug builds, this asserts that the cached width equals the
     /// computed width based on the current number of terms.
     fn term_index_width(&self) -> u8 {
-        let expected = bits_for_value(self.terms.len());
+        let expected = bits_for_value(self.terms.read().len());
         debug_assert_eq!(
             self.term_index_width, expected,
             "term_index_width does not match bits_for_value",
@@ -421,8 +433,11 @@ impl<R: Read> ATermRead for BinaryATermReader<R> {
                     let arity = self.stream.read_integer()? as usize;
                     let symbol = Symbol::new(name, arity);
                     debug_trace!("Read symbol {symbol}");
-                    self.function_symbols.push(symbol);
-                    self.function_symbol_index_width = bits_for_value(self.function_symbols.len());
+
+                    let mut write_symbols = self.function_symbols.write();
+                    let s = write_symbols.protect_symbol(&symbol);
+                    write_symbols.push(s);
+                    self.function_symbol_index_width = bits_for_value(write_symbols.len());
                 }
                 PacketType::ATermIntOutput => {
                     let value = self.stream.read_integer()?.try_into()?;
@@ -438,30 +453,37 @@ impl<R: Read> ATermRead for BinaryATermReader<R> {
                         return Ok(None);
                     }
 
-                    let symbol = self.function_symbols.get(symbol_index).ok_or(format!(
+                    let write_symbols = self.function_symbols.read();
+                    let symbol = write_symbols.get(symbol_index).ok_or(format!(
                         "Read invalid function symbol index {symbol_index}, length {}",
-                        self.function_symbols.len()
+                        write_symbols.len()
                     ))?;
 
                     if is_int_symbol(symbol) {
                         let value = self.stream.read_integer()?.try_into()?;
                         let term = ATermInt::new(value);
                         debug_trace!("Read int term: {term}");
-                        self.terms.push(term.into());
-                        self.term_index_width = bits_for_value(self.terms.len());
+
+                        let mut write_terms = self.terms.write();
+                        let t = write_terms.protect(&term);
+                        write_terms.push(t);
+                        self.term_index_width = bits_for_value(write_symbols.len());
                     } else {
                         let mut arguments = Vec::with_capacity(symbol.arity());
+
+                        let num_of_bits = self.term_index_width();
+                        let mut write_terms = self.terms.write();
                         for _ in 0..symbol.arity() {
-                            let arg_index = self.stream.read_bits(self.term_index_width())? as usize;
-                            let arg = self.terms.get(arg_index).ok_or(format!(
+                            let arg_index = self.stream.read_bits(num_of_bits)? as usize;
+                            let arg = write_terms.get(arg_index).ok_or(format!(
                                 "Read invalid aterm index {arg_index}, length {}",
-                                self.terms.len()
+                                write_terms.len()
                             ))?;
                             debug_trace!("Read arg: {arg}");
                             arguments.push(arg.clone());
                         }
 
-                        let term = ATerm::with_args(&symbol, &arguments);
+                        let term = ATerm::with_args(symbol, &arguments);
 
                         if packet == PacketType::ATermOutput {
                             debug_trace!("Output term: {term}");
@@ -469,8 +491,9 @@ impl<R: Read> ATermRead for BinaryATermReader<R> {
                         }
                         debug_trace!("Read term: {term}");
 
-                        self.terms.push(term);
-                        self.term_index_width = bits_for_value(self.terms.len());
+                        let t = write_terms.protect(&term);
+                        write_terms.push(t);
+                        self.term_index_width = bits_for_value(write_terms.len());
                     }
                 }
             }
