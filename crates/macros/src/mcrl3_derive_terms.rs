@@ -141,6 +141,10 @@ pub(crate) fn mcrl3_derive_terms_impl(_attributes: TokenStream, input: TokenStre
                                     &self.term.copy() == term
                                 }
 
+                                fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
+                                    self.get_head_symbol() == *symbol
+                                }
+
                                 fn len(&self) -> usize {
                                     1
                                 }
@@ -223,6 +227,10 @@ pub(crate) fn mcrl3_derive_terms_impl(_attributes: TokenStream, input: TokenStre
 
                                 fn contains_term(&self, term: &ATermRef<'_>) -> bool {
                                     &self.term == term
+                                }
+
+                                fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
+                                    self.get_head_symbol() == *symbol
                                 }
 
                                 fn len(&self) -> usize {
