@@ -12,7 +12,6 @@ use mcrl3_utilities::ProtectionIndex;
 
 use crate::Markable;
 use crate::Symb;
-#[cfg(debug_assertions)]
 use crate::SymbolRef;
 use crate::THREAD_TERM_POOL;
 use crate::Term;

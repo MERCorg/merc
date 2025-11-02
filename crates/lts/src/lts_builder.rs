@@ -1,7 +1,6 @@
 use std::fmt;
 
 use itertools::Itertools;
-use log::trace;
 use mcrl3_utilities::ByteCompressedVec;
 use mcrl3_utilities::CompressedEntry;
 

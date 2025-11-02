@@ -55,7 +55,7 @@ pub fn read_lts(reader: impl Read) -> Result<LabelledTransitionSystem, MCRL3Erro
 
     let mut builder = LtsBuilder::new();
 
-    let mut progress = TimeProgress::new(|(num_of_transitions)| {
+    let mut progress = TimeProgress::new(|num_of_transitions| {
         info!("Read {num_of_transitions} transitions...");
     }, 1);
 
@@ -76,7 +76,7 @@ pub fn read_lts(reader: impl Read) -> Result<LabelledTransitionSystem, MCRL3Erro
                         StateIndex::new(to.value()),
                     );
 
-                    progress.print((builder.num_of_transitions()));
+                    progress.print(builder.num_of_transitions());
                 } else if t == probabilistic_transition_mark() {
                     unimplemented!("Probabilistic transitions are not supported yet.");
                 } else if is_list_term(&t) {
