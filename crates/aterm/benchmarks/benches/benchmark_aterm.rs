@@ -111,12 +111,12 @@ fn benchmark_shared_inspect(c: &mut Criterion) {
                         // Simple breadth-first search to count elements
                         let mut write = queue.write();
                         let t = write.protect(&term.deref());
-                        write.push(t);
+                        write.push_back(t);
 
-                        while let Some(current_term) = write.pop() {
+                        while let Some(current_term) = write.pop_front() {
                             // Iterate through all arguments of the current term
                             for arg in current_term.arguments() {
-                                write.push(arg);
+                                write.push_back(arg);
                             }
                         }
 
@@ -187,12 +187,12 @@ fn benchmark_unique_inspect(c: &mut Criterion) {
                         // Simple breadth-first search to count elements
                         let mut write = queue.write();
                         let t = write.protect(&terms[id]);
-                        write.push(t);
+                        write.push_back(t);
 
-                        while let Some(current_term) = write.pop() {
+                        while let Some(current_term) = write.pop_front() {
                             // Iterate through all arguments of the current term
                             for arg in current_term.arguments() {
-                                write.push(arg);
+                                write.push_back(arg);
                             }
                         }
 
