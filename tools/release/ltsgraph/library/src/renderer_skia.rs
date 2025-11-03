@@ -3,6 +3,7 @@ use std::sync::Arc;
 use cosmic_text::Metrics;
 use glam::Vec2;
 use glam::Vec3Swizzles;
+use mcrl3_lts::LTS;
 use mcrl3_lts::LabelledTransitionSystem;
 use tiny_skia::PixmapMut;
 use tiny_skia::Shader;

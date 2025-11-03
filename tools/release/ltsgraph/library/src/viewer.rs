@@ -3,6 +3,7 @@ use std::sync::Arc;
 use glam::Mat3;
 use glam::Vec3;
 
+use mcrl3_lts::LTS;
 use mcrl3_lts::LabelledTransitionSystem;
 use mcrl3_lts::StateIndex;
 

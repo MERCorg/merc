@@ -4,7 +4,6 @@ use mcrl3_utilities::bytevec;
 
 use crate::LTS;
 use crate::LabelIndex;
-use crate::LabelledTransitionSystem;
 use crate::StateIndex;
 use crate::Transition;
 

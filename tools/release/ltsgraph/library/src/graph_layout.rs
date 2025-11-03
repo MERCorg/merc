@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use glam::Vec3;
 use log::debug;
+use mcrl3_lts::LTS;
 use rand::Rng;
 
 use mcrl3_lts::LabelledTransitionSystem;

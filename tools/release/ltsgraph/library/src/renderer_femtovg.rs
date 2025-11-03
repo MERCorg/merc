@@ -8,6 +8,7 @@ use femtovg::Renderer;
 use glam::Vec2;
 use glam::Vec3Swizzles;
 
+use mcrl3_lts::LTS;
 use mcrl3_lts::LabelledTransitionSystem;
 
 use crate::Viewer;

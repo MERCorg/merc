@@ -10,6 +10,7 @@ use clap::Subcommand;
 
 use mcrl3_gui::verbosity::Verbosity;
 use mcrl3_ldd::Storage;
+use mcrl3_lts::LTS;
 use mcrl3_lts::read_aut;
 use mcrl3_lts::read_lts;
 use mcrl3_lts::write_aut;
