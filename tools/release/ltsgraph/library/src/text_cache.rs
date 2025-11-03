@@ -40,7 +40,7 @@ impl TextCache {
         let attrs = Attrs::new();
 
         // Add some text!
-        buffer.set_text(&mut self.font_system, text, &attrs, Shaping::Advanced);
+        buffer.set_text(&mut self.font_system, text, &attrs, Shaping::Advanced, None);
 
         // Perform shaping as desired
         buffer.shape_until_scroll(&mut self.font_system, true);
