@@ -1,8 +1,10 @@
 use std::cell::Cell;
 use std::cell::RefCell;
+use std::cell::UnsafeCell;
 use std::sync::Arc;
 
 use log::info;
+use mcrl3_sharedmutex::RecursiveLockReadGuard;
 use pest_consume::Parser;
 
 use crate::AGRESSIVE_GC;
@@ -18,8 +20,6 @@ use crate::TermParser;
 use crate::aterm::ATerm;
 use crate::aterm::ATermRef;
 use crate::global_aterm_pool::GLOBAL_TERM_POOL;
-use crate::global_aterm_pool::Mutex;
-use crate::mutex_unwrap;
 
 use mcrl3_sharedmutex::RecursiveLock;
 use mcrl3_utilities::MCRL3Error;
@@ -34,7 +34,7 @@ thread_local! {
 /// Per-thread term pool managing local protection sets.
 pub struct ThreadTermPool {
     /// A reference to the protection set of this thread pool.
-    protection_set: Arc<Mutex<SharedTermProtection>>,
+    protection_set: Arc<UnsafeCell<SharedTermProtection>>,
 
     /// The number of times termms have been created before garbage collection is triggered.
     garbage_collection_counter: Cell<usize>,
@@ -167,7 +167,11 @@ impl ThreadTermPool {
     }
 
     /// Create a term with the given arguments given by the iterator that is failable.
-    pub fn try_create_term_iter<'a, 'b, 'c, 'd, I, T>(&self, symbol: &'b impl Symb<'a, 'b>, args: I) -> Result<ATerm, MCRL3Error>
+    pub fn try_create_term_iter<'a, 'b, 'c, 'd, I, T>(
+        &self,
+        symbol: &'b impl Symb<'a, 'b>,
+        args: I,
+    ) -> Result<ATerm, MCRL3Error>
     where
         I: IntoIterator<Item = Result<T, MCRL3Error>>,
         T: Term<'c, 'd>,
@@ -180,13 +184,11 @@ impl ThreadTermPool {
             }
         }
 
-        let (result, inserted) = self
-            .term_pool
-            .read_recursive()
-            .expect("Lock poisoned!")
-            .create_term_array(symbol, &arguments, |index| {
-                self.protect(&unsafe { ATermRef::from_index(index) })
-            });
+        let guard = self.term_pool.read_recursive().expect("Lock poisoned!");
+
+        let (result, inserted) = guard.create_term_array(symbol, &arguments, |index| {
+            self.protect(&unsafe { ATermRef::from_index(index) })
+        });
 
         if inserted {
             self.trigger_garbage_collection();
@@ -245,7 +247,8 @@ impl ThreadTermPool {
     /// Protect the term by adding its index to the protection set
     pub fn protect(&self, term: &ATermRef<'_>) -> ATerm {
         // Protect the term by adding its index to the protection set
-        let root = mutex_unwrap(self.protection_set.lock())
+        // SAFETY: If the global term pool is read() locked, we can safely access the protection set.
+        let root = unsafe { &mut *self.protection_set.get() }
             .protection_set
             .protect(term.shared().copy());
 
@@ -264,7 +267,8 @@ impl ThreadTermPool {
 
     /// Unprotects a term from this thread's protection set.
     pub fn drop(&self, term: &ATerm) {
-        mutex_unwrap(self.protection_set.lock())
+        let _guard = self.term_pool.read_recursive().expect("Lock poisoned!");
+        unsafe { &mut *self.protection_set.get() }
             .protection_set
             .unprotect(term.root());
 
@@ -278,7 +282,8 @@ impl ThreadTermPool {
 
     /// Protects a container in this thread's container protection set.
     pub fn protect_container(&self, container: Arc<dyn Markable + Send + Sync>) -> ProtectionIndex {
-        let root = mutex_unwrap(self.protection_set.lock())
+        let _guard = self.term_pool.read_recursive().expect("Lock poisoned!");
+        let root = unsafe { &mut *self.protection_set.get() }
             .container_protection_set
             .protect(container);
 
@@ -289,7 +294,8 @@ impl ThreadTermPool {
 
     /// Unprotects a container from this thread's container protection set.
     pub fn drop_container(&self, root: ProtectionIndex) {
-        mutex_unwrap(self.protection_set.lock())
+        let _guard = self.term_pool.read_recursive().expect("Lock poisoned!");
+        unsafe { &mut *self.protection_set.get() }
             .container_protection_set
             .unprotect(root);
 
@@ -306,11 +312,14 @@ impl ThreadTermPool {
 
     /// Protects a symbol from garbage collection.
     pub fn protect_symbol(&self, symbol: &SymbolRef<'_>) -> Symbol {
-        let mut lock = mutex_unwrap(self.protection_set.lock());
+        let _guard = self.term_pool.read_recursive().expect("Lock poisoned!");
+
         let result = unsafe {
             Symbol::from_index(
                 symbol.shared(),
-                lock.symbol_protection_set.protect(symbol.shared().copy()),
+                    (&mut *self.protection_set.get())
+                    .symbol_protection_set
+                    .protect(symbol.shared().copy()),
             )
         };
 
@@ -326,7 +335,8 @@ impl ThreadTermPool {
 
     /// Unprotects a symbol, allowing it to be garbage collected.
     pub fn drop_symbol(&self, symbol: &mut Symbol) {
-        mutex_unwrap(self.protection_set.lock())
+        let _guard = self.term_pool.read_recursive().expect("Lock poisoned!");
+        unsafe { &mut *self.protection_set.get() }
             .symbol_protection_set
             .unprotect(symbol.root());
     }
@@ -353,7 +363,7 @@ impl ThreadTermPool {
     }
 
     /// Returns access to the shared protection set.
-    pub(crate) fn get_protection_set(&self) -> &Arc<Mutex<SharedTermProtection>> {
+    pub(crate) fn get_protection_set(&self) -> &Arc<UnsafeCell<SharedTermProtection>> {
         &self.protection_set
     }
 
@@ -383,7 +393,8 @@ impl ThreadTermPool {
 
     /// Returns the index of the protection set.
     fn index(&self) -> usize {
-        mutex_unwrap(self.protection_set.lock()).index
+        let _guard = self.term_pool.read_recursive().expect("Lock poisoned!");
+        unsafe { &mut *self.protection_set.get() }.index
     }
 }
 
@@ -394,7 +405,7 @@ impl Drop for ThreadTermPool {
         info!("{}", write.metrics());
         write.deregister_thread_pool(self.index());
 
-        info!("{}", mutex_unwrap(self.protection_set.lock()).metrics());
+        info!("{}", unsafe { &mut *self.protection_set.get() }.metrics());
         info!(
             "Acquired {} read locks and {} write locks",
             self.term_pool.read_recursive_call_count(),
@@ -424,8 +435,9 @@ mod tests {
 
                     // Verify protection
                     THREAD_TERM_POOL.with_borrow(|tp| {
+                        let _guard = tp.term_pool.read_recursive().expect("Lock poisoned!");
                         assert!(
-                            mutex_unwrap(tp.protection_set.lock())
+                            unsafe { &mut *tp.protection_set.get() }
                                 .protection_set
                                 .contains_root(protected.root())
                         );
@@ -436,8 +448,9 @@ mod tests {
                     drop(protected);
 
                     THREAD_TERM_POOL.with_borrow(|tp| {
+                        let _guard = tp.term_pool.read_recursive().expect("Lock poisoned!");
                         assert!(
-                            !mutex_unwrap(tp.protection_set.lock())
+                            !unsafe { &mut *tp.protection_set.get() }
                                 .protection_set
                                 .contains_root(root)
                         );

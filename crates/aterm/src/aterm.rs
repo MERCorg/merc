@@ -1,10 +1,12 @@
 use std::borrow::Borrow;
+use std::cell::UnsafeCell;
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::marker::PhantomData;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use delegate::delegate;
@@ -17,14 +19,12 @@ use mcrl3_utilities::ProtectionIndex;
 use crate::ATermIntRef;
 use crate::Markable;
 use crate::Marker;
-use crate::Mutex;
 use crate::SharedTerm;
 use crate::SharedTermProtection;
 use crate::Symb;
 use crate::SymbolRef;
 use crate::THREAD_TERM_POOL;
 use crate::is_int_term;
-use crate::mutex_unwrap;
 
 /// The ATerm trait represents a first-order term in the ATerm library.
 /// It provides methods to manipulate and access the term's properties.
@@ -380,7 +380,7 @@ pub struct ATermSend {
     root: ProtectionIndex,
 
     /// A shared reference to the protection set that this term was created in.
-    protection_set: Arc<Mutex<SharedTermProtection>>,
+    protection_set: Arc<UnsafeCell<SharedTermProtection>>,
 }
 
 impl ATermSend {
@@ -402,9 +402,13 @@ impl ATermSend {
 
 impl Drop for ATermSend {
     fn drop(&mut self) {
-        mutex_unwrap(self.protection_set.lock())
-            .protection_set
-            .unprotect(self.root);
+        THREAD_TERM_POOL.with_borrow(|tp| {
+            let guard = tp.term_pool().read_recursive().expect("Lock poisoned!");
+
+            unsafe { &mut *self.protection_set.get() }
+                .protection_set
+                .unprotect(self.root);        
+    });
     }
 }
 
@@ -424,6 +428,19 @@ where
             fn shared(&self) -> &ATermIndex;
             fn annotation(&self) -> Option<usize>;
         }
+    }
+}
+
+struct Return<'a, T> {
+    term: T,
+    _marker: PhantomData<&'a ()>,
+}
+
+impl<'a, T> Deref for Return<'a, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.term
     }
 }
 

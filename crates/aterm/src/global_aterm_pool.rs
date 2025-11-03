@@ -1,3 +1,4 @@
+use std::cell::UnsafeCell;
 use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
@@ -73,7 +74,7 @@ pub struct GlobalTermPool {
     /// The symbol pool for managing function symbols.
     symbol_pool: SymbolPool,
     /// The thread-specific protection sets.
-    thread_pools: Vec<Option<Arc<Mutex<SharedTermProtection>>>>,
+    thread_pools: Vec<Option<Arc<UnsafeCell<SharedTermProtection>>>>,
 
     // Data structures used for garbage collection
     /// Used to avoid reallocations for the markings of all terms - uses pointers as keys
@@ -94,6 +95,9 @@ pub struct GlobalTermPool {
     empty_list_symbol: SymbolRef<'static>,
     list_symbol: SymbolRef<'static>,
 }
+
+unsafe impl Send for GlobalTermPool {}
+unsafe impl Sync for GlobalTermPool {}
 
 impl GlobalTermPool {
     fn new() -> GlobalTermPool {
@@ -186,8 +190,8 @@ impl GlobalTermPool {
     }
 
     /// Registers a new thread term pool.
-    pub(crate) fn register_thread_term_pool(&mut self) -> Arc<Mutex<SharedTermProtection>> {
-        let protection = Arc::new(Mutex::new(SharedTermProtection {
+    pub(crate) fn register_thread_term_pool(&mut self) -> Arc<UnsafeCell<SharedTermProtection>> {
+        let protection = Arc::new(UnsafeCell::new(SharedTermProtection {
             protection_set: ProtectionSet::new(),
             symbol_protection_set: ProtectionSet::new(),
             container_protection_set: ProtectionSet::new(),
@@ -269,7 +273,8 @@ impl GlobalTermPool {
 
         // Loop through all protection sets and mark the terms.
         for pool in self.thread_pools.iter().flatten() {
-            let pool = mutex_unwrap(pool.lock());
+            // SAFETY: We have exclusive access to the global term pool, so no other thread can modify the protection sets.
+            let pool = unsafe { &mut *pool.get() };
 
             for (_root, symbol) in pool.symbol_protection_set.iter() {
                 debug_trace!("Marking root {_root} symbol {symbol:?}");
@@ -335,7 +340,8 @@ impl GlobalTermPool {
 
         // Print information from the protection sets.
         for pool in self.thread_pools.iter().flatten() {
-            let pool = mutex_unwrap(pool.lock());
+            // SAFETY: We have exclusive access to the global term pool, so no other thread can modify the protection sets.
+            let pool = unsafe { &mut *pool.get() };
             info!("{}", pool.metrics());
         }
     }
