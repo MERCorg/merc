@@ -383,6 +383,9 @@ pub struct ATermSend {
     protection_set: Arc<UnsafeCell<SharedTermProtection>>,
 }
 
+unsafe impl Send for ATermSend {}
+unsafe impl Sync for ATermSend {}
+
 impl ATermSend {
     /// Takes ownership of an `ATerm` and makes it send.
     pub fn from(term: ATerm) -> Self {
@@ -403,7 +406,7 @@ impl ATermSend {
 impl Drop for ATermSend {
     fn drop(&mut self) {
         THREAD_TERM_POOL.with_borrow(|tp| {
-            let guard = tp.term_pool().read_recursive().expect("Lock poisoned!");
+            let _guard = tp.term_pool().read_recursive().expect("Lock poisoned!");
 
             unsafe { &mut *self.protection_set.get() }
                 .protection_set

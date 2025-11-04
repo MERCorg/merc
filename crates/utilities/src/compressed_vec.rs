@@ -407,7 +407,7 @@ impl CompressedEntry for usize {
     }
 }
 
-impl fmt::Debug for ByteCompressedVec<usize> {
+impl<T: CompressedEntry + fmt::Debug> fmt::Debug for ByteCompressedVec<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_list().entries(self.iter()).finish()
     }
