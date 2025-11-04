@@ -18,6 +18,7 @@ use mcrl3_aterm::ATermSend;
 use mcrl3_aterm::Protected;
 use mcrl3_aterm::Symb;
 use mcrl3_aterm::Symbol;
+use mcrl3_aterm::THREAD_TERM_POOL;
 use mcrl3_aterm::Term;
 
 /// Sets the number of threads for all the benchmarks.
@@ -81,6 +82,8 @@ fn create_nested_function<const ARITY: usize>(function_name: &str, leaf_name: &s
 // In these three benchmarks all threads operate on a shared term.
 fn benchmark_shared_creation(c: &mut Criterion) {
     const SIZE: usize = 400000;
+    
+    THREAD_TERM_POOL.with_borrow(|tp| tp.automatic_garbage_collection(false));
 
     for num_threads in THREADS {
         c.bench_function(&format!("shared_creation_{}", num_threads), |b| {
@@ -96,6 +99,8 @@ fn benchmark_shared_creation(c: &mut Criterion) {
 fn benchmark_shared_inspect(c: &mut Criterion) {
     const SIZE: usize = 20;
     const ITERATIONS: usize = 1000;
+    
+    THREAD_TERM_POOL.with_borrow(|tp| tp.automatic_garbage_collection(false));
 
     let shared_term = Arc::new(ATermSend::from(create_nested_function::<2>("f", "c", SIZE)));
 
@@ -119,8 +124,6 @@ fn benchmark_shared_inspect(c: &mut Criterion) {
                                 write.push_back(arg);
                             }
                         }
-
-                        write.clear(); // Reuse the queue for next iteration
                     }
                 });
             });
@@ -134,8 +137,10 @@ fn benchmark_shared_lookup(c: &mut Criterion) {
     const SIZE: usize = 400000;
     const ITERATIONS: usize = 1000;
 
+    THREAD_TERM_POOL.with_borrow(|tp| tp.automatic_garbage_collection(false));
+
     // Keep one protected instance
-    let _term = create_nested_function::<2>("f", "c", SIZE);
+    let term = create_nested_function::<2>("f", "c", SIZE);
 
     for num_threads in THREADS {
         c.bench_function(&format!("shared_lookup_{}", num_threads), |b| {
@@ -148,17 +153,21 @@ fn benchmark_shared_lookup(c: &mut Criterion) {
             })
         });
     }
+
+    drop(term);
 }
 
 // In these three benchmarks all threads operate on their own separate term.
 fn benchmark_unique_creation(c: &mut Criterion) {
     const SIZE: usize = 400000;
 
+    THREAD_TERM_POOL.with_borrow(|tp| tp.automatic_garbage_collection(false));
+
     for num_threads in THREADS {
         c.bench_function(&format!("unique_creation_{}", num_threads), |b| {
             b.iter(|| {
-                benchmark_threads(num_threads, |id| {
-                    black_box(create_nested_function::<2>("f", &format!("c{}", id), SIZE));
+                benchmark_threads(num_threads, move |id| {
+                    black_box(create_nested_function::<2>("f", &format!("c{}", id), SIZE / num_threads));
                 });
             });
         });
@@ -168,6 +177,8 @@ fn benchmark_unique_creation(c: &mut Criterion) {
 fn benchmark_unique_inspect(c: &mut Criterion) {
     const SIZE: usize = 20;
     const ITERATIONS: usize = 1000;
+
+    THREAD_TERM_POOL.with_borrow(|tp| tp.automatic_garbage_collection(false));
 
     for num_threads in THREADS {
         let terms: Arc<Vec<ATermSend>> = Arc::new(
@@ -195,8 +206,6 @@ fn benchmark_unique_inspect(c: &mut Criterion) {
                                 write.push_back(arg);
                             }
                         }
-
-                        write.clear(); // Reuse the queue for next iteration
                     }
                 });
             });
@@ -209,8 +218,11 @@ fn benchmark_unique_lookup(c: &mut Criterion) {
 
     const SIZE: usize = 400000;
     const ITERATIONS: usize = 1000;
+    
+    THREAD_TERM_POOL.with_borrow(|tp| tp.automatic_garbage_collection(false));
 
     // Keep one protected instance
+    let f = create_nested_function::<2>("f", "c", SIZE);
 
     for num_threads in THREADS {
         c.bench_function(&format!("shared_lookup_{}", num_threads), |b| {
@@ -223,6 +235,8 @@ fn benchmark_unique_lookup(c: &mut Criterion) {
             })
         });
     }
+
+    drop(f);
 }
 
 criterion_group!(

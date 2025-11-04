@@ -86,6 +86,9 @@ pub struct GlobalTermPool {
     /// Deletion hooks called whenever a term with the given head symbol is deleted.
     deletion_hooks: Vec<(Symbol, Box<dyn Fn(&ATermIndex) + Sync + Send>)>,
 
+    /// Indicates whether automatic garbage collection is enabled.
+    garbage_collection: bool,
+
     /// Default terms
     int_symbol: SymbolRef<'static>,
     empty_list_symbol: SymbolRef<'static>,
@@ -110,6 +113,7 @@ impl GlobalTermPool {
             marked_symbols: HashSet::new(),
             stack: Vec::new(),
             deletion_hooks: Vec::new(),
+            garbage_collection: true,
             int_symbol,
             list_symbol,
             empty_list_symbol,
@@ -232,9 +236,19 @@ impl GlobalTermPool {
     {
         self.deletion_hooks.push((symbol.protect(), Box::new(hook)));
     }
+    
+    /// Enables or disables automatic garbage collection.
+    pub fn automatic_garbage_collection(&mut self, enabled: bool) {
+        self.garbage_collection = enabled;
+    }
 
     /// Collects garbage terms.
     fn collect_garbage(&mut self) {
+        if !self.garbage_collection {
+            // Garbage collection is disabled.
+            return;
+        }
+
         // Clear marking data structures
         self.marked_terms.clear();
         self.marked_symbols.clear();

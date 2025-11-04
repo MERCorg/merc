@@ -262,24 +262,6 @@ impl ThreadTermPool {
         result
     }
 
-    /// This triggers the global garbage collection based on heuristics.
-    fn trigger_garbage_collection(&self) {
-        // If the term was newly inserted, decrease the garbage collection counter and trigger garbage collection if necessary
-        let mut value = self.garbage_collection_counter.get();
-        value = value.saturating_sub(1);
-
-        if value == 0 && !self.term_pool.is_locked() {
-            // Trigger garbage collection and acquire a new counter value.
-            value = self
-                .term_pool
-                .write()
-                .expect("Lock poisoned!")
-                .trigger_garbage_collection();
-        }
-
-        self.garbage_collection_counter.set(value);
-    }
-
     /// Unprotects a term from this thread's protection set.
     pub fn drop(&self, term: &ATerm) {
         mutex_unwrap(self.protection_set.lock())
@@ -364,6 +346,12 @@ impl ThreadTermPool {
         &self.empty_list_symbol
     }
 
+    /// Enables or disables automatic garbage collection.
+    pub fn automatic_garbage_collection(&self, enabled: bool) {
+        let mut guard = self.term_pool.write().expect("Lock poisoned!");
+        guard.automatic_garbage_collection(enabled);
+    }
+
     /// Returns access to the shared protection set.
     pub(crate) fn get_protection_set(&self) -> &Arc<Mutex<SharedTermProtection>> {
         &self.protection_set
@@ -373,6 +361,25 @@ impl ThreadTermPool {
     pub(crate) fn term_pool(&self) -> &RecursiveLock<GlobalTermPool> {
         &self.term_pool
     }
+
+    /// This triggers the global garbage collection based on heuristics.
+    fn trigger_garbage_collection(&self) {
+        // If the term was newly inserted, decrease the garbage collection counter and trigger garbage collection if necessary
+        let mut value = self.garbage_collection_counter.get();
+        value = value.saturating_sub(1);
+
+        if value == 0 && !self.term_pool.is_locked() {
+            // Trigger garbage collection and acquire a new counter value.
+            value = self
+                .term_pool
+                .write()
+                .expect("Lock poisoned!")
+                .trigger_garbage_collection();
+        }
+
+        self.garbage_collection_counter.set(value);
+    }
+
 
     /// Returns the index of the protection set.
     fn index(&self) -> usize {
