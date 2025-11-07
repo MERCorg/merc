@@ -8,6 +8,7 @@ use std::sync::atomic::Ordering;
 
 use dashmap::DashMap;
 use equivalent::Equivalent;
+use mcrl3_unsafety::StablePointer;
 use rustc_hash::FxBuildHasher;
 
 use mcrl3_unsafety::StablePointerSet;
@@ -38,10 +39,9 @@ impl SymbolPool {
     }
 
     /// Creates or retrieves a function symbol with the given name and arity.
-    pub fn create<N, P, R>(&self, name: N, arity: usize, protect: P) -> R
+    pub fn create<N>(&self, name: N, arity: usize) -> StablePointer<SharedSymbol>
     where
         N: Into<String> + AsRef<str>,
-        P: FnOnce(SymbolIndex) -> R,
     {
         // Get or create symbol index
         let (shared_symbol, inserted) = self.symbols.insert_equiv(&SharedSymbolLookup { name, arity });
@@ -52,7 +52,7 @@ impl SymbolPool {
         }
 
         // Return cloned symbol
-        protect(shared_symbol)
+        shared_symbol
     }
 
     /// Return the symbol of the SharedTerm for the given ATermRef

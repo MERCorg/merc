@@ -103,11 +103,9 @@ impl GlobalTermPool {
     fn new() -> GlobalTermPool {
         // Insert the default symbols.
         let symbol_pool = SymbolPool::new();
-        let int_symbol = symbol_pool.create("<aterm_int>", 0, |index| unsafe { SymbolRef::from_index(&index) });
-        let list_symbol = symbol_pool.create("<list_constructor>", 2, |index| unsafe {
-            SymbolRef::from_index(&index)
-        });
-        let empty_list_symbol = symbol_pool.create("<empty_list>", 0, |index| unsafe { SymbolRef::from_index(&index) });
+        let int_symbol =  unsafe { SymbolRef::from_index(&symbol_pool.create("<aterm_int>", 0)) };
+        let list_symbol = unsafe { SymbolRef::from_index(&symbol_pool.create("<list_constructor>", 2)) };
+        let empty_list_symbol = unsafe { SymbolRef::from_index(&symbol_pool.create("<empty_list>", 0)) };
 
         GlobalTermPool {
             terms: StablePointerSet::with_hasher(FxBuildHasher),
@@ -180,7 +178,7 @@ impl GlobalTermPool {
     where
         P: FnOnce(SymbolIndex) -> Symbol,
     {
-        self.symbol_pool.create(name, arity, protect)
+        protect(self.symbol_pool.create(name, arity))
     }
 
     /// Registers a new thread term pool.

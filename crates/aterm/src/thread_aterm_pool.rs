@@ -415,10 +415,7 @@ impl ThreadTermPool {
         let guard = self.term_pool.read_recursive().expect("Lock poisoned!");
         let protection_set = unsafe { &mut *self.protection_set.get() };
 
-        ProtectionSetGuard {
-            guard,
-            object: protection_set,
-        }
+        ProtectionSetGuard::new(guard, protection_set)
     }
 }
 
@@ -439,8 +436,17 @@ impl Drop for ThreadTermPool {
 }
 
 struct ProtectionSetGuard<'a> {
-    guard: RecursiveLockReadGuard<'a, GlobalTermPool>,
+    _guard: RecursiveLockReadGuard<'a, GlobalTermPool>,
     object: &'a mut SharedTermProtection,
+}
+
+impl ProtectionSetGuard<'_> {
+    fn new<'a>(
+        guard: RecursiveLockReadGuard<'a, GlobalTermPool>,
+        object: &'a mut SharedTermProtection,
+    ) -> ProtectionSetGuard<'a> {
+        ProtectionSetGuard { _guard: guard, object }
+    }
 }
 
 impl Deref for ProtectionSetGuard<'_> {
