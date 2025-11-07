@@ -12,6 +12,10 @@ use allocator_api2::alloc::AllocError;
 use allocator_api2::alloc::Allocator;
 
 /// This trait should be implemented by dynamic sized types.
+/// 
+/// # Safety
+/// 
+/// Implementing this trait requires various unsafe memory manipulations, and the layout/length must be correct. Otherwise it results in undefined behaviour.
 pub unsafe trait SliceDst {
     /// Returns the layout of the slice containing `length` elements for this DST.
     fn layout_for(length: usize) -> Result<Layout, LayoutError>;

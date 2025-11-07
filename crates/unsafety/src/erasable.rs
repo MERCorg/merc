@@ -5,21 +5,13 @@ use std::ptr::NonNull;
 
 /// A thin, type-erased pointer. This should mimic the interface of NonNull, but
 /// with the ability to erase the type information.
+#[derive(Clone)]
 pub struct Thin<T: ?Sized + Erasable> {
     ptr: ErasedPtr,
     marker: PhantomData<fn() -> T>,
 }
 
-impl<T: ?Sized + Erasable> Copy for Thin<T> {}
-
-impl<T: ?Sized + Erasable> Clone for Thin<T> {
-    fn clone(&self) -> Self {
-        Self {
-            ptr: self.ptr,
-            marker: self.marker,
-        }
-    }
-}
+impl<T: ?Sized + Erasable + Copy> Copy for Thin<T> {}
 
 impl<T: ?Sized + Erasable> Thin<T> {
     pub fn new(ptr: NonNull<T>) -> Self {
@@ -47,8 +39,12 @@ impl<T: ?Sized + Erasable> Thin<T> {
 /// This is the trait that allows a type to be erased and unerased.
 pub unsafe trait Erasable {
     /// Turn this erasable pointer into an erased pointer.
-    ///
+    /// 
     /// To retrieve the original pointer, use `unerase`.
+    ///
+    /// # Safety
+    /// 
+    /// The returned erased pointer must only be used with `unerase` for the same type.
     fn erase(this: NonNull<Self>) -> ErasedPtr;
 
     /// Unerase this erased pointer.

@@ -123,9 +123,7 @@ union Entry<T> {
     next: NonNull<Entry<T>>,
 }
 
-///
 struct Block<T, const N: usize> {
-    ///
     data: [Entry<T>; N],
     length: usize,
     next: Option<Box<Block<T, N>>>,

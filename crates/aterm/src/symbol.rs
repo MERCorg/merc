@@ -63,6 +63,11 @@ impl<'a> SymbolRef<'a> {
         THREAD_TERM_POOL.with_borrow(|tp| tp.protect_symbol(self))
     }
 
+    /// Internal constructor to create a `SymbolRef` from a `SymbolIndex`.
+    /// 
+    /// # Safety
+    /// 
+    /// We must ensure that the lifetime `'a` is valid for the returned `SymbolRef`.
     pub unsafe fn from_index(index: &SymbolIndex) -> SymbolRef<'a> {
         SymbolRef {
             shared: index.copy(),
@@ -253,7 +258,7 @@ impl PartialEq<SymbolRef<'_>> for Symbol {
 
 impl PartialOrd for Symbol {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(&other))
+        Some(self.cmp(other))
     }
 }
 

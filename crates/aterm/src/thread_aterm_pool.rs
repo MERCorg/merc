@@ -121,8 +121,11 @@ impl ThreadTermPool {
         }
 
         unsafe {
-            // SAFETY: The guard is guaranteed to live as long as the returned term, since it is thread local
-            Return::new(std::mem::transmute(guard), ATermRef::from_index(&index))
+            // SAFETY: The guard is guaranteed to live as long as the returned term, since it is thread local and Return cannot be sended to other threads.
+            Return::new(
+                std::mem::transmute::<RecursiveLockReadGuard<'_, _>, RecursiveLockReadGuard<'static, _>>(guard),
+                ATermRef::from_index(&index),
+            )
         }
     }
 
