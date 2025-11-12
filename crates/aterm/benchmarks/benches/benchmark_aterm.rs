@@ -5,7 +5,6 @@
 use std::array::from_fn;
 use std::collections::VecDeque;
 use std::hint::black_box;
-use std::ops::Deref;
 use std::sync::Arc;
 use std::thread;
 
@@ -15,7 +14,6 @@ use criterion::criterion_main;
 use mcrl3_aterm::ATerm;
 use mcrl3_aterm::ATermRef;
 use mcrl3_aterm::ATermSend;
-use mcrl3_aterm::Protected;
 use mcrl3_aterm::Symb;
 use mcrl3_aterm::Symbol;
 use mcrl3_aterm::THREAD_TERM_POOL;
@@ -96,6 +94,28 @@ fn benchmark_shared_creation(c: &mut Criterion) {
     }
 }
 
+/// Local function to count the number of subterms in a term.
+fn inspect<'a>(term: &'a ATermRef<'a>, iterations: usize) -> u64 {
+    let mut queue: VecDeque<ATermRef<'a>> = VecDeque::new();
+
+    let mut count = 0;
+
+    for _ in 0..iterations {
+        // Simple breadth-first search to count elements
+        queue.push_back(term.copy());
+
+        while let Some(current_term) = queue.pop_front() {
+            // Iterate through all arguments of the current term
+            for arg in current_term.arguments() {
+                count += 1;
+                queue.push_back(arg);
+            }
+        }
+    }
+
+    count
+}
+
 fn benchmark_shared_inspect(c: &mut Criterion) {
     const SIZE: usize = 20;
     const ITERATIONS: usize = 1000;
@@ -103,6 +123,7 @@ fn benchmark_shared_inspect(c: &mut Criterion) {
     THREAD_TERM_POOL.with_borrow(|tp| tp.automatic_garbage_collection(false));
 
     let shared_term = Arc::new(ATermSend::from(create_nested_function::<2>("f", "c", SIZE)));
+    assert_eq!(inspect(&shared_term.copy(), 1), 4194302);
 
     for num_threads in THREADS {
         c.bench_function(&format!("shared_inspect_{}", num_threads), |b| {
@@ -110,21 +131,7 @@ fn benchmark_shared_inspect(c: &mut Criterion) {
                 let term = shared_term.clone();
 
                 benchmark_threads(num_threads, move |_id| {
-                    let mut queue: Protected<VecDeque<ATermRef<'static>>> = Protected::new(VecDeque::new());
-
-                    for _ in 0..ITERATIONS / num_threads {
-                        // Simple breadth-first search to count elements
-                        let mut write = queue.write();
-                        let t = write.protect(&term.deref());
-                        write.push_back(t);
-
-                        while let Some(current_term) = write.pop_front() {
-                            // Iterate through all arguments of the current term
-                            for arg in current_term.arguments() {
-                                write.push_back(arg);
-                            }
-                        }
-                    }
+                    black_box(inspect(&term.copy(), ITERATIONS / num_threads));
                 });
             });
         });
@@ -196,21 +203,7 @@ fn benchmark_unique_inspect(c: &mut Criterion) {
                 let terms = terms.clone();
 
                 benchmark_threads(num_threads, move |id| {
-                    let mut queue: Protected<VecDeque<ATermRef<'static>>> = Protected::new(VecDeque::new());
-
-                    for _ in 0..ITERATIONS / num_threads {
-                        // Simple breadth-first search to count elements
-                        let mut write = queue.write();
-                        let t = write.protect(&terms[id]);
-                        write.push_back(t);
-
-                        while let Some(current_term) = write.pop_front() {
-                            // Iterate through all arguments of the current term
-                            for arg in current_term.arguments() {
-                                write.push_back(arg);
-                            }
-                        }
-                    }
+                    black_box(inspect(&terms[id].copy(), ITERATIONS / num_threads));
                 });
             });
         });
@@ -229,11 +222,11 @@ fn benchmark_unique_lookup(c: &mut Criterion) {
     let f = create_nested_function::<2>("f", "c", SIZE);
 
     for num_threads in THREADS {
-        c.bench_function(&format!("shared_lookup_{}", num_threads), |b| {
+        c.bench_function(&format!("unique_lookup_{}", num_threads), |b| {
             b.iter(|| {
-                benchmark_threads(num_threads, move |_id| {
+                benchmark_threads(num_threads, move |id| {
                     for _ in 0..ITERATIONS / num_threads {
-                        black_box(create_nested_function::<2>("f", "c", SIZE));
+                        black_box(create_nested_function::<2>("f", &format!("c{}", id), SIZE));
                     }
                 });
             })
