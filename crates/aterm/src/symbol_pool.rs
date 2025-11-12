@@ -131,7 +131,7 @@ impl SymbolPool {
 
     /// Traverse all symbols to find the maximum numeric suffix for this prefix
     fn get_sufficiently_large_postfix_index(&self, prefix: &str, counter: &Arc<AtomicUsize>) {
-        for symbol in self.symbols.iter() {
+        self.symbols.iter(|symbol| {
             let name = symbol.name();
             if name.starts_with(prefix) {
                 // Symbol name starts with the prefix, check for numeric suffix
@@ -144,7 +144,7 @@ impl SymbolPool {
                     }
                 }
             }
-        }
+        });
     }
 }
 

@@ -23,10 +23,11 @@ mcrl3_debug = ["tikv-jemallocator?/debug"]
 mcrl3_utilities.workspace = true
 
 allocator-api2.workspace = true
-dashmap.workspace = true
 equivalent.workspace = true
 itertools.workspace = true
 log.workspace = true
+papaya.workspace = true
+rand.workspace = true
 rustc-hash.workspace = true
 
 mimalloc = { workspace = true, optional = true }

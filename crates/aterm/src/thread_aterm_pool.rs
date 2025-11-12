@@ -105,6 +105,7 @@ impl ThreadTermPool {
         args: &'b [impl Term<'a, 'b>],
     ) -> Return<ATermRef<'static>> {
         let mut arguments = self.tmp_arguments.borrow_mut();
+        
         arguments.clear();
         for arg in args {
             unsafe {
@@ -113,7 +114,6 @@ impl ThreadTermPool {
         }
 
         let guard = self.term_pool.read_recursive().expect("Lock poisoned!");
-
         let (index, inserted) = guard.create_term_array(symbol, &arguments);
 
         if inserted {
