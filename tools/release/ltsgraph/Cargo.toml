@@ -10,6 +10,7 @@ mcrl3_gui.workspace = true
 mcrl3_lts.workspace = true
 mcrl3_utilities.workspace = true
 mcrl3_ltsgraph-lib = { path = "./library" }
+mcrl3_version.workspace = true
 
 clap.workspace = true
 env_logger.workspace = true

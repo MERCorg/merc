@@ -1,4 +1,4 @@
-use clap::{Args, ValueEnum};
+use clap::Args;
 use log::LevelFilter;
 
 #[derive(Args, Debug)]
@@ -24,8 +24,8 @@ impl VerbosityFlag {
     }
 }
 
-#[derive(ValueEnum, Debug, Clone)]
-pub enum Verbosity {
+#[derive(Debug, Clone)]
+enum Verbosity {
     Quiet,
     Verbose,
     Debug,

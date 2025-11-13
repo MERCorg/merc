@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use clap::Parser;
 
 use clap::Subcommand;
-use mcrl3_gui::verbosity::Verbosity;
+use mcrl3_gui::verbosity::VerbosityFlag;
 use mcrl3_rec_tests::load_rec_from_file;
 use mcrl3_unsafety::print_allocator_metrics;
 use mcrl3_utilities::MCRL3Error;
@@ -19,11 +19,11 @@ mod trs_format;
 #[derive(clap::Parser, Debug)]
 #[command(name = "Maurice Laveaux", about = "A command line rewriting tool")]
 struct Cli {
-    #[arg(long, default_value_t = false, help = "Print the version of this tool")]
+    #[arg(long, global = true, default_value_t = false, help = "Print the version of this tool")]
     version: bool,
 
-    #[arg(short, long, default_value_t = Verbosity::Quiet, help = "Sets the verbosity of the logger")]
-    verbosity: Verbosity,
+    #[command(flatten)]
+    verbosity: VerbosityFlag,
 
     #[command(subcommand)]
     commands: Option<Commands>,

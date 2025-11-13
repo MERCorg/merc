@@ -3254,6 +3254,7 @@ dependencies = [
  "mcrl3_lts",
  "mcrl3_ltsgraph-lib",
  "mcrl3_utilities",
+ "mcrl3_version",
  "rfd",
  "slint",
  "slint-build",

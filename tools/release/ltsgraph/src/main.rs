@@ -14,22 +14,25 @@ use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use clap::Parser;
-
 use clap::ValueEnum;
 use femtovg::Canvas;
 use femtovg::renderer::WGPURenderer;
 use log::debug;
 use log::info;
 use slint::Image;
-use slint::Rgba8Pixel;
-use slint::SharedPixelBuffer;
 use slint::invoke_from_event_loop;
 use slint::quit_event_loop;
+use slint::Rgba8Pixel;
+use slint::SharedPixelBuffer;
+use wgpu::TextureDescriptor;
+use wgpu::TextureFormat;
+use wgpu::TextureUsages;
 
-use ltsgraph::PauseableThread;
 use ltsgraph::init_wgpu;
+use ltsgraph::PauseableThread;
 use ltsgraph::show_error_dialog;
 use mcrl3_gui::console;
+use mcrl3_gui::verbosity::VerbosityFlag;
 use mcrl3_lts::LabelledTransitionSystem;
 use mcrl3_lts::read_aut;
 use mcrl3_ltsgraph_lib::FemtovgRenderer;
@@ -37,9 +40,7 @@ use mcrl3_ltsgraph_lib::GraphLayout;
 use mcrl3_ltsgraph_lib::SkiaRenderer;
 use mcrl3_ltsgraph_lib::Viewer;
 use mcrl3_utilities::MCRL3Error;
-use wgpu::TextureDescriptor;
-use wgpu::TextureFormat;
-use wgpu::TextureUsages;
+use mcrl3_version::Version;
 
 /// Aligns a number up to the next multiple of the given alignment.
 pub const fn align_up(num: u32, align: u32) -> u32 {
@@ -57,6 +58,12 @@ enum ViewerType {
 #[derive(Parser, Debug)]
 #[command(name = "Maurice Laveaux", about = "A lts viewing tool")]
 pub struct Cli {
+    #[arg(long, global = true, default_value_t = false, help = "Print the version of this tool")]
+    version: bool,
+    
+    #[command(flatten)]
+    verbosity: VerbosityFlag,
+
     #[arg(value_name = "FILE")]
     labelled_transition_system: Option<String>,
 
@@ -111,10 +118,17 @@ async fn main() -> Result<ExitCode, MCRL3Error> {
     // Attach the standard output to the command line.
     let _console = console::init()?;
 
-    // Parse the command line arguments and enable the logger.
-    env_logger::init();
-
     let cli = Cli::parse();
+    
+    env_logger::Builder::new()
+        .filter_level(cli.verbosity.log_level_filter())
+        .parse_default_env()
+        .init();
+
+    if cli.version {
+        eprintln!("{}", Version);
+        return Ok(ExitCode::SUCCESS);
+    }
 
     let wgpu = if cli.viewer == ViewerType::Gpu {
         // Initialize wgpu for GPU rendering
