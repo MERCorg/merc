@@ -91,7 +91,7 @@ tikv-jemallocator = "0.6"
 cosmic-text = "0.15"
 femtovg = { version = "0.19", features = ["wgpu"] }
 glam = "0.30"
-rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
 slint = { version = "1.14", features = ["compat-1-2", "std", "accessibility", 
     "backend-winit", "renderer-skia"], default-features = false}
 slint-build = "1.14"
