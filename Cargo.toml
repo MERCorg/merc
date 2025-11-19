@@ -1,5 +1,4 @@
 [workspace.package]
-authors = ["Maurice Laveaux"]
 edition = "2024"
 license = "BSL-1.0"
 repository = "https://github.com/mlaveaux/merc.git"
