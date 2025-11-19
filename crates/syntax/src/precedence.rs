@@ -597,6 +597,11 @@ pub fn parse_pbesexpr(pairs: Pairs<Rule>) -> ParseResult<PbesExpr> {
             Rule::PropVarInst => Ok(PbesExpr::PropVarInst(Mcrl2Parser::PropVarInst(Node::new(primary))?)),
             _ => unimplemented!("Unexpected rule: {:?}", primary.as_rule()),
         }
+    }).map_prefix(|op, expr| {
+        match op.as_rule() {
+            Rule::PbesExprNegation => Ok(PbesExpr::Negation(Box::new(expr?))),
+            _ => unimplemented!("Unexpected prefix operator: {:?}", op.as_rule()),
+        }
     }).map_infix(|lhs, op, rhs| {
         match op.as_rule() {
             Rule::PbesExprConj => Ok(PbesExpr::Binary {
@@ -628,7 +633,6 @@ pub fn parse_pbesexpr(pairs: Pairs<Rule>) -> ParseResult<PbesExpr> {
                 variables: Mcrl2Parser::PbesExprForall(Node::new(postfix))?,
                 body: Box::new(expr?),
             }),
-            Rule::PbesExprNegation => Ok(PbesExpr::Negation(Box::new(expr?))),
             _ => unimplemented!("Unexpected postfix operator: {:?}", postfix.as_rule()),
         }
     })

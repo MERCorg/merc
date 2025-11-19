@@ -140,32 +140,41 @@ impl Mcrl2Parser {
     }
 
     pub fn PbesSpec(spec: ParseNode) -> ParseResult<UntypedPbes> {
-        match_nodes!(spec.into_children();
-            [DataSpec(data_specification), GlobVarSpec(global_variables), PbesEqnSpec(equations), PbesInit(init)] => {
-                Ok(UntypedPbes {
-                    data_specification,
-                    global_variables,
-                    equations,
-                    init,
-                })
-            },
-            [DataSpec(data_specification), PbesEqnSpec(equations), PbesInit(init)] => {
-                Ok(UntypedPbes {
-                    data_specification,
-                    global_variables: Vec::new(),
-                    equations,
-                    init,
-                })
-            },
-            [GlobVarSpec(global_variables), PbesEqnSpec(equations), PbesInit(init)] => {
-                Ok(UntypedPbes {
-                    data_specification: UntypedDataSpecification::default(),
-                    global_variables,
-                    equations,
-                    init,
-                })
+        let mut data_specification = None;
+        let mut global_variables =  None;
+        let mut equations =  None;
+        let mut init = None;
+
+        for child in spec.into_children() {
+            match child.as_rule() {
+                Rule::DataSpec => {
+                    data_specification = Some(Mcrl2Parser::DataSpec(child)?);
+                },
+                Rule::GlobVarSpec => {
+                    global_variables = Some(Mcrl2Parser::GlobVarSpec(child)?);
+                },
+                Rule::PbesEqnSpec => {
+                    equations = Some(Mcrl2Parser::PbesEqnSpec(child)?);
+                },
+                Rule::PbesInit => {
+                    init = Some(Mcrl2Parser::PbesInit(child)?);
+                },
+                Rule::EOI => {
+                    // End of input
+                    break;
+                },
+                _ => {
+                    unimplemented!("Unexpected rule: {:?}", child.as_rule());
+                }
             }
-        )
+        }
+
+        Ok(UntypedPbes {
+            data_specification: data_specification.unwrap_or_default(),
+            global_variables: global_variables.unwrap_or_default(),
+            equations: equations.unwrap(),
+            init: init.unwrap(),
+        })
     }
 
     fn PbesInit(init: ParseNode) -> ParseResult<PropVarInst> {
@@ -199,10 +208,10 @@ impl Mcrl2Parser {
     }
 
     fn FixedPointOperator(op: ParseNode) -> ParseResult<FixedPointOperator> {
-        match op.as_rule() {
+        match op.into_children().next().unwrap().as_rule() {
             Rule::FixedPointMu => Ok(FixedPointOperator::Least),
             Rule::FixedPointNu => Ok(FixedPointOperator::Greatest),
-            _ => unreachable!(),
+            x => unimplemented!("This is not a fixed point operator: {:?}", x),
         }
     }
 
@@ -228,6 +237,12 @@ impl Mcrl2Parser {
 
     pub(crate) fn PropVarInst(inst: ParseNode) -> ParseResult<PropVarInst> {
         match_nodes!(inst.into_children();
+            [Id(identifier)] => {
+                Ok(PropVarInst {
+                    identifier,
+                    arguments: Vec::new(),
+                })
+            },
             [Id(identifier), DataExprList(arguments)] => {
                 Ok(PropVarInst {
                     identifier,

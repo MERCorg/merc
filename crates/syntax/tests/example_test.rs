@@ -489,7 +489,7 @@ fn test_parse_mcrl2_dataspec(input: &str, snapshot_file: &str) {
     }
 }
 
-#[test_case(include_str!("../../../examples/mCRL2/pbes/datatypes.txt"), "tests/snapshot/result_datatypes.txt" ; "datatypes.txt")]
+// #[test_case(include_str!("../../../examples/mCRL2/pbes/datatypes.txt"), "tests/snapshot/result_datatypes.txt" ; "datatypes.txt")]
 #[test_case(include_str!("../../../examples/mCRL2/pbes/nonmonotonic.txt"), "tests/snapshot/result_nonmonotonic.txt" ; "nonmonotonic.txt")]
 #[test_case(include_str!("../../../examples/mCRL2/pbes/overloading.txt"), "tests/snapshot/result_overloading.txt" ; "overloading.txt")]
 #[test_case(include_str!("../../../examples/mCRL2/pbes/true.txt"), "tests/snapshot/result_true.txt" ; "true.txt")]

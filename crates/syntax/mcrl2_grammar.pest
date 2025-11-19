@@ -568,7 +568,7 @@ FixedPointOperator = { FixedPointMu | FixedPointNu }
     FixedPointNu = { "nu" }
 
 /// Parameterised boolean equations systems
-PbesSpec = { DataSpec? ~ GlobVarSpec? ~ PbesEqnSpec ~ PbesInit }
+PbesSpec = { SOI ~ DataSpec? ~ GlobVarSpec? ~ PbesEqnSpec ~ PbesInit ~ EOI }
 
 PbesEqnSpec = { "pbes" ~ PbesEqnDecl+ }
 
