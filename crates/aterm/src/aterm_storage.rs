@@ -1,12 +1,17 @@
-
-use std::hash::RandomState;
 use std::hash::Hash;
+use std::hash::RandomState;
 
-use dashmap::Equivalent;
-use merc_unsafety::{AllocBlock, BlockAllocator, StablePointer, StablePointerSet};
+use merc_unsafety::AllocBlock;
+use merc_unsafety::BlockAllocator;
+use merc_unsafety::StablePointer;
+use merc_unsafety::StablePointerSet;
+use papaya::Equivalent;
 use rustc_hash::FxBuildHasher;
 
-use crate::{ATerm, ATermIndex, SharedTerm, SymbolRef};
+use crate::ATerm;
+use crate::ATermIndex;
+use crate::SharedTerm;
+use crate::SymbolRef;
 
 /// Storage for ATerms with a fixed number of arguments.
 ///
@@ -31,7 +36,7 @@ pub(crate) struct SharedTermInt {
 pub(crate) struct ATermStorage {
     terms: StablePointerSet<SharedTerm>,
 
-    int_terms: StablePointerSet<SharedTermFixed<1>, RandomState, AllocBlock<SharedTermFixed<1>, 1024>>,
+    int_terms: StablePointerSet<SharedTermFixed<1>, FxBuildHasher, AllocBlock<SharedTermFixed<1>, 1024>>,
 }
 
 impl ATermStorage {
@@ -44,8 +49,7 @@ impl ATermStorage {
 
     /// Returns the number of stored terms.
     pub fn len(&self) -> usize {
-        self.int_terms.len() +
-        self.terms.len()
+        self.int_terms.len() + self.terms.len()
     }
 
     pub fn retain<F>(&self, mut f: F)
@@ -61,7 +65,7 @@ impl ATermStorage {
         value: &'a Q,
         length: usize,
         construct: C,
-    ) -> (StablePointer<SharedTerm>, bool) 
+    ) -> (StablePointer<SharedTerm>, bool)
     where
         Q: Hash + Equivalent<SharedTerm>,
         C: Fn(*mut SharedTerm, &'a Q),

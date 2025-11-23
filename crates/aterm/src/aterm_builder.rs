@@ -11,7 +11,8 @@ use crate::Term;
 use crate::ThreadTermPool;
 
 /// This can be used to construct an [ATerm] from a given input of (inductive) type I
-/// without using recursion, as such avoiding system stack overflows. See [evaluate].
+/// without using recursion, as such avoiding system stack overflows. See [evaluate]
+/// for more details.
 #[derive(Default)]
 pub struct TermBuilder<I, C> {
     // The stack of terms
@@ -59,8 +60,8 @@ impl<I: fmt::Debug, C: fmt::Debug> TermBuilder<I, C> {
     /// This can be used to construct a term from a given input of (inductive)
     /// type I, without using the system stack, i.e. recursion.
     ///
-    /// The `transformer` function is applied to every instance I, which can put
-    /// more generate more inputs using a so-called argument stack and some
+    /// The `transformer` function is applied to every instance I, which can
+    /// generate more inputs using a so-called argument stack and some
     /// instance C that is used to construct the result term. Alternatively, it
     /// yields a result term directly.
     ///
@@ -81,9 +82,6 @@ impl<I: fmt::Debug, C: fmt::Debug> TermBuilder<I, C> {
     ///
     /// `construct` simply constructs the term from the symbol and the arguments
     /// on the stack.
-    ///
-    /// However, it can also be that I is some syntax tree from which we want to
-    /// construct a term.
     pub fn evaluate<F, G>(
         &mut self,
         tp: &ThreadTermPool,
@@ -150,7 +148,7 @@ enum Config<I, C> {
 
 pub enum Yield<C> {
     Term(ATerm),  // Yield this term as is.
-    Construct(C), // Yield f(args) for every arg push to the argument stack, with the function applied to it.
+    Construct(C), // Yield f(args) for every arg push to the argument stack, with the transformer applied to it.
 }
 
 /// This struct defines a local argument stack on the global stack.

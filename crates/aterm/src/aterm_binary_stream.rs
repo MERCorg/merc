@@ -1,12 +1,3 @@
-//!
-//! # The binary aterm stream format
-//!
-//! 8:0 16:BAF_MAGIC 16:BAF_VERSION
-//!
-//! After that every packet started with a header
-//! 2:Header
-//!
-
 #![forbid(unsafe_code)]
 
 use std::collections::VecDeque;
