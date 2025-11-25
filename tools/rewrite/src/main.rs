@@ -11,11 +11,12 @@ use merc_unsafety::print_allocator_metrics;
 use merc_utilities::MercError;
 use merc_version::Version;
 
-use merc_rewrite::TrsFormatter;
 use merc_rewrite::Rewriter;
 use merc_rewrite::rewrite_rec;
 
 mod trs_format;
+
+pub use trs_format::*;
 
 #[derive(clap::Parser, Debug)]
 #[command(name = "Maurice Laveaux", about = "A command line rewriting tool")]

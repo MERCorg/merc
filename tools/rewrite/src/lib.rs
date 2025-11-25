@@ -12,10 +12,6 @@ use merc_sabre::SabreRewriter;
 use merc_sabre_compiling::SabreCompilingRewriter;
 use merc_utilities::MercError;
 
-mod trs_format;
-
-pub use trs_format::*;
-
 /// Selects the rewriter to use.
 #[derive(ValueEnum, Debug, Clone)]
 pub enum Rewriter {
