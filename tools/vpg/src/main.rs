@@ -19,7 +19,7 @@ struct Cli {
 
     #[command(flatten)]
     verbosity: VerbosityFlag,
-    
+
     #[command(subcommand)]
     commands: Option<Commands>,
 }
@@ -30,7 +30,7 @@ enum Commands {
 }
 
 #[derive(clap::Args, Debug)]
-struct SolveArgs {    
+struct SolveArgs {
     filename: String,
 }
 
@@ -52,12 +52,11 @@ fn main() -> Result<ExitCode, MercError> {
             Commands::Solve(args) => {
                 let mut file = File::open(&args.filename)?;
                 let game = read_pg(&mut file)?;
-                
+
                 println!("{}", solve_zielonka(&game).solution())
             }
         }
     }
-
 
     Ok(ExitCode::SUCCESS)
 }

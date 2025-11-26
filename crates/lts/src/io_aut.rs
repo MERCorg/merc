@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::io::Write;
 
-use log::debug;
 use log::info;
 use log::trace;
 use regex::Regex;
@@ -61,7 +60,7 @@ fn read_transition(input: &str) -> Option<(&str, &str, &str)> {
 ///     `(<from>: Nat, "<label>": Str, <to>: Nat)`
 ///     `(<from>: Nat, <label>: Str, <to>: Nat)`
 pub fn read_aut(reader: impl Read, mut hidden_labels: Vec<String>) -> Result<LabelledTransitionSystem, MercError> {
-    debug!("Reading LTS in .aut format...");
+    info!("Reading LTS in .aut format...");
 
     let mut lines = LineIterator::new(reader);
     lines.advance();
@@ -120,7 +119,7 @@ pub fn read_aut(reader: impl Read, mut hidden_labels: Vec<String>) -> Result<Lab
             labels[*label_index] = label_txt.to_string();
         }
 
-        progress.print(transitions.num_of_transitions() / num_of_transitions);
+        progress.print(transitions.num_of_transitions() * 100 / num_of_transitions);
     }
 
     // Remove duplicated transitions, it is not clear if they are allowed in the .aut format.
@@ -129,7 +128,7 @@ pub fn read_aut(reader: impl Read, mut hidden_labels: Vec<String>) -> Result<Lab
     info!("Finished reading LTS");
 
     hidden_labels.push("tau".to_string());
-    
+
     Ok(LabelledTransitionSystem::new(
         initial_state,
         Some(num_of_states),
@@ -149,6 +148,8 @@ pub fn write_aut(writer: &mut impl Write, lts: &impl LTS) -> Result<(), MercErro
         lts.num_of_states()
     )?;
 
+    let mut progress = TimeProgress::new(|percentage: usize| info!("Writing transitions {}%...", percentage), 1);
+    let mut transitions_written = 0usize;
     for state_index in lts.iter_states() {
         for transition in lts.outgoing_transitions(state_index) {
             writeln!(
@@ -162,6 +163,9 @@ pub fn write_aut(writer: &mut impl Write, lts: &impl LTS) -> Result<(), MercErro
                 },
                 transition.to
             )?;
+
+            progress.print(transitions_written * 100 / lts.num_of_transitions());
+            transitions_written += 1;
         }
     }
 

@@ -13,9 +13,10 @@ pub fn random_lts(
     num_of_labels: u32,
     outdegree: usize,
 ) -> LabelledTransitionSystem {
-    // Introduce lower case letters for the labels.
+    // Add the default tau label (for the weak transitions).
     let tau_label = "tau".to_string();
 
+    // Introduce lower case letters for the labels.
     let mut labels: Vec<String> = vec![tau_label.clone()];
     for i in 0..num_of_labels {
         labels.push(char::from_digit(i + 10, 36).unwrap().to_string());

@@ -8,9 +8,7 @@
 
 use std::io::BufReader;
 use std::io::Read;
-use std::time::Instant;
 
-use log::debug;
 use log::info;
 use merc_aterm::ATerm;
 use merc_aterm::ATermInt;
@@ -31,8 +29,7 @@ use crate::StateIndex;
 
 /// Loads a labelled transition system from the binary 'lts' format of the mCRL2 toolset.
 pub fn read_lts(reader: impl Read, mut hidden_labels: Vec<String>) -> Result<LabelledTransitionSystem, MercError> {
-    let start = Instant::now();
-    debug!("Reading LTS in .lts format...");
+    info!("Reading LTS in .lts format...");
 
     let mut reader = BinaryATermReader::new(BufReader::new(reader))?;
 
@@ -98,7 +95,8 @@ pub fn read_lts(reader: impl Read, mut hidden_labels: Vec<String>) -> Result<Lab
     let labels = labels.iter().map(|(_, t)| t.to_string()).collect();
 
     hidden_labels.push("tau".to_string());
-    debug!("Time read_lts: {:.3}s", start.elapsed().as_secs_f64());
+    info!("Finished reading LTS");
+
     Ok(LabelledTransitionSystem::new(
         initial_state.ok_or("Missing initial state")?,
         Some(num_of_states),
