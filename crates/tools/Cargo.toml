@@ -1,5 +1,6 @@
 [package]
-name = "merc_gui"
+name = "merc_tools"
+
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,5 +11,4 @@ merc_utilities.workspace = true
 
 clap.workspace = true
 log.workspace = true
-streaming-iterator.workspace = true
 winapi.workspace = true
