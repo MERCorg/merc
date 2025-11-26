@@ -117,7 +117,7 @@ pub fn read_pg(reader: impl Read) -> Result<ParityGame, MercError> {
 }
 
 /// Writes the given parity game to the given writer in .pg format.
-pub fn write_pg(game: &ParityGame, mut writer: impl Write) -> Result<(), MercError> {
+pub fn write_pg(mut writer: impl Write, game: &ParityGame) -> Result<(), MercError> {
     writeln!(writer, "parity {};", game.num_of_vertices())?;
 
     for v in game.iter_vertices() {
