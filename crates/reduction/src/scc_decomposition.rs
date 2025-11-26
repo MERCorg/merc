@@ -32,7 +32,6 @@ where
     F: Fn(StateIndex, LabelIndex, StateIndex) -> bool,
     L: LTS + fmt::Debug,
 {
-    let start = Instant::now();
     let mut partition = IndexedPartition::new(lts.num_of_states());
 
     // The stack for the depth first search.
@@ -64,7 +63,6 @@ where
 
     trace!("SCC partition {partition}");
     debug!("Found {} strongly connected components", partition.num_of_blocks());
-    debug!("Time scc_decomposition: {:.3}s", start.elapsed().as_secs_f64());
     partition
 }
 

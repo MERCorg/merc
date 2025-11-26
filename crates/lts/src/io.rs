@@ -3,6 +3,7 @@ use std::path::Path;
 
 use clap::ValueEnum;
 use merc_utilities::MercError;
+use merc_utilities::Timing;
 
 use crate::LabelledTransitionSystem;
 use crate::read_aut;
@@ -54,14 +55,19 @@ pub fn read_explicit_lts(
     path: &Path,
     format: LtsType,
     hidden_labels: Vec<String>,
+    timing: &mut Timing,
 ) -> Result<LabelledTransitionSystem, MercError> {
     let file = std::fs::File::open(path)?;
+    let mut time_read = timing.start("read_aut");
 
-    match format {
+    let result = match format {
         LtsType::Aut => read_aut(&file, hidden_labels),
         LtsType::Lts => read_lts(&file, hidden_labels),
         LtsType::Sym => {
             panic!("Cannot read symbolic LTS as explicit LTS.")
         }
-    }
+    };
+
+    time_read.finish();
+    result
 }

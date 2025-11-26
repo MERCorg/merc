@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::io::Read;
 use std::io::Write;
-use std::time::Instant;
 
 use log::debug;
 use log::info;
@@ -62,7 +61,6 @@ fn read_transition(input: &str) -> Option<(&str, &str, &str)> {
 ///     `(<from>: Nat, "<label>": Str, <to>: Nat)`
 ///     `(<from>: Nat, <label>: Str, <to>: Nat)`
 pub fn read_aut(reader: impl Read, mut hidden_labels: Vec<String>) -> Result<LabelledTransitionSystem, MercError> {
-    let start = Instant::now();
     debug!("Reading LTS in .aut format...");
 
     let mut lines = LineIterator::new(reader);
@@ -131,7 +129,7 @@ pub fn read_aut(reader: impl Read, mut hidden_labels: Vec<String>) -> Result<Lab
     info!("Finished reading LTS");
 
     hidden_labels.push("tau".to_string());
-    debug!("Time read_aut: {:.3}s", start.elapsed().as_secs_f64());
+    
     Ok(LabelledTransitionSystem::new(
         initial_state,
         Some(num_of_states),

@@ -87,7 +87,6 @@ pub fn quotient_lts_naive(
     partition: &impl Partition,
     eliminate_tau_loops: bool,
 ) -> LabelledTransitionSystem {
-    let start = std::time::Instant::now();
     // Introduce the transitions based on the block numbers, the number of blocks is a decent approximation for the number of transitions.
     let mut transitions = LtsBuilder::with_capacity(
         partition.num_of_blocks(),
@@ -126,7 +125,6 @@ pub fn quotient_lts_naive(
         lts.labels().into(),
         Vec::new(),
     );
-    debug!("Time quotient: {:.3}s", start.elapsed().as_secs_f64());
     result
 }
 
@@ -137,7 +135,6 @@ pub fn quotient_lts_block<const BRANCHING: bool>(
     lts: &impl LTS,
     partition: &BlockPartition,
 ) -> LabelledTransitionSystem {
-    let start = Instant::now();
     let mut transitions = LtsBuilder::new();
 
     for block in (0..partition.num_of_blocks()).map(BlockIndex::new) {
@@ -186,6 +183,7 @@ pub fn quotient_lts_block<const BRANCHING: bool>(
             "Blocks in the partition should not be empty"
         );
     }
+
     // Remove duplicates.
     transitions.remove_duplicates();
 
@@ -196,6 +194,5 @@ pub fn quotient_lts_block<const BRANCHING: bool>(
         lts.labels().into(),
         Vec::new(),
     );
-    debug!("Time quotient: {:.3}s", start.elapsed().as_secs_f64());
     result
 }
