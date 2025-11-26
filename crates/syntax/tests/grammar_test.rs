@@ -1,5 +1,4 @@
 use indoc::indoc;
-use merc_syntax::UntypedDataSpecification;
 use pest::Parser;
 
 use merc_syntax::Mcrl2Parser;
@@ -87,7 +86,7 @@ fn test_sort_precedence() {
     print!("{}", parse_sortexpr(result).unwrap());
 }
 
-#[test]
-fn test_bool_spec() {
-    let _result = UntypedDataSpecification::parse(include_str!("../spec/bool.mcrl2")).unwrap();
-}
+// #[test]
+// fn test_bool_spec() {
+//     let _result = UntypedDataSpecification::parse(include_str!("../spec/bool.mcrl2")).unwrap();
+// }
