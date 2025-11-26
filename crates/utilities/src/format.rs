@@ -53,7 +53,7 @@ mod tests {
 
     #[test]
     fn test_large_formatter_millions() {
-        assert_eq!(format!("{}", LargeFormatter(1234567)), "1 234 567");
-        assert_eq!(format!("{}", LargeFormatter(12345678)), "12 345 678");
+        assert_eq!(format!("{}", LargeFormatter(1234567)), "1,234,567");
+        assert_eq!(format!("{}", LargeFormatter(12345678)), "12,345,678");
     }
 }
