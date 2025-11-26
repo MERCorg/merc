@@ -121,6 +121,6 @@ mod tests {
         let input = include_bytes!("../../../examples/lts/WMS.sym");
 
         let mut storage = Storage::new();
-        let lts = super::read_symbolic_lts(&input[..], &mut storage).unwrap();
+        let _lts = super::read_symbolic_lts(&input[..], &mut storage).unwrap();
     }
 }
