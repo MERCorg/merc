@@ -1,6 +1,3 @@
-use std::time::Instant;
-
-use log::debug;
 use merc_lts::LTS;
 use merc_lts::LabelledTransitionSystem;
 use merc_lts::LtsBuilder;
@@ -142,7 +139,7 @@ pub fn quotient_lts_block<const BRANCHING: bool>(
         let mut candidate = if let Some(state) = partition.iter_block(block).next() {
             state
         } else {
-            panic!("Found empty block {}", block);
+            panic!("Blocks in the partition should not be empty {}", block);
         };
 
         if BRANCHING {
@@ -161,27 +158,23 @@ pub fn quotient_lts_block<const BRANCHING: bool>(
             }
         }
 
-        if BRANCHING {
-            for trans in lts.outgoing_transitions(candidate) {
+        // Add all transitions from the representative state.
+        for trans in lts.outgoing_transitions(candidate) {
+            if BRANCHING {
                 // Candidate is a bottom state, so add all transitions.
                 debug_assert!(
                     !(lts.is_hidden_label(trans.label) && partition.block_number(trans.to) == block),
                     "This state is not bottom {}",
                     block
                 );
-
-                transitions.add_transition(
-                    StateIndex::new(*block),
-                    trans.label,
-                    StateIndex::new(*partition.block_number(trans.to)),
-                );
             }
+            
+            transitions.add_transition(
+                StateIndex::new(*block),
+                trans.label,
+                StateIndex::new(*partition.block_number(trans.to)),
+            );
         }
-
-        debug_assert!(
-            !partition.block(block).is_empty(),
-            "Blocks in the partition should not be empty"
-        );
     }
 
     // Remove duplicates.
