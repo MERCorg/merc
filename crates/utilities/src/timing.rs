@@ -4,7 +4,7 @@ use std::io::Write;
 use std::rc::Rc;
 use std::time::Instant;
 
-use log::debug;
+use log::info;
 use log::warn;
 
 /// A timing object to measure the time of different parts of the program. This
@@ -66,7 +66,7 @@ impl Timer {
     /// Finishes the timer and registers the result.
     pub fn finish(&mut self) {
         let time = self.start.elapsed().as_secs_f64();
-        debug!("Time {}: {:.3}s", self.name, time);
+        info!("Time {}: {:.3}s", self.name, time);
 
         // Register the result.
         self.results.borrow_mut().push((self.name.clone(), time as f32));

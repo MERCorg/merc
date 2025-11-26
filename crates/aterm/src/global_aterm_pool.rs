@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicUsize;
 
+use log::debug;
 use log::info;
 
 use merc_sharedmutex::GlobalBfSharedMutex;
@@ -161,7 +162,7 @@ impl GlobalTermPool {
             index: self.thread_pools.len(),
         }));
 
-        info!("Registered thread_local protection set(s) {}", self.thread_pools.len());
+        debug!("Registered thread_local protection set(s) {}", self.thread_pools.len());
         self.thread_pools.push(Some(protection.clone()));
 
         protection
@@ -169,7 +170,7 @@ impl GlobalTermPool {
 
     /// Deregisters a thread pool.
     pub(crate) fn deregister_thread_pool(&mut self, index: usize) {
-        info!("Removed thread_local protection set(s) {index}");
+        debug!("Removed thread_local protection set(s) {index}");
         if let Some(entry) = self.thread_pools.get_mut(index) {
             *entry = None;
         }
@@ -291,7 +292,7 @@ impl GlobalTermPool {
             true
         });
 
-        info!(
+        debug!(
             "Garbage collection: marking took {}ms, collection took {}ms, {} terms and {} symbols removed",
             mark_time.elapsed().as_millis(),
             collect_time.elapsed().as_millis(),
@@ -299,13 +300,13 @@ impl GlobalTermPool {
             num_of_symbols - self.symbol_pool.len()
         );
 
-        info!("{}", self.metrics());
+        debug!("{}", self.metrics());
 
         // Print information from the protection sets.
         for pool in self.thread_pools.iter().flatten() {
             // SAFETY: We have exclusive access to the global term pool, so no other thread can modify the protection sets.
             let pool = unsafe { &mut *pool.get() };
-            info!("{}", pool.metrics());
+            debug!("{}", pool.metrics());
         }
     }
 

@@ -5,6 +5,7 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::sync::Arc;
 
+use log::debug;
 use log::info;
 use merc_sharedmutex::RecursiveLockReadGuard;
 use merc_unsafety::StablePointer;
@@ -423,11 +424,11 @@ impl Drop for ThreadTermPool {
     fn drop(&mut self) {
         let mut write = self.term_pool.write().expect("Lock poisoned!");
 
-        info!("{}", write.metrics());
+        debug!("{}", write.metrics());
         write.deregister_thread_pool(self.index());
 
-        info!("{}", unsafe { &mut *self.protection_set.get() }.metrics());
-        info!(
+        debug!("{}", unsafe { &mut *self.protection_set.get() }.metrics());
+        debug!(
             "Acquired {} read locks and {} write locks",
             self.term_pool.read_recursive_call_count(),
             self.term_pool.write_call_count()

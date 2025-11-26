@@ -88,6 +88,6 @@ fn test_sort_precedence() {
 }
 
 #[test]
-fn test_bool_spec() {    
+fn test_bool_spec() {
     let _result = UntypedDataSpecification::parse(include_str!("../spec/bool.mcrl2")).unwrap();
 }
