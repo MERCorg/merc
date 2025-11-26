@@ -67,7 +67,7 @@ impl<T> ATermList<T> {
         }
     }
 
-    /// Returns the empty list.
+    /// Constructs the empty list.
     pub fn empty() -> Self {
         ATermList {
             term: THREAD_TERM_POOL.with_borrow(|tp| ATerm::constant(tp.empty_list_symbol())),

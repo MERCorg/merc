@@ -2,10 +2,10 @@ use core::error::Error;
 use core::fmt::Debug;
 use core::fmt::Display;
 
-/// The MCRL3 error type. This has a blanket [`From`] impl for any type that implements Rust's [`Error`],
+/// The Merc error type. This has a blanket [`From`] impl for any type that implements Rust's [`Error`],
 /// meaning it can be used as a "catch all" error. Captures a backtrace that can be printed from this object.
 pub struct MercError {
-    inner: Box<InnerMCRL3Error>,
+    inner: Box<InnerMercError>,
 }
 
 impl MercError {
@@ -15,10 +15,11 @@ impl MercError {
     }
 }
 
-/// This type exists to make [`MCRL3Error`] use a "thin pointer" instead of
-/// a "fat pointer", which reduces the size of our Result by a usize. This does introduce an extra indirection, but error handling is a "cold path".
-/// We don't need to optimize it to that degree.
-struct InnerMCRL3Error {
+/// This type exists to make [`MercError`] use a "thin pointer" instead of a
+/// "fat pointer", which reduces the size of our Result by a usize. This does
+/// introduce an extra indirection, but error handling is a "cold path". We
+/// don't need to optimize it to that degree.
+struct InnerMercError {
     /// The underlying error
     error: Box<dyn Error + Send + Sync + 'static>,
     /// A backtrace captured at creation
@@ -33,7 +34,7 @@ where
     #[cold]
     fn from(error: E) -> Self {
         MercError {
-            inner: Box::new(InnerMCRL3Error {
+            inner: Box::new(InnerMercError {
                 error: error.into(),
                 backtrace: std::backtrace::Backtrace::capture(),
             }),

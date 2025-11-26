@@ -1,8 +1,8 @@
-add_executable(mcrl3_example
+add_executable(merc_example
   main.cpp
 )
 
-target_link_libraries(mcrl3_example
+target_link_libraries(merc_example
   PRIVATE
-    mcrl3_ffi
+    merc_ffi
 )

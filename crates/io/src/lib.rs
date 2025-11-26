@@ -1,4 +1,4 @@
-//! Utility types and functions related to IO for the mCRL3 toolset.
+//! Utility types and functions related to IO for the Merc toolset.
 //!
 //! Forbid unsafe code in this crate. If unsafe code is needed it should be in the `merc_unsafety` crate.
 #![forbid(unsafe_code)]

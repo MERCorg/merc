@@ -76,8 +76,8 @@ impl SabreCompilingRewriter {
                     .to_string_lossy()
             ));
         } else {
-            info!("Using git dependency https://github.com/mlaveaux/mCRL3.git");
-            dependencies.push("merc_sabre-ffi = { git = 'https://github.com/mlaveaux/mCRL3.git' }".to_string());
+            info!("Using git dependency https://github.com/mlaveaux/merc.git");
+            dependencies.push("merc_sabre-ffi = { git = 'https://github.com/mlaveaux/merc.git' }".to_string());
         }
 
         let mut compilation_crate = RuntimeLibrary::new(temp_dir, dependencies)?;

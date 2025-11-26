@@ -1,4 +1,4 @@
-//! Debug tracing functionality for the mCRL3 toolset
+//! Debug tracing functionality for the Merc toolset
 //! This file provides debug tracing that is only active when the merc_debug feature is enabled
 
 /// Macro that prints debug trace information only when the merc_debug feature is enabled.

@@ -1,4 +1,4 @@
-//! Data terms implementation for the mCRL3 toolset.
+//! Data terms implementation for the Merc toolset.
 //!
 //! This crate provides data expressions and related functionality.
 
