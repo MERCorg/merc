@@ -187,7 +187,6 @@ mod tests {
 
         assert_eq!(lts.initial_state_index().value(), 0);
         assert_eq!(lts.num_of_transitions(), 92);
-        println!("{}", lts);
     }
 
     #[test]

@@ -139,7 +139,10 @@ impl<'a, C: Markable> ProtectedWriteGuard<'a, C> {
 
     /// Yields a term to insert into the container.
     ///
-    /// The invariant to uphold is that the resulting term MUST be inserted into the container.
+    /// # Safety
+    ///
+    /// The invariant to uphold is that the resulting term MUST be inserted into the container. This is checked in debug mode, but not in release mode. If this invariant is violated, undefined behaviour may occur during garbage collection.
+    /// We do not mark this function unsafe since that would make its use cumbersome.
     pub fn protect<'b>(&self, term: &'b impl Term<'a, 'b>) -> ATermRef<'static> {
         unsafe {
             // Store terms that are marked as protected to check if they are

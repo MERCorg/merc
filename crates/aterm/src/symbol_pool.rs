@@ -6,10 +6,10 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
-use papaya::HashMap;
-use papaya::ResizeMode;
 use equivalent::Equivalent;
 use merc_unsafety::StablePointer;
+use papaya::HashMap;
+use papaya::ResizeMode;
 use rustc_hash::FxBuildHasher;
 
 use merc_unsafety::StablePointerSet;
@@ -95,18 +95,19 @@ impl SymbolPool {
     /// Creates a new prefix counter for the given prefix.
     pub fn create_prefix(&self, prefix: &str) -> Arc<AtomicUsize> {
         // Create a new counter for the prefix if it does not exist
-        let guard = self
-            .prefix_to_register_function_map
-            .pin();
+        let guard = self.prefix_to_register_function_map.pin();
 
         // TODO: Can there be a race between the get and insert?
         let result = match guard.get(prefix) {
             Some(result) => result.clone(),
             None => {
                 let result = Arc::new(AtomicUsize::new(0));
-                assert!(guard.insert(prefix.to_string(), result.clone()).is_none(), "This key should not yet exist");
+                assert!(
+                    guard.insert(prefix.to_string(), result.clone()).is_none(),
+                    "This key should not yet exist"
+                );
                 result
-            },
+            }
         };
 
         // Ensure the counter starts at a sufficiently large index

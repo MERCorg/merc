@@ -35,7 +35,14 @@ use crate::is_int_term;
 ///
 /// This trait is rather complicated with two lifetimes, but this is used
 /// to support both the [ATerm], which has no lifetimes, and [ATermRef<'a>]
-/// whose lifetime is bound by `'a`.
+/// whose lifetime is bound by `'a`. Because now we can be require that `'b: 'a`
+/// for the implementation of [Term<'a, 'b>] for [ATerm], we can safely return
+/// [ATermRef<'a>] from methods of [Term<'a, 'b>].
+///
+/// Without the 'b: 'a` constraint, we would implement Term<'a> for ATerm, for
+/// all lifetimes 'a, including the 'static lifetime, and this would be unsound.
+/// Alternatively, we could have implemented Term<'a> for &'a ATerm, but then ATerm
+/// cannot be used directly as a Term in many places.
 pub trait Term<'a, 'b> {
     /// Protects the term from garbage collection
     fn protect(&self) -> ATerm;
@@ -195,6 +202,12 @@ impl fmt::Debug for ATermRef<'_> {
 }
 
 /// The protected version of [ATermRef], mostly derived from it.
+///
+/// # Safety
+///
+/// Note that terms use thread-local state for their protection mechanism, so [ATerm] is not [Send].
+/// Moreover, this means that terms cannot be stored in thread-local storage themselves, or at least must be destroyed before the thread exists, because the order in which thread-local destructors are called is undefined.
+/// We do not mark term access as unsafe, since that would make their use cumbersome. An alternative would be to required THREAD_TERM_POOL.with_borrow(|tp| ...) around every access, but that would be very verbose.
 pub struct ATerm {
     term: ATermRef<'static>,
 

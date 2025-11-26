@@ -12,7 +12,7 @@ pub struct VerbosityFlag {
     #[arg(short, long, global = true, help = "Set the verbosity to debug")]
     debug: bool,
 
-    #[arg(short, long, global = true, help = "Set the verbosity to trace")]
+    #[arg(long, global = true, help = "Set the verbosity to trace")]
     trace: bool,
 }
 
