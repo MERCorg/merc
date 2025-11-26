@@ -18,6 +18,7 @@ use merc_utilities::PhantomUnsend;
 use merc_utilities::ProtectionIndex;
 
 use crate::ATermIntRef;
+use crate::ATermList;
 use crate::GlobalTermPool;
 use crate::Markable;
 use crate::Marker;
@@ -26,7 +27,9 @@ use crate::SharedTermProtection;
 use crate::Symb;
 use crate::SymbolRef;
 use crate::THREAD_TERM_POOL;
+use crate::is_empty_list_term;
 use crate::is_int_term;
+use crate::is_list_term;
 
 /// The ATerm trait represents a first-order term in the ATerm library.
 /// It provides methods to manipulate and access the term's properties.
@@ -180,8 +183,10 @@ impl fmt::Debug for ATermRef<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if is_int_term(self) {
             write!(f, "{}", Into::<ATermIntRef>::into(self.copy()))?;
+        } else if is_list_term(self) || is_empty_list_term(self) {
+            write!(f, "{}", Into::<ATermList<ATerm>>::into(self.copy()))?;     
         } else if self.arguments().is_empty() {
-            write!(f, "{}", self.get_head_symbol().name())?;
+            write!(f, "{}", self.get_head_symbol().name())?;       
         } else {
             // Format the term with its head symbol and arguments, avoiding trailing comma
             write!(f, "{:?}(", self.get_head_symbol())?;

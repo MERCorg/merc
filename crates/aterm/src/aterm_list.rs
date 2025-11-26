@@ -3,9 +3,11 @@
 //!
 #![forbid(unsafe_code)]
 
+use std::fmt;
 use std::marker::PhantomData;
 
 use delegate::delegate;
+use itertools::Itertools;
 
 use crate::ATerm;
 use crate::ATermArgs;
@@ -31,6 +33,7 @@ pub struct ATermList<T> {
     _marker: PhantomData<T>,
 }
 
+// TODO: This should use the trait Term<'a, 'b>
 impl<T: From<ATerm>> ATermList<T> {
     /// Obtain the head, i.e. the first element, of the list.
     pub fn head(&self) -> T {
@@ -180,6 +183,13 @@ impl<T: From<ATerm>> IntoIterator for &ATermList<T> {
     }
 }
 
+impl<T: From<ATerm> + fmt::Display> fmt::Display for ATermList<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[{}]", self.iter().format(","))
+    }
+}
+
+/// The iterator over the elements of an ATermList.
 pub struct ATermListIter<T> {
     current: ATermList<T>,
 }
