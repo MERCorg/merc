@@ -1,5 +1,4 @@
 use merc_utilities::ByteCompressedVec;
-use merc_utilities::CompressedEntry;
 use merc_utilities::bytevec;
 
 use crate::LTS;
@@ -11,75 +10,56 @@ use crate::Transition;
 pub struct IncomingTransitions {
     transition_labels: ByteCompressedVec<LabelIndex>,
     transition_from: ByteCompressedVec<StateIndex>,
-    state2incoming: ByteCompressedVec<TransitionIndex>,
-}
-
-/// Stores the offsets at which the transitions for a state can be found.
-///
-/// The offsets [start, next_start) contain all incoming transitions, and [start, silent_end) contain only the silent transitions.
-#[derive(Default, Clone, Debug)]
-struct TransitionIndex {
-    start: usize,
-}
-
-impl TransitionIndex {
-    fn new(start: usize) -> TransitionIndex {
-        TransitionIndex { start }
-    }
+    state2incoming: ByteCompressedVec<usize>,
 }
 
 impl IncomingTransitions {
-    pub fn new(lts: &impl LTS) -> IncomingTransitions {
-        let num_states = lts.num_of_states();
+    pub fn new(lts: &impl LTS) -> Self {
         let mut transition_labels = bytevec![LabelIndex::new(0); lts.num_of_transitions()];
         let mut transition_from = bytevec![StateIndex::new(0); lts.num_of_transitions()];
-        let mut state2incoming = bytevec![TransitionIndex::default(); num_states];
+        let mut state2incoming = bytevec![0usize; lts.num_of_states()];
 
         // Count the number of incoming transitions for each state
         for state_index in lts.iter_states() {
             for transition in lts.outgoing_transitions(state_index) {
-                state2incoming.update(transition.to.value(), |incoming| incoming.start += 1);
+                state2incoming.update(transition.to.value(), |start| *start += 1);
             }
         }
 
         // Compute the start offsets (prefix sum)
-        state2incoming.fold(0, |offset, incoming| {
-            let new_offset = offset + incoming.start;
-            *incoming = TransitionIndex::new(offset);
+        state2incoming.fold(0, |offset, start| {
+            let new_offset = offset + *start;
+            *start = offset;
             new_offset
         });
 
         // Place the transitions
         for state_index in lts.iter_states() {
             for transition in lts.outgoing_transitions(state_index) {
-                state2incoming.update(transition.to.value(), |incoming| {
-                    transition_labels.set(incoming.start, transition.label);
-                    transition_from.set(incoming.start, state_index);
-                    incoming.start += 1;
+                state2incoming.update(transition.to.value(), |start| {
+                    transition_labels.set(*start, transition.label);
+                    transition_from.set(*start, state_index);
+                    *start += 1;
                 });
             }
         }
 
-        state2incoming.fold(0, |previous, state| {
-            let result = state.start;
-            state.start = previous;
+        state2incoming.fold(0, |previous, start| {
+            let result = *start;
+            *start = previous;
             result
         });
 
         // Add sentinel state
-        state2incoming.push(TransitionIndex::new(transition_labels.len()));
+        state2incoming.push(transition_labels.len());
 
         // Sort the incoming transitions such that silent transitions come first.
         //
         // TODO: This could be more efficient by simply grouping them instead of sorting, perhaps some group using a predicate.
         let mut pairs = Vec::new();
-        for state_index in 0..num_states {
-            let state = state2incoming.index(state_index);
-            let next_state = state2incoming.index(state_index + 1);
-
-            // Get the ranges to sort
-            let start = state.start;
-            let end = next_state.start;
+        for state_index in 0..lts.num_of_states() {
+            let start = state2incoming.index(state_index);
+            let end = state2incoming.index(state_index + 1);
 
             // Extract, sort, and put back
             pairs.clear();
@@ -92,7 +72,7 @@ impl IncomingTransitions {
             }
         }
 
-        IncomingTransitions {
+        Self {
             transition_labels,
             transition_from,
             state2incoming,
@@ -101,35 +81,18 @@ impl IncomingTransitions {
 
     /// Returns an iterator over the incoming transitions for the given state.
     pub fn incoming_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = Transition> + '_ {
-        let state = self.state2incoming.index(state_index.value());
-        let next_state = self.state2incoming.index(state_index.value() + 1);
-        (state.start..next_state.start)
-            .map(move |i| Transition::new(self.transition_labels.index(i), self.transition_from.index(i)))
+        let start = self.state2incoming.index(state_index.value());
+        let end = self.state2incoming.index(state_index.value() + 1);
+        (start..end).map(move |i| Transition::new(self.transition_labels.index(i), self.transition_from.index(i)))
     }
 
     // Return an iterator over the incoming silent transitions for the given state.
     pub fn incoming_silent_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = Transition> + '_ {
-        let state = self.state2incoming.index(state_index.value());
-        let next_state = self.state2incoming.index(state_index.value() + 1);
-        (state.start..next_state.start)
+        let start = self.state2incoming.index(state_index.value());
+        let end = self.state2incoming.index(state_index.value() + 1);
+        (start..end)
             .map(move |i| Transition::new(self.transition_labels.index(i), self.transition_from.index(i)))
             .take_while(|transition| transition.label == 0)
-    }
-}
-
-impl CompressedEntry for TransitionIndex {
-    fn to_bytes(&self, bytes: &mut [u8]) {
-        self.start.to_bytes(bytes);
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Self {
-        Self {
-            start: usize::from_bytes(bytes),
-        }
-    }
-
-    fn bytes_required(&self) -> usize {
-        self.start.bytes_required()
     }
 }
 
