@@ -477,6 +477,8 @@ mod tests {
     }
 
     #[test]
+    // Test uses crossbeam, which is not supported by miri
+    #[cfg_attr(miri, ignore)]
     fn test_parallel_iterator() {
         let mut rng = rand::rng();
 

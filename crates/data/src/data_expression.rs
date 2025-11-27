@@ -1,7 +1,4 @@
-use std::borrow::Borrow;
 use std::fmt;
-use std::marker::PhantomData;
-use std::mem::transmute;
 use std::ops::Deref;
 
 use ahash::AHashSet;
