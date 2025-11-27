@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::path::Path;
 use std::process::ExitCode;
 
 use clap::Parser;
@@ -11,11 +12,16 @@ use merc_tools::VersionFlag;
 use merc_unsafety::print_allocator_metrics;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
+use merc_vpg::ParityGameFormat;
+use merc_vpg::guess_format_from_extension;
+use merc_vpg::read_fts;
 use merc_vpg::read_pg;
+use merc_vpg::read_vpg;
+use merc_vpg::solve_variability_zielonka;
 use merc_vpg::solve_zielonka;
 
 #[derive(clap::Parser, Debug)]
-#[command(name = "Maurice Laveaux", about = "A command line variability parity game tool")]
+#[command(about = "A command line tool for variability parity games", arg_required_else_help = true)]
 struct Cli {
     #[command(flatten)]
     version: VersionFlag,
@@ -34,19 +40,30 @@ struct Cli {
 enum Commands {
     Solve(SolveArgs),
     Reachable(ReachableArgs),
+    Encode(EncodeArgs),
 }
 
 /// Arguments for solving a parity game
 #[derive(clap::Args, Debug)]
 struct SolveArgs {
     filename: String,
+
+    format: Option<ParityGameFormat>,
 }
 
-/// Arguments for solving a parity game
+/// Arguments for computing the reachable part of a parity game
 #[derive(clap::Args, Debug)]
 struct ReachableArgs {
     filename: String,
     output: String,
+}
+
+/// Arguments for encoding a feature transition system into a variability parity game
+#[derive(clap::Args, Debug)]
+struct EncodeArgs {
+    formula_filename: String,
+    fts_filename: String,
+    vpg_filename: String,
 }
 
 fn main() -> Result<ExitCode, MercError> {
@@ -67,18 +84,34 @@ fn main() -> Result<ExitCode, MercError> {
     if let Some(command) = cli.commands {
         match command {
             Commands::Solve(args) => {
-                let mut time_read = timing.start("read_pg");
-                let mut file = File::open(&args.filename)?;
-                let game = read_pg(&mut file)?;
-                time_read.finish();
+                let path = Path::new(&args.filename);
+                let mut file = File::open(path)?;
+                let format = guess_format_from_extension(path, args.format).ok_or("Unknown parity game file format.")?;
+                if format == ParityGameFormat::PG {
+                    // Read and solve a standard parity game and solve it.
+                    let mut time_read = timing.start("read_pg");
+                    let game = read_pg(&mut file)?;
+                    time_read.finish();
 
-                let mut time_solve = timing.start("solve_zielonka");
-                println!("{}", solve_zielonka(&game).solution());
-                time_solve.finish();
+                    let mut time_solve = timing.start("solve_zielonka");
+                    println!("{}", solve_zielonka(&game).solution());
+                    time_solve.finish();
+                } else {
+                    let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+
+                    let mut time_read = timing.start("read_vpg");
+                    let game = read_vpg(&manager_ref, &mut file)?;
+                    time_read.finish();
+
+                    let mut time_solve = timing.start("solve_variability_zielonka");
+                    println!("{}", solve_variability_zielonka(&manager_ref, &game).solution());
+                    time_solve.finish();
+                }                
             }
             Commands::Reachable(args) => {
-                let mut time_read = timing.start("read_pg");
                 let mut file = File::open(&args.filename)?;
+
+                let mut time_read = timing.start("read_pg");
                 let game = read_pg(&mut file)?;
                 time_read.finish();
 
@@ -92,6 +125,15 @@ fn main() -> Result<ExitCode, MercError> {
 
                 let mut output_file = File::create(&args.output)?;
                 merc_vpg::write_pg(&mut output_file, &reachable_game)?;
+            }
+            Commands::Encode(args) => {
+                let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+
+                let mut file = File::open(&args.fts_filename)?;
+                let fts = read_fts(&mut file)?;
+
+
+
             }
         }
     }

@@ -26,8 +26,8 @@ use merc_utilities::Timing;
 
 #[derive(clap::Parser, Debug)]
 #[command(
-    name = "Maurice Laveaux",
-    about = "A command line tool for labelled transition systems"
+    about = "A command line tool for labelled transition systems",
+    arg_required_else_help = true
 )]
 struct Cli {
     #[command(flatten)]

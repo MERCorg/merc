@@ -20,7 +20,7 @@ mod trs_format;
 pub use trs_format::*;
 
 #[derive(clap::Parser, Debug)]
-#[command(name = "Maurice Laveaux", about = "A command line rewriting tool")]
+#[command(about = "A command line rewriting tool", arg_required_else_help = true)]
 struct Cli {
     #[command(flatten)]
     version: VersionFlag,
