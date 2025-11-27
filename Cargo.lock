@@ -1096,6 +1096,7 @@ dependencies = [
  "merc_data",
  "merc_io",
  "merc_ldd",
+ "merc_macros",
  "merc_utilities",
  "oxidd",
 ]
@@ -1164,11 +1165,13 @@ name = "merc_vpg"
 version = "1.0.0"
 dependencies = [
  "bitvec",
+ "delegate",
  "itertools 0.14.0",
  "log",
  "merc_io",
  "merc_lts",
  "merc_utilities",
+ "oxidd",
  "regex",
  "streaming-iterator",
  "thiserror",

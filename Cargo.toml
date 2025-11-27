@@ -106,7 +106,6 @@ trybuild = "1.0"
 # Used for fuzzing
 arbitrary = { version = "1.4", features = ["derive"] }
 arbtest = "0.3"
-libfuzzer-sys = "0.4"
 
 # Used for benchmarks
 criterion = "0.7"
