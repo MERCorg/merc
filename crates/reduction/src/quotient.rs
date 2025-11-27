@@ -1,3 +1,5 @@
+//! Authors: Maurice Laveaux and Jan J. Martens
+
 use merc_lts::LTS;
 use merc_lts::LabelledTransitionSystem;
 use merc_lts::LtsBuilder;
@@ -168,7 +170,7 @@ pub fn quotient_lts_block<const BRANCHING: bool>(
                     block
                 );
             }
-            
+
             transitions.add_transition(
                 StateIndex::new(*block),
                 trans.label,

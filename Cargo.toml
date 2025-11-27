@@ -110,7 +110,7 @@ arbtest = "0.3"
 # Used for benchmarks
 criterion = "0.7"
 
-# The workspace libraries.
+# The workspace crates.
 merc_aterm = { path = "crates/aterm" }
 merc_data = { path = "crates/data" }
 merc_io = { path = "crates/io" }

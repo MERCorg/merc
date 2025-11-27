@@ -69,11 +69,11 @@ pub fn merc_ignore(_attributes: proc_macro::TokenStream, input: proc_macro::Toke
 #[proc_macro_attribute]
 pub fn merc_test(_attr: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(item as ItemFn);
-    
+
     let block = &input.block;
     let attrs = &input.attrs;
     let sig = &input.sig;
-    
+
     let output = quote! {
         #[test]
         #(#attrs)*
@@ -82,6 +82,6 @@ pub fn merc_test(_attr: proc_macro::TokenStream, item: proc_macro::TokenStream) 
             #block
         }
     };
-    
+
     output.into()
 }

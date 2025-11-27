@@ -13,8 +13,10 @@ merc_lts.workspace = true
 merc_utilities.workspace = true
 
 bitvec.workspace = true
-regex.workspace = true
+delegate.workspace = true
+itertools.workspace = true
 log.workspace = true
+oxidd.workspace = true
+regex.workspace = true
 streaming-iterator.workspace = true
 thiserror.workspace = true
-itertools.workspace = true

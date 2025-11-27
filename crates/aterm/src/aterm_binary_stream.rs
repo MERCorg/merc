@@ -40,9 +40,9 @@ const BAF_MAGIC: u16 = 0x8baf;
 /// - 24 September 2014: version changed to 0x0303 (introduction of stochastic distribution)
 /// - 2 April 2017: version changed to 0x0304 (removed a few superfluous fields in the format)
 /// - 19 July 2019: version changed to 0x8305 (introduction of the streamable aterm format)
-/// - 28 February 2020: version changed to 0x8306 (added ability to stream aterm_int, 
+/// - 28 February 2020: version changed to 0x8306 (added ability to stream aterm_int,
 ///     implemented structured streaming for all objects)
-/// - 24 January 2023: version changed to 0x8307 (removed NoIndex from Variables, Boolean variables. 
+/// - 24 January 2023: version changed to 0x8307 (removed NoIndex from Variables, Boolean variables.
 ///     Made the .lts format more compact by not storing states with a default probability 1)
 /// - 6 August 2024: version changed to 0x8308 (introduced machine numbers)
 const BAF_VERSION: u16 = 0x8308;

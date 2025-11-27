@@ -184,9 +184,9 @@ impl fmt::Debug for ATermRef<'_> {
         if is_int_term(self) {
             write!(f, "{}", Into::<ATermIntRef>::into(self.copy()))?;
         } else if is_list_term(self) || is_empty_list_term(self) {
-            write!(f, "{}", Into::<ATermList<ATerm>>::into(self.copy()))?;     
+            write!(f, "{}", Into::<ATermList<ATerm>>::into(self.copy()))?;
         } else if self.arguments().is_empty() {
-            write!(f, "{}", self.get_head_symbol().name())?;       
+            write!(f, "{}", self.get_head_symbol().name())?;
         } else {
             // Format the term with its head symbol and arguments, avoiding trailing comma
             write!(f, "{:?}(", self.get_head_symbol())?;

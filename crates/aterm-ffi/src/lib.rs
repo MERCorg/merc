@@ -399,7 +399,8 @@ unsafe fn term_len(term: unprotected_aterm_t) -> usize {
 /// Safety: The unprotected_aterm_t must point to a valid term.
 unsafe fn term_to_aterm_ref(term: unprotected_aterm_t, annotated: bool) -> ATermRef<'static> {
     unsafe {
-        let wide_ptr = ptr::slice_from_raw_parts(term.ptr as *const TermOrAnnotation, term_len(term) + annotated as usize);
+        let wide_ptr =
+            ptr::slice_from_raw_parts(term.ptr as *const TermOrAnnotation, term_len(term) + annotated as usize);
         ATermRef::from_index(&ATermIndex::from_ptr(NonNull::new_unchecked(
             wide_ptr as *mut SharedTerm,
         )))

@@ -1,6 +1,6 @@
 # Contributing
 
-Compilation requires at least rustc version 1.85.0 and we use 2024 edition rust. By default this will build in `dev` or debug mode, and a release build can be obtained by passing `--release`. Source code documentation can be found at Github [pages](https://mlaveaux.github.io/merc/merc/index.html), and more detailed documentation can be found in `doc`.
+Source code documentation can be found at Github [pages](https://mlaveaux.github.io/merc/merc/index.html), and more detailed documentation can be found in `doc`. See `doc/TESTING.md` for more information on how to run the tests.
 
 ## Formatting
 

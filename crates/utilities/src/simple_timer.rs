@@ -82,6 +82,7 @@ impl Default for SimpleTimer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use std::thread::sleep;
 
     #[test]

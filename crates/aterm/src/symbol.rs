@@ -277,7 +277,7 @@ impl Borrow<SymbolRef<'static>> for Symbol {
 impl Eq for Symbol {}
 
 impl Arbitrary<'_> for Symbol {
-    /// Generates a random symbol with a name and arity up to and including 3.
+    /// Generates a random symbol with a name and arity up to and including 4.
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         let name = readable_string(u, 1)?;
         let arity = u.int_in_range(0..=4)?;

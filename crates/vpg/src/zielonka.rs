@@ -61,6 +61,7 @@ struct ZielonkaSolver<'a> {
 impl ZielonkaSolver<'_> {
     /// Creates a new Zielonka solver for the given parity game.
     fn new<'a>(game: &'a ParityGame) -> ZielonkaSolver<'a> {
+        // Keep track of the vertices for each priority
         let mut priority_vertices = Vec::new();
 
         for v in game.iter_vertices() {

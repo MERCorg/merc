@@ -1,3 +1,5 @@
+//! Authors: Maurice Laveaux and Jan J. Martens
+
 use std::fmt;
 use std::mem::swap;
 

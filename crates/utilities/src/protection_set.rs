@@ -236,6 +236,7 @@ mod tests {
     use rand::Rng;
 
     use crate::random_test;
+    use crate::test_logger;
 
     #[test]
     fn test_random_protection_set() {
@@ -281,7 +282,7 @@ mod tests {
 
     #[test]
     fn test_protection_set_basic() {
-        let _ = crate::test_logger();
+        let _ = test_logger();
 
         let mut set = ProtectionSet::<String>::new();
 
