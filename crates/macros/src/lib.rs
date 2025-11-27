@@ -5,8 +5,11 @@
 
 #![forbid(unsafe_code)]
 
-mod merc_derive_terms;
+use quote::quote;
+use syn::ItemFn;
+use syn::parse_macro_input;
 
+mod merc_derive_terms;
 use merc_derive_terms::merc_derive_terms_impl;
 
 /// This proc macro can be used to generate implementations for the types stored
@@ -60,4 +63,25 @@ pub fn merc_term(_attributes: proc_macro::TokenStream, input: proc_macro::TokenS
 #[proc_macro_attribute]
 pub fn merc_ignore(_attributes: proc_macro::TokenStream, input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     input
+}
+
+/// A macro that makes the function marked as a `#[test]` function and also initializes the test_logger().
+#[proc_macro_attribute]
+pub fn merc_test(_attr: proc_macro::TokenStream, item: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(item as ItemFn);
+    
+    let block = &input.block;
+    let attrs = &input.attrs;
+    let sig = &input.sig;
+    
+    let output = quote! {
+        #[test]
+        #(#attrs)*
+        #sig {
+            let __logger = merc_utilities::test_logger();
+            #block
+        }
+    };
+    
+    output.into()
 }
