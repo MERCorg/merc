@@ -6,7 +6,7 @@ pub struct VerbosityFlag {
     #[arg(short, long, global = true, help = "Set the verbosity to quiet")]
     quiet: bool,
 
-    #[arg(short, long, global = true, help = "Set the verbosity to verbose")]
+    #[arg(short, long, global = true, help = "Set the verbosity to verbose (default)")]
     verbose: bool,
 
     #[arg(short, long, global = true, help = "Set the verbosity to debug")]
