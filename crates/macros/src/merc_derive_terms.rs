@@ -57,6 +57,7 @@ pub(crate) fn merc_derive_terms_impl(_attributes: TokenStream, input: TokenStrea
                         // Simply the generics from the struct.
                         let generics = object.generics.clone();
 
+                        // Helper to create generics with added lifetimes.
                         fn create_generics_with_lifetimes(
                             base_generics: &syn::Generics,
                             lifetime_names: &[&str],
@@ -112,13 +113,13 @@ pub(crate) fn merc_derive_terms_impl(_attributes: TokenStream, input: TokenStrea
                                 }
                             }
 
-                            impl #generics Into<ATerm> for #name #generics{
+                            impl #generics ::std::convert::Into<ATerm> for #name #generics{
                                 fn into(self) -> ATerm {
                                     self.term
                                 }
                             }
 
-                            impl #generics Deref for #name #generics{
+                            impl #generics ::std::ops::Deref for #name #generics{
                                 type Target = ATerm;
 
                                 fn deref(&self) -> &Self::Target {
@@ -126,7 +127,7 @@ pub(crate) fn merc_derive_terms_impl(_attributes: TokenStream, input: TokenStrea
                                 }
                             }
 
-                            impl #generics Borrow<ATerm> for #name #generics{
+                            impl #generics ::std::borrow::Borrow<ATerm> for #name #generics{
                                 fn borrow(&self) -> &ATerm {
                                     &self.term
                                 }
@@ -169,7 +170,7 @@ pub(crate) fn merc_derive_terms_impl(_attributes: TokenStream, input: TokenStrea
                             #[derive(Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
                             pub struct #name_ref #generics_ref {
                                 pub(crate) term: ATermRef<'a>,
-                                _marker: PhantomData #generics_phantom,
+                                _marker: ::std::marker::PhantomData #generics_phantom,
                             }
 
                             impl #generics_ref  #name_ref #generics_ref  {
@@ -187,7 +188,7 @@ pub(crate) fn merc_derive_terms_impl(_attributes: TokenStream, input: TokenStrea
                                     #assertion;
                                     #name_ref {
                                         term,
-                                        _marker: PhantomData,
+                                        _marker: ::std::marker::PhantomData,
                                     }
                                 }
                             }
@@ -214,7 +215,7 @@ pub(crate) fn merc_derive_terms_impl(_attributes: TokenStream, input: TokenStrea
                                 }
                             }
 
-                            impl #generics_ref Borrow<ATermRef<'a>> for #name_ref #generics_ref {
+                            impl #generics_ref ::std::borrow::Borrow<ATermRef<'a>> for #name_ref #generics_ref {
                                 fn borrow(&self) -> &ATermRef<'a> {
                                     &self.term
                                 }
@@ -242,11 +243,11 @@ pub(crate) fn merc_derive_terms_impl(_attributes: TokenStream, input: TokenStrea
                                 type Target #generics_ref = #name_ref #generics_ref;
 
                                 fn transmute_lifetime<'a>(&self) -> &'a Self::Target #generics_ref {
-                                    unsafe { transmute::<&Self, &'a #name_ref #generics_ref>(self) }
+                                    unsafe { ::std::mem::transmute::<&Self, &'a #name_ref #generics_ref>(self) }
                                 }
 
                                 fn transmute_lifetime_mut<'a>(&mut self) -> &'a mut Self::Target #generics_ref {
-                                    unsafe { transmute::<&mut Self, &'a mut #name_ref #generics_ref>(self) }
+                                    unsafe { ::std::mem::transmute::<&mut Self, &'a mut #name_ref #generics_ref>(self) }
                                 }
                             }
                         );
