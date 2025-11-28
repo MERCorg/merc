@@ -47,8 +47,6 @@ impl fmt::Display for Rewriter {
 }
 
 /// Benchmarks all the REC specifications in the example folder.
-///
-/// - mcrl2 This enables benchmarking the upstream mcrl2rewrite tool
 pub fn benchmark(output_path: impl AsRef<Path>, rewriter: Rewriter) -> Result<(), Box<dyn Error>> {
     // Find the tool based on which rewriter we want to benchmark
     let cwd = env::current_dir()?;
@@ -145,6 +143,7 @@ pub fn benchmark(output_path: impl AsRef<Path>, rewriter: Rewriter) -> Result<()
     Ok(())
 }
 
+/// Computes the average of the given values.
 fn average(values: &[f32]) -> f32 {
     values.iter().sum::<f32>() / values.len() as f32
 }
