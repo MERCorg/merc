@@ -872,6 +872,7 @@ dependencies = [
  "merc_unsafety",
  "merc_utilities",
  "merc_vpg",
+ "oxidd",
 ]
 
 [[package]]
@@ -1096,7 +1097,6 @@ dependencies = [
  "merc_data",
  "merc_io",
  "merc_ldd",
- "merc_macros",
  "merc_utilities",
  "oxidd",
 ]
@@ -1165,11 +1165,13 @@ name = "merc_vpg"
 version = "1.0.0"
 dependencies = [
  "bitvec",
+ "clap",
  "delegate",
  "itertools 0.14.0",
  "log",
  "merc_io",
  "merc_lts",
+ "merc_syntax",
  "merc_utilities",
  "oxidd",
  "regex",
