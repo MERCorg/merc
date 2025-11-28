@@ -5,7 +5,9 @@ use pest::Parser;
 use pest_consume::Error;
 use pest_derive::Parser;
 
+use crate::DataExpr;
 use crate::DataExprBinaryOp;
+use crate::MultiAction;
 use crate::ParseNode;
 use crate::StateFrmOp;
 use crate::UntypedActionRenameSpec;
@@ -37,6 +39,30 @@ impl UntypedDataSpecification {
         trace!("Parse tree {}", DisplayPair(root.clone()));
 
         Ok(Mcrl2Parser::DataSpec(ParseNode::new(root))?)
+    }
+}
+
+impl DataExpr {
+    pub fn parse(spec: &str) -> Result<DataExpr, MercError> {
+        let mut result = Mcrl2Parser::parse(Rule::DataExpr, spec).map_err(extend_parser_error)?;
+        let root = result
+            .next()
+            .expect("Could not parse mCRL2 data expression");
+        trace!("Parse tree {}", DisplayPair(root.clone()));
+
+        Ok(Mcrl2Parser::DataExpr(ParseNode::new(root))?)
+    }
+}
+
+impl MultiAction {
+    pub fn parse(spec: &str) -> Result<MultiAction, MercError> {
+        let mut result = Mcrl2Parser::parse(Rule::MultiAct, spec).map_err(extend_parser_error)?;
+        let root = result
+            .next()
+            .expect("Could not parse mCRL2 multi-action");
+        trace!("Parse tree {}", DisplayPair(root.clone()));
+
+        Ok(Mcrl2Parser::MultAct(ParseNode::new(root))?)
     }
 }
 
