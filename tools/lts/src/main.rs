@@ -21,6 +21,7 @@ use merc_tools::Version;
 use merc_tools::VersionFlag;
 use merc_tools::verbosity::VerbosityFlag;
 use merc_unsafety::print_allocator_metrics;
+use merc_utilities::LargeFormatter;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
 
@@ -105,8 +106,8 @@ fn main() -> Result<ExitCode, MercError> {
                     let lts = read_explicit_lts(path, format, Vec::new(), &mut timing)?;
                     println!(
                         "LTS has {} states and {} transitions.",
-                        lts.num_of_states(),
-                        lts.num_of_transitions()
+                        LargeFormatter(lts.num_of_states()),
+                        LargeFormatter(lts.num_of_transitions())
                     );
                 } else {
                     let mut storage = Storage::new();
@@ -122,8 +123,8 @@ fn main() -> Result<ExitCode, MercError> {
                     let lts = read_explicit_lts(path, format, args.tau.unwrap_or_default(), &mut timing)?;
                     info!(
                         "LTS has {} states and {} transitions.",
-                        lts.num_of_states(),
-                        lts.num_of_transitions()
+                        LargeFormatter(lts.num_of_states()),
+                        LargeFormatter(lts.num_of_transitions())
                     );
 
                     print_allocator_metrics();
@@ -131,8 +132,8 @@ fn main() -> Result<ExitCode, MercError> {
                     let reduced_lts = reduce(lts, args.equivalence, &mut timing);
                     info!(
                         "Reduced LTS has {} states and {} transitions.",
-                        reduced_lts.num_of_states(),
-                        reduced_lts.num_of_transitions()
+                        LargeFormatter(reduced_lts.num_of_states()),
+                        LargeFormatter(reduced_lts.num_of_transitions())
                     );
 
                     if let Some(file) = args.output {
