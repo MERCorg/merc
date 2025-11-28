@@ -470,7 +470,10 @@ where
     pub fn clear(&self) {
         #[cfg(debug_assertions)]
         debug_assert!(
-            self.index.pin().iter().all(|x| Arc::strong_count(&x.reference_counter) == 1),
+            self.index
+                .pin()
+                .iter()
+                .all(|x| Arc::strong_count(&x.reference_counter) == 1),
             "All pointers must be the last reference to the element"
         );
 
@@ -525,7 +528,6 @@ where
             construct(ptr.as_mut(), value);
         }
 
-
         loop {
             let entry = Entry::new(ptr);
             let ptr = StablePointer::from_entry(&entry);
@@ -544,9 +546,10 @@ where
 
                     return (existing_ptr, false);
                 }
+            } else {  
+                // Value was successfully inserted              
+                return (ptr, true);
             }
-
-            return (ptr, true);
         }
     }
 }
@@ -604,7 +607,10 @@ where
     fn drop(&mut self) {
         #[cfg(debug_assertions)]
         debug_assert!(
-            self.index.pin().iter().all(|x| Arc::strong_count(&x.reference_counter) == 1),
+            self.index
+                .pin()
+                .iter()
+                .all(|x| Arc::strong_count(&x.reference_counter) == 1),
             "All pointers must be the last reference to the element"
         );
 
