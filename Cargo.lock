@@ -1150,6 +1150,7 @@ dependencies = [
  "ahash",
  "arbitrary",
  "backtrace",
+ "bitvec",
  "delegate",
  "env_logger",
  "hashbrown",

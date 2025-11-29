@@ -14,10 +14,8 @@ use merc_utilities::MercError;
 use merc_utilities::Timing;
 use merc_vpg::ParityGameFormat;
 use merc_vpg::guess_format_from_extension;
-use merc_vpg::read_fts;
 use merc_vpg::read_pg;
 use merc_vpg::read_vpg;
-use merc_vpg::solve_variability_zielonka;
 use merc_vpg::solve_zielonka;
 
 #[derive(clap::Parser, Debug)]
@@ -103,9 +101,9 @@ fn main() -> Result<ExitCode, MercError> {
                     let game = read_vpg(&manager_ref, &mut file)?;
                     time_read.finish();
 
-                    let mut time_solve = timing.start("solve_variability_zielonka");
-                    println!("{}", solve_variability_zielonka(&manager_ref, &game).solution());
-                    time_solve.finish();
+                    // let mut time_solve = timing.start("solve_variability_zielonka");
+                    // println!("{}", solve_variability_zielonka(&manager_ref, &game).solution());
+                    // time_solve.finish();
                 }                
             }
             Commands::Reachable(args) => {
@@ -130,7 +128,7 @@ fn main() -> Result<ExitCode, MercError> {
                 let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
 
                 let mut file = File::open(&args.fts_filename)?;
-                let fts = read_fts(&mut file)?;
+                // let fts = read_fts(&mut file)?;
 
 
 
