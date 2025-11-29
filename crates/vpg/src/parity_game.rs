@@ -82,9 +82,10 @@ pub struct ParityGame {
     /// Stores the priority of every vertex.
     priority: Vec<Priority>,
 
+    // TODO: These should only be accessible in VariabilityParityGame
     /// Offsets into the transition array for every vertex.
-    vertices: Vec<usize>,
-    edges_to: Vec<VertexIndex>,
+    pub vertices: Vec<usize>,
+    pub edges_to: Vec<VertexIndex>,
 
     initial_vertex: VertexIndex,
 }
