@@ -8,7 +8,7 @@ version = "1.0.0"
 resolver = "2"
 members = [
     "mcrl2-sys",
-    "pbessymmetry",
+    "pbes",
 ]
 
 [workspace.dependencies]
@@ -23,5 +23,6 @@ cc = "1.0"
 cargo-emit = "0.2"
 
 # The workspace libraries.
-mcrl2_sys = { path = "../../crates/mcrl2_sys" }
-merc_utilities = { path = "../../crates/merc_utilities" }
+mcrl2_sys = { path = "crates/mcrl2_sys" }
+merc_tools = { path = "../../crates/tools" }
+merc_utilities = { path = "../../crates/utilities" }
