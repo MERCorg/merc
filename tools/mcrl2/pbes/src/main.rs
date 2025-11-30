@@ -1,5 +1,13 @@
-use merc_utilities::MercError;
+use std::process::ExitCode;
 
+use clap::Parser;
+use clap::Subcommand;
+
+use merc_tools::VerbosityFlag;
+use merc_tools::Version;
+use merc_tools::VersionFlag;
+use merc_utilities::MercError;
+use merc_utilities::Timing;
 
 #[derive(clap::Parser, Debug)]
 #[command(about = "A command line tool for variability parity games", arg_required_else_help = true)]
@@ -26,11 +34,9 @@ enum Commands {
 #[derive(clap::Args, Debug)]
 struct SymmetryArgs {
     filename: String,
-
-    format: Option<ParityGameFormat>,
 }
 
-fn main() -> Result<(), MercError> {
+fn main() -> Result<ExitCode, MercError> {
     let cli = Cli::parse();
 
     env_logger::Builder::new()
@@ -45,10 +51,14 @@ fn main() -> Result<(), MercError> {
 
     let mut timing = Timing::new();
 
+    if let Some(Commands::Symmetry(args)) = cli.commands {
+        let pbes = mcrl2_sys::pbes::ffi::load_pbes_from_file(&args.filename)?;
+    }
+
     
     if cli.timings {
         timing.print();
     }
 
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
