@@ -12,17 +12,17 @@ members = [
 ]
 
 [workspace.dependencies]
-clap = "1.0"
+clap = { version = "4.5", features = ["derive"] }
 env_logger = "0.11"
 log = "0.4"
 
 # Dependencies for building the mCRL2 C++ bindings.
 cxx = "1.0"
-cxx-build = "1.0"
+cxx-build = { version = "1.0", features = ["parallel"] }
 cc = "1.0"
 cargo-emit = "0.2"
 
 # The workspace libraries.
-mcrl2_sys = { path = "crates/mcrl2_sys" }
+mcrl2-sys = { path = "mcrl2-sys" }
 merc_tools = { path = "../../crates/tools" }
 merc_utilities = { path = "../../crates/utilities" }
