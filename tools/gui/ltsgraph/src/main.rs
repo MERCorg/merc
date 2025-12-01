@@ -28,16 +28,18 @@ use wgpu::TextureDescriptor;
 use wgpu::TextureFormat;
 use wgpu::TextureUsages;
 
-use merc_gui::console;
-use merc_gui::verbosity::VerbosityFlag;
 use merc_lts::LabelledTransitionSystem;
+use merc_lts::LTS;
 use merc_lts::read_aut;
 use merc_ltsgraph_lib::FemtovgRenderer;
 use merc_ltsgraph_lib::GraphLayout;
 use merc_ltsgraph_lib::SkiaRenderer;
 use merc_ltsgraph_lib::Viewer;
+use merc_tools::console;
+use merc_tools::verbosity::VerbosityFlag;
+use merc_tools::Version;
+use merc_utilities::LargeFormatter;
 use merc_utilities::MercError;
-use merc_version::Version;
 
 use merc_ltsgraph::PauseableThread;
 use merc_ltsgraph::init_wgpu;
@@ -484,7 +486,7 @@ async fn main() -> Result<ExitCode, MercError> {
                     match read_aut(&file, vec![]) {
                         Ok(lts) => {
                             let lts = Arc::new(lts);
-                            info!("Loaded lts {lts}");
+                            info!("Loaded lts with {} states and {} transitions", LargeFormatter(lts.num_of_states()), LargeFormatter(lts.num_of_transitions()));
 
                             // Create the layout and viewer separately to make the initial state sensible.
                             let layout = GraphLayout::new(lts.clone());

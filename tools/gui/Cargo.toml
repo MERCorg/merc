@@ -10,14 +10,17 @@ version = "1.0.0"
 [profile.release]
 lto = "fat"
 panic = "abort"
-debug = "full"
+debug = "line-tables-only"
+split-debuginfo= "packed"
+
+[profile.dev]
 split-debuginfo= "packed"
 
 [workspace]
 resolver = "2"
 members = [
     "ltsgraph",
-    "ltsgraph/library"
+    "ltsgraph-lib"
 ]
 
 [workspace.dependencies]
@@ -27,7 +30,7 @@ env_logger = "0.11"
 femtovg = { version = "0.19", features = ["wgpu"] }
 glam = "0.30"
 log = "0.4"
-rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "async-std"] }
+rfd = { version = "0.16", default-features = false, features = ["xdg-portal", "async-std"] }
 slint = { version = "1.14", features = ["compat-1-2", "std", "accessibility", "backend-winit", "renderer-skia"], default-features = false}
 slint-build = "1.14"
 tiny-skia = "0.11"
@@ -36,6 +39,7 @@ wgpu = "27.0"
 rand = "0.9"
 
 # The workspace libraries.
+merc_ltsgraph-lib = { path = "ltsgraph-lib" }
 merc_lts = { path = "../../crates/lts" }
 merc_tools = { path = "../../crates/tools" }
 merc_unsafety = { path = "../../crates/unsafety" }
