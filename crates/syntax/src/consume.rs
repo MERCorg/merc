@@ -1141,20 +1141,29 @@ impl Mcrl2Parser {
         let span = spec.as_span();
         for child in spec.into_children() {
             match child.as_rule() {
-                Rule::ConsSpec => {
-                    constructor_declarations.append(&mut Mcrl2Parser::ConsSpec(child)?);
-                }
-                Rule::MapSpec => {
-                    map_declarations.append(&mut Mcrl2Parser::MapSpec(child)?);
-                }
-                Rule::EqnSpec => {
-                    equation_declarations.append(&mut Mcrl2Parser::EqnSpec(child)?);
-                }
-                Rule::SortSpec => {
-                    sort_declarations.append(&mut Mcrl2Parser::SortSpec(child)?);
-                }
-                Rule::ActSpec => {
-                    action_declarations.append(&mut Mcrl2Parser::ActSpec(child)?);
+                Rule::StateFrmSpecElt => {
+                    let element = child.into_children().next().expect("StateFrmSpecElt has exactly one child");
+                    match element.as_rule() {
+                        Rule::ConsSpec => {
+                            constructor_declarations.append(&mut Mcrl2Parser::ConsSpec(element)?);
+                        }
+                        Rule::MapSpec => {
+                            map_declarations.append(&mut Mcrl2Parser::MapSpec(element)?);
+                        }
+                        Rule::EqnSpec => {
+                            equation_declarations.append(&mut Mcrl2Parser::EqnSpec(element)?);
+                        }
+                        Rule::SortSpec => {
+                            sort_declarations.append(&mut Mcrl2Parser::SortSpec(element)?);
+                        }
+                        Rule::ActSpec => {
+                            action_declarations.append(&mut Mcrl2Parser::ActSpec(element)?);
+                        }
+                        _ => {
+                            unimplemented!("Unexpected rule in StateFrmSpecElt: {:?}", element.as_rule());
+                        }
+                    }
+
                 }
                 Rule::StateFrm => {
                     if form_spec.is_some() {
