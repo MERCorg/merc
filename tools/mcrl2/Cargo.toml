@@ -9,15 +9,16 @@ version = "1.0.0"
 lto = "fat"
 panic = "abort"
 debug = "line-tables-only"
-split-debuginfo= "packed"
+split-debuginfo = "packed"
 
 [profile.dev]
-split-debuginfo= "packed"
+split-debuginfo = "packed"
 
 [workspace]
 resolver = "2"
 members = [
     "mcrl2-sys",
+    "mcrl2",
     "pbes",
 ]
 
@@ -25,6 +26,7 @@ members = [
 clap = { version = "4.5", features = ["derive"] }
 env_logger = "0.11"
 log = "0.4"
+itertools = "0.14"
 
 # Dependencies for building the mCRL2 C++ bindings.
 cxx = "1.0"
@@ -33,6 +35,7 @@ cc = "1.0"
 cargo-emit = "0.2"
 
 # The workspace libraries.
+mcrl2 = { path = "mcrl2" }
 mcrl2-sys = { path = "mcrl2-sys" }
 merc_tools = { path = "../../crates/tools" }
 merc_utilities = { path = "../../crates/utilities" }
