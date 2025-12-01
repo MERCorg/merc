@@ -7,14 +7,19 @@
 //!  Write the initial state.
 
 use std::io::BufReader;
+use std::io::BufWriter;
 use std::io::Read;
+use std::io::Write;
 
 use log::info;
 use merc_aterm::ATerm;
 use merc_aterm::ATermInt;
+use merc_aterm::ATermList;
 use merc_aterm::ATermRead;
 use merc_aterm::ATermStreamable;
+use merc_aterm::ATermWrite;
 use merc_aterm::BinaryATermReader;
+use merc_aterm::BinaryATermWriter;
 use merc_aterm::Symbol;
 use merc_aterm::is_list_term;
 use merc_data::DataSpecification;
@@ -22,6 +27,7 @@ use merc_io::TimeProgress;
 use merc_utilities::IndexedSet;
 use merc_utilities::MercError;
 
+use crate::LTS;
 use crate::LabelledTransitionSystem;
 use crate::LtsBuilder;
 use crate::StateIndex;
@@ -64,10 +70,9 @@ pub fn read_lts(reader: impl Read, hidden_labels: Vec<String>) -> Result<Labelle
                     let label = reader.read_aterm()?.ok_or("Missing transition label")?;
                     let to: ATermInt = reader.read_aterm()?.ok_or("Missing to state")?.into();
 
-
                     builder.add_transition(
                         StateIndex::new(from.value()),
-                        &label.to_string(),
+                        &label.to_string(), // TODO: This should consider multi-actions properly.
                         StateIndex::new(to.value()),
                     );
 
@@ -90,6 +95,36 @@ pub fn read_lts(reader: impl Read, hidden_labels: Vec<String>) -> Result<Labelle
     Ok(builder.finish(initial_state.ok_or("Missing initial state")?, false))
 }
 
+///  Note that the writer is buffered internally using a
+/// `BufWriter`.
+pub fn write_lts(writer: &mut impl Write, lts: &impl LTS) -> Result<(), MercError> {
+    info!("Writing LTS in .lts format...");
+
+    let mut writer = BinaryATermWriter::new(BufWriter::new(writer))?;
+
+    writer.write_aterm(&lts_marker())?;
+
+    // Write the data specification, parameters, and actions.
+    DataSpecification::default().write(&mut writer)?;
+    writer.write_aterm(&ATermList::<ATerm>::empty().into())?; // Empty parameters
+    writer.write_aterm(&ATermList::<ATerm>::empty().into())?; // Empty action labels
+
+    // Write the initial state.
+    writer.write_aterm(&initial_state_marker())?;
+    writer.write_aterm(&ATermInt::new(*lts.initial_state_index()))?;
+
+    for state in lts.iter_states() {
+        for transition in lts.outgoing_transitions(state) {
+            writer.write_aterm(&transition_marker())?;
+            writer.write_aterm(&ATermInt::new(*state))?;
+            writer.write_aterm(&ATerm::from_string(&lts.labels()[transition.label])?)?;
+            writer.write_aterm(&ATermInt::new(*transition.to))?;
+        }
+    }
+
+    Ok(())
+}
+
 /// Returns the ATerm marker for a labelled transition system.
 fn lts_marker() -> ATerm {
     ATerm::constant(&Symbol::new("labelled_transition_system", 0))
@@ -110,21 +145,13 @@ fn probabilistic_transition_mark() -> ATerm {
     ATerm::constant(&Symbol::new("probabilistic_transition", 0))
 }
 
-/// A multi-action, i.e., a set of action labels.
-// struct MultiAction {
-//     actions: Vec<LabelIndex>,
-// }
-
-// struct Action {
-//     name: String,
-//     sort: SortExpr,
-// }
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use crate::LTS;
+    use merc_utilities::random_test;
+
+    use crate::{LTS, LabelIndex, Transition, random_lts};
 
     #[test]
     #[cfg_attr(miri, ignore)]
@@ -133,5 +160,30 @@ mod tests {
 
         assert_eq!(lts.num_of_states(), 74);
         assert_eq!(lts.num_of_transitions(), 92);
+    }
+
+    #[test]
+    fn test_random_lts_io() {
+        random_test(100, |rng| {
+            let lts = random_lts(rng, 100, 3, 20);
+
+            let mut buffer: Vec<u8> = Vec::new();
+            write_lts(&mut buffer, &lts).unwrap();
+
+            let lts_read = read_lts(&buffer[0..], vec![]).unwrap();
+
+            assert!(lts.num_of_states() == lts_read.num_of_states());
+            assert!(lts.num_of_labels() == lts_read.num_of_labels());
+            assert!(lts.num_of_transitions() == lts_read.num_of_transitions());       
+
+            // Check that all the outgoing transitions are the same.
+            for state_index in lts.iter_states() {
+                // The labels
+                let transitions: Vec<_> = lts.outgoing_transitions(state_index).collect();
+                let transitions_read: Vec<_> = lts_read.outgoing_transitions(state_index).collect();
+
+                assert_eq!(transitions, transitions_read);
+            } 
+        })
     }
 }
