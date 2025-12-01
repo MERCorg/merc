@@ -17,7 +17,7 @@ fn add_prefix(prefix: String, paths: &[&str]) -> Vec<String> {
 fn add_compile_flags(build: &mut Build, mcrl2_path: String) {
     #[cfg(unix)]
     build
-        .flag_if_supported("-Wall")
+        .flag_if_supported("-Wno-unused-parameter") // I don't care about unused parameters in mCRL2 code.
         .flag_if_supported("-pipe")
         .flag_if_supported("-pedantic")
         .flag_if_supported("-stdlib=libc++")
@@ -28,11 +28,10 @@ fn add_compile_flags(build: &mut Build, mcrl2_path: String) {
         .include(mcrl2_path + "build/workarounds/msvc") // These are MSVC workarounds that mCRL2 relies on for compilation.
         .flag("/EHs")
         .flag("/bigobj")
-        .flag("/W3")
         .flag("/MP")
         .flag("/Zc:inline")
         .flag("/permissive-")
-        .flag("/std:c++17")
+        .flag("/std:c++20")
         .define("WIN32", "1")
         .define("WIN32_LEAN_AND_MEAN", "1")
         .define("NOMINMAX", "1")
@@ -79,7 +78,6 @@ fn main() {
     let lps_source_files = [
         "lps.cpp",
         "lps_io.cpp",
-        //"tools.cpp",
         //"linearise.cpp",
         //"lpsparunfoldlib.cpp",
         //"next_state_generator.cpp",
@@ -103,9 +101,7 @@ fn main() {
         "pgsolver.cpp",
     ];
 
-
     let process_source_files = ["process.cpp"];
-
 
     // Path to the mCRL2 location
     let mcrl2_path = String::from("../../../3rd-party/mCRL2/");
@@ -131,6 +127,7 @@ fn main() {
         .cpp(true)
         .define("MCRL2_NO_RECURSIVE_SOUNDNESS_CHECKS", "1") // These checks overflow the stack, and are extremely slow.
         .define("LPS_NO_RECURSIVE_SOUNDNESS_CHECKS", "1")
+        .define("MERC_MCRL2_VERSION", "<internal_merc_build>") // Sets the mCRL2 version to something recognized as our internal build.
         .includes(add_prefix(
             mcrl2_path.clone(),
             &[
@@ -190,7 +187,7 @@ fn main() {
     // Disable assertions and other checks in release mode.
     let profile = std::env::var("PROFILE").expect("cargo should always set this variable");
     match profile.as_str() {
-        "debug" => {            
+        "debug" => {
             build.define("_LIBCPP_DEBUG", "1");
             build.define("_LIBCPP_ENABLE_THREAD_SAFETY_ANNOTATIONS", "1");
             build.define("_LIBCPP_HARDENING_MODE", "_LIBCPP_HARDENING_MODE_DEBUG");
@@ -199,7 +196,7 @@ fn main() {
             build.define("_LIBCPP_ABI_BOUNDED_ITERATORS_IN_VECTOR", "1");
             build.define("_LIBCPP_ABI_BOUNDED_UNIQUE_PTR", "1");
             build.define("_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STD_ARRAY", "1");
-        },
+        }
         "release" => {
             build.define("NDEBUG", "1");
         }
