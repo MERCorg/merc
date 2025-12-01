@@ -1,3 +1,13 @@
-# README
+# Overview
 
-Note that the GUI tools are a completely separate workspace, because it's not (yet) possible to conditionally enable workspace members based on features or any other means. The gui tools depend on large GUI frameworks, in our case Slint, that is undesirable to have by default as it adds roughtly 600 dependencies. Compiling the GUI tools on Ubuntu requires both `libfreetype-dev` and `libfontconfig1-dev` to be installed.
+Note that the GUI tools are a completely separate workspace, because it's not
+(yet) possible to conditionally enable workspace members based on features or
+any other means. The gui tools depend on large GUI frameworks, in our case
+Slint, that is undesirable to have by default as it adds roughtly 600
+dependencies. Compiling the GUI tools on Ubuntu requires both `libfreetype-dev`
+and `libfontconfig1-dev` to be installed.
+
+# Contributing
+
+It is also convenient to open this directory directly in `vscode` since opening
+the root directory can make it confused by the different workspaces somehow.
