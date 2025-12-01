@@ -6,6 +6,7 @@
 //! it a foreign function interface (FFI) is defined using the
 //! [cxx](https://cxx.rs/) crate.
 
+pub mod log;
 pub mod pbes;
 
 // Reexport the cxx types that we use

@@ -22,10 +22,15 @@ impl VerbosityFlag {
         let verbosity: Verbosity = self.into();
         verbosity.log_level_filter()
     }
+
+    /// Returns the verbosity level corresponding to the given verbosity flags.
+    pub fn verbosity(&self) -> Verbosity {
+        self.into()
+    }
 }
 
 #[derive(Debug, Clone)]
-enum Verbosity {
+pub enum Verbosity {
     Quiet,
     Verbose,
     Debug,

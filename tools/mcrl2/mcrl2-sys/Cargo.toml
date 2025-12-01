@@ -6,6 +6,7 @@ rust-version.workspace = true
 edition.workspace = true
 
 [dependencies]
+merc_tools.workspace = true
 cxx.workspace = true
 
 [build-dependencies]

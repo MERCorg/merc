@@ -11,13 +11,12 @@
 namespace mcrl2::pbes_system
 {
 
-std::unique_ptr<pbes> load_pbes_from_file(rust::Str filename)
+std::unique_ptr<pbes> mcrl2_load_pbes_from_file(rust::Str filename)
 {
   pbes result;
   load_pbes(result, static_cast<std::string>(filename));
   return std::make_unique<pbes>(result);
 }
-
 
 class cliques_algorithm : private detail::stategraph_local_algorithm 
 {
@@ -46,7 +45,7 @@ public:
   }
 };
 
-std::unique_ptr<cliques_algorithm> run_stategraph_local_algorithm(const pbes& p)
+std::unique_ptr<cliques_algorithm> mcrl2_run_stategraph_local_algorithm(const pbes& p)
 {
   auto algorithm = std::make_unique<cliques_algorithm>(p);
   algorithm->run();

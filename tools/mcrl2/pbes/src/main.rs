@@ -3,6 +3,10 @@ use std::process::ExitCode;
 use clap::Parser;
 use clap::Subcommand;
 
+use mcrl2_sys::log::ffi::mcrl2_set_reporting_level;
+use mcrl2_sys::log::verbosity_to_log_level_t;
+use mcrl2_sys::pbes::ffi::mcrl2_load_pbes_from_file;
+use mcrl2_sys::pbes::ffi::mcrl2_run_stategraph_local_algorithm;
 use merc_tools::VerbosityFlag;
 use merc_tools::Version;
 use merc_tools::VersionFlag;
@@ -44,6 +48,9 @@ fn main() -> Result<ExitCode, MercError> {
         .parse_default_env()
         .init();
 
+    // Enable logging on the mCRL2 side
+    mcrl2_set_reporting_level(verbosity_to_log_level_t(cli.verbosity.verbosity()));
+
     if cli.version.into() {
         eprintln!("{}", Version);
         return Ok(ExitCode::SUCCESS);
@@ -52,9 +59,9 @@ fn main() -> Result<ExitCode, MercError> {
     let mut timing = Timing::new();
 
     if let Some(Commands::Symmetry(args)) = cli.commands {
-        let pbes = mcrl2_sys::pbes::ffi::load_pbes_from_file(&args.filename)?;
+        let pbes = mcrl2_load_pbes_from_file(&args.filename)?;
 
-        let result = mcrl2_sys::pbes::ffi::run_stategraph_local_algorithm(&pbes)?;
+        let result = mcrl2_run_stategraph_local_algorithm(&pbes)?;
     }
 
     
