@@ -166,8 +166,8 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
     }
 
     /// Permutes a vector in place according to the given permutation function.
-    ///
-    /// If is_inverse is true, then the inverse permutation is applied.
+    /// 
+    /// The resulting vector will be [v_p^-1(0), v_p^-1(1), ..., v_p^-1(n-1)] where p is the permutation function.
     pub fn permute<P>(&mut self, permutation: P)
     where
         P: Fn(usize) -> usize,
@@ -177,8 +177,7 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
             "The given permutation must be a bijective mapping"
         );
 
-        let mut visited = vec![false; self.len()];
-
+        let mut visited = bitvec![usize, Lsb0; 0; self.len()];
         for start in 0..self.len() {
             if visited[start] {
                 continue;
@@ -192,7 +191,7 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
 
             debug_trace!("Starting new cycle at position {}", start);
             while !visited[current] {
-                visited[current] = true;
+                visited.set(current, true);
                 let next = permutation(current);
                 if next != current {
                     debug_trace!("Moving element from position {} to position {}", current, next);
@@ -206,12 +205,12 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
         }
     }
 
-    /// Applies a permutation to a vector in place using a list of indices.
-    /// The indices vector represents where each element should go to.
+    /// Applies a permutation to a vector in place using an index function.
+    /// 
+    /// The resulting vector will be [v_p(0), v_p(1), ..., v_p(n-1)] where p is the index function.
     pub fn permute_indices<P>(&mut self, indices: P)
     where
         P: Fn(usize) -> usize,
-        T: CompressedEntry,
     {
         debug_assert!(
             is_valid_permutation(&indices, self.len()),
@@ -219,7 +218,6 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
         );
 
         let mut visited = bitvec![usize, Lsb0; 0; self.len()];
-
         for start in 0..self.len() {
             if visited[start] {
                 continue;
@@ -249,6 +247,20 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
             trace!("Writing original to {}", current);
             self.set(current, original);
         }
+    }
+
+    /// Applies a permutation to a vector in place using an index function.
+    /// 
+    /// This variant is faster but requires additional memory for the intermediate result vector.
+    pub fn permute_indices_fast<P>(&mut self, indices: P)
+    where
+        P: Fn(usize) -> usize,
+    {
+        let mut result = ByteCompressedVec::with_capacity(self.data.capacity(), self.bytes_per_entry);
+        for entry in self.iter().enumerate() {
+            result.push(self.index(indices(entry.0)));
+        }
+        *self = result;
     }
 
     /// Swaps the entries at the given indices.
