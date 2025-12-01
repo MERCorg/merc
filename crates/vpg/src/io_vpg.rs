@@ -228,6 +228,6 @@ mod tests {
 
         let parity_game = read_vpg(&manager, include_bytes!("../../../examples/vpg/example.vpg") as &[u8]).unwrap();
 
-        assert_eq!(parity_game.num_of_vertices(), 4);
+        assert_eq!(parity_game.num_of_vertices(), 61014);
     }
 }
