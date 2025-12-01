@@ -29,16 +29,16 @@ impl RewriteSpecificationSyntax {
             let mut conditions = vec![];
             for c in &rule.conditions {
                 let condition = Condition {
-                    lhs: to_untyped_data_expression(&c.lhs, Some(&variables)),
-                    rhs: to_untyped_data_expression(&c.rhs, Some(&variables)),
+                    lhs: to_untyped_data_expression(c.lhs.clone(), Some(&variables)),
+                    rhs: to_untyped_data_expression(c.rhs.clone(), Some(&variables)),
                     equality: c.equality,
                 };
                 conditions.push(condition);
             }
 
             rewrite_rules.push(Rule {
-                lhs: to_untyped_data_expression(&rule.lhs, Some(&variables)),
-                rhs: to_untyped_data_expression(&rule.rhs, Some(&variables)),
+                lhs: to_untyped_data_expression(rule.lhs.clone(), Some(&variables)),
+                rhs: to_untyped_data_expression(rule.rhs.clone(), Some(&variables)),
                 conditions,
             });
         }

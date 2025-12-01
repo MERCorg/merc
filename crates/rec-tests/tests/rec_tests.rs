@@ -22,7 +22,7 @@ fn rec_test(rec_files: Vec<&str>, expected_result: &str) {
             result,
             syntax_terms
                 .iter()
-                .map(|t| to_untyped_data_expression(t, None))
+                .map(|t| to_untyped_data_expression(t.clone(), None))
                 .collect(),
         )
     };
@@ -35,7 +35,7 @@ fn rec_test(rec_files: Vec<&str>, expected_result: &str) {
 
     for term in &terms {
         let expected_term = ATerm::from_string(expected.next().unwrap()).unwrap();
-        let expected_result = to_untyped_data_expression(&expected_term, None);
+        let expected_result = to_untyped_data_expression(expected_term, None);
 
         let result = inner.rewrite(term);
         assert_eq!(
@@ -99,7 +99,7 @@ fn test_rec_specification_naive(rec_files: Vec<&str>, expected_result: &str) {
             result,
             syntax_terms
                 .iter()
-                .map(|t| to_untyped_data_expression(t, None))
+                .map(|t| to_untyped_data_expression(t.clone(), None))
                 .collect(),
         )
     };
@@ -111,7 +111,7 @@ fn test_rec_specification_naive(rec_files: Vec<&str>, expected_result: &str) {
 
     for term in &terms {
         let expected_term = ATerm::from_string(expected.next().unwrap()).unwrap();
-        let expected_result = to_untyped_data_expression(&expected_term, None);
+        let expected_result = to_untyped_data_expression(expected_term, None);
 
         let result = naive.rewrite(term);
         assert_eq!(

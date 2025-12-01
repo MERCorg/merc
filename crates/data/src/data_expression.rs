@@ -96,17 +96,13 @@ mod inner {
         /// Creates a closed [DataExpression] from a string, i.e., has no free variables.
         #[merc_ignore]
         pub fn from_string(text: &str) -> Result<DataExpression, MercError> {
-            let term = ATerm::from_string(text)?;
-
-            Ok(to_untyped_data_expression(&term, None))
+            Ok(to_untyped_data_expression(ATerm::from_string(text)?, None))
         }
 
         /// Creates a [DataExpression] from a string with free untyped variables indicated by the set of names.
         #[merc_ignore]
         pub fn from_string_untyped(text: &str, variables: &AHashSet<String>) -> Result<DataExpression, MercError> {
-            let term = ATerm::from_string(text)?;
-
-            Ok(to_untyped_data_expression(&term, Some(variables)))
+            Ok(to_untyped_data_expression(ATerm::from_string(text)?, Some(variables)))
         }
 
         /// Returns the ith argument of a data application.
@@ -430,13 +426,13 @@ impl<'a> DataExpressionRef<'a> {
 }
 
 /// Converts an [ATerm] to an untyped data expression.
-pub fn to_untyped_data_expression(t: &ATerm, variables: Option<&AHashSet<String>>) -> DataExpression {
+pub fn to_untyped_data_expression(t: ATerm, variables: Option<&AHashSet<String>>) -> DataExpression {
     let mut builder = TermBuilder::<ATerm, ATerm>::new();
     THREAD_TERM_POOL.with_borrow(|tp| {
         builder
             .evaluate(
                 tp,
-                t.clone(),
+                t,
                 |_tp, args, t| {
                     if variables.is_some_and(|v| v.contains(t.get_head_symbol().name())) {
                         // Convert a constant variable, for example 'x', into an untyped variable.
