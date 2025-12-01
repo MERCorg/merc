@@ -4,6 +4,10 @@
 /tools/gui/target/
 /tools/mcrl2/target/
 
+# For the mCRL2 library we can optionally generate a compile_commands.json file and the clangd index
+compile_commands.json
+.cache
+
 # Confiruation files for rustc
 .cargo
 
