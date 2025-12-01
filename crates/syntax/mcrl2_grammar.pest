@@ -431,6 +431,7 @@ StateFrmPrefix = _{
     | StateFrmDiamond
     | StateFrmBox
     | StateFrmNegation
+    | StateFrmLeftConstantMultiply
 }
     StateFrmMu = { "mu" ~ StateVarDecl ~ "." }                           // Minimal fixed point
     StateFrmNu = { "nu" ~ StateVarDecl ~ "." }                           // Maximal fixed point
@@ -443,11 +444,11 @@ StateFrmPrefix = _{
     StateFrmDiamond = { "<" ~ RegFrm ~ ">" }                             // Diamond modality
     StateFrmUnaryMinus = { "-" }                                         // Unary minus
     StateFrmNegation = { "!" }                                           // Negation
+    StateFrmLeftConstantMultiply = { "*" }
     
 
 StateFrmInfix = _{
       StateFrmAddition
-    | StateFrmLeftConstantMultiply
     | StateFrmImplication
     | StateFrmDisjunction
     | StateFrmConjunction
