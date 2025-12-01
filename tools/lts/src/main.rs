@@ -137,7 +137,7 @@ fn main() -> Result<ExitCode, MercError> {
                     );
 
                     if let Some(file) = args.output {
-                        let mut writer = BufWriter::new(File::create(file)?);
+                        let mut writer = File::create(file)?;
                         write_aut(&mut writer, &reduced_lts)?;
                     } else {
                         write_aut(&mut stdout(), &reduced_lts)?;
