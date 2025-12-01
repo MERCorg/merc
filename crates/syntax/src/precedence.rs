@@ -534,6 +534,21 @@ pub fn parse_statefrm(pairs: Pairs<Rule>) -> ParseResult<StateFrm> {
                 op: StateFrmUnaryOp::Negation,
                 expr: Box::new(expr?),
             }),
+            Rule::StateFrmSup => Ok(StateFrm::Bound {
+                bound: Bound::Sup,
+                variables: Mcrl2Parser::StateFrmSup(Node::new(prefix))?,
+                body: Box::new(expr?),
+            }),
+            Rule::StateFrmSum => Ok(StateFrm::Bound {
+                bound: Bound::Sup,
+                variables: Mcrl2Parser::StateFrmSum(Node::new(prefix))?,
+                body: Box::new(expr?),
+            }),
+            Rule::StateFrmInf => Ok(StateFrm::Bound {
+                bound: Bound::Sup,
+                variables: Mcrl2Parser::StateFrmInf(Node::new(prefix))?,
+                body: Box::new(expr?),
+            }),
             _ => unimplemented!("Unexpected prefix operator: {:?}", prefix.as_rule()),
         })
         .map_infix(|lhs, op, rhs| match op.as_rule() {
