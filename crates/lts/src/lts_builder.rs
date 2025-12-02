@@ -46,16 +46,16 @@ impl LtsBuilder {
         num_of_labels: usize,
         num_of_transitions: usize,
     ) -> Self {
+        // Remove duplicates from the labels.
+        labels.sort();
+        labels.dedup();
+
         // Introduce the fixed 0 indexed tau label.
         if let Some(tau_pos) = labels.iter().position(|l| l == "tau") {
             labels.swap(0, tau_pos);
         } else {
             labels.insert(0, "tau".to_string());
         }
-
-        // Remove duplicates from the labels.
-        labels.sort();
-        labels.dedup();
 
         // Ensure that all hidden labels are mapped to the tau action.
         let mut labels_index = HashMap::new();

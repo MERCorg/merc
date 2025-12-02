@@ -172,8 +172,15 @@ mod tests {
 
             let lts_read = read_lts(&buffer[0..], vec![]).unwrap();
 
+            // If labels are not used, the number of labels may be less. So find a remapping of old labels to new labels.
+            let mapping = lts
+                .labels()
+                .iter()
+                .enumerate()
+                .filter_map(|(_i, label)| lts_read.labels().iter().position(|l| l == label))
+                .collect::<Vec<_>>();
+
             assert!(lts.num_of_states() == lts_read.num_of_states());
-            assert!(lts.num_of_labels() == lts_read.num_of_labels());
             assert!(lts.num_of_transitions() == lts_read.num_of_transitions());       
 
             // Check that all the outgoing transitions are the same.
@@ -182,7 +189,11 @@ mod tests {
                 let transitions: Vec<_> = lts.outgoing_transitions(state_index).collect();
                 let transitions_read: Vec<_> = lts_read.outgoing_transitions(state_index).collect();
 
-                assert_eq!(transitions, transitions_read);
+                // Check that transitions are the same, modulo label remapping.
+                transitions.iter().for_each(|t| {
+                    let mapped_label = mapping[t.label.value()];
+                    assert!(transitions_read.iter().any(|tr| tr.to == t.to && tr.label.value() == mapped_label));
+                });
             } 
         })
     }

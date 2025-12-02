@@ -17,7 +17,8 @@ pub fn random_lts(
 
     // Introduce lower case letters for the labels.
     let mut labels: Vec<String> = Vec::new();
-    for i in 0..num_of_labels {
+    labels.push("tau".to_string()); // The initial hidden label, assumed to be index 0.
+    for i in 0..(num_of_labels - 1) {
         labels.push(char::from_digit(i + 10, 36).unwrap().to_string());
     }
 
