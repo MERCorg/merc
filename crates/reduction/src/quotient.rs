@@ -2,7 +2,7 @@
 
 use merc_lts::LTS;
 use merc_lts::LabelledTransitionSystem;
-use merc_lts::LtsBuilder;
+use merc_lts::LtsBuilderFast;
 use merc_lts::StateIndex;
 use merc_utilities::TagIndex;
 
@@ -87,7 +87,7 @@ pub fn quotient_lts_naive(
     eliminate_tau_loops: bool,
 ) -> LabelledTransitionSystem {
     // Introduce the transitions based on the block numbers, the number of blocks is a decent approximation for the number of transitions.
-    let mut builder = LtsBuilder::with_capacity(
+    let mut builder = LtsBuilderFast::with_capacity(
         lts.labels().into(),
         Vec::new(),
         partition.num_of_blocks(),
@@ -130,7 +130,7 @@ pub fn quotient_lts_block<const BRANCHING: bool>(
     lts: &impl LTS,
     partition: &BlockPartition,
 ) -> LabelledTransitionSystem {
-    let mut builder = LtsBuilder::new(lts.labels().into(), Vec::new());
+    let mut builder = LtsBuilderFast::new(lts.labels().into(), Vec::new());
 
     for block in (0..partition.num_of_blocks()).map(BlockIndex::new) {
         // Pick any state in the block

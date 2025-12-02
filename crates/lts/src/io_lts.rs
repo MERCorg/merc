@@ -92,7 +92,7 @@ pub fn read_lts(reader: impl Read, hidden_labels: Vec<String>) -> Result<Labelle
     }
     info!("Finished reading LTS");
 
-    Ok(builder.finish(initial_state.ok_or("Missing initial state")?, false))
+    Ok(builder.finish(initial_state.ok_or("Missing initial state")?))
 }
 
 ///  Note that the writer is buffered internally using a
@@ -152,8 +152,6 @@ mod tests {
     use merc_utilities::random_test;
 
     use crate::LTS;
-    use crate::LabelIndex;
-    use crate::Transition;
     use crate::random_lts;
 
     #[test]

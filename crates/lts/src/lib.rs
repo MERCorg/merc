@@ -11,6 +11,7 @@ mod io_aut;
 mod io_lts;
 mod labelled_transition_system;
 mod lts_builder;
+mod lts_builder_fast;
 mod random_lts;
 
 pub use incoming_transitions::*;
@@ -19,4 +20,5 @@ pub use io_aut::*;
 pub use io_lts::*;
 pub use labelled_transition_system::*;
 pub use lts_builder::*;
+pub use lts_builder_fast::*;
 pub use random_lts::*;

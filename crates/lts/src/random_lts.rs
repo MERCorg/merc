@@ -2,8 +2,8 @@ use rand::Rng;
 
 use crate::LabelIndex;
 use crate::LabelledTransitionSystem;
+use crate::LtsBuilderFast;
 use crate::StateIndex;
-use crate::lts_builder;
 
 /// Generates a monolithic LTS with the desired number of states, labels, out
 /// degree and in degree for all the states.
@@ -25,7 +25,7 @@ pub fn random_lts(
         labels.push(char::from_digit(i + 10, 36).unwrap().to_string());
     }
 
-    let mut builder: lts_builder::LtsBuilder = lts_builder::LtsBuilder::with_capacity(
+    let mut builder = LtsBuilderFast::with_capacity(
         labels,
         Vec::new(),
         num_of_states,

@@ -1,28 +1,18 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use itertools::Itertools;
-use merc_utilities::ByteCompressedVec;
-use merc_utilities::CompressedEntry;
-
 use crate::LabelIndex;
 use crate::LabelledTransitionSystem;
 use crate::StateIndex;
 
-/// This struct helps in building a labelled transition system by accumulating
-/// transitions efficiently.
-///
-/// # Details
-///
-/// When labels are added via `add_transition`, they are mapped to `LabelIndex`
-/// values internally. The mapping is maintained in a `HashMap<String,
-/// LabelIndex>`, and new labels are assigned the next available index.
-/// Alternatively, labels can be added directly using `add_transition_index` an
-///
-pub struct LtsBuilder {
-    transition_from: ByteCompressedVec<StateIndex>,
-    transition_labels: ByteCompressedVec<LabelIndex>,
-    transition_to: ByteCompressedVec<StateIndex>,
+/// This is the same as [LtsBuilder], but optimized for speed rather than memory usage.
+/// So it does not use the byte compression for the transitions since somehow permuting and
+/// sorting these take a long time (probably due to cache misses).
+/// 
+/// Perhaps that implementation can be made more efficient in the future, but for now
+/// this works well enough.
+pub struct LtsBuilderFast {
+    transitions: Vec<(StateIndex, LabelIndex, StateIndex)>,
 
     // This is used to keep track of the label to index mapping.
     labels_index: HashMap<String, LabelIndex>,
@@ -32,7 +22,7 @@ pub struct LtsBuilder {
     num_of_states: usize,
 }
 
-impl LtsBuilder {
+impl LtsBuilderFast {
     /// Initializes a new empty builder.
     pub fn new(labels: Vec<String>, hidden_labels: Vec<String>) -> Self {
         Self::with_capacity(labels, hidden_labels, 0, 0, 0)
@@ -42,8 +32,8 @@ impl LtsBuilder {
     pub fn with_capacity(
         mut labels: Vec<String>,
         hidden_labels: Vec<String>,
-        num_of_states: usize,
-        num_of_labels: usize,
+        _num_of_states: usize,
+        _num_of_labels: usize,
         num_of_transitions: usize,
     ) -> Self {
         // Remove duplicates from the labels.
@@ -65,9 +55,7 @@ impl LtsBuilder {
         }
 
         Self {
-            transition_from: ByteCompressedVec::with_capacity(num_of_transitions, num_of_states.bytes_required()),
-            transition_labels: ByteCompressedVec::with_capacity(num_of_transitions, num_of_labels.bytes_required()),
-            transition_to: ByteCompressedVec::with_capacity(num_of_transitions, num_of_states.bytes_required()),
+            transitions: Vec::with_capacity(num_of_transitions),
             labels_index,
             labels,
             num_of_states: 0,
@@ -85,9 +73,7 @@ impl LtsBuilder {
             index
         };
 
-        self.transition_from.push(from);
-        self.transition_labels.push(label_index);
-        self.transition_to.push(to);
+        self.transitions.push((from, label_index, to));
 
         // Update the number of states.
         self.num_of_states = self.num_of_states.max(from.value() + 1).max(to.value() + 1);
@@ -102,16 +88,18 @@ impl LtsBuilder {
             self.labels.len()
         );
 
-        self.transition_from.push(from);
-        self.transition_labels.push(label);
-        self.transition_to.push(to);
+        self.transitions.push((from, label, to));
 
         // Update the number of states.
         self.num_of_states = self.num_of_states.max(from.value() + 1).max(to.value() + 1);
     }
 
     /// Finalizes the builder and returns the constructed labelled transition system.
-    pub fn finish(&mut self, initial_state: StateIndex) -> LabelledTransitionSystem {
+    pub fn finish(&mut self, initial_state: StateIndex, remove_duplicates: bool) -> LabelledTransitionSystem {
+        if remove_duplicates {
+            self.remove_duplicates();
+        }
+
         LabelledTransitionSystem::new(
             initial_state,
             Some(self.num_of_states),
@@ -122,25 +110,59 @@ impl LtsBuilder {
 
     /// Returns the number of transitions added to the builder.
     pub fn num_of_transitions(&self) -> usize {
-        self.transition_from.len()
+        self.transitions.len()
+    }
+
+    /// Removes duplicated transitions from the added transitions.
+    fn remove_duplicates(&mut self) {
+        self.transitions.sort();
+        self.transitions.dedup();
     }
 
     /// Returns an iterator over all transitions as (from, label, to) tuples.
     pub fn iter(&self) -> impl Iterator<Item = (StateIndex, LabelIndex, StateIndex)> {
-        self.transition_from
-            .iter()
-            .zip(self.transition_labels.iter())
-            .zip(self.transition_to.iter())
-            .map(|((from, label), to)| (from, label, to))
+        self.transitions.iter().cloned()
     }
 }
 
-impl fmt::Debug for LtsBuilder {
+impl fmt::Debug for LtsBuilderFast {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f, "Transitions:")?;
         for (from, label, to) in self.iter() {
             writeln!(f, "    {:?} --[{:?}]-> {:?}", from, label, to)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use itertools::Itertools;
+    use rand::Rng;
+
+    use merc_utilities::random_test;
+
+    #[test]
+    fn test_random_remove_duplicates() {
+        random_test(100, |rng| {
+            let mut builder = LtsBuilderFast::new(vec!["a".to_string(), "b".to_string(), "c".to_string()], Vec::new());
+
+            for _ in 0..rng.random_range(0..10) {
+                let from = StateIndex::new(rng.random_range(0..10));
+                let label = LabelIndex::new(rng.random_range(0..2));
+                let to = StateIndex::new(rng.random_range(0..10));
+                builder.add_transition_index(from, label, to);
+            }
+
+            builder.remove_duplicates();
+
+            let transitions = builder.iter().collect::<Vec<_>>();
+            debug_assert!(
+                transitions.iter().all_unique(),
+                "Transitions should be unique after removing duplicates"
+            );
+        });
     }
 }

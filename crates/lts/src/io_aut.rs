@@ -104,7 +104,7 @@ pub fn read_aut(reader: impl Read, hidden_labels: Vec<String>) -> Result<Labelle
 
     info!("Finished reading LTS");
 
-    Ok(builder.finish(initial_state, false))
+    Ok(builder.finish(initial_state))
 }
 
 /// Write a labelled transition system in plain text in Aldebaran format to the
