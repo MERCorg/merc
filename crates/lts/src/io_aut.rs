@@ -245,7 +245,11 @@ mod tests {
                 // Check that transitions are the same, modulo label remapping.
                 transitions.iter().for_each(|t| {
                     let mapped_label = mapping[t.label.value()].expect(&format!("Label {} should be found", t.label));
-                    assert!(transitions_read.iter().any(|tr| tr.to == t.to && tr.label.value() == mapped_label));
+                    assert!(
+                        transitions_read
+                            .iter()
+                            .any(|tr| tr.to == t.to && tr.label.value() == mapped_label)
+                    );
                 });
             }
         })

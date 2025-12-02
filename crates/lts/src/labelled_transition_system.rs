@@ -244,7 +244,11 @@ impl fmt::Display for LtsMetrics {
         // Print some information about the LTS.
         writeln!(f, "Number of states: {}", LargeFormatter(self.num_of_states))?;
         writeln!(f, "Number of action labels: {}", LargeFormatter(self.num_of_labels))?;
-        writeln!(f, "Number of transitions: {}\n", LargeFormatter(self.num_of_transitions))?;
+        writeln!(
+            f,
+            "Number of transitions: {}\n",
+            LargeFormatter(self.num_of_transitions)
+        )?;
         writeln!(f, "Memory usage:")?;
         writeln!(f, "States {}", self.state_metrics)?;
         writeln!(f, "Transition labels {}", self.transition_labels_metrics)?;

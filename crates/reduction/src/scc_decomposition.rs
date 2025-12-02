@@ -62,7 +62,10 @@ where
     }
 
     trace!("SCC partition {partition}");
-    debug!("Found {} strongly connected components", LargeFormatter(partition.num_of_blocks()));
+    debug!(
+        "Found {} strongly connected components",
+        LargeFormatter(partition.num_of_blocks())
+    );
     partition
 }
 

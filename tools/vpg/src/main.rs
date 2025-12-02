@@ -21,7 +21,10 @@ use merc_vpg::read_vpg;
 use merc_vpg::solve_zielonka;
 
 #[derive(clap::Parser, Debug)]
-#[command(about = "A command line tool for variability parity games", arg_required_else_help = true)]
+#[command(
+    about = "A command line tool for variability parity games",
+    arg_required_else_help = true
+)]
 struct Cli {
     #[command(flatten)]
     version: VersionFlag,
@@ -86,7 +89,8 @@ fn main() -> Result<ExitCode, MercError> {
             Commands::Solve(args) => {
                 let path = Path::new(&args.filename);
                 let mut file = File::open(path)?;
-                let format = guess_format_from_extension(path, args.format).ok_or("Unknown parity game file format.")?;
+                let format =
+                    guess_format_from_extension(path, args.format).ok_or("Unknown parity game file format.")?;
                 if format == ParityGameFormat::PG {
                     // Read and solve a standard parity game and solve it.
                     let mut time_read = timing.start("read_pg");
@@ -100,13 +104,13 @@ fn main() -> Result<ExitCode, MercError> {
                     let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
 
                     let mut time_read = timing.start("read_vpg");
-                    let game = read_vpg(&manager_ref, &mut file)?;
+                    let _game = read_vpg(&manager_ref, &mut file)?;
                     time_read.finish();
 
                     // let mut time_solve = timing.start("solve_variability_zielonka");
                     // println!("{}", solve_variability_zielonka(&manager_ref, &game).solution());
                     // time_solve.finish();
-                }                
+                }
             }
             Commands::Reachable(args) => {
                 let mut file = File::open(&args.filename)?;
@@ -134,9 +138,6 @@ fn main() -> Result<ExitCode, MercError> {
 
                 let mut fts_file = File::open(&args.fts_filename)?;
                 let _fts = read_fts(&manager_ref, &mut fts_file, &feature_diagram)?;
-
-
-
             }
         }
     }

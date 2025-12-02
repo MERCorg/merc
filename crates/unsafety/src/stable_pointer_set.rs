@@ -546,8 +546,8 @@ where
 
                     return (existing_ptr, false);
                 }
-            } else {  
-                // Value was successfully inserted              
+            } else {
+                // Value was successfully inserted
                 return (ptr, true);
             }
         }

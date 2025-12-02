@@ -1104,7 +1104,7 @@ impl Mcrl2Parser {
             },
         )
     }
-    
+
     pub(crate) fn StateFrmDiamond(input: ParseNode) -> ParseResult<RegFrm> {
         match_nodes!(input.into_children();
             [RegFrm(formula)] => {
@@ -1134,7 +1134,10 @@ impl Mcrl2Parser {
         for child in spec.into_children() {
             match child.as_rule() {
                 Rule::StateFrmSpecElt => {
-                    let element = child.into_children().next().expect("StateFrmSpecElt has exactly one child");
+                    let element = child
+                        .into_children()
+                        .next()
+                        .expect("StateFrmSpecElt has exactly one child");
                     match element.as_rule() {
                         Rule::ConsSpec => {
                             constructor_declarations.append(&mut Mcrl2Parser::ConsSpec(element)?);
@@ -1155,7 +1158,6 @@ impl Mcrl2Parser {
                             unimplemented!("Unexpected rule in StateFrmSpecElt: {:?}", element.as_rule());
                         }
                     }
-
                 }
                 Rule::StateFrm => {
                     if form_spec.is_some() {
@@ -1199,13 +1201,12 @@ impl Mcrl2Parser {
         Ok(UntypedStateFrmSpec {
             data_specification,
             action_declarations,
-            formula: form_spec.ok_or(
-                        Error::new_from_span(
-                            ErrorVariant::CustomError {
-                                message: "No state formula found in the state formula specification".to_string(),
-                            },
-                            span,
-                        ))?
+            formula: form_spec.ok_or(Error::new_from_span(
+                ErrorVariant::CustomError {
+                    message: "No state formula found in the state formula specification".to_string(),
+                },
+                span,
+            ))?,
         })
     }
 
@@ -1317,7 +1318,7 @@ impl Mcrl2Parser {
         unimplemented!();
     }
 
-    fn FormSpec(input: ParseNode) -> ParseResult<StateFrm> {        
+    fn FormSpec(input: ParseNode) -> ParseResult<StateFrm> {
         match_nodes!(input.into_children();
             [StateFrm(formula)] => {
                 Ok(formula)

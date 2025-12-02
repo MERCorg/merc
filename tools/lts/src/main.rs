@@ -1,5 +1,4 @@
 use std::fs::File;
-use std::io::BufWriter;
 use std::io::stdout;
 use std::path::Path;
 use std::process::ExitCode;
@@ -8,7 +7,6 @@ use clap::Parser;
 use clap::Subcommand;
 use log::info;
 
-use merc_ldd::Storage;
 use merc_lts::LTS;
 use merc_lts::LtsType;
 use merc_lts::guess_format_from_extension;

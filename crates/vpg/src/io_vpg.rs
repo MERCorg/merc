@@ -45,7 +45,7 @@ pub fn read_vpg(manager: &BDDManagerRef, reader: impl Read) -> Result<Variabilit
         .captures(header)
         .ok_or(IOError::InvalidHeader("header does not match confs <configurations>;"))?
         .extract();
-    let (variables, configurations) = parse_configuration(manager, &configurations_txt)?;
+    let (variables, configurations) = parse_configuration(manager, configurations_txt)?;
 
     // Read the parity header
     let header_regex = Regex::new(r#"parity\s+([0-9]+)\s*;"#).expect("Regex compilation should not fail");
@@ -87,14 +87,14 @@ pub fn read_vpg(manager: &BDDManagerRef, reader: impl Read) -> Result<Variabilit
             .next()
             .ok_or(IOError::InvalidLine("Expected at least <index> <priority> ...;"))?
             .parse()?;
-        let vertex_owner: u8 = parts
+        let vertex_owner = Player::from_index(parts
             .next()
             .ok_or(IOError::InvalidLine(
                 "Expected at least <index> <priority> <owner> ...;",
             ))?
-            .parse()?;
+            .parse()?);
 
-        owner[index] = Player::from_index(vertex_owner as u8);
+        owner[index] = vertex_owner;
         priority[index] = Priority::new(vertex_priority);
 
         // Store the offset for the vertex
@@ -116,7 +116,7 @@ pub fn read_vpg(manager: &BDDManagerRef, reader: impl Read) -> Result<Variabilit
                     edges_configuration.push(config);
                 } else {
                     // No configuration specified, use true (all configurations)
-                    edges_configuration.push(manager.with_manager_shared(|m| BDDFunction::t(&m)));
+                    edges_configuration.push(manager.with_manager_shared(|m| BDDFunction::t(m)));
                 }
             }
         }
@@ -169,20 +169,20 @@ fn parse_configuration(manager: &BDDManagerRef, config: &str) -> Result<(Vec<BDD
 /// The variables must be defined beforehand and are assumed to be in order, i.e., the first character
 /// corresponds to variable 0, the second to variable 1, and so on.
 fn parse_configuration_set(
-    manager: &BDDManagerRef,
-    variables: &Vec<BDDFunction>,
+    manager_ref: &BDDManagerRef,
+    variables: &[BDDFunction],
     config: &str,
 ) -> Result<BDDFunction, MercError> {
-    manager.with_manager_shared(|manager| {
-        let mut result = BDDFunction::f(&manager);
+    manager_ref.with_manager_shared(|manager| {
+        let mut result = BDDFunction::f(manager);
 
         for part in config.split('+') {
-            let mut conjunction = BDDFunction::t(&manager);
+            let mut conjunction = BDDFunction::t(manager);
 
             for (i, c) in part.chars().enumerate() {
                 let var = &variables[i];
                 match c {
-                    '1' => conjunction = conjunction.and(&var)?,
+                    '1' => conjunction = conjunction.and(var)?,
                     '0' => conjunction = conjunction.and(&var.not()?)?,
                     '-' => {} // don't care
                     _ => {

@@ -166,7 +166,7 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
     }
 
     /// Permutes a vector in place according to the given permutation function.
-    /// 
+    ///
     /// The resulting vector will be [v_p^-1(0), v_p^-1(1), ..., v_p^-1(n-1)] where p is the permutation function.
     pub fn permute<P>(&mut self, permutation: P)
     where
@@ -206,7 +206,7 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
     }
 
     /// Applies a permutation to a vector in place using an index function.
-    /// 
+    ///
     /// The resulting vector will be [v_p(0), v_p(1), ..., v_p(n-1)] where p is the index function.
     pub fn permute_indices<P>(&mut self, indices: P)
     where
@@ -250,7 +250,7 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
     }
 
     /// Applies a permutation to a vector in place using an index function.
-    /// 
+    ///
     /// This variant is faster but requires additional memory for the intermediate result vector.
     pub fn permute_indices_fast<P>(&mut self, indices: P)
     where

@@ -78,10 +78,10 @@ impl<'a> VariabilityZielonkaSolver<'a> {
         Self {
             game,
             temp_queue: Vec::new(),
-            predecessors: VariabilityPredecessors::new(manager_ref, &game),
+            predecessors: VariabilityPredecessors::new(manager_ref, game),
             priority_vertices,
             recursive_calls: 0,
-            alternative_solving
+            alternative_solving,
         }
     }
 

@@ -51,7 +51,7 @@ pub fn read_lts(reader: impl Read, hidden_labels: Vec<String>) -> Result<Labelle
     let _multi_actions: IndexedSet<ATerm> = IndexedSet::new();
 
     // The initial state is not known yet.
-    let mut initial_state: Option<StateIndex> = None;    
+    let mut initial_state: Option<StateIndex> = None;
     let mut builder = LtsBuilder::new(Vec::new(), hidden_labels);
 
     let mut progress = TimeProgress::new(
@@ -151,7 +151,10 @@ mod tests {
 
     use merc_utilities::random_test;
 
-    use crate::{LTS, LabelIndex, Transition, random_lts};
+    use crate::LTS;
+    use crate::LabelIndex;
+    use crate::Transition;
+    use crate::random_lts;
 
     #[test]
     #[cfg_attr(miri, ignore)]
@@ -181,7 +184,7 @@ mod tests {
                 .collect::<Vec<_>>();
 
             assert!(lts.num_of_states() == lts_read.num_of_states());
-            assert!(lts.num_of_transitions() == lts_read.num_of_transitions());       
+            assert!(lts.num_of_transitions() == lts_read.num_of_transitions());
 
             // Check that all the outgoing transitions are the same.
             for state_index in lts.iter_states() {
@@ -192,9 +195,13 @@ mod tests {
                 // Check that transitions are the same, modulo label remapping.
                 transitions.iter().for_each(|t| {
                     let mapped_label = mapping[t.label.value()];
-                    assert!(transitions_read.iter().any(|tr| tr.to == t.to && tr.label.value() == mapped_label));
+                    assert!(
+                        transitions_read
+                            .iter()
+                            .any(|tr| tr.to == t.to && tr.label.value() == mapped_label)
+                    );
                 });
-            } 
+            }
         })
     }
 }

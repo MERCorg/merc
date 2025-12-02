@@ -10,24 +10,31 @@ use oxidd::ManagerRef;
 use oxidd::bdd::BDDFunction;
 use oxidd::bdd::BDDManagerRef;
 
-use merc_lts::{LTS, LabelledTransitionSystem, read_aut};
-use merc_syntax::{DataExpr, MultiAction};
+use merc_lts::LTS;
+use merc_lts::LabelledTransitionSystem;
+use merc_lts::read_aut;
+use merc_syntax::DataExpr;
+use merc_syntax::MultiAction;
 use merc_utilities::MercError;
 use oxidd::util::OutOfMemory;
 
 /// Reads a .aut file as feature transition system by using the associated feature diagram.
-/// 
+///
 /// # Details
-/// 
+///
 /// The action labels of a feature transition sytstem are annotated with a special `BDD` struct that is defined as `struct BDD = node(var, true, false) | tt | ff`.
-pub fn read_fts(manager_ref: &BDDManagerRef, reader: impl Read, feature_diagram: &FeatureDiagram) -> Result<FeatureTransitionSystem, MercError> {
+pub fn read_fts(
+    manager_ref: &BDDManagerRef,
+    reader: impl Read,
+    feature_diagram: &FeatureDiagram,
+) -> Result<FeatureTransitionSystem, MercError> {
     // Read the underlying LTS, where the labels are in plain text
     let aut = read_aut(reader, Vec::new())?;
 
     // Parse the labels as data expressions
     let mut feature_labels = Vec::new();
     for label in aut.labels() {
-        let action = MultiAction::parse(&label)?;
+        let action = MultiAction::parse(label)?;
 
         println!("Parsed action: {}", action);
         feature_labels.push(action)
@@ -52,7 +59,7 @@ fn data_expr_to_bdd(manager_ref: &BDDManagerRef, expr: &DataExpr) -> Result<BDDF
                         // })
                     } else {
                         unimplemented!("Conversion of data expression to BDD not implemented for this function");
-                    }        
+                    }
                 }
                 _ => unimplemented!("Conversion of data expression to BDD not implemented for this function"),
             }
@@ -69,11 +76,10 @@ pub struct FeatureDiagram {
 }
 
 impl FeatureDiagram {
-    
     /// Reads feature diagram from the input.
-    /// 
+    ///
     /// # Details
-    /// 
+    ///
     /// The first line is a list of variable names, separated by commas.
     /// The second line is the initial configuration, represented as a data expression.
     pub fn from_reader(manager_ref: &BDDManagerRef, input: impl Read) -> Result<Self, MercError> {
@@ -81,13 +87,12 @@ impl FeatureDiagram {
         let mut line_iter = input.lines();
         let first_line = line_iter.next().ok_or("Expected variable names line")??;
 
-        let variable_names = first_line
-            .split(',')
-            .map(|s| s.trim().to_string());
+        let variable_names = first_line.split(',').map(|s| s.trim().to_string());
 
         let variables = manager_ref.with_manager_exclusive(|manager| {
-            manager.add_named_vars(variable_names)
-                .expect("The input should not have duplicated variable names") // TODO: This should be returned as an error, but that can only have OutOfMemory.                 
+            manager
+                .add_named_vars(variable_names)
+                .expect("The input should not have duplicated variable names") // TODO: This should be returned as an error, but that can only have OutOfMemory.
                 .map(|i| BDDFunction::var(manager, i))
                 .collect::<Result<Vec<_>, _>>()
         })?;
@@ -97,7 +102,7 @@ impl FeatureDiagram {
 
         Ok(Self {
             variables,
-            initial_configuration
+            initial_configuration,
         })
     }
 }
@@ -105,7 +110,6 @@ impl FeatureDiagram {
 /// A feature transition system, i.e., a labelled transition system
 /// where each label is associated with a feature expression.
 pub struct FeatureTransitionSystem {
-    
     /// The underlying labelled transition system.
     lts: LabelledTransitionSystem,
 
@@ -120,7 +124,6 @@ impl FeatureTransitionSystem {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use merc_macros::merc_test;
@@ -131,8 +134,17 @@ mod tests {
     fn test_read_minepump_fts() {
         let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
 
-        let feature_diagram = FeatureDiagram::from_reader(&manager_ref, include_bytes!("../../../examples/vpg/minepump_fts.fd") as &[u8]).unwrap();
+        let feature_diagram = FeatureDiagram::from_reader(
+            &manager_ref,
+            include_bytes!("../../../examples/vpg/minepump_fts.fd") as &[u8],
+        )
+        .unwrap();
 
-        let _result = read_fts(&manager_ref, include_bytes!("../../../examples/vpg/minepump_fts.aut") as &[u8], &feature_diagram).unwrap();
+        let _result = read_fts(
+            &manager_ref,
+            include_bytes!("../../../examples/vpg/minepump_fts.aut") as &[u8],
+            &feature_diagram,
+        )
+        .unwrap();
     }
 }
