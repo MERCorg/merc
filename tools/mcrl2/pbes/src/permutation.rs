@@ -11,9 +11,23 @@ pub struct Permutation {
 
 impl Permutation {
     /// Create a permutation from a given mapping (does not assume anything about the mapping).
-    pub fn from_mapping(mut mapping: Vec<usize>) -> Self {
-        mapping.sort();
-        mapping.dedup();
+    pub fn from_mapping(mapping: Vec<usize>) -> Self {
+        // Check that all indices are present.
+        for value in &mapping {
+            debug_assert!(*value < mapping.len(), "Invalid permutation mapping: {}", value);
+        }
+
+        if cfg!(debug_assertions) {
+            let mut seen = vec![false; mapping.len()];
+            for value in &mapping {
+                debug_assert!(
+                    !seen[*value],
+                    "Invalid permutation mapping: multiple mappings for {}",
+                    value
+                );
+                seen[*value] = true;
+            }
+        }
 
         Permutation { mapping }
     }
@@ -86,11 +100,13 @@ impl fmt::Display for Permutation {
 
         for start in 0..self.mapping.len() {
             if visited[start] || self.mapping[start] == start {
+                // We have already visited this element, or it is a fixed point.
                 visited[start] = true;
                 continue;
             }
 
             if !first_cycle {
+                // Print space between cycles.
                 write!(f, " ")?;
             }
             first_cycle = false;
@@ -101,6 +117,7 @@ impl fmt::Display for Permutation {
 
             loop {
                 if !first_in_cycle {
+                    // Print space between elements in the cycle.
                     write!(f, " ")?;
                 }
                 first_in_cycle = false;
@@ -112,6 +129,7 @@ impl fmt::Display for Permutation {
                 if current == start {
                     break;
                 }
+                assert!(!visited[current], "This is not a valid permutation!");
             }
             write!(f, ")")?;
         }
@@ -120,6 +138,7 @@ impl fmt::Display for Permutation {
             write!(f, ")")?;
         }
 
+        write!(f, ")")?;
         Ok(())
     }
 }
