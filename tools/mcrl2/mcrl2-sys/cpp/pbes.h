@@ -6,6 +6,8 @@
 #include <cstddef>
 #include <vector>
 
+#include <cpptrace/from_current.hpp>
+
 #include "rust/cxx.h"
 
 #include "mcrl2/pbes/detail/stategraph_local_algorithm.h"
@@ -20,11 +22,17 @@ namespace mcrl2::pbes_system
 /// Alias for templated type.
 using srf_equation = detail::pre_srf_equation<false>;
 
+inline
 std::unique_ptr<pbes> mcrl2_load_pbes_from_file(rust::Str filename)
-{
+{  
   pbes result;
-  load_pbes(result, static_cast<std::string>(filename));
-  return std::make_unique<pbes>(result);
+  CPPTRACE_TRY {
+    load_pbes(result, static_cast<std::string>(filename));
+  } CPPTRACE_CATCH(const std::exception& e) {
+    std::cerr << "Exception: " << e.what() << std::endl;
+    cpptrace::from_current_exception().print();
+  }
+    return std::make_unique<pbes>(result);
 }
 
 class stategraph_algorithm : private detail::stategraph_local_algorithm 

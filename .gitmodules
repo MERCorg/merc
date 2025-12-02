@@ -4,3 +4,6 @@
 [submodule "3rd-party/boost-include-only"]
 	path = 3rd-party/boost-include-only
 	url = https://github.com/mlaveaux/boost-include-only.git
+[submodule "3rd-party/cpptrace"]
+	path = 3rd-party/cpptrace
+	url = https://github.com/jeremy-rifkin/cpptrace.git

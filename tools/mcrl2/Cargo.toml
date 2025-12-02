@@ -27,6 +27,7 @@ clap = { version = "4.5", features = ["derive"] }
 env_logger = "0.11"
 log = "0.4"
 itertools = "0.14"
+cmake = "0.1"
 
 # Dependencies for building the mCRL2 C++ bindings.
 cxx = "1.0"

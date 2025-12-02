@@ -1,4 +1,5 @@
-use cargo_emit::rerun_if_changed;
+use cargo_emit::{rerun_if_changed, rustc_link_lib, rustc_link_search};
+use cmake::Config;
 use cc::Build;
 
 /// \returns A vector of strings where prefix is prepended to every string slice in paths.
@@ -42,6 +43,28 @@ fn add_compile_flags(build: &mut Build, mcrl2_path: String) {
 }
 
 fn main() {
+    
+    if cfg!(feature = "mcrl2_cpptrace")
+    {
+        // Build cpptrace with a fairly complicated cmake setup so we use `cmake`
+        // crate directly.
+        let mut dst = Config::new("../../../3rd-party/cpptrace")
+            .define("BUILD_SHARED_LIBS", "OFF") // Build a static library.
+            .define("CPPTRACE_USE_EXTERNAL_LIBDWARF", "OFF") // Compile libdwarf as part of cpptrace.
+            .build();
+        dst.push("lib");
+
+        rustc_link_search!(dst.display() => "native");
+        // Link the required libraries for cpptrace (Can this be derived from the cmake somehow?)
+        rustc_link_lib!("cpptrace" => "static");
+        rustc_link_lib!("dwarf" => "static");
+        rustc_link_lib!("zstd" => "static");
+
+        // TODO: I think these have to be preinstalled, so mention it in the README.
+        rustc_link_search!("/lib/x86_64-linux-gnu/" => "native");
+        rustc_link_lib!("z" => "static");
+    }
+
     // The mCRL2 source files that we need to build for our Rust wrapper.
     let atermpp_source_files = [
         "aterm_implementation.cpp",
@@ -151,6 +174,7 @@ fn main() {
         .include(mcrl2_workarounds_path.clone() + "include/")
         .include("../../../3rd-party/boost-include-only/")
         .include("dparser")
+        .include(std::env::var("OUT_DIR").unwrap() + "/include/") // This is where cmake generates the headers for cpptrace.
         .files(add_prefix(
             mcrl2_path.clone() + "libraries/atermpp/source/",
             &atermpp_source_files,
