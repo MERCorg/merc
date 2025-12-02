@@ -164,6 +164,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_random_lts_io() {
         random_test(100, |rng| {
             let lts = random_lts(rng, 100, 3, 20);
