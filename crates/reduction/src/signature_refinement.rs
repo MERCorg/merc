@@ -439,6 +439,8 @@ where
         }
 
         for state_index in lts.iter_states() {
+
+            
             // Compute the signature of a single state
             signature(state_index, &partition, &state_to_signature, &mut builder);
 
@@ -447,7 +449,8 @@ where
             // Keep track of the index for every state, either use the arena to allocate space or simply borrow the value.
             let mut new_id = BlockIndex::new(id.len());
             if let Some((signature, index)) = id.get_key_value(&Signature::new(&builder)) {
-                state_to_signature[state_index] = Signature::new(signature.as_slice());
+                // SAFETY: We know that the signature lives as long as the arena
+                state_to_signature[state_index] = unsafe { std::mem::transmute(Signature::new(signature.as_slice())) };
                 new_id = *index;
             } else {
                 let slice = if builder.len() == 0 { empty_slice } else { arena.alloc_slice_copy(&builder) };
