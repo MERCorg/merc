@@ -371,13 +371,6 @@ pub struct BlockPartitionBuilder {
     old_elements: Vec<StateIndex>,
 }
 
-impl From<BlockPartition> for IndexedPartition {
-    fn from(partition: BlockPartition) -> Self {
-        let num_of_blocks = partition.num_of_blocks();
-        IndexedPartition::with_partition(partition.element_to_block, num_of_blocks)
-    }
-}
-
 impl Partition for BlockPartition {
     fn block_number(&self, element: StateIndex) -> BlockIndex {
         self.element_to_block[element.value()]
@@ -397,6 +390,7 @@ impl PartialEq<IndexedPartition> for BlockPartition {
         self.equal(other)
     }
 }
+
 impl fmt::Display for BlockPartition {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let blocks_str = self.blocks.iter().format_with(", ", |block, f| {
