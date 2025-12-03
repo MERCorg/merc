@@ -4,16 +4,17 @@ use mcrl2_sys::cxx::CxxVector;
 use mcrl2_sys::cxx::UniquePtr;
 use mcrl2_sys::pbes::ffi::local_control_flow_graph;
 use mcrl2_sys::pbes::ffi::local_control_flow_graph_vertex;
-use mcrl2_sys::pbes::ffi::mcrl2_pbes_local_control_flow_graph_vertices;
-use mcrl2_sys::pbes::ffi::mcrl2_pbes_stategraph_local_algorithm_cfgs;
-use mcrl2_sys::pbes::ffi::mcrl2_pbes_stategraph_local_algorithm_run;
-use mcrl2_sys::pbes::ffi::mcrl2_pbes_to_string;
+use mcrl2_sys::pbes::ffi::mcrl2_local_control_flow_graph_vertices;
+use mcrl2_sys::pbes::ffi::mcrl2_stategraph_local_algorithm_cfgs;
+use mcrl2_sys::pbes::ffi::mcrl2_stategraph_local_algorithm_run;
+use mcrl2_sys::pbes::ffi::mcrl2_to_string;
 use mcrl2_sys::pbes::ffi::mcrl2_propositional_variable_parameters;
 use mcrl2_sys::pbes::ffi::mcrl2_propositional_variable_to_string;
 use mcrl2_sys::pbes::ffi::mcrl2_srf_pbes_equation_variable;
 use mcrl2_sys::pbes::ffi::mcrl2_srf_pbes_equations;
 use mcrl2_sys::pbes::ffi::mcrl2_srf_pbes_to_pbes;
 use mcrl2_sys::pbes::ffi::mcrl2_unify_parameters;
+use mcrl2_sys::pbes::ffi::mcrl2_local_control_flow_graph_vertex_index;
 use mcrl2_sys::pbes::ffi::pbes;
 use mcrl2_sys::pbes::ffi::propositional_variable;
 use mcrl2_sys::pbes::ffi::srf_equation;
@@ -23,6 +24,7 @@ use merc_utilities::MercError;
 
 use crate::ATerm;
 use crate::AtermList;
+use crate::DataVariable;
 
 /// mcrl2::pbes_system::pbes
 pub struct Pbes {
@@ -33,7 +35,14 @@ impl Pbes {
     /// Load a PBES from a file.
     pub fn from_file(filename: &str) -> Result<Self, MercError> {
         Ok(Pbes {
-            pbes: mcrl2_sys::pbes::ffi::mcrl2_load_pbes_from_file(filename)?,
+            pbes: mcrl2_sys::pbes::ffi::mcrl2_load_pbes_from_pbes_file(filename)?,
+        })
+    }
+
+    /// Load a PBES from a pbes file.
+    pub fn from_text_file(filename: &str) -> Result<Self, MercError> {
+        Ok(Pbes {
+            pbes: mcrl2_sys::pbes::ffi::mcrl2_load_pbes_from_text_file(filename)?,
         })
     }
 
@@ -44,7 +53,7 @@ impl Pbes {
 
 impl fmt::Display for Pbes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", mcrl2_pbes_to_string(&self.pbes).unwrap())
+        write!(f, "{}", mcrl2_to_string(&self.pbes).unwrap())
     }
 }
 
@@ -56,11 +65,11 @@ pub struct PbesStategraph {
 impl PbesStategraph {
     /// Run the state graph algorithm on the given PBES.
     pub fn run(pbes: &Pbes) -> Self {
-        let algorithm = mcrl2_pbes_stategraph_local_algorithm_run(&pbes.pbes).unwrap();
+        let algorithm = mcrl2_stategraph_local_algorithm_run(&pbes.pbes).unwrap();
 
         // Obtain a copy of the control flow graphs.
         let mut cfgs = CxxVector::new();
-        mcrl2_pbes_stategraph_local_algorithm_cfgs(cfgs.pin_mut(), &algorithm).unwrap();
+        mcrl2_stategraph_local_algorithm_cfgs(cfgs.pin_mut(), &algorithm).unwrap();
 
         PbesStategraph {
             algorithm,
@@ -95,10 +104,10 @@ impl PbesStategraphControlFlowGraph {
 
         // Obtain the vertices of the control flow graph.
         let mut ffi_vertices = CxxVector::new();
-        mcrl2_pbes_local_control_flow_graph_vertices(ffi_vertices.pin_mut(), unsafe { &*cfg }).unwrap();
+        mcrl2_local_control_flow_graph_vertices(ffi_vertices.pin_mut(), unsafe { &*cfg }).unwrap();
         let vertices = ffi_vertices
             .iter()
-            .map(|v| ControlFlowGraphVertex { vertex: v })
+            .map(|v| ControlFlowGraphVertex::new(v))
             .collect();
 
         PbesStategraphControlFlowGraph { cfg, vertices }
@@ -110,6 +119,26 @@ pub struct ControlFlowGraphVertex {
     vertex: *const local_control_flow_graph_vertex,
 }
 
+impl ControlFlowGraphVertex {
+    /// Returns the name of the variable associated with this vertex.
+    pub fn name(&self) -> String {
+        unsafe { mcrl2_local_control_flow_graph_vertex_name(self.vertex).unwrap() }
+    }
+
+    pub fn value(&self) -> DataExpression {
+        DataExpression::new(unsafe { mcrl2_local_control_flow_graph_vertex_value(self.vertex).unwrap() })
+    }
+
+    /// Returns the index of the variable associated with this vertex.
+    pub fn index(&self) -> usize {
+        unsafe { mcrl2_local_control_flow_graph_vertex_index(self.vertex).unwrap() }
+    }
+
+    pub(crate) fn new(vertex: *const local_control_flow_graph_vertex) -> Self {
+        ControlFlowGraphVertex { vertex }
+    }
+}
+
 /// mcrl2::pbes_system::srf_pbes
 pub struct SrfPbes {
     srf_pbes: UniquePtr<srf_pbes>,
@@ -119,7 +148,7 @@ pub struct SrfPbes {
 impl SrfPbes {
     /// Convert a PBES to an SRF PBES.
     pub fn from(pbes: &Pbes) -> Result<Self, MercError> {
-        let srf_pbes = mcrl2_sys::pbes::ffi::mcrl2_pbes_to_srf_pbes(&pbes.pbes)?;
+        let srf_pbes = mcrl2_sys::pbes::ffi::mcrl2_to_srf_pbes(&pbes.pbes)?;
 
         let mut ffi_equations = CxxVector::new();
         mcrl2_srf_pbes_equations(ffi_equations.pin_mut(), &srf_pbes).unwrap();
@@ -171,9 +200,9 @@ pub struct PropositionalVariable {
 
 impl PropositionalVariable {
     /// Returns the parameters of the propositional variable.
-    pub fn parameters(&self) -> AtermList<ATerm> {
+    pub fn parameters(&self) -> AtermList<DataVariable> {
         let term = mcrl2_propositional_variable_parameters(&self.variable).unwrap();
-        AtermList::new(ATerm::new(term))
+        AtermList::new(DataVariable::new(ATerm::new(term)))
     }
 
     /// Creates a new `PbesPropositionalVariable` from the given term.

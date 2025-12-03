@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "mcrl2/core/identifier_string.h"
 #include "mcrl2/pbes/detail/stategraph_local_algorithm.h"
 #include "mcrl2/pbes/io.h"
 #include "mcrl2/pbes/pbes.h"
@@ -10,7 +11,6 @@
 
 #include "rust/cxx.h"
 
-#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -24,15 +24,24 @@ using srf_equation = detail::pre_srf_equation<false>;
 // mcrl2::pbes_system::pbes
 
 inline 
-std::unique_ptr<pbes> mcrl2_load_pbes_from_file(rust::Str filename)
+std::unique_ptr<pbes> mcrl2_load_pbes_from_pbes_file(rust::Str filename)
 {
   pbes result;
   load_pbes(result, static_cast<std::string>(filename));
   return std::make_unique<pbes>(result);
 }
 
+inline 
+std::unique_ptr<pbes> mcrl2_load_pbes_from_text_file(rust::Str filename)
+{
+  pbes result;
+  load_pbes(result, static_cast<std::string>(filename), pbes_format_text());
+  return std::make_unique<pbes>(result);
+}
+
+
 inline
-rust::String mcrl2_pbes_to_string(const pbes& pbesspec)
+rust::String mcrl2_to_string(const pbes& pbesspec)
 {
   std::stringstream ss;
   ss << pbesspec;
@@ -72,7 +81,7 @@ public:
 };
 
 inline
-std::unique_ptr<stategraph_algorithm> mcrl2_pbes_stategraph_local_algorithm_run(const pbes& p)
+std::unique_ptr<stategraph_algorithm> mcrl2_stategraph_local_algorithm_run(const pbes& p)
 {
   auto algorithm = std::make_unique<stategraph_algorithm>(p);
   algorithm->run();
@@ -80,7 +89,7 @@ std::unique_ptr<stategraph_algorithm> mcrl2_pbes_stategraph_local_algorithm_run(
 }
 
 inline
-void mcrl2_pbes_local_control_flow_graph_vertices(std::vector<detail::local_control_flow_graph_vertex>& result,
+void mcrl2_local_control_flow_graph_vertices(std::vector<detail::local_control_flow_graph_vertex>& result,
     const detail::local_control_flow_graph& cfg)
 {
   for (const auto& v : cfg.vertices)
@@ -89,8 +98,31 @@ void mcrl2_pbes_local_control_flow_graph_vertices(std::vector<detail::local_cont
   }
 }
 
+// namespace mcrl2::pbes_system::detail::local_control_flow_graph_vertex
+
 inline
-void mcrl2_pbes_stategraph_local_algorithm_cfgs(std::vector<detail::local_control_flow_graph>& result,
+std::size_t mcrl2_local_control_flow_graph_vertex_index(
+    const detail::local_control_flow_graph_vertex* vertex)
+{
+  return vertex->index();
+}
+
+inline
+std::unique_ptr<core::identifier_string> mcrl2_local_control_flow_graph_vertex_name(
+    const detail::local_control_flow_graph_vertex* vertex)
+{
+  return std::make_unique<core::identifier_string>(vertex->name());
+}
+
+inline
+std::unique_ptr<data::data_expression> mcrl2_local_control_flow_graph_vertex_value(
+    const detail::local_control_flow_graph_vertex* vertex)
+{
+  return std::make_unique<data::data_expression>(vertex->value());
+}
+
+inline
+void mcrl2_stategraph_local_algorithm_cfgs(std::vector<detail::local_control_flow_graph>& result,
     const stategraph_algorithm& algorithm)
 {
   for (const auto& cfg : algorithm.local_control_flow_graphs())
@@ -100,7 +132,7 @@ void mcrl2_pbes_stategraph_local_algorithm_cfgs(std::vector<detail::local_contro
 }
 
 inline
-std::unique_ptr<srf_pbes> mcrl2_pbes_to_srf_pbes(const pbes& p)
+std::unique_ptr<srf_pbes> mcrl2_to_srf_pbes(const pbes& p)
 {
   return std::make_unique<srf_pbes>(pbes2srf(p));
 }

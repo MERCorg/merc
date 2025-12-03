@@ -17,9 +17,15 @@ use crate::symmetry::SymmetryAlgorithm;
 mod permutation;
 mod symmetry;
 
+#[derive(clap::ValueEnum, Clone, Debug)]
+enum PbesFormat {
+    Text,
+    Pbes,
+}
+
 #[derive(clap::Parser, Debug)]
 #[command(
-    about = "A command line tool for variability parity games",
+    about = "A command line tool for parameterised boolean equation systems (PBESs)",
     arg_required_else_help = true
 )]
 struct Cli {
@@ -45,6 +51,8 @@ enum Commands {
 #[derive(clap::Args, Debug)]
 struct SymmetryArgs {
     filename: String,
+
+    format: Option<PbesFormat>,
 }
 
 fn main() -> Result<ExitCode, MercError> {
@@ -66,9 +74,14 @@ fn main() -> Result<ExitCode, MercError> {
     let mut timing = Timing::new();
 
     if let Some(Commands::Symmetry(args)) = cli.commands {
-        let pbes = Pbes::from_file(&args.filename)?;
+        let format = args.format.unwrap_or(PbesFormat::Pbes);
 
-        let symmetries = SymmetryAlgorithm::new(&pbes)?.run();
+        let pbes = match format {
+            PbesFormat::Pbes => Pbes::from_file(&args.filename)?,
+            PbesFormat::Text => Pbes::from_text_file(&args.filename)?,
+        };
+
+        SymmetryAlgorithm::new(&pbes)?.run();
     }
 
     if cli.timings {

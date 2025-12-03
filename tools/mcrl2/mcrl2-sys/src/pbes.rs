@@ -1,6 +1,5 @@
 #[cxx::bridge(namespace = "mcrl2::pbes_system")]
 pub mod ffi {
-
     unsafe extern "C++" {
         include!("mcrl2-sys/cpp/pbes.h");
         include!("mcrl2-sys/cpp/exception.h");
@@ -8,18 +7,20 @@ pub mod ffi {
         type pbes;
 
         /// Loads a PBES from a file.
-        fn mcrl2_load_pbes_from_file(filename: &str) -> Result<UniquePtr<pbes>>;
+        fn mcrl2_load_pbes_from_pbes_file(filename: &str) -> Result<UniquePtr<pbes>>;
+
+        fn mcrl2_load_pbes_from_text_file(filename: &str) -> Result<UniquePtr<pbes>>;
 
         type stategraph_algorithm;
 
         /// Run the state graph algorithm and obtain the result.
-        fn mcrl2_pbes_stategraph_local_algorithm_run(input: &pbes) -> Result<UniquePtr<stategraph_algorithm>>;
+        fn mcrl2_stategraph_local_algorithm_run(input: &pbes) -> Result<UniquePtr<stategraph_algorithm>>;
 
         #[namespace = "mcrl2::pbes_system::detail"]
         type local_control_flow_graph;
 
         /// Get the control flow graphs identified by the state graph algorithm.
-        fn mcrl2_pbes_stategraph_local_algorithm_cfgs(
+        fn mcrl2_stategraph_local_algorithm_cfgs(
             result: Pin<&mut CxxVector<local_control_flow_graph>>,
             input: &stategraph_algorithm,
         ) -> Result<()>;
@@ -28,20 +29,41 @@ pub mod ffi {
         type local_control_flow_graph_vertex;
 
         /// Obtain the vertices of a cfg.
-        fn mcrl2_pbes_local_control_flow_graph_vertices(
+        fn mcrl2_local_control_flow_graph_vertices(
             result: Pin<&mut CxxVector<local_control_flow_graph_vertex>>,
             input: &local_control_flow_graph,
         ) -> Result<()>;
+
+        /// Obtain the index of the variable associated with the vertex.
+        unsafe fn mcrl2_local_control_flow_graph_vertex_index(
+            vertex: *const local_control_flow_graph_vertex,
+        ) -> Result<usize>;
+
+        #[namespace = "atermpp"]
+        type aterm_string = crate::atermpp::ffi::aterm_string;
+
+        /// Obtain the name of the variable associated with the vertex.
+        unsafe fn mcrl2_local_control_flow_graph_vertex_name(
+            vertex: *const local_control_flow_graph_vertex,
+        ) -> Result<UniquePtr<aterm_string>>;
+
+        #[namespace = "mcrl2::data"]
+        type data_expression = crate::data::ffi::data_expression;
+
+        /// Obtain the value of the variable associated with the vertex.
+        unsafe fn mcrl2_local_control_flow_graph_vertex_value(
+            vertex: *const local_control_flow_graph_vertex,
+        ) -> Result<UniquePtr<data_expression>>;
 
         type srf_pbes;
 
         type srf_equation;
 
         /// Convert a PBES to an SRF PBES.
-        fn mcrl2_pbes_to_srf_pbes(input: &pbes) -> Result<UniquePtr<srf_pbes>>;
+        fn mcrl2_to_srf_pbes(input: &pbes) -> Result<UniquePtr<srf_pbes>>;
 
         /// Returns PBES as a string.
-        fn mcrl2_pbes_to_string(input: &pbes) -> Result<String>;
+        fn mcrl2_to_string(input: &pbes) -> Result<String>;
 
         /// Convert a SRF PBES to a PBES.
         fn mcrl2_srf_pbes_to_pbes(input: &srf_pbes) -> Result<UniquePtr<pbes>>;

@@ -1,3 +1,5 @@
+/// Authors: Menno Bartels and Maurice Laveaux
+
 use itertools::Itertools;
 use std::collections::HashSet;
 use std::fmt;
@@ -121,10 +123,14 @@ impl fmt::Display for Permutation {
         let mut visited = vec![false; self.mapping.len()];
         let mut first_cycle = true;
 
+        // The mapping is sorted by domain, so we can iterate over it directly.
+        println!("test");
         for (start, value) in &self.mapping {
+            println!("bruh");
             if visited[*value] || self.value(*start) == *value {
                 // We have already visited this element, or it is a fixed point.
                 visited[*value] = true;
+        println!("skipped");
                 continue;
             }
 
@@ -175,7 +181,7 @@ impl fmt::Display for Permutation {
 /// - (3 4)
 /// - (0 3 4)
 /// - (0 4 3)
-pub fn permutation_group(indices: &Vec<usize>) -> impl Iterator<Item = Permutation> {
+pub fn permutation_group(indices: &Vec<usize>) -> impl Iterator<Item = Permutation> + Clone {
     indices.iter().permutations(indices.len()).map(move |perm| {
         let mapping: Vec<(usize, usize)> = indices
             .iter()
@@ -206,6 +212,7 @@ mod tests {
     #[test]
     fn test_cycle_notation() {
         let permutation = Permutation::from_input("[0->2, 1->0, 2->1, 3->4, 4->3]").unwrap();
+        println!("{:?}", permutation.mapping);
 
         assert_eq!(permutation.to_string(), "((0 2 1) (3 4))");
     }
@@ -213,7 +220,11 @@ mod tests {
     #[test]
     fn test_permutation_group() {
         let indices = vec![0, 3, 5];
-        let perms: Vec<Permutation> = permutation_group(&indices).collect();
-        assert_eq!(perms.len(), permutation_group_size(indices.len()));
+        let permutations: Vec<Permutation> = permutation_group(&indices).collect();
+        for p in &permutations {
+            println!("{}", p);
+        }
+
+        assert_eq!(permutations.len(), permutation_group_size(indices.len()));
     }
 }

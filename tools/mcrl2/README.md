@@ -19,12 +19,12 @@ of the modules have been changed.
 # Overview
 
 This workspace uses the crate `cxx` in `mcrl2-sys` to set up a `C`-like FFI
-between the Rust code and C++ code, with static assertions and some helpers for
-standard functionality such as `std::unique_ptr`. The resulting interface is
-generally unpleasant to work with so the crate `mcrl2` has Rust wrappers around
-the resulting functionality.
+between the Rust code and C++ code, with static assertions to ensure that the
+FFI matches and some helpers for standard functionality such as
+`std::unique_ptr`. The resulting interface is generally unpleasant to work with
+so the crate `mcrl2` has Rust wrappers around the resulting functionality.
 
-# Contributing
+# IDEs
 
 The `cc` crate used to build the mCRL2 toolset unfortunately does not generate a 
 `compile_commands.json` that IDEs typically use to provide IDE support for C++ 
@@ -35,7 +35,13 @@ from this directory:
 
     bear -- cargo build
 
-Moving the resulting `compile_commands.json` to the root directory should also
-allow you to get IDE support in the `3rd-party/mCRL2` source code. Furthermore,
-it is also convenient to open this directory directly in `vscode` since opening
-the root directory can make it confused by the different workspaces somehow.
+It is also convenient to open the current directory directly in `vscode` since
+opening the root directory can make it confused by the different workspaces.
+
+# Caching
+
+Since the C++ code is slow to compile due to the heavy usage of templated code
+in header files it can be useful to install `sccache` with `cargo install
+sccache` and define the `RUSTC_WRAPPER=sccache` environment variable. This can
+be put into `.bashrc` for a more permanent solution. This cache will speed up 
+both Rust and C++ compilation.

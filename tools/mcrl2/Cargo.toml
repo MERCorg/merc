@@ -38,5 +38,6 @@ cargo-emit = "0.2"
 # The workspace libraries.
 mcrl2 = { path = "mcrl2" }
 mcrl2-sys = { path = "mcrl2-sys" }
+merc_io = { path = "../../crates/io" }
 merc_tools = { path = "../../crates/tools" }
 merc_utilities = { path = "../../crates/utilities" }
