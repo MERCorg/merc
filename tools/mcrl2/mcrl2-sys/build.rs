@@ -150,6 +150,7 @@ fn main() {
         .define("MCRL2_NO_RECURSIVE_SOUNDNESS_CHECKS", "1") // These checks overflow the stack, and are extremely slow.
         .define("LPS_NO_RECURSIVE_SOUNDNESS_CHECKS", "1")
         .define("MERC_MCRL2_VERSION", "<internal_merc_build>") // Sets the mCRL2 version to something recognized as our internal build.
+        .define("assert", "MCRL2_ASSERT") // Use our custom assertion macro. This might be a stupid idea, but gives us stack traces through assertions of the mCRL2 toolset.
         .includes(add_prefix(
             mcrl2_path.clone(),
             &[
@@ -253,5 +254,6 @@ fn main() {
     rerun_if_changed!("cpp/exception.h");
     rerun_if_changed!("cpp/data.h");
     rerun_if_changed!("cpp/pbes.h");
+    rerun_if_changed!("cpp/pbes.cpp");
     rerun_if_changed!("cpp/log.h");
 }
