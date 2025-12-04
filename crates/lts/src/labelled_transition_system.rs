@@ -119,6 +119,9 @@ impl LabelledTransitionSystem {
 
         // Add the sentinel state.
         states.push(transition_labels.len());
+        
+        // The minus one is because we added one extra state for the sentinel.
+        debug_assert!(initial_state.value() < states.len() - 1, "Initial state {:?} out of bounds (num states: {})", initial_state, states.len() - 1);
 
         LabelledTransitionSystem {
             initial_state,

@@ -48,6 +48,15 @@ pub fn random_lts(
         }
     }
 
+    if builder.num_of_transitions() == 0 {
+        // Ensure there is at least one transition (otherwise it would be an LTS without initial state).
+        builder.add_transition_index(
+            StateIndex::new(0),
+            LabelIndex::new(0),
+            StateIndex::new(0),
+        );
+    }
+
     builder.finish(StateIndex::new(0), true)
 }
 
