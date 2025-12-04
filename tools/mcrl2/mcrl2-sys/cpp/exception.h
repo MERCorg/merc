@@ -5,6 +5,10 @@
 
 namespace rust::behavior {
 
+// Define a try-catch block that catches C++ exceptions with proper stack traces. Otherwise, we simply
+// let exceptions propagate normally. Meaning they will be converted to Rust `Result` without stack traces.
+#ifdef MCRL2_ENABLE_CPPTRACE
+
 template <typename Try, typename Fail>
 static void trycatch(Try &&func, Fail &&fail) noexcept 
 { 
@@ -18,5 +22,7 @@ static void trycatch(Try &&func, Fail &&fail) noexcept
     fail(e.what());
   }
 }
+
+#endif // MCRL2_ENABLE_CPPTRACE
 
 } // namespace rust::behaviour

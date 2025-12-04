@@ -202,15 +202,20 @@ fn main() {
             mcrl2_path.clone() + "libraries/utilities/source/",
             &utilities_source_files,
         ))
+        .file("cpp/pbes.cpp")
         .file(mcrl2_workarounds_path + "mcrl2_syntax.c"); // This is to avoid generating the dparser grammer.
 
     #[cfg(feature = "mcrl2_jittyc")]
-    build.define("MCRL2_ENABLE_JITTYC");
+    build.define("MCRL2_ENABLE_JITTYC", "1");
+    
+    #[cfg(feature = "mcrl2_cpptrace")]
+    build.define("MCRL2_ENABLE_CPPTRACE", "1");
 
     // Disable assertions and other checks in release mode.
     let profile = std::env::var("PROFILE").expect("cargo should always set this variable");
     match profile.as_str() {
         "debug" => {
+            // Debug mode for libc++ (the LLVM standard library)
             build.define("_LIBCPP_DEBUG", "1");
             build.define("_LIBCPP_ENABLE_THREAD_SAFETY_ANNOTATIONS", "1");
             build.define("_LIBCPP_HARDENING_MODE", "_LIBCPP_HARDENING_MODE_DEBUG");
@@ -220,8 +225,10 @@ fn main() {
             build.define("_LIBCPP_ABI_BOUNDED_UNIQUE_PTR", "1");
             build.define("_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STD_ARRAY", "1");
 
-            // Enable the GCC standard library debug mode as well.
-            build.flag_if_supported("-D_GLIBCXX_DEBUG");
+            // Debug mode for libstdc++ (the GNU standard library)
+            build.define("_GLIBCXX_DEBUG", "1");
+            build.define("_GLIBCXX_DEBUG_PEDANTIC", "1");
+            build.define("_GLIBCXX_ASSERTIONS", "1");
         }
         "release" => {
             build.define("NDEBUG", "1");
