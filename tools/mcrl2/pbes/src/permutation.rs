@@ -99,7 +99,7 @@ impl Permutation {
     }
 
     /// Returns the value of the permutation at the given key.
-    fn value(&self, key: usize) -> usize {
+    pub fn value(&self, key: usize) -> usize {
         for (d, v) in &self.mapping {
             if *d == key {
                 return *v;
@@ -167,7 +167,7 @@ impl fmt::Display for Permutation {
 /// Given a set of indices, generate the permutation group on these indices.
 ///
 /// For the variables {0, 3, 4} this would generate the permutations in cycle notation:
-/// - Identity: (0)(3)(4)
+/// - Identity: ()
 /// - (0 3)
 /// - (0 4)
 /// - (3 4)

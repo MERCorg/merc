@@ -15,6 +15,7 @@ use mcrl2::ControlFlowGraph;
 use mcrl2::SrfPbes;
 use mcrl2::StategraphEquation;
 use merc_io::TimeProgress;
+use merc_utilities::LargeFormatter;
 use merc_utilities::MercError;
 
 use crate::clone_iterator::CloneIterator;
@@ -95,18 +96,40 @@ impl SymmetryAlgorithm {
         let cliques = self.cliques();
 
         for clique in &cliques {
-            info!("Found clique: {:?}", clique);
+            info!("Found clique: {:?}", clique.iter().map(|i| (i, self.all_control_flow_parameters[*i])).format(", "));
         }
 
-        let _progress = TimeProgress::new(|_: ()| {}, 1);
-
+        let mut combined_candidates = Box::new(iter::empty()) as Box<dyn CloneIterator<Item = (Permutation, Permutation)>>;
+        let mut number_of_candidates = 1usize;
         for clique in &cliques {
-            let (number_of_permutations, candidates) = self.clique_candidates(clique);
-            info!("Number of candidate permutations: {}", number_of_permutations);
+            let (number_of_permutations, candidates) = self.clique_candidates(clique.clone());
+            info!("Maximum number of permutations for clique {:?}: {}", clique, LargeFormatter(number_of_permutations));
 
-            for candidate in candidates {
-                info!("Testing candidate permutation: {:?}", candidate);
+            if number_of_candidates == 1 {
+                combined_candidates = Box::new(candidates) as Box<dyn CloneIterator<Item = (Permutation, Permutation)>>;
+            } else {
+                combined_candidates = Box::new(
+                    combined_candidates
+                        .cartesian_product(candidates)
+                        .filter(|((_, lhs_beta), (_, rhs_beta))| {
+                            lhs_beta == rhs_beta
+                        })
+                        .map(|((lhs_alpha, beta), (rhs_alpha, _))| (lhs_alpha.concat(&rhs_alpha), beta)),
+                ) as Box<dyn CloneIterator<Item = (Permutation, Permutation)>>;
             }
+
+            number_of_candidates *= number_of_permutations;
+        }
+
+        let mut progress = TimeProgress::new(|index| {
+            info!("Checked {index} symmetry candidates...");
+        }, 1);
+
+        info!("Maximum number of symmetry candidates: {}", LargeFormatter(number_of_candidates));
+
+        for (i, candidate) in combined_candidates.enumerate() {
+            info!("Checking candidate {} / {}", LargeFormatter(i + 1), LargeFormatter(number_of_candidates));
+            progress.print(i);
         }
     }
 
@@ -139,9 +162,9 @@ impl SymmetryAlgorithm {
     }
 
     /// Computes the set of candidates we can derive from a single clique
-    fn clique_candidates(&self, I: &Vec<usize>) -> (usize, impl Iterator<Item = Permutation>) {
+    fn clique_candidates(&self, I: Vec<usize>) -> (usize, Box<dyn CloneIterator<Item = (Permutation, Permutation)> + '_>) {
         // Determine the parameter indices involved in the clique
-        let parameter_indices: Vec<usize> = I
+        let control_glow_parameter_indices: Vec<usize> = I
             .iter()
             .map(|&i| {
                 let cfg = &self.state_graph.control_flow_graphs()[i];
@@ -149,10 +172,18 @@ impl SymmetryAlgorithm {
             })
             .collect();
 
-        // Groups the parameters by their sort.
+        info!("Parameter indices in clique: {:?}", control_glow_parameter_indices);
+
+        // Groups the data parameters by their sort.
         let same_sort_parameters = {
             let mut result: Vec<Vec<DataVariable>> = Vec::new();
-            for param in &self.parameters {
+
+            for (index, param) in self.parameters.iter().enumerate() {
+                if self.all_control_flow_parameters.contains(&index) {
+                    // Skip control flow parameters.
+                    continue;
+                }
+
                 let sort = param.sort();
                 if let Some(group) = result.iter_mut().find(|g: &&mut Vec<_>| {
                     if let Some(first) = g.first() {
@@ -170,9 +201,8 @@ impl SymmetryAlgorithm {
         };
 
         let mut number_of_permutations = 1usize;
-        let mut all_data_groups: Box<dyn CloneIterator<Item = Permutation>> = Box::new(iter::empty());
+        let mut all_data_groups: Box<dyn CloneIterator<Item = Permutation>> = Box::new(iter::empty()); // Default value is overwritten in first iteration.
         for group in same_sort_parameters {
-            info!("Group of same sort parameters: {:?}", group);
 
             // Determine the indices of these parameters.
             let parameter_indices: Vec<usize> = group
@@ -180,22 +210,37 @@ impl SymmetryAlgorithm {
                 .map(|param| self.parameters.iter().position(|p| p.name() == param.name()).unwrap())
                 .collect();
 
-            number_of_permutations *= permutation_group_size(parameter_indices.len());
+            info!("Same sort parameters: {:?}, parameter indices: {:?}", group, parameter_indices);
 
             // Compute the product of the current data group with the already concatenated ones.
-            all_data_groups = Box::new(
-                all_data_groups
-                    .cartesian_product(permutation_group(parameter_indices.clone()))
-                    .map(|(a, b)| a.concat(&b)),
-            ) as Box<dyn CloneIterator<Item = Permutation>>;
+            if number_of_permutations == 1 { 
+                all_data_groups = Box::new(permutation_group(parameter_indices.clone())) as Box<dyn CloneIterator<Item = Permutation>>;
+            } else {
+                all_data_groups = Box::new(
+                    all_data_groups
+                        .cartesian_product(permutation_group(parameter_indices.clone()))
+                        .map(|(a, b)| a.concat(&b)),
+                ) as Box<dyn CloneIterator<Item = Permutation>>;
+            }
+
+            number_of_permutations *= permutation_group_size(parameter_indices.len());
         }
+
+        number_of_permutations *= permutation_group_size(control_glow_parameter_indices.len());
 
         (
             number_of_permutations,
-            permutation_group(parameter_indices)
+            Box::new(permutation_group(control_glow_parameter_indices)
                 .cartesian_product(all_data_groups)
-                .map(|(a, b)| a.concat(&b))
-                .filter(|permutation| self.complies(permutation, I)),
+                .filter(move |(a, b)| {
+                    let pi = a.clone().concat(&b);
+                    if !self.complies(&pi, &I)  {
+                        info!("Permutation {:?} does not comply with the clique.", pi);
+                        return false;
+                    }
+
+                    true
+                })) as Box<dyn CloneIterator<Item = (Permutation, Permutation)>>
         )
     }
 
@@ -303,19 +348,25 @@ impl SymmetryAlgorithm {
     /// flow parameter.
     fn complies_cfg(&self, pi: &Permutation, c: &ControlFlowGraph) -> bool {
         let c_prime = self.state_graph.control_flow_graphs().iter().find(|cfg| {
-            variable_index(cfg) == variable_index(c)
+            variable_index(cfg) == pi.value(variable_index(c))
         }).expect("There should be a matching control flow graph.");
 
         for s in c.vertices() {
             for s_prime in c_prime.vertices() {
                 if s.value() == s_prime.value() && s.name() == s_prime.name() {
                     // s == s'
-                    for (to, _) in s.outgoing_edges() {
-                        for (to_prime, _) in s_prime.outgoing_edges() {
+                    for (to, labels) in s.outgoing_edges() {
+
+                        for (to_prime, labels_prime) in s_prime.outgoing_edges() {
                             let to = ControlFlowGraphVertex::new(*to);
                             let to_prime = ControlFlowGraphVertex::new(*to_prime);
                             if to.value() == to_prime.value() && to.name() == to_prime.name() {
+                                let equation = self.find_equation_by_name(&s.name()).expect("Equation should exist");
 
+                                // Checks whether these edges can match
+                                if !self.matching_summand(equation, pi, labels, labels_prime) {
+                                    return false;
+                                }
                             }
                         }
                     }
@@ -326,6 +377,43 @@ impl SymmetryAlgorithm {
         true
     }
 
+    /// Checks whether there is a matching summand in the equation for the given labels under the permutation pi.
+    fn matching_summand(&self, equation: &StategraphEquation, pi: &Permutation, labels: &Vec<usize>, labels_prime: &Vec<usize>) -> bool {
+        let mut remaining_j = labels_prime.clone();
+
+        for i in labels {
+            let variable = &equation.predicate_variables()[*i];
+
+            let result = labels_prime.iter().find(|&&j| {
+                let variable_prime = &equation.predicate_variables()[j];
+
+                self.equal_under_permutation(pi, &variable.changed(), &variable_prime.changed())
+                    && self.equal_under_permutation(pi, &variable.used(), &variable_prime.used())
+            });
+
+            if let Some(x) = result {
+                // Remove x from remaining_j
+                let index = remaining_j.iter().position(|r| r == x).expect("Element should exist");
+                remaining_j.remove(index);
+            } else {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    /// Checks whether two sets are equal under the given permutation.
+    fn equal_under_permutation(&self, pi: &Permutation, left: &Vec<usize>, right: &Vec<usize>) -> bool {
+        for l in left {
+            let l_permuted = pi.value(*l);
+            if !right.contains(&l_permuted) {
+                return false;
+            }
+        }
+
+        true
+    }
 
     /// Computes the sizes(c, s, s')
     /// 

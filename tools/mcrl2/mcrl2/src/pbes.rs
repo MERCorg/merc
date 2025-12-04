@@ -80,6 +80,7 @@ pub struct PbesStategraph {
     equations: Vec<StategraphEquation>,
 
     _algorithm: UniquePtr<stategraph_algorithm>,
+    _equations_ffi: UniquePtr<CxxVector<stategraph_equation>>,
     _control_flow_graphs_ffi: UniquePtr<CxxVector<local_control_flow_graph>>,
 }
 
@@ -104,6 +105,7 @@ impl PbesStategraph {
             equations: equations_ffi.iter().map(|eq| StategraphEquation::new(eq)).collect(),
             _algorithm: algorithm,
             _control_flow_graphs_ffi: control_flow_graphs_ffi,
+            _equations_ffi: equations_ffi,
         })
     }
 
@@ -201,7 +203,7 @@ impl ControlFlowGraphVertex {
 
         ControlFlowGraphVertex {
             vertex,
-            outgoing_edges: outgoing_edges,
+            outgoing_edges,
             incoming_edges: vec![],
         }
     }
@@ -215,31 +217,32 @@ impl fmt::Debug for ControlFlowGraphVertex {
 
 /// mcrl2::pbes_system::detail::predicate_variable
 pub struct PredicateVariable {
+    used: Vec<usize>,
+    changed: Vec<usize>,
+
     variable: *const predicate_variable,
 }
 
 impl PredicateVariable {
     /// Returns the used set of the predicate variable.
-    pub fn used(&self) -> Vec<usize> {
-        unsafe {
-            mcrl2_sys::pbes::ffi::mcrl2_predicate_variable_used(
-                self.variable.as_ref().expect("Pointer should be valid"),
-            )
-        }
+    pub fn used(&self) -> &Vec<usize> {
+        &self.used
     }
 
     /// Returns the changed set of the predicate variable.
-    pub fn changed(&self) -> Vec<usize> {
-        unsafe {
-            mcrl2_sys::pbes::ffi::mcrl2_predicate_variable_changed(
-                self.variable.as_ref().expect("Pointer should be valid"),
-            )
-        }
+    pub fn changed(&self) -> &Vec<usize> {
+        &self.changed
     }
 
     /// Creates a new `PredicateVariable` from the given FFI variable pointer.
     pub(crate) fn new(variable: *const predicate_variable) -> Self {
-        PredicateVariable { variable }
+        PredicateVariable { variable, used: unsafe { mcrl2_sys::pbes::ffi::mcrl2_predicate_variable_used(
+                variable.as_ref().expect("Pointer should be valid"),
+            )}, 
+            changed: unsafe {mcrl2_sys::pbes::ffi::mcrl2_predicate_variable_changed(
+                variable.as_ref().expect("Pointer should be valid"),
+            )}
+        }
     }
 }
 

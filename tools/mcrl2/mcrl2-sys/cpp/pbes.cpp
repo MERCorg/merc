@@ -15,7 +15,7 @@ void mcrl2_local_control_flow_graph_vertex_outgoing_edges(std::vector<vertex_out
     {
       voe.edges->emplace_back(e);
     }
-    // result.emplace_back(voe);
+    result.emplace_back(std::move(voe));
   }
 }
 
@@ -31,7 +31,7 @@ void mcrl2_local_control_flow_graph_vertex_incoming_edges(std::vector<vertex_out
     {
       voe.edges->emplace_back(e);
     }
-    // result.emplace_back(voe);
+    result.emplace_back(std::move(voe));
   }
 }
 

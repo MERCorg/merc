@@ -11,6 +11,7 @@ use mcrl2_sys::atermpp::ffi::mcrl2_aterm_string_to_string;
 use mcrl2_sys::atermpp::ffi::mcrl2_aterm_to_string;
 use mcrl2_sys::cxx::UniquePtr;
 
+// TODO: For this we could use the local protection set similar to the `mcrl2-rust` project.
 /// Represents a atermpp::aterm from the mCRL2 toolset.
 pub struct Aterm {
     term: UniquePtr<aterm>,

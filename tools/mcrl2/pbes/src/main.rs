@@ -12,6 +12,7 @@ use merc_tools::VersionFlag;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
 
+use crate::permutation::Permutation;
 use crate::symmetry::SymmetryAlgorithm;
 
 mod permutation;
@@ -55,6 +56,8 @@ struct SymmetryArgs {
 
     #[arg(long, short('i'), value_enum)]
     format: Option<PbesFormat>,
+
+    permutation: Option<String>,
 }
 
 fn main() -> Result<ExitCode, MercError> {
@@ -82,6 +85,11 @@ fn main() -> Result<ExitCode, MercError> {
             PbesFormat::Pbes => Pbes::from_file(&args.filename)?,
             PbesFormat::Text => Pbes::from_text_file(&args.filename)?,
         };
+
+        if let Some(permutation) = &args.permutation {
+            eprintln!("Note: the permutation argument is currently not used.");
+            let _pi = Permutation::from_input(permutation)?;
+        } 
 
         SymmetryAlgorithm::new(&pbes)?.run();
     }

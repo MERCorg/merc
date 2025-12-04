@@ -1,6 +1,7 @@
 use std::fmt;
 
 use mcrl2_sys::data::ffi::mcrl2_data_expression_to_string;
+use mcrl2_sys::data::ffi::mcrl2_sort_to_string;
 use mcrl2_sys::data::ffi::mcrl2_variable_name;
 use mcrl2_sys::data::ffi::mcrl2_variable_sort;
 
@@ -60,7 +61,7 @@ impl DataSort {
 
 impl fmt::Debug for DataSort {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self.term)
+        write!(f, "{:?}", mcrl2_sort_to_string(self.term.get()))
     }
 }
 

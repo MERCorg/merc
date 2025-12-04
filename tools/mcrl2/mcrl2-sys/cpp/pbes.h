@@ -12,6 +12,7 @@
 #include "mcrl2/pbes/srf_pbes.h"
 #include "mcrl2/pbes/unify_parameters.h"
 
+#include "mcrl2-sys/cpp/exception.h"
 #include "rust/cxx.h"
 
 #include <cstddef>
@@ -250,21 +251,27 @@ std::unique_ptr<atermpp::aterm> mcrl2_srf_pbes_equation_variable(const srf_equat
 inline
 std::unique_ptr<atermpp::aterm> mcrl2_propositional_variable_name(const atermpp::aterm& variable)
 {
-  assert(pbes_system::is_propositional_variable(variable));
+  MCRL2_ASSERT(pbes_system::is_propositional_variable(variable));
   return std::make_unique<atermpp::aterm>(atermpp::down_cast<propositional_variable>(variable).name());
 }
 
 inline
 std::unique_ptr<atermpp::aterm> mcrl2_propositional_variable_parameters(const atermpp::aterm& variable)
 {
-  assert(pbes_system::is_propositional_variable(variable));
+  MCRL2_ASSERT(pbes_system::is_propositional_variable(variable));
   return std::make_unique<atermpp::aterm>(atermpp::down_cast<propositional_variable>(variable).parameters());
+}
+
+inline
+bool mcrl2_propositional_variable_is(const atermpp::aterm& variable)
+{
+  return pbes_system::is_propositional_variable(variable);
 }
 
 inline
 rust::String mcrl2_propositional_variable_to_string(const atermpp::aterm& variable)
 {
-  assert(pbes_system::is_propositional_variable(variable));
+  MCRL2_ASSERT(pbes_system::is_propositional_variable(variable));
   std::stringstream ss;
   ss << atermpp::down_cast<propositional_variable>(variable);
   return ss.str();

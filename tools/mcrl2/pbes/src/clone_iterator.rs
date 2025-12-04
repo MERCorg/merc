@@ -1,20 +1,25 @@
 
-// Helper trait to concatenate permutations
+// This is a helper trait that is object safe and allows a type-erased iterator
+// to be cloned.
 pub trait CloneIterator: Iterator {
-    fn clone_boxed(&self) -> Box<dyn CloneIterator<Item = Self::Item>>;
+    
+    /// Clone the iterator into a boxed trait object.
+    fn clone_boxed<'a>(&self) -> Box<dyn CloneIterator<Item = Self::Item> + 'a> where Self: 'a;
 }
 
 impl<T, I> CloneIterator for I
 where
-    I: Iterator<Item = T> + Clone + 'static,
+    I: Iterator<Item = T> + Clone,
 {
-    fn clone_boxed(&self) -> Box<dyn CloneIterator<Item = Self::Item>> {
+    fn clone_boxed<'a>(&self) -> Box<dyn CloneIterator<Item = Self::Item> + 'a> where Self: 'a {
         Box::new(self.clone())
     }
 }
 
-impl<T: Clone + 'static> Clone for Box<dyn CloneIterator<Item = T>> {
+impl<T: Clone + 'static> Clone for Box<dyn CloneIterator<Item = T> + '_> {
     fn clone(&self) -> Self {
-        self.clone_boxed()
+        // Important! "recursive trait implementation" style
+        // TODO: This I don't understand fully, but it works.
+        (**self).clone_boxed()
     }
 }

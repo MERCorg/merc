@@ -136,5 +136,7 @@ pub mod ffi {
         fn mcrl2_propositional_variable_parameters(input: &aterm) -> UniquePtr<aterm>;
 
         fn mcrl2_propositional_variable_to_string(input: &aterm) -> String;
+
+        fn mcrl2_propositional_variable_is(input: &aterm) -> bool;
     }
 }

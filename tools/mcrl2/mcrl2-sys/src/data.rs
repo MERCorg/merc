@@ -13,6 +13,8 @@ pub mod ffi {
 
         fn mcrl2_data_expression_to_string(input: &aterm) -> String;
 
+        fn mcrl2_sort_to_string(input: &aterm) -> String;
+
         #[namespace = "atermpp"]
         type aterm = crate::atermpp::ffi::aterm;
     }
