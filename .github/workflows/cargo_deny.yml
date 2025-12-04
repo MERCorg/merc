@@ -1,4 +1,4 @@
-name: Cargo deny
+name: Cargo Deny
 on:
   push:
     branches: [ main ]
