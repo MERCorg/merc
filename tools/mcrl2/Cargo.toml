@@ -9,10 +9,6 @@ version = "1.0.0"
 lto = "fat"
 panic = "abort"
 debug = "line-tables-only"
-split-debuginfo = "packed"
-
-[profile.dev]
-split-debuginfo = "packed"
 
 [workspace]
 resolver = "2"
