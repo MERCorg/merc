@@ -38,26 +38,6 @@ pub fn address_sanitizer(mut arguments: Vec<String>) -> Result<(), Box<dyn Error
 }
 
 ///
-/// Run the tests with the address sanitizer enabled to detect memory issues in unsafe code.
-///
-/// This only works under Linux and MacOS currently and requires the nightly toolchain.
-///
-pub fn memory_sanitizer(mut arguments: Vec<String>) -> Result<(), Box<dyn Error>> {
-    arguments.extend(vec!["-Zbuild-std".to_string()]);
-
-    add_target_flag(&mut arguments);
-
-    cmd("cargo", arguments)
-        .env("RUSTFLAGS", "-Zsanitizer=memory")
-        .env("CFLAGS", "-fsanitize=memory")
-        .env("CXXFLAGS", "-fsanitize=memory")
-        .run()?;
-    println!("ok.");
-
-    Ok(())
-}
-
-///
 /// Run the tests with the thread sanitizer enabled to detect data race conditions.
 ///
 /// This only works under Linux and MacOS currently and requires the nightly toolchain.
