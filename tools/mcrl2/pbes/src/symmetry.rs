@@ -1,7 +1,6 @@
 #![allow(non_snake_case)]
 /// Authors: Menno Bartels and Maurice Laveaux
 /// To keep consistent with the theory we allow non-snake case names.
-
 use std::iter;
 
 use itertools::Itertools;
@@ -9,12 +8,13 @@ use itertools::Itertools;
 use log::info;
 use mcrl2::DataVariable;
 use mcrl2::Pbes;
-use mcrl2::SrfPbes;
 use mcrl2::PbesStategraph;
 use mcrl2::PbesStategraphControlFlowGraph;
-use merc_utilities::MercError;
+use mcrl2::SrfPbes;
 use merc_io::TimeProgress;
+use merc_utilities::MercError;
 
+use crate::clone_iterator::CloneIterator;
 use crate::permutation::Permutation;
 use crate::permutation::permutation_group;
 
@@ -28,14 +28,19 @@ pub struct SymmetryAlgorithm {
 }
 
 /// Returns the index of the variable that the control flow graph considers
-fn variable_index(cfg: &PbesStategraphControlFlowGraph,) -> usize {
+fn variable_index(cfg: &PbesStategraphControlFlowGraph) -> usize {
     // Check that all the vertices have the same variable assigned for consistency
     cfg.vertices().iter().for_each(|v| {
-        if v.index() != cfg.vertices().first().expect("There is at least one vertex in a CFG").index() {
+        if v.index()
+            != cfg
+                .vertices()
+                .first()
+                .expect("There is at least one vertex in a CFG")
+                .index()
+        {
             panic!("Inconsistent variable indices in control flow graph.");
         }
     });
-
 
     for v in cfg.vertices() {
         // Simply return the index of the variable
@@ -62,14 +67,14 @@ impl SymmetryAlgorithm {
             Vec::new()
         };
 
-        info!("Unified parameters: {:?}", parameters);
+        info!("Unified parameters: {:?}", parameters.iter().map(|p| (p.name(), p.sort())).format(", "));
 
-        let state_graph = PbesStategraph::run(&srf.to_pbes());
+        let state_graph = PbesStategraph::run(&srf.to_pbes())?;
         let all_control_flow_parameters = state_graph
             .control_flow_graphs()
             .iter()
             .map(|cfg| variable_index(cfg))
-            .collect::<Vec<_>>();        
+            .collect::<Vec<_>>();
 
         Ok(Self {
             state_graph,
@@ -82,13 +87,17 @@ impl SymmetryAlgorithm {
     pub fn run(&self) {
         let cliques = self.cliques();
 
-        for clique in cliques {
+        for clique in &cliques {
             info!("Found clique: {:?}", clique);
         }
 
         let _progress = TimeProgress::new(|_: ()| {}, 1);
 
-
+        for clique in &cliques {
+            for candidate in self.clique_candidates(clique) {
+                info!("Testing candidate permutation: {:?}", candidate);
+            }
+        }
     }
 
     /// Determine the cliques in the given control flow graphs.
@@ -104,7 +113,9 @@ impl SymmetryAlgorithm {
             // For every other control flow graph check if it is compatible, and start a new clique
             let mut clique = vec![i];
             for j in (i + 1)..self.state_graph.control_flow_graphs().len() {
-                if self.compatible(cfg, &self.state_graph.control_flow_graphs()[j])? == () {
+                if let Err(reason) = self.compatible(cfg, &self.state_graph.control_flow_graphs()[j]) {
+                    info!("Incompatible CFGs at indices {} and {}: {}", i, j, reason);
+                } else {
                     clique.push(j);
                 }
             }
@@ -119,9 +130,9 @@ impl SymmetryAlgorithm {
 
     /// Computes the set of candidates we can derive from a single clique
     fn clique_candidates(&self, I: &Vec<usize>) -> impl Iterator<Item = Permutation> {
-
         // Determine the parameter indices involved in the clique
-        let parameter_indices: Vec<usize> = I.iter()
+        let parameter_indices: Vec<usize> = I
+            .iter()
             .map(|&i| {
                 let cfg = &self.state_graph.control_flow_graphs()[i];
                 variable_index(cfg)
@@ -130,49 +141,54 @@ impl SymmetryAlgorithm {
 
         // Groups the parameters by their sort.
         let same_sort_parameters = {
-            let mut result = Vec::new();
-            for param in self.parameters {   
+            let mut result: Vec<Vec<DataVariable>> = Vec::new();
+            for param in &self.parameters {
                 let sort = param.sort();
                 if let Some(group) = result.iter_mut().find(|g: &&mut Vec<_>| {
                     if let Some(first) = g.first() {
-                        self.parameters[*first].sort() == sort
+                        first.sort() == sort
                     } else {
                         false
                     }
                 }) {
-                    group.push(param);
+                    group.push(param.clone());
                 } else {
-                    result.push(vec![param]);
+                    result.push(vec![param.clone()]);
                 }
             }
             result
         };
 
-        let mut all_data_groups: Box<dyn Iterator<Item = Permutation>> = Box::new(iter::empty());
+        let mut all_data_groups: Box<dyn CloneIterator<Item = Permutation>> = Box::new(iter::empty());
         for group in same_sort_parameters {
             info!("Group of same sort parameters: {:?}", group);
 
-            let parameter_indices: Vec<usize> = group.iter()
-                .map(|param| {
-                    self.parameters.iter().position(|p| p.name() == param.name()).unwrap()
-                })
+            // Determine the indices of these parameters.
+            let parameter_indices: Vec<usize> = group
+                .iter()
+                .map(|param| self.parameters.iter().position(|p| p.name() == param.name()).unwrap())
                 .collect();
 
             all_data_groups = Box::new(
                 all_data_groups
-                    .cartesian_product(permutation_group(&parameter_indices))
-                    .map(|(a, b)| a.concat(&b))
-            ) as Box<dyn Iterator<Item = Permutation>>;
+                    .cartesian_product(permutation_group(parameter_indices.clone()))
+                    .map(|(a, b)| a.concat(&b)),
+            ) as Box<dyn CloneIterator<Item = Permutation>>;
         }
 
-        permutation_group(&parameter_indices).cartesian_product(all_data_groups)
+        permutation_group(parameter_indices).cartesian_product(all_data_groups)
+            .map(|(a, b)| a.concat(&b))
     }
 
     /// Returns true iff the two control flow graphs are compatible.
-    fn compatible(&self, left: &PbesStategraphControlFlowGraph, right: &PbesStategraphControlFlowGraph) ->  Result<(), MercError> {
+    fn compatible(
+        &self,
+        left: &PbesStategraphControlFlowGraph,
+        right: &PbesStategraphControlFlowGraph,
+    ) -> Result<(), MercError> {
         // First check whether the vertex sets are compatible.
         if let Err(x) = self.vertex_sets_compatible(left, right) {
-            return Err("Incompatible vertex sets.".into());
+            return Err(format!("Incompatible vertex sets.\n {x}").into());
         }
 
         // Further checks can be added here.
@@ -182,19 +198,42 @@ impl SymmetryAlgorithm {
 
     /// Checks whether two control flow graphs have compatible vertex sets, meaning that the PVI and values of the
     /// vertices match.
-    fn vertex_sets_compatible(&self, c: &PbesStategraphControlFlowGraph, c_prime: &PbesStategraphControlFlowGraph) -> Result<(), MercError> {
+    fn vertex_sets_compatible(
+        &self,
+        c: &PbesStategraphControlFlowGraph,
+        c_prime: &PbesStategraphControlFlowGraph,
+    ) -> Result<(), MercError> {
         if c.vertices().len() != c_prime.vertices().len() {
-            return Err(
-                format!("Different number of vertices ({} vs {}).", c.vertices().len(), c_prime.vertices().len()).into()
-            );
+            return Err(format!(
+                "Different number of vertices ({} vs {}).",
+                c.vertices().len(),
+                c_prime.vertices().len()
+            )
+            .into());
         }
 
         for vertex in c.vertices() {
-            c_prime.vertices().iter().any(|vertex_prime| {
-                vertex.name() == vertex_prime.name() && vertex.value() == vertex_prime.value()
-            })
+            let _b = c_prime
+                .vertices()
+                .iter()
+                .any(|vertex_prime| vertex.name() == vertex_prime.name() && vertex.value() == vertex_prime.value());
         }
 
         Ok(())
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_symmetry_example() {
+        let input = include_str!("../../../../examples/pbes/a.txt.pbes");
+
+        let pbes = Pbes::from_text(input).unwrap();
+
+        SymmetryAlgorithm::new(&pbes).unwrap().run();
     }
 }

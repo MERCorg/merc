@@ -69,6 +69,6 @@ fn main() -> Result<ExitCode, Box<dyn Error>> {
 /// Print the help message.
 fn print_help() {
     println!(
-        "Available tasks: benchmark, discover-tests, coverage <cargo_args>, address-sanitizer, <cargo_args> thread-sanitizer <cargo_args>, memory-sanitizer <cargo_args>, package"
+        "Available tasks: benchmark, discover-tests, coverage <cargo_args>, address-sanitizer <cargo_args>, thread-sanitizer <cargo_args>, memory-sanitizer <cargo_args>, package"
     );
 }

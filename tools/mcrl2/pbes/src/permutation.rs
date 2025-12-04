@@ -2,7 +2,7 @@
 
 use itertools::Itertools;
 use std::collections::HashSet;
-use std::fmt;
+use std::{fmt, iter};
 
 use merc_utilities::MercError;
 
@@ -119,30 +119,29 @@ impl Permutation {
 /// element (fixed points) are omitted for brevity.
 impl fmt::Display for Permutation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "(")?;
-        let mut visited = vec![false; self.mapping.len()];
-        let mut first_cycle = true;
+        // Determine the maximum value in the permutation mapping.
+        let max_value = self
+            .mapping
+            .iter()
+            .map(|(d, _)| *d + 1)
+            .max()
+            .unwrap_or(0);
+
+        let mut visited = vec![false; max_value];
+        let mut identity = true;
 
         // The mapping is sorted by domain, so we can iterate over it directly.
-        println!("test");
         for (start, value) in &self.mapping {
-            println!("bruh");
-            if visited[*value] || self.value(*start) == *value {
+            if visited[*value] || self.value(*start) == *start {
                 // We have already visited this element, or it is a fixed point.
                 visited[*value] = true;
-        println!("skipped");
                 continue;
             }
-
-            if !first_cycle {
-                // Print space between cycles.
-                write!(f, " ")?;
-            }
-            first_cycle = false;
 
             write!(f, "(")?;
             let mut current = *start;
             let mut first_in_cycle = true;
+            identity = false; // At least one non-trivial cycle found.
 
             loop {
                 if !first_in_cycle {
@@ -163,11 +162,10 @@ impl fmt::Display for Permutation {
             write!(f, ")")?;
         }
 
-        if first_cycle {
-            write!(f, ")")?;
+        if identity {
+            write!(f, "()")?;
         }
 
-        write!(f, ")")?;
         Ok(())
     }
 }
@@ -181,16 +179,20 @@ impl fmt::Display for Permutation {
 /// - (3 4)
 /// - (0 3 4)
 /// - (0 4 3)
-pub fn permutation_group(indices: &Vec<usize>) -> impl Iterator<Item = Permutation> + Clone {
-    indices.iter().permutations(indices.len()).map(move |perm| {
-        let mapping: Vec<(usize, usize)> = indices
-            .iter()
-            .cloned()
-            .zip(perm.into_iter())
-            .map(|(a, b)| (a, *b))
-            .collect();
-        Permutation::from_mapping(mapping)
-    })
+pub fn permutation_group(indices: Vec<usize>) -> impl Iterator<Item = Permutation> + Clone {
+    let n = indices.len();
+    let indices2 =  indices.clone();
+    indices.into_iter()
+        .permutations(n)
+        .map(move |perm| {
+            let mapping: Vec<(usize, usize)> = indices2
+                .iter()
+                .cloned()
+                .zip(perm.into_iter())
+                .map(|(a, b)| (a, b))
+                .collect();
+            Permutation::from_mapping(mapping)
+        })
 }
 
 /// Returns the number of permutations in a given group.
@@ -214,13 +216,13 @@ mod tests {
         let permutation = Permutation::from_input("[0->2, 1->0, 2->1, 3->4, 4->3]").unwrap();
         println!("{:?}", permutation.mapping);
 
-        assert_eq!(permutation.to_string(), "((0 2 1) (3 4))");
+        assert_eq!(permutation.to_string(), "(0 2 1)(3 4)");
     }
 
     #[test]
     fn test_permutation_group() {
         let indices = vec![0, 3, 5];
-        let permutations: Vec<Permutation> = permutation_group(&indices).collect();
+        let permutations: Vec<Permutation> = permutation_group(indices.clone()).collect();
         for p in &permutations {
             println!("{}", p);
         }

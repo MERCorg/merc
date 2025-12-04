@@ -16,6 +16,7 @@ use crate::symmetry::SymmetryAlgorithm;
 
 mod permutation;
 mod symmetry;
+mod clone_iterator;
 
 #[derive(clap::ValueEnum, Clone, Debug)]
 enum PbesFormat {
@@ -52,6 +53,7 @@ enum Commands {
 struct SymmetryArgs {
     filename: String,
 
+    #[arg(long, short('i'), value_enum)]
     format: Option<PbesFormat>,
 }
 
@@ -71,7 +73,7 @@ fn main() -> Result<ExitCode, MercError> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    let mut timing = Timing::new();
+    let timing = Timing::new();
 
     if let Some(Commands::Symmetry(args)) = cli.commands {
         let format = args.format.unwrap_or(PbesFormat::Pbes);

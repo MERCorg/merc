@@ -2,10 +2,12 @@
 
 #pragma once
 
+#include "mcrl2/atermpp/aterm.h"
 #include "mcrl2/core/identifier_string.h"
 #include "mcrl2/pbes/detail/stategraph_local_algorithm.h"
 #include "mcrl2/pbes/io.h"
 #include "mcrl2/pbes/pbes.h"
+#include "mcrl2/pbes/propositional_variable.h"
 #include "mcrl2/pbes/srf_pbes.h"
 #include "mcrl2/pbes/unify_parameters.h"
 
@@ -39,6 +41,14 @@ std::unique_ptr<pbes> mcrl2_load_pbes_from_text_file(rust::Str filename)
   return std::make_unique<pbes>(result);
 }
 
+inline 
+std::unique_ptr<pbes> mcrl2_load_pbes_from_text(rust::Str input)
+{
+  pbes result;
+  std::istringstream stream(static_cast<std::string>(input));
+  load_pbes(result, stream, pbes_format_text());
+  return std::make_unique<pbes>(result);
+}
 
 inline
 rust::String mcrl2_to_string(const pbes& pbesspec)
@@ -108,17 +118,17 @@ std::size_t mcrl2_local_control_flow_graph_vertex_index(
 }
 
 inline
-std::unique_ptr<core::identifier_string> mcrl2_local_control_flow_graph_vertex_name(
+std::unique_ptr<atermpp::aterm> mcrl2_local_control_flow_graph_vertex_name(
     const detail::local_control_flow_graph_vertex* vertex)
 {
-  return std::make_unique<core::identifier_string>(vertex->name());
+  return std::make_unique<atermpp::aterm>(vertex->name());
 }
 
 inline
-std::unique_ptr<data::data_expression> mcrl2_local_control_flow_graph_vertex_value(
+std::unique_ptr<atermpp::aterm> mcrl2_local_control_flow_graph_vertex_value(
     const detail::local_control_flow_graph_vertex* vertex)
 {
-  return std::make_unique<data::data_expression>(vertex->value());
+  return std::make_unique<atermpp::aterm>(vertex->value());
 }
 
 inline
@@ -163,24 +173,26 @@ void mcrl2_srf_pbes_equations(std::vector<srf_equation>& result, const srf_pbes&
 }
 
 inline
-std::unique_ptr<propositional_variable> mcrl2_srf_pbes_equation_variable(const srf_equation* equation)
+std::unique_ptr<atermpp::aterm> mcrl2_srf_pbes_equation_variable(const srf_equation* equation)
 {
-  return std::make_unique<propositional_variable>(equation->variable());
+  return std::make_unique<atermpp::aterm>(equation->variable());
 }
 
 // mcrl2::pbes_system::propositional_variable
 
 inline
-std::unique_ptr<atermpp::aterm> mcrl2_propositional_variable_parameters(const propositional_variable& variable)
+std::unique_ptr<atermpp::aterm> mcrl2_propositional_variable_parameters(const atermpp::aterm& variable)
 {
-  return std::make_unique<atermpp::aterm>(variable.parameters());
+  assert(pbes_system::is_propositional_variable(variable));
+  return std::make_unique<atermpp::aterm>(atermpp::down_cast<propositional_variable>(variable).parameters());
 }
 
 inline
-rust::String mcrl2_propositional_variable_to_string(const propositional_variable& variable)
+rust::String mcrl2_propositional_variable_to_string(const atermpp::aterm& variable)
 {
+  assert(pbes_system::is_propositional_variable(variable));
   std::stringstream ss;
-  ss << variable;
+  ss << atermpp::down_cast<propositional_variable>(variable);
   return ss.str();
 }
 

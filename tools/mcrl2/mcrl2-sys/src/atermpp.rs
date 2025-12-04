@@ -6,26 +6,25 @@ pub mod ffi {
 
         type aterm;
 
-
         /// Returns the `index` argument of the term.
         fn mcrl2_aterm_argument(input: &aterm, index: usize) -> UniquePtr<aterm>;
 
+        /// Clones the given aterm.
+        fn mcrl2_aterm_clone(input: &aterm) -> UniquePtr<aterm>;
+
+        /// Compares two aterms for equality.
+        fn mcrl2_aterm_are_equal(left: &aterm, right: &aterm) -> bool;
+
         /// Converts the given aterm to a string.
-        fn mcrl2_aterm_to_string(input: &aterm) -> Result<String>;
+        fn mcrl2_aterm_to_string(input: &aterm) -> String;
 
-        type aterm_string;
-
-        fn mcrl2_aterm_string_to_string(input: &aterm_string) -> Result<String>;
-
-        fn mcrl2_aterm_string() -> UniquePtr<aterm_string>;
-
-        type aterm_list;
+        fn mcrl2_aterm_string_to_string(input: &aterm) -> String;
 
         /// Returns the size of the aterm list.
-        fn mcrl2_aterm_list_front(input: &aterm_list) -> UniquePtr<aterm>;
+        fn mcrl2_aterm_list_front(input: &aterm) -> UniquePtr<aterm>;
 
-        fn mcrl2_aterm_list_tail(input: &aterm_list) -> UniquePtr<aterm>;
+        fn mcrl2_aterm_list_tail(input: &aterm) -> UniquePtr<aterm>;
 
-        fn mcrl2_aterm_list() -> UniquePtr<aterm_list>;
+        fn mcrl2_aterm_list_is_empty(input: &aterm) -> bool;
     }
 }

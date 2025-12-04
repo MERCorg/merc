@@ -1,38 +1,31 @@
 use std::fmt;
 
-use mcrl2_sys::data::ffi::mcrl2_is_variable;
 use mcrl2_sys::data::ffi::mcrl2_variable_name;
 use mcrl2_sys::data::ffi::mcrl2_variable_sort;
-use mcrl2_sys::data::ffi::variable;
 
-use crate::ATerm;
-use crate::ATermString;
+use crate::Aterm;
+use crate::AtermString;
 
 /// Represents a data::variable from the mCRL2 toolset.
+#[derive(Clone)]
 pub struct DataVariable {
-    term: UniquePtr<variable>,
+    term: Aterm,
 }
 
 impl DataVariable {
 
     /// Returns the name of the variable.
-    pub fn name(&self) -> ATermString {
-        ATermString::new(mcrl2_variable_name(&self.term).unwrap())
+    pub fn name(&self) -> AtermString {
+        AtermString::new(Aterm::new(mcrl2_variable_name(self.term.get())))
     }
 
     /// Returns the sort of the variable.
     pub fn sort(&self) -> DataSort {
-        DataSort::new(mcrl2_variable_sort(&self.term).unwrap())
+        DataSort::new(Aterm::new(mcrl2_variable_sort(self.term.get())))
     }
 
     /// Creates a new data::variable from the given aterm.
-    pub(crate) fn new(term: ATerm) -> Self {
-        debug_assert!(
-            mcrl2_is_variable(&term.get()),
-            "The term {:?} is not a variable.",
-            term
-        );
-
+    pub(crate) fn new(term: Aterm) -> Self {
         DataVariable { term }
     }
 }
@@ -43,36 +36,44 @@ impl fmt::Debug for DataVariable {
     }
 }
 
-impl Into<ATerm> for DataVariable {
-    fn into(self) -> ATerm {
-        self.term
+impl From<Aterm> for DataVariable {
+    fn from(term: Aterm) -> Self {
+        DataVariable::new(term)
     }
 }
 
 /// Represents a data::sort from the mCRL2 toolset.
+#[derive(PartialEq, Eq)]
 pub struct DataSort {
-    term: ATerm,
+    term: Aterm,
 }
 
 impl DataSort {
     /// Creates a new data::sort from the given term.
-    pub(crate) fn new(term: UniquePtr<sort_expression>) -> Self {
+    pub(crate) fn new(term: Aterm) -> Self {
         DataSort {
-            term: ATerm::new(term.into()),
+            term,
         }
     }
 }
 
+impl fmt::Debug for DataSort {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.term)
+    }
+}
+
 /// Represents a data::data_expression from the mCRL2 toolset.
+#[derive(Clone, PartialEq, Eq)]
 pub struct DataExpression {
-    term: ATerm,
+    term: Aterm,
 }
 
 impl DataExpression {
     /// Creates a new data::data_expression from the given term.
-    pub(crate) fn new(term: UniquePtr<data_expression>) -> Self {
+    pub(crate) fn new(term: Aterm) -> Self {
         DataExpression {
-            term: ATerm::new(term.into()),
+            term,
         }
     }
 }

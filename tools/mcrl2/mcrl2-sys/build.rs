@@ -23,8 +23,7 @@ fn add_compile_flags(build: &mut Build, mcrl2_path: String) {
         .flag_if_supported("-Wno-unused-parameter") // I don't care about unused parameters in mCRL2 code.
         .flag_if_supported("-pipe")
         .flag_if_supported("-pedantic")
-        .flag_if_supported("-stdlib=libc++")
-        .flag_if_supported("-std=c++20");
+        .flag_if_supported("c++");
 
     #[cfg(windows)]
     build
@@ -34,7 +33,6 @@ fn add_compile_flags(build: &mut Build, mcrl2_path: String) {
         .flag("/MP")
         .flag("/Zc:inline")
         .flag("/permissive-")
-        .flag("/std:c++20")
         .define("WIN32", "1")
         .define("WIN32_LEAN_AND_MEAN", "1")
         .define("NOMINMAX", "1")
@@ -148,6 +146,7 @@ fn main() {
     // Additional files needed to compile the bridge, basically to build mCRL2 itself.
     build
         .cpp(true)
+        .std("c++20")
         .define("MCRL2_NO_RECURSIVE_SOUNDNESS_CHECKS", "1") // These checks overflow the stack, and are extremely slow.
         .define("LPS_NO_RECURSIVE_SOUNDNESS_CHECKS", "1")
         .define("MERC_MCRL2_VERSION", "<internal_merc_build>") // Sets the mCRL2 version to something recognized as our internal build.
@@ -220,6 +219,9 @@ fn main() {
             build.define("_LIBCPP_ABI_BOUNDED_ITERATORS_IN_VECTOR", "1");
             build.define("_LIBCPP_ABI_BOUNDED_UNIQUE_PTR", "1");
             build.define("_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STD_ARRAY", "1");
+
+            // Enable the GCC standard library debug mode as well.
+            build.flag_if_supported("-D_GLIBCXX_DEBUG");
         }
         "release" => {
             build.define("NDEBUG", "1");
