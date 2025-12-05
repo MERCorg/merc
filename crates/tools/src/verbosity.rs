@@ -3,29 +3,57 @@ use log::LevelFilter;
 
 #[derive(Args, Debug)]
 pub struct VerbosityFlag {
-    #[arg(short, long, global = true, help = "Set the verbosity to quiet")]
+    #[arg(
+        short,
+        long,
+        global = true,
+        default_value_t = false,
+        help = "Set the verbosity to quiet"
+    )]
     quiet: bool,
 
-    #[arg(short, long, global = true, help = "Set the verbosity to verbose (default)")]
+    #[arg(
+        short,
+        long,
+        global = true,
+        default_value_t = false,
+        help = "Set the verbosity to verbose (default)"
+    )]
     verbose: bool,
 
-    #[arg(short, long, global = true, help = "Set the verbosity to debug")]
+    #[arg(
+        short,
+        long,
+        global = true,
+        default_value_t = false,
+        help = "Set the verbosity to debug"
+    )]
     debug: bool,
 
-    #[arg(long, global = true, help = "Set the verbosity to trace")]
+    #[arg(long, global = true, default_value_t = false, help = "Set the verbosity to trace")]
     trace: bool,
 }
 
 impl VerbosityFlag {
     /// Returns the log level filter corresponding to the given verbosity flags.
     pub fn log_level_filter(&self) -> LevelFilter {
-        let verbosity: Verbosity = self.into();
-        verbosity.log_level_filter()
+        self.verbosity().log_level_filter()
     }
 
     /// Returns the verbosity level corresponding to the given verbosity flags.
     pub fn verbosity(&self) -> Verbosity {
-        self.into()
+        if self.quiet {
+            Verbosity::Quiet
+        } else if self.trace {
+            Verbosity::Trace
+        } else if self.debug {
+            Verbosity::Debug
+        } else if self.verbose {
+            Verbosity::Verbose
+        } else {
+            // Default verbosity level
+            Verbosity::Verbose
+        }
     }
 }
 
@@ -56,22 +84,6 @@ impl Verbosity {
             Verbosity::Verbose => LevelFilter::Info,
             Verbosity::Debug => LevelFilter::Debug,
             Verbosity::Trace => LevelFilter::Trace,
-        }
-    }
-}
-
-impl From<&VerbosityFlag> for Verbosity {
-    fn from(flag: &VerbosityFlag) -> Self {
-        if flag.quiet {
-            Verbosity::Quiet
-        } else if flag.trace {
-            Verbosity::Trace
-        } else if flag.debug {
-            Verbosity::Debug
-        } else if flag.verbose {
-            Verbosity::Verbose
-        } else {
-            Verbosity::Verbose
         }
     }
 }

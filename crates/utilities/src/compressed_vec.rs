@@ -67,6 +67,18 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
         entry.to_bytes(&mut self.data[old_len..]);
     }
 
+    /// Removes the last element from the vector and returns it, or None if it is empty.
+    pub fn pop(&mut self) -> Option<T> {
+        if self.is_empty() {
+            None
+        } else {
+            let index = self.len() - 1;
+            let entry = self.index(index);
+            self.data.truncate(index * self.bytes_per_entry);
+            Some(entry)
+        }
+    }
+
     /// Returns the entry at the given index.
     pub fn index(&self, index: usize) -> T {
         let start = index * self.bytes_per_entry;
@@ -301,6 +313,12 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
                 self.data.truncate(new_len * self.bytes_per_entry);
             }
         }
+    }
+
+    /// Reserves capacity for at least additional more entries to be inserted with the given bytes per entry.
+    pub fn reserve(&mut self, additional: usize, bytes_per_entry: usize) {
+        self.resize_entries(bytes_per_entry);
+        self.data.reserve(additional * self.bytes_per_entry);
     }
 
     /// Resizes all entries in the vector to the given length.

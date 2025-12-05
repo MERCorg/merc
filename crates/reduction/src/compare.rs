@@ -1,14 +1,11 @@
 use merc_lts::LTS;
 use merc_lts::LabelledTransitionSystem;
-use merc_lts::LtsBuilder;
-use merc_lts::StateIndex;
 use merc_utilities::Timing;
 
 use crate::Equivalence;
 use crate::Partition;
 use crate::branching_bisim_sigref;
 use crate::branching_bisim_sigref_naive;
-use crate::reduce;
 use crate::strong_bisim_sigref;
 use crate::strong_bisim_sigref_naive;
 use crate::weak_bisim_sigref_naive;
