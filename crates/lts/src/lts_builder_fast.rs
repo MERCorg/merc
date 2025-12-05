@@ -8,7 +8,7 @@ use crate::StateIndex;
 /// This is the same as [LtsBuilder], but optimized for speed rather than memory usage.
 /// So it does not use the byte compression for the transitions since somehow permuting and
 /// sorting these take a long time (probably due to cache misses).
-/// 
+///
 /// Perhaps that implementation can be made more efficient in the future, but for now
 /// this works well enough.
 pub struct LtsBuilderFast {

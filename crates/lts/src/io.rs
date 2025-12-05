@@ -10,25 +10,25 @@ use crate::read_aut;
 use crate::read_lts;
 
 /// Explicitly specify the LTS file format.
-#[derive(Clone, Debug, ValueEnum, PartialEq, Eq)]
-pub enum LtsType {
+#[derive(Clone, Copy, Debug, ValueEnum, PartialEq, Eq)]
+pub enum LtsFormat {
     Aut,
     Lts,
     Sym,
 }
 
 /// Guesses the LTS file format from the file extension.
-pub fn guess_format_from_extension(path: &Path, format: Option<LtsType>) -> Option<LtsType> {
+pub fn guess_format_from_extension(path: &Path, format: Option<LtsFormat>) -> Option<LtsFormat> {
     if let Some(format) = format {
         return Some(format);
     }
 
     if path.extension() == Some(OsStr::new("aut")) {
-        Some(LtsType::Aut)
+        Some(LtsFormat::Aut)
     } else if path.extension() == Some(OsStr::new("lts")) {
-        Some(LtsType::Lts)
+        Some(LtsFormat::Lts)
     } else if path.extension() == Some(OsStr::new("sym")) {
-        Some(LtsType::Sym)
+        Some(LtsFormat::Sym)
     } else {
         None
     }
@@ -37,19 +37,19 @@ pub fn guess_format_from_extension(path: &Path, format: Option<LtsType>) -> Opti
 /// Reads an explicit labelled transition system from the given path and format.
 pub fn read_explicit_lts(
     path: &Path,
-    format: LtsType,
+    format: LtsFormat,
     hidden_labels: Vec<String>,
     timing: &mut Timing,
 ) -> Result<LabelledTransitionSystem, MercError> {
-    assert!(format != LtsType::Sym, "Cannot read symbolic LTS as explicit LTS.");
+    assert!(format != LtsFormat::Sym, "Cannot read symbolic LTS as explicit LTS.");
 
     let file = std::fs::File::open(path)?;
     let mut time_read = timing.start("read_aut");
 
     let result = match format {
-        LtsType::Aut => read_aut(&file, hidden_labels),
-        LtsType::Lts => read_lts(&file, hidden_labels),
-        LtsType::Sym => {
+        LtsFormat::Aut => read_aut(&file, hidden_labels),
+        LtsFormat::Lts => read_lts(&file, hidden_labels),
+        LtsFormat::Sym => {
             panic!("Cannot read symbolic LTS as explicit LTS.")
         }
     };

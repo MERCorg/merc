@@ -1,6 +1,8 @@
+use std::collections::HashMap;
 use std::fmt;
 
 use merc_utilities::ByteCompressedVec;
+use merc_utilities::CompressedEntry;
 use merc_utilities::CompressedVecMetrics;
 use merc_utilities::LargeFormatter;
 use merc_utilities::TagIndex;
@@ -119,9 +121,14 @@ impl LabelledTransitionSystem {
 
         // Add the sentinel state.
         states.push(transition_labels.len());
-        
+
         // The minus one is because we added one extra state for the sentinel.
-        debug_assert!(initial_state.value() < states.len() - 1, "Initial state {:?} out of bounds (num states: {})", initial_state, states.len() - 1);
+        debug_assert!(
+            initial_state.value() < states.len() - 1,
+            "Initial state {:?} out of bounds (num states: {})",
+            initial_state,
+            states.len() - 1
+        );
 
         LabelledTransitionSystem {
             initial_state,
@@ -130,6 +137,71 @@ impl LabelledTransitionSystem {
             transition_labels,
             transition_to,
         }
+    }
+
+    /// Consumes the current LTS and merges it with another one, returning the merged LTS.
+    ///
+    /// # Details
+    ///
+    /// Internally this works by offsetting the state indices of the other LTS by the number of states
+    /// in the current LTS, and combining the action labels. The offset is returned such that
+    /// can find the states of the other LTS in the merged LTS as the initial state of the other LTS.
+    pub fn merge(mut self, other: &impl LTS) -> (LabelledTransitionSystem, StateIndex) {
+        // Determine the combination of action labels
+        let mut all_labels = self.labels().to_vec();
+        for label in other.labels() {
+            if !all_labels.contains(&label) {
+                all_labels.push(label.clone());
+            }
+        }
+
+        let label_indices: HashMap<String, TagIndex<usize, LabelTag>> = HashMap::from_iter(
+            all_labels
+                .iter()
+                .enumerate()
+                .map(|(i, label)| (label.clone(), LabelIndex::new(i))),
+        );
+
+        // Remove the sentinel state temporarily
+        let total_number_of_states = self.num_of_states() + other.num_of_states();
+        self.states
+            .reserve(other.num_of_states(), total_number_of_states.bytes_required());
+        self.transition_labels
+            .reserve(other.num_of_transitions(), all_labels.len().bytes_required());
+        self.transition_to
+            .reserve(other.num_of_transitions(), total_number_of_states.bytes_required());
+
+        self.states.pop();
+
+        // Add vertices for the other LTS that are offset by the number of states in self
+        let offset = self.num_of_states();
+        for state_index in other.iter_states() {
+            // Add a new state for every state in the other LTS
+            self.states.push(self.num_of_transitions());
+            for transition in other.outgoing_transitions(state_index) {
+                // Add the transitions of the other LTS, offsetting the state indices
+                self.transition_to.push(StateIndex::new(transition.to.value() + offset));
+
+                // Map the label to the new index in all_labels
+                let label_name = &other.labels()[transition.label.value()];
+                self.transition_labels
+                    .push(*label_indices.get(label_name).expect("Label should exist in all_labels"));
+            }
+        }
+
+        // Add back the sentinel state
+        self.states.push(self.num_of_transitions());
+
+        (
+            Self {
+                initial_state: self.initial_state,
+                labels: all_labels,
+                states: self.states,
+                transition_labels: self.transition_labels,
+                transition_to: self.transition_to,
+            },
+            StateIndex::new(offset),
+        )
     }
 
     /// Creates a labelled transition system from another one, given the permutation of state indices
