@@ -5,6 +5,7 @@ use std::iter;
 
 use itertools::Itertools;
 
+use log::debug;
 use log::info;
 use mcrl2::AtermString;
 use mcrl2::ControlFlowGraphVertex;
@@ -57,13 +58,15 @@ fn variable_index(cfg: &ControlFlowGraph) -> usize {
 
 impl SymmetryAlgorithm {
     /// Does the required preprocessing to analyse symmetries in the given PBES.
-    pub fn new(pbes: &Pbes) -> Result<Self, MercError> {
+    pub fn new(pbes: &Pbes, print_srf: bool) -> Result<Self, MercError> {
         // Apply various preproecessing necessary for symmetry detection
         let mut srf = SrfPbes::from(pbes)?;
         srf.unify_parameters(false, false)?;
 
-        info!("==== SRF PBES ====");
-        info!("{}", srf.to_pbes());
+        if print_srf {
+            info!("==== SRF PBES ====");
+            info!("{}", srf.to_pbes());
+        }
 
         let parameters = if let Some(equation) = srf.equations().first() {
             equation.variable().parameters().to_vec()
@@ -96,11 +99,16 @@ impl SymmetryAlgorithm {
         let cliques = self.cliques();
 
         for clique in &cliques {
-            info!("Found clique: {:?}", clique.iter().map(|i| (i, self.all_control_flow_parameters[*i])).format(", "));
+            info!("Found clique: {:?}", clique.iter().format_with(", ", |i, f| f(&format_args!("cfg {} (var {})", i, self.all_control_flow_parameters[*i])) ));
         }
 
         let mut combined_candidates = Box::new(iter::empty()) as Box<dyn CloneIterator<Item = (Permutation, Permutation)>>;
         let mut number_of_candidates = 1usize;
+        
+        let mut progress = TimeProgress::new(|index: usize| {
+            info!("Checked {index} candidates...");
+        }, 1);
+
         for clique in &cliques {
             let (number_of_permutations, candidates) = self.clique_candidates(clique.clone());
             info!("Maximum number of permutations for clique {:?}: {}", clique, LargeFormatter(number_of_permutations));
@@ -121,15 +129,11 @@ impl SymmetryAlgorithm {
             number_of_candidates *= number_of_permutations;
         }
 
-        let mut progress = TimeProgress::new(|index| {
-            info!("Checked {index} symmetry candidates...");
-        }, 1);
-
         info!("Maximum number of symmetry candidates: {}", LargeFormatter(number_of_candidates));
 
-        for (i, candidate) in combined_candidates.enumerate() {
-            info!("Checking candidate {} / {}", LargeFormatter(i + 1), LargeFormatter(number_of_candidates));
-            progress.print(i);
+        for (i, (alpha, beta)) in combined_candidates.enumerate() {
+            let permutation = alpha.concat(&beta);
+            info!("Found candidate: {}", permutation);
         }
     }
 
@@ -210,7 +214,7 @@ impl SymmetryAlgorithm {
                 .map(|param| self.parameters.iter().position(|p| p.name() == param.name()).unwrap())
                 .collect();
 
-            info!("Same sort parameters: {:?}, parameter indices: {:?}", group, parameter_indices);
+            info!("Same sort data parameters: {:?}, indices: {:?}", group, parameter_indices);
 
             // Compute the product of the current data group with the already concatenated ones.
             if number_of_permutations == 1 { 
@@ -235,7 +239,7 @@ impl SymmetryAlgorithm {
                 .filter(move |(a, b)| {
                     let pi = a.clone().concat(&b);
                     if !self.complies(&pi, &I)  {
-                        info!("Permutation {:?} does not comply with the clique.", pi);
+                        debug!("Non compliant permutation {}.", pi);
                         return false;
                     }
 
@@ -358,8 +362,10 @@ impl SymmetryAlgorithm {
                     for (to, labels) in s.outgoing_edges() {
 
                         for (to_prime, labels_prime) in s_prime.outgoing_edges() {
+                            // TODO: This is not optimal since we are not interested in the outgoing edges, which new() computes.
                             let to = ControlFlowGraphVertex::new(*to);
                             let to_prime = ControlFlowGraphVertex::new(*to_prime);
+
                             if to.value() == to_prime.value() && to.name() == to_prime.name() {
                                 let equation = self.find_equation_by_name(&s.name()).expect("Equation should exist");
 
@@ -384,7 +390,7 @@ impl SymmetryAlgorithm {
         for i in labels {
             let variable = &equation.predicate_variables()[*i];
 
-            let result = labels_prime.iter().find(|&&j| {
+            let result = remaining_j.iter().find(|&&j| {
                 let variable_prime = &equation.predicate_variables()[j];
 
                 self.equal_under_permutation(pi, &variable.changed(), &variable_prime.changed())
@@ -393,7 +399,7 @@ impl SymmetryAlgorithm {
 
             if let Some(x) = result {
                 // Remove x from remaining_j
-                let index = remaining_j.iter().position(|r| r == x).expect("Element should exist");
+                let index = remaining_j.iter().position(|r| r == x).expect("Element should exist since it was found before.");
                 remaining_j.remove(index);
             } else {
                 return false;
@@ -403,9 +409,20 @@ impl SymmetryAlgorithm {
         true
     }
 
-    /// Checks whether two sets are equal under the given permutation.
+    /// Checks whether the data parameters of two sets are equal under the given permutation.
     fn equal_under_permutation(&self, pi: &Permutation, left: &Vec<usize>, right: &Vec<usize>) -> bool {
+        if left.len() != right.len() {
+            // Sets have different sizes.
+            return false;
+        }
+
+        // Only need to check one way since sizes are equal (and the vectors have no duplicates).
         for l in left {
+            if self.all_control_flow_parameters.contains(l) {
+                // Skip control flow parameters.
+                continue;
+            }
+
             let l_permuted = pi.value(*l);
             if !right.contains(&l_permuted) {
                 return false;
@@ -464,7 +481,7 @@ mod tests {
         ] {
             let pbes = Pbes::from_text(example).unwrap();
 
-            SymmetryAlgorithm::new(&pbes).unwrap().run();
+            SymmetryAlgorithm::new(&pbes, false).unwrap().run();
         }
     }
 }

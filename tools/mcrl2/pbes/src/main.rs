@@ -69,6 +69,7 @@ fn main() -> Result<ExitCode, MercError> {
         .init();
 
     // Enable logging on the mCRL2 side
+    println!("Setting mCRL2 log level to {}.", cli.verbosity.verbosity());
     set_reporting_level(verbosity_to_log_level_t(cli.verbosity.verbosity()));
 
     if cli.version.into() {
@@ -91,7 +92,7 @@ fn main() -> Result<ExitCode, MercError> {
             let _pi = Permutation::from_input(permutation)?;
         } 
 
-        SymmetryAlgorithm::new(&pbes)?.run();
+        SymmetryAlgorithm::new(&pbes, false)?.run();
     }
 
     if cli.timings {

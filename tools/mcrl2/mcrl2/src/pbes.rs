@@ -220,7 +220,7 @@ pub struct PredicateVariable {
     used: Vec<usize>,
     changed: Vec<usize>,
 
-    variable: *const predicate_variable,
+    _variable: *const predicate_variable,
 }
 
 impl PredicateVariable {
@@ -236,7 +236,7 @@ impl PredicateVariable {
 
     /// Creates a new `PredicateVariable` from the given FFI variable pointer.
     pub(crate) fn new(variable: *const predicate_variable) -> Self {
-        PredicateVariable { variable, used: unsafe { mcrl2_sys::pbes::ffi::mcrl2_predicate_variable_used(
+        PredicateVariable { _variable: variable, used: unsafe { mcrl2_sys::pbes::ffi::mcrl2_predicate_variable_used(
                 variable.as_ref().expect("Pointer should be valid"),
             )}, 
             changed: unsafe {mcrl2_sys::pbes::ffi::mcrl2_predicate_variable_changed(

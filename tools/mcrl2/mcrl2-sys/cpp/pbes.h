@@ -3,7 +3,6 @@
 #pragma once
 
 #include "mcrl2/atermpp/aterm.h"
-#include "mcrl2/core/identifier_string.h"
 #include "mcrl2/pbes/detail/stategraph_local_algorithm.h"
 #include "mcrl2/pbes/detail/stategraph_pbes.h"
 #include "mcrl2/pbes/io.h"
