@@ -38,6 +38,9 @@ pub(crate) const AGRESSIVE_GC: bool = false;
 /// A type alias for the global term pool guard
 pub(crate) type GlobalTermPoolGuard<'a> = RecursiveLockReadGuard<'a, GlobalTermPool>;
 
+/// A type alias for deletion hooks
+type DeletionHook = Box<dyn Fn(&ATermIndex) + Sync + Send>;
+
 /// The single global (singleton) term pool.
 pub struct GlobalTermPool {
     /// Unique table of all terms with stable pointers for references
@@ -56,7 +59,7 @@ pub struct GlobalTermPool {
     stack: Vec<ATermIndex>,
 
     /// Deletion hooks called whenever a term with the given head symbol is deleted.
-    deletion_hooks: Vec<(Symbol, Box<dyn Fn(&ATermIndex) + Sync + Send>)>,
+    deletion_hooks: Vec<(Symbol, DeletionHook)>,
 
     /// Indicates whether automatic garbage collection is enabled.
     garbage_collection: bool,
@@ -96,6 +99,11 @@ impl GlobalTermPool {
     /// Returns the number of terms in the pool.
     pub fn len(&self) -> usize {
         self.terms.len()
+    }
+
+    /// Returns whether the term pool is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Creates a term storing a single integer value.
@@ -153,6 +161,12 @@ impl GlobalTermPool {
     }
 
     /// Registers a new thread term pool.
+    /// 
+    /// # Safety
+    /// 
+    /// Note that the returned `Arc<UnsafeCell<...>>` is not Send or Sync, so it
+    /// *must* be protected through other means.
+    #[allow(clippy::arc_with_non_send_sync)]
     pub(crate) fn register_thread_term_pool(&mut self) -> Arc<UnsafeCell<SharedTermProtection>> {
         let protection = Arc::new(UnsafeCell::new(SharedTermProtection {
             protection_set: ProtectionSet::new(),

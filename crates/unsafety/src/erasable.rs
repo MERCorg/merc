@@ -11,7 +11,7 @@ pub struct Thin<T: ?Sized + Erasable> {
     marker: PhantomData<fn() -> T>,
 }
 
-impl<T: ?Sized + Erasable + Copy> Copy for Thin<T> {}
+impl<T: Erasable + Copy> Copy for Thin<T> {}
 
 impl<T: ?Sized + Erasable> Thin<T> {
     pub fn new(ptr: NonNull<T>) -> Self {
@@ -31,12 +31,19 @@ impl<T: ?Sized + Erasable> Thin<T> {
         unsafe { T::unerase(self.ptr) }
     }
 
+    /// # Safety
+    /// 
+    /// The caller must ensure that the underlying pointer is valid for reads.
     pub unsafe fn as_ref(&self) -> &T {
         unsafe { T::unerase(self.ptr).as_ref() }
     }
 }
 
 /// This is the trait that allows a type to be erased and unerased.
+/// 
+/// # Safety
+/// 
+/// See the documentation of the trait functions.
 pub unsafe trait Erasable {
     /// Turn this erasable pointer into an erased pointer.
     ///

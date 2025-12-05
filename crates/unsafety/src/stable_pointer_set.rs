@@ -92,7 +92,7 @@ impl<T: ?Sized> Ord for StablePointer<T> {
 impl<T: ?Sized> PartialOrd for StablePointer<T> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         // SAFETY: This is safe because we are comparing pointers, which is a valid operation.
-        Some(self.ptr.as_ptr().cast::<()>().cmp(&(other.ptr.as_ptr().cast::<()>())))
+        Some(self.cmp(other))
     }
 }
 

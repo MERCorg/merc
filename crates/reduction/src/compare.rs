@@ -22,9 +22,6 @@ pub fn compare_lts(
     let (merged, offset) = left.merge(right);
     time_merge.finish();
 
-    // Returns the original
-    let initial_state = merged.initial_state_index();
-
     // Reduce the merged LTS modulo the given equivalence and return the partition
     match equivalence {
         Equivalence::WeakBisim => {

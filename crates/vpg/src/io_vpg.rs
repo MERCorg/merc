@@ -240,10 +240,10 @@ fn _write_configuration_set(
     _variables: &[BDDFunction],
     config: &BDDFunction,
 ) -> Result<(), MercError> {
-    manager_ref.with_manager_shared(|manager| -> Result<(), MercError> {
+    manager_ref.with_manager_shared(|_manager| -> Result<(), MercError> {
         let choices = Vec::new();
 
-        while let Some(cube) = config.pick_cube(|manager, edge, index| choices[index as usize]) {
+        while let Some(cube) = config.pick_cube(|_manager, _edge, index| choices[index as usize]) {
             for value in cube {
                 match value {
                     OptBool::True => write!(write, "1")?,

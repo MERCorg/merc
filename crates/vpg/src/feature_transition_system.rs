@@ -10,15 +10,15 @@ use log::debug;
 use merc_lts::LabelIndex;
 use merc_lts::StateIndex;
 use merc_lts::Transition;
+use oxidd::bdd::BDDFunction;
+use oxidd::bdd::BDDManagerRef;
 use oxidd::BooleanFunction;
 use oxidd::Manager;
 use oxidd::ManagerRef;
-use oxidd::bdd::BDDFunction;
-use oxidd::bdd::BDDManagerRef;
 
-use merc_lts::LTS;
-use merc_lts::LabelledTransitionSystem;
 use merc_lts::read_aut;
+use merc_lts::LabelledTransitionSystem;
+use merc_lts::LTS;
 use merc_syntax::DataExpr;
 use merc_syntax::MultiAction;
 use merc_utilities::MercError;
@@ -64,7 +64,7 @@ pub fn read_fts(
         }
     }
 
-    Ok(FeatureTransitionSystem::new(manager_ref, aut, feature_labels))
+    Ok(FeatureTransitionSystem::new(aut, feature_labels))
 }
 
 /// Converts the given data expression into a BDD function.
@@ -146,6 +146,11 @@ impl FeatureDiagram {
             initial_configuration,
         })
     }
+
+    /// Returns the configuration of the feature diagram.
+    pub fn configuration(&self) -> &BDDFunction {
+        &self.initial_configuration
+    }
 }
 
 impl fmt::Debug for FeatureDiagram {
@@ -166,7 +171,7 @@ pub struct FeatureTransitionSystem {
 
 impl FeatureTransitionSystem {
     /// Creates a new feature transition system.
-    pub fn new(manager: &BDDManagerRef, lts: LabelledTransitionSystem, feature_labels: Vec<BDDFunction>) -> Self {
+    pub fn new(lts: LabelledTransitionSystem, feature_labels: Vec<BDDFunction>) -> Self {
         Self { lts, feature_labels }
     }
 
@@ -186,7 +191,7 @@ impl LTS for FeatureTransitionSystem {
             fn is_hidden_label(&self, label_index: LabelIndex) -> bool;
             fn labels(&self) -> &[String];
             fn outgoing_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = Transition>;
-            fn iter_states(&self) -> impl Iterator<Item = StateIndex> + use<Self>;
+            fn iter_states(&self) -> impl Iterator<Item = StateIndex> + use<>;
         }
     }
 }

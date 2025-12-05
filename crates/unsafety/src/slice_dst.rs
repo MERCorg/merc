@@ -59,7 +59,14 @@ pub fn repr_c<const N: usize>(fields: &[Layout; N]) -> Result<Layout, LayoutErro
     Ok(layout.pad_to_align())
 }
 
-/// A trait that can be used to extend `Allocator` implementations with the ability to allocate (and deallocate) dynamically sized slices that implement `SliceDst`.
+/// A trait that can be used to extend `Allocator` implementations with the
+/// ability to allocate (and deallocate) dynamically sized slices that implement
+/// `SliceDst`.
+/// 
+/// # Safety
+/// 
+/// This trait is unsafe because it relies on the correct implementation of
+/// `SliceDst` for proper memory layout and deallocation.
 pub unsafe trait AllocatorDst {
     /// Allocate an object whose type implements `SliceDst`. The resulting memory is uninitialize.
     fn allocate_slice_dst<T: SliceDst + ?Sized>(&self, length: usize) -> Result<NonNull<T>, AllocError>;
