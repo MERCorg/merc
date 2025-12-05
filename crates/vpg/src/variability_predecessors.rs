@@ -68,9 +68,11 @@ impl VariabilityPredecessors {
     }
 
     /// Returns an iterator over the incoming transitions for the given state.
-    pub fn predecessors(&self, state_index: VertexIndex) -> impl Iterator<Item = VertexIndex> + '_ {
+    pub fn predecessors(&self, state_index: VertexIndex) -> impl Iterator<Item = (VertexIndex, &BDDFunction)> + '_ {
         let start = self.vertex_to_predecessors.index(state_index.value());
         let end = self.vertex_to_predecessors.index(state_index.value() + 1);
-        (start..end).map(move |i| self.edges_from.index(i))
+        (start..end).map(move |i| (self.edges_from.index(i), &self.edges_configuration[i]))
     }
+
+    
 }

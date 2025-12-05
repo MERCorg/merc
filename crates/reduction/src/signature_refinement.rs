@@ -1,6 +1,5 @@
 //! Authors: Maurice Laveaux and Jan J. Martens
 
-use std::fmt;
 use std::mem::swap;
 
 use bumpalo::Bump;
@@ -268,23 +267,21 @@ where
                 signature(state_index, partition, &state_to_key, &mut builder);
 
                 // Compute the signature of a single state
-                let index = if let Some(key) = renumber(&builder, &key_to_signature) {
+                let index = if let Some(key) = renumber(&builder, key_to_signature) {
                     key
+                } else if let Some((_, index)) = id.get_key_value(&Signature::new(&builder)) {
+                    *index
                 } else {
-                    if let Some((_, index)) = id.get_key_value(&Signature::new(&builder)) {
-                        *index
+                    let slice = if builder.is_empty() {
+                        empty_slice
                     } else {
-                        let slice = if builder.len() == 0 {
-                            empty_slice
-                        } else {
-                            arena.alloc_slice_copy(&builder)
-                        };
-                        let number = BlockIndex::new(key_to_signature.len());
-                        id.insert(Signature::new(slice), number);
-                        key_to_signature.push(Signature::new(slice));
+                        arena.alloc_slice_copy(&builder)
+                    };
+                    let number = BlockIndex::new(key_to_signature.len());
+                    id.insert(Signature::new(slice), number);
+                    key_to_signature.push(Signature::new(slice));
 
-                        number
-                    }
+                    number
                 };
 
                 // (branching) Keep track of the signature for every block in the next partition.
@@ -398,12 +395,12 @@ where
 
         if WEAK {
             for state_index in lts.iter_states() {
-                weak_bisim_signature_sorted_taus(state_index, lts, &partition, &state_to_signature, &mut builder);
+                weak_bisim_signature_sorted_taus(state_index, lts, &partition, state_to_signature, &mut builder);
 
                 trace!("State {state_index} signature {:?}", builder);
 
                 // Keep track of the index for every state, either use the arena to allocate space or simply borrow the value.
-                let slice = if builder.len() == 0 {
+                let slice = if builder.is_empty() {
                     empty_slice
                 } else {
                     arena.alloc_slice_copy(&builder)
@@ -414,7 +411,7 @@ where
 
         for state_index in lts.iter_states() {
             // Compute the signature of a single state
-            signature(state_index, &partition, &state_to_signature, &mut builder);
+            signature(state_index, &partition, state_to_signature, &mut builder);
 
             trace!("State {state_index} signature {builder:?}");
 
@@ -422,10 +419,10 @@ where
             let mut new_id = BlockIndex::new(id.len());
             if let Some((signature, index)) = id.get_key_value(&Signature::new(&builder)) {
                 // SAFETY: We know that the signature lives as long as the arena
-                state_to_signature[state_index] = unsafe { std::mem::transmute(Signature::new(signature.as_slice())) };
+                state_to_signature[state_index] = unsafe { std::mem::transmute::<Signature<'_>, Signature<'_>>(Signature::new(signature.as_slice())) };
                 new_id = *index;
             } else {
-                let slice = if builder.len() == 0 {
+                let slice = if builder.is_empty() {
                     empty_slice
                 } else {
                     arena.alloc_slice_copy(&builder)

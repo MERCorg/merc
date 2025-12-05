@@ -207,7 +207,7 @@ fn parse_configuration_set(
 /// Writes the given parity game to the given writer in .vpg format.
 /// Note that the reader is buffered internally using a `BufWriter`.
 pub fn write_vpg(
-    manager: &BDDManagerRef,
+    _manager: &BDDManagerRef,
     writer: &mut impl Write,
     game: &VariabilityParityGame,
 ) -> Result<(), MercError> {
@@ -234,14 +234,14 @@ pub fn write_vpg(
 }
 
 /// Write a configuration set to its string representation.
-fn write_configuration_set(
+fn _write_configuration_set(
     manager_ref: &BDDManagerRef,
     write: &mut impl Write,
-    variables: &Vec<BDDFunction>,
+    _variables: &[BDDFunction],
     config: &BDDFunction,
 ) -> Result<(), MercError> {
     manager_ref.with_manager_shared(|manager| -> Result<(), MercError> {
-        let mut choices = Vec::new();
+        let choices = Vec::new();
 
         while let Some(cube) = config.pick_cube(|manager, edge, index| choices[index as usize]) {
             for value in cube {

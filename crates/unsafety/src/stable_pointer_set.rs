@@ -338,7 +338,7 @@ where
             let pin = self.index.pin();
 
             let element = pin.get(&entry).expect("Insertion failed, so entry must be in the set");
-            return (StablePointer::from_entry(&element), false);
+            return (StablePointer::from_entry(element), false);
         }
 
         // Insertion succeeded.

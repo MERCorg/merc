@@ -1,4 +1,5 @@
 #![allow(nonstandard_style)]
+#![allow(unused)]
 //! To keep with the theory, we use capitalized variable names for sets of vertices.
 //! Authors: Maurice Laveaux, Sjef van Loo, Erik de Vink and Tim A.C. Willemse
 

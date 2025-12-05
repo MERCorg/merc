@@ -113,10 +113,7 @@ impl<R: BitStreamRead> BinaryLddReader<R> {
         }
 
         // Add the true and false constants
-        let mut nodes = Vec::new();
-        nodes.push(Storage::default().empty_set().clone());
-        nodes.push(Storage::default().empty_vector().clone());
-
+        let nodes = vec![Storage::default().empty_set().clone(), Storage::default().empty_vector().clone()];
         Ok(Self { reader, nodes })
     }
 
@@ -155,7 +152,7 @@ impl<R: BitStreamRead> BinaryLddReader<R> {
 
     /// Returns the number of bits required to represent an LDD index.
     fn ldd_index_width(&self, input: bool) -> u8 {
-        bits_for_value(self.nodes.len() + input as usize) as u8 // Assume that size is one larger to contain the input ldd.
+        bits_for_value(self.nodes.len() + input as usize) // Assume that size is one larger to contain the input ldd.
     }
 }
 

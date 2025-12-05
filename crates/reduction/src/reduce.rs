@@ -1,4 +1,3 @@
-use std::fmt;
 
 use clap::ValueEnum;
 use merc_lts::LTS;

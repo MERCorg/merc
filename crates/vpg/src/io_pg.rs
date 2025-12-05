@@ -83,7 +83,7 @@ pub fn read_pg(reader: impl Read) -> Result<ParityGame, MercError> {
             ))?
             .parse()?;
 
-        owner[index] = Player::from_index(vertex_owner as u8);
+        owner[index] = Player::from_index(vertex_owner);
         priority[index] = Priority::new(vertex_priority);
 
         // Store the offset for the vertex

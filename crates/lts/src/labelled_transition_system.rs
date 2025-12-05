@@ -150,7 +150,7 @@ impl LabelledTransitionSystem {
         // Determine the combination of action labels
         let mut all_labels = self.labels().to_vec();
         for label in other.labels() {
-            if !all_labels.contains(&label) {
+            if !all_labels.contains(label) {
                 all_labels.push(label.clone());
             }
         }
@@ -217,7 +217,7 @@ impl LabelledTransitionSystem {
             let new_state_index = permutation(state_index);
             let state = lts.states.index(*state_index);
             states.update(*new_state_index, |entry| {
-                *entry = state.clone();
+                *entry = state;
             });
         }
 

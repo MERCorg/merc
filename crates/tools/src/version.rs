@@ -16,9 +16,9 @@ pub struct VersionFlag {
     version: bool,
 }
 
-impl Into<bool> for VersionFlag {
-    fn into(self) -> bool {
-        self.version
+impl From<VersionFlag> for bool {
+    fn from(val: VersionFlag) -> Self {
+        val.version
     }
 }
 

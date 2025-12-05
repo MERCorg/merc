@@ -26,6 +26,12 @@ pub struct BlockAllocator<T, const N: usize> {
     free: Option<NonNull<Entry<T>>>,
 }
 
+impl<T, const N: usize> Default for BlockAllocator<T, N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T, const N: usize> BlockAllocator<T, N> {
     pub fn new() -> Self {
         Self {
@@ -90,6 +96,12 @@ impl<T, const N: usize> BlockAllocator<T, N> {
 /// A type that can implement `Allocator` using the underlying `BlockAllocator`.
 pub struct AllocBlock<T, const N: usize> {
     block_allocator: RefCell<BlockAllocator<T, N>>,
+}
+
+impl<T, const N: usize> Default for AllocBlock<T, N> {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<T, const N: usize> AllocBlock<T, N> {

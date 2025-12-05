@@ -1,7 +1,6 @@
 //! Authors: Maurice Laveaux and Jan J. Martens
 
 use std::fmt;
-use std::fmt::Debug;
 use std::hash::Hash;
 use std::hash::Hasher;
 
@@ -33,7 +32,7 @@ impl<'a> Signature<'a> {
     }
 
     pub fn as_slice(&self) -> &[(LabelIndex, BlockIndex)] {
-        &*self.0
+        self.0
     }
 }
 

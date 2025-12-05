@@ -7,6 +7,9 @@ use std::io::BufReader;
 use std::io::Read;
 
 use log::debug;
+use merc_lts::LabelIndex;
+use merc_lts::StateIndex;
+use merc_lts::Transition;
 use oxidd::BooleanFunction;
 use oxidd::Manager;
 use oxidd::ManagerRef;
@@ -51,7 +54,7 @@ pub fn read_fts(
 
         if let Some(action) = action.actions.first() {
             if let Some(arg) = action.args.first() {
-                feature_labels.push(data_expr_to_bdd(manager_ref, &feature_diagram.variables, &arg)?);
+                feature_labels.push(data_expr_to_bdd(manager_ref, &feature_diagram.variables, arg)?);
             } else {
                 feature_labels.push(manager_ref.with_manager_shared(|manager| BDDFunction::t(manager)));
             }
@@ -83,7 +86,7 @@ fn data_expr_to_bdd(
                         let else_branch = data_expr_to_bdd(manager_ref, variables, &arguments[2])?;
                         variables
                             .get(&variable)
-                            .expect(&format!("Variable {variable} not found"))
+                            .unwrap_or_else(|| panic!("Variable {variable} not found"))
                             .ite(&then_branch, &else_branch)
                     } else {
                         unimplemented!("Conversion of data expression to BDD not implemented for this function");
@@ -133,7 +136,7 @@ impl FeatureDiagram {
                 .collect::<Result<Vec<_>, _>>()?)
         })?;
 
-        let variables = HashMap::from_iter(variable_names.into_iter().zip(variables.into_iter()));
+        let variables = HashMap::from_iter(variable_names.into_iter().zip(variables));
 
         let second_line = line_iter.next().ok_or("Expected initial configuration line")??;
         let initial_configuration = data_expr_to_bdd(manager_ref, &variables, &DataExpr::parse(&second_line)?)?;
@@ -165,6 +168,26 @@ impl FeatureTransitionSystem {
     /// Creates a new feature transition system.
     pub fn new(manager: &BDDManagerRef, lts: LabelledTransitionSystem, feature_labels: Vec<BDDFunction>) -> Self {
         Self { lts, feature_labels }
+    }
+
+    /// Returns the underlying labelled transition system.
+    pub fn feature_label(&self, label_index: usize) -> &BDDFunction {
+        &self.feature_labels[label_index]
+    }
+}
+
+impl LTS for FeatureTransitionSystem {
+    delegate::delegate! {
+        to self.lts {
+            fn initial_state_index(&self) -> StateIndex;
+            fn num_of_states(&self) -> usize;
+            fn num_of_labels(&self) -> usize;
+            fn num_of_transitions(&self) -> usize;
+            fn is_hidden_label(&self, label_index: LabelIndex) -> bool;
+            fn labels(&self) -> &[String];
+            fn outgoing_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = Transition>;
+            fn iter_states(&self) -> impl Iterator<Item = StateIndex> + use<Self>;
+        }
     }
 }
 
