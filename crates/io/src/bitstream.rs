@@ -8,6 +8,7 @@ use bitstream_io::BitReader;
 use bitstream_io::BitWrite;
 use bitstream_io::BitWriter;
 
+use log::error;
 use merc_number::read_u64_variablelength;
 use merc_number::write_u64_variablelength;
 use merc_utilities::MercError;
@@ -61,7 +62,9 @@ impl<W: Write> BitStreamWriter<W> {
 
 impl<W: Write> Drop for BitStreamWriter<W> {
     fn drop(&mut self) {
-        self.flush().expect("Panicked while flushing the stream when dropped");
+        if self.flush().is_err() {
+            error!("Panicked while flushing the stream when dropped!")
+        }
     }
 }
 
@@ -83,7 +86,7 @@ impl<R: Read> BitStreamReader<R> {
 
 impl<W: Write> BitStreamWrite for BitStreamWriter<W> {
     fn write_bits(&mut self, value: u64, number_of_bits: u8) -> Result<(), MercError> {
-        assert!(number_of_bits <= 64);
+        debug_assert!(number_of_bits <= 64);
         Ok(self.writer.write_var(number_of_bits as u32, value)?)
     }
 
