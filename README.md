@@ -8,8 +8,11 @@ Compilation requires at least rustc version 1.85.0 and we use 2024 edition rust.
 
 ## Tools
 
- - merc-lts implement various bisimulation reductions.
- - merc-ltsgraph is a GUI to visualize LTSs.
+ - merc-lts implement various bisimulation reductions for labelled transition systems in the mCRL2 `.lts` format and the Aldebaran `.aut` format.
+ - merc-rewrite allows rewriting of REC specifications.
+ - merc-vpg can be used to solve (variability) parity games.
+ - merc-pbes can identify symmetries in paramerised boolean equation systems (PBES).
+ - merc-ltsgraph is a GUI to visualize LTSs (located in the tools/GUI/ workspace).
 
 ## Related Work
 
