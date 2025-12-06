@@ -71,6 +71,7 @@ mod inner {
             } else if is_data_function_symbol(&self.term) {
                 self.term.copy().into()
             } else {
+                // This can only happen if the term is an incorrect data expression.
                 panic!("data_function_symbol not implemented for {self}");
             }
         }
@@ -87,6 +88,7 @@ mod inner {
                 result.next();
                 result.next();
             } else {
+                // This can only happen if the term is an incorrect data expression.
                 panic!("data_arguments not implemented for {self}");
             }
 
@@ -342,7 +344,10 @@ mod inner {
     impl MachineNumber {
         /// Obtain the underlying value of a machine number.
         pub fn value(&self) -> u64 {
-            0
+            self.term
+                .copy()
+                .annotation()
+                .expect("MachineNumber must have an integer annotation") as u64
         }
     }
 
@@ -407,6 +412,7 @@ impl<'a> DataExpressionRef<'a> {
             result.next();
             result.next();
         } else {
+            // This can only happen if the term is not a data expression.
             panic!("data_arguments not implemented for {self}");
         }
 
