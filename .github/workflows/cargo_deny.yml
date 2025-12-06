@@ -28,8 +28,10 @@ jobs:
       
     - name: Check cargo deny for GUI tools
       uses: EmbarkStudios/cargo-deny-action@v2
-      manifest-path: tools/gui/Cargo.toml
+      with:
+        manifest-path: tools/gui/Cargo.toml
 
     - name: Check cargo deny for mCRL2 tools
       uses: EmbarkStudios/cargo-deny-action@v2
-      manifest-path: tools/gui/Cargo.toml
+      with:
+        manifest-path: tools/gui/Cargo.toml
