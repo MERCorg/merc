@@ -622,4 +622,16 @@ mod tests {
             is_refinement(&preprocessed_lts, &strong_partition, &branching_partition);
         });
     }
+
+    #[test]
+    fn test_random_weak_bisim_sigref_naive() {
+        random_test(100, |rng| {
+            let lts = random_lts(rng, 10, 3, 3);
+            let mut timing = Timing::new();
+
+            let (preprocessed_lts, weak_partition) = weak_bisim_sigref_naive(lts, &mut timing);
+            let strong_partition = strong_bisim_sigref_naive(preprocessed_lts.clone(), &mut timing).1;
+            is_refinement(&preprocessed_lts, &strong_partition, &weak_partition);
+        });
+    }
 }
