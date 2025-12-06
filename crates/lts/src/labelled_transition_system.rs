@@ -47,7 +47,12 @@ pub trait LTS {
 }
 
 /// Represents a labelled transition system consisting of states with directed
-/// labelled edges.
+/// labelled transitions between them.
+/// 
+/// # Details
+/// 
+/// This LTS uses (dense) indices to refer to states and labels. The state indices 
+/// are represented as `StateIndex`, and the label indices as `LabelIndex`.
 #[derive(PartialEq, Eq, Clone)]
 pub struct LabelledTransitionSystem {
     /// Encodes the states and their outgoing transitions.
@@ -63,10 +68,15 @@ pub struct LabelledTransitionSystem {
 }
 
 impl LabelledTransitionSystem {
-    /// Creates a new a labelled transition system with the given transitions, labels, and hidden labels.
+    /// Creates a new a labelled transition system with the given transitions,
+    /// labels, and hidden labels.
     ///
-    /// The initial state is the state with the given index.
-    /// num_of_states is the number of states in the LTS, if known.
+    /// The initial state is the state with the given index. num_of_states is
+    /// the number of states in the LTS, if known. If it is not known, pass
+    /// None. However, in that case the number of states will be determined
+    /// based on the maximum state index in the transitions. And all states that
+    /// do not have any outgoing transitions will simply be created as deadlock
+    /// states.
     pub fn new<I, F>(
         initial_state: StateIndex,
         num_of_states: Option<usize>,
@@ -92,6 +102,16 @@ impl LabelledTransitionSystem {
 
             states.update(*from, |start| *start += 1);
             num_of_transitions += 1;
+
+            if let Some(num_of_states) = num_of_states {
+                debug_assert!(
+                    *from < num_of_states && *to < num_of_states,
+                    "State index out of bounds: from {:?}, to {:?}, num_of_states {}",
+                    from,
+                    to,
+                    num_of_states
+                );
+            }
         }
 
         if initial_state.value() >= states.len() {
@@ -124,16 +144,16 @@ impl LabelledTransitionSystem {
             result
         });
 
-        // Add the sentinel state.
-        states.push(transition_labels.len());
-
         // The minus one is because we added one extra state for the sentinel.
         debug_assert!(
-            initial_state.value() < states.len() - 1,
+            initial_state.value() < states.len(),
             "Initial state {:?} out of bounds (num states: {})",
             initial_state,
             states.len() - 1
         );
+        
+        // Add the sentinel state.
+        states.push(transition_labels.len());
 
         LabelledTransitionSystem {
             initial_state,
@@ -178,10 +198,10 @@ impl LabelledTransitionSystem {
         self.transition_to
             .reserve(other.num_of_transitions(), total_number_of_states.bytes_required());
 
+        let offset = self.num_of_states();
         self.states.pop();
 
         // Add vertices for the other LTS that are offset by the number of states in self
-        let offset = self.num_of_states();
         for state_index in other.iter_states() {
             // Add a new state for every state in the other LTS
             self.states.push(self.num_of_transitions());
@@ -195,11 +215,10 @@ impl LabelledTransitionSystem {
                     .push(*label_indices.get(label_name).expect("Label should exist in all_labels"));
             }
         }
-        
-        debug_assert_eq!(self.num_of_states(), total_number_of_states);
 
         // Add back the sentinel state
-        self.states.push(self.num_of_transitions());
+        self.states.push(self.num_of_transitions());        
+        debug_assert_eq!(self.num_of_states(), total_number_of_states);
 
         (
             Self {
@@ -353,5 +372,26 @@ impl fmt::Debug for LabelledTransitionSystem {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use merc_utilities::random_test;
+
+    use crate::random_lts;
+
+    #[test]
+    fn test_labelled_transition_system_merge() {
+        random_test(1, |rng| {
+            let left = random_lts(rng, 5, 5, 10);
+            let right = random_lts(rng, 5, 10, 10);
+
+            println!("Left LTS:\n{:?}", left);
+            println!("Right LTS:\n{:?}", right);
+            let (merged, _offset) = left.clone().merge(&right);
+
+            println!("Merged LTS:\n{:?}", merged);
+        })
     }
 }
