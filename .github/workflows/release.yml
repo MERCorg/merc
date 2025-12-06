@@ -5,7 +5,6 @@ permissions:
 
 on:
   push:
-    branches: [ main ]
     tags:
       - 'v[0-9]*\.[0-9]*'
 
@@ -28,7 +27,7 @@ jobs:
         packages: libfontconfig1-dev, libfreetype6-dev
         version: 1.0
       if: matrix.os == 'ubuntu-latest'
-      
+
     - name: Install stable rust
       uses: dtolnay/rust-toolchain@stable
 
