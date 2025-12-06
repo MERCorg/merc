@@ -29,7 +29,7 @@ pub fn address_sanitizer(mut arguments: Vec<String>) -> Result<(), Box<dyn Error
 
     cmd("cargo", arguments)
         .env("RUSTFLAGS", "-Zsanitizer=address,leak")
-        .env("RUSTDOCFLAGS", "-Zsanitizer=thread")
+        .env("RUSTDOCFLAGS", "-Zsanitizer=address,leak")
         .env("CFLAGS", "-fsanitize=address,leak")
         .env("CXXFLAGS", "-fsanitize=address,leak")
         .run()?;
