@@ -15,7 +15,7 @@ targets = []
 # When creating the dependency graph used as the source of truth when checks are
 # executed, this field can be used to prune crates from the graph, removing them
 # from the view of cargo-deny.
-exclude = ["proc-macro-error"] # Used in oxidd
+exclude = ["proc-macro-error"]
 
 # If true, metadata will be collected with `--all-features`. Note that this can't
 # be toggled off if true, if you want to conditionally enable `--all-features` it
@@ -38,7 +38,8 @@ feature-depth = 1
 [advisories]
 # A list of advisory IDs to ignore. Note that ignored advisories will still
 # output a note when they are encountered.
-ignore = []
+ignore = ["RUSTSEC-2024-0436", # paste is unmaintained; used in femtovg, wgpu 24 and slint
+]
 
 # This section is considered when running `cargo deny check licenses`
 [licenses]
@@ -51,8 +52,12 @@ allow = [
     "Apache-2.0 WITH LLVM-exception",
     "BSL-1.0",
     "BSD-2-Clause",
+    "BSD-3-Clause",
+    "LicenseRef-Slint-Royalty-free-2.0",
     "Zlib",
     "Unicode-3.0",
+    "CC0-1.0",
+    "NCSA",
     "ISC"
 ]
 # The confidence threshold for detecting a license from license text.
