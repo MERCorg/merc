@@ -48,4 +48,4 @@ jobs:
         RUST_BACKTRACE: full
         RUST_LOG: debug
         RUSTC_WRAPPER: sccache
-        MIRIFLAGS: -Zmiri-isolation-error=warn
+        MIRIFLAGS: -Zmiri-disable-isolation
