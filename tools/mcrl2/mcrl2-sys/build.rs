@@ -1,16 +1,5 @@
-#[cfg(target_os = "linux")]
-use std::path::Path;
-
 use cargo_emit::rerun_if_changed;
 use cc::Build;
-
-// Only include these when the feature is enabled.
-#[cfg(feature = "mcrl2_cpptrace")]
-use cmake::Config;
-#[cfg(feature = "mcrl2_cpptrace")]
-use cargo_emit::rustc_link_lib;
-#[cfg(feature = "mcrl2_cpptrace")]
-use cargo_emit::rustc_link_search;
 
 fn main() {
     #[cfg(feature = "mcrl2_cpptrace")]
@@ -20,26 +9,26 @@ fn main() {
         add_debug_defines(&mut debug_build);
 
         // Use the `cmake` crate to build cpptrace.
-        let mut dst = Config::new("../../../3rd-party/cpptrace")
+        let mut dst = cmake::Config::new("../../../3rd-party/cpptrace")
             .define("BUILD_SHARED_LIBS", "OFF") // Build a static library.
             .define("CPPTRACE_USE_EXTERNAL_LIBDWARF", "OFF") // Compile libdwarf as part of cpptrace.
             .init_cxx_cfg(debug_build)
             .build();
         dst.push("lib");
 
-        rustc_link_search!(dst.display() => "native");
+        cargo_emit::rustc_link_search!(dst.display() => "native");
         // Link the required libraries for cpptrace (Can this be derived from the cmake somehow?)
-        rustc_link_lib!("cpptrace" => "static");
+        cargo_emit::rustc_link_lib!("cpptrace" => "static");
 
         // If /usr/lib/x86_64-linux-gnu/libz.a exists, link it statically. (This is not yet portable)
         #[cfg(target_os = "linux")]
         {
-            rustc_link_lib!("dwarf" => "static");
-            rustc_link_lib!("zstd" => "static");
+            cargo_emit::rustc_link_lib!("dwarf" => "static");
+            cargo_emit::rustc_link_lib!("zstd" => "static");
 
-            if Path::new("/usr/lib/x86_64-linux-gnu/libz.a").exists() {
-                rustc_link_lib!("z" => "static");
-                rustc_link_search!("/usr/lib/x86_64-linux-gnu/" => "native");
+            if std::path::Path::new("/usr/lib/x86_64-linux-gnu/libz.a").exists() {
+                cargo_emit::rustc_link_lib!("z" => "static");
+                cargo_emit::rustc_link_search!("/usr/lib/x86_64-linux-gnu/" => "native");
             }
         }
     }
