@@ -203,6 +203,7 @@ mod tests {
     use super::*;
 
     #[merc_test]
+    #[cfg_attr(miri, ignore)] // Oxidd does not support miri (specifically the crossbeam-epoch dependency)
     fn test_read_minepump_fts() {
         let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
 

@@ -94,6 +94,11 @@ impl LabelledTransitionSystem {
             num_of_transitions += 1;
         }
 
+        if initial_state.value() >= states.len() {
+            // Ensure that the initial state is a valid state (and all states before it exist).
+            states.resize_with(initial_state.value() + 1, Default::default);
+        }
+
         // Track the number of transitions before every state.
         states.fold(0, |count, start| {
             let result = count + *start;

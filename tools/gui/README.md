@@ -10,4 +10,4 @@ and `libfontconfig1-dev` to be installed.
 # Contributing
 
 It is also convenient to open this directory directly in `vscode` since opening
-the root directory can make it confused by the different workspaces somehow.
+the root directory makes it not work within this workspace.

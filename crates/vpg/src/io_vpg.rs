@@ -262,7 +262,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_read_pg() {
+    #[cfg_attr(miri, ignore)] // Oxidd does not support miri (specifically the crossbeam-epoch dependency)
+    fn test_read_vpg() {
         let manager = oxidd::bdd::new_manager(2048, 1024, 8);
 
         let parity_game = read_vpg(&manager, include_bytes!("../../../examples/vpg/example.vpg") as &[u8]).unwrap();
