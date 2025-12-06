@@ -21,8 +21,7 @@ jobs:
         os: [ubuntu-latest]
     runs-on: ${{ matrix.os }}
 
-    steps:
-    
+    steps:    
     - name: Install Ubuntu Dependencies
       uses: awalsh128/cache-apt-pkgs-action@latest
       with:
