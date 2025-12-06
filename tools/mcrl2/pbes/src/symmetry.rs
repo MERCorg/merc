@@ -8,14 +8,13 @@ use itertools::Itertools;
 use log::debug;
 use log::info;
 use mcrl2::AtermString;
+use mcrl2::ControlFlowGraph;
 use mcrl2::ControlFlowGraphVertex;
 use mcrl2::DataVariable;
 use mcrl2::Pbes;
 use mcrl2::PbesStategraph;
-use mcrl2::ControlFlowGraph;
 use mcrl2::SrfPbes;
 use mcrl2::StategraphEquation;
-use merc_io::TimeProgress;
 use merc_utilities::LargeFormatter;
 use merc_utilities::MercError;
 
@@ -99,19 +98,30 @@ impl SymmetryAlgorithm {
         let cliques = self.cliques();
 
         for clique in &cliques {
-            info!("Found clique: {:?}", clique.iter().format_with(", ", |i, f| f(&format_args!("cfg {} (var {})", i, self.all_control_flow_parameters[*i])) ));
+            info!(
+                "Found clique: {:?}",
+                clique.iter().format_with(", ", |i, f| f(&format_args!(
+                    "cfg {} (var {})",
+                    i, self.all_control_flow_parameters[*i]
+                )))
+            );
         }
 
-        let mut combined_candidates = Box::new(iter::empty()) as Box<dyn CloneIterator<Item = (Permutation, Permutation)>>;
+        let mut combined_candidates =
+            Box::new(iter::empty()) as Box<dyn CloneIterator<Item = (Permutation, Permutation)>>;
         let mut number_of_candidates = 1usize;
-        
-        let mut progress = TimeProgress::new(|index: usize| {
-            info!("Checked {index} candidates...");
-        }, 1);
+
+        // let mut progress = TimeProgress::new(|index: usize| {
+        //     info!("Checked {index} candidates...");
+        // }, 1);
 
         for clique in &cliques {
             let (number_of_permutations, candidates) = self.clique_candidates(clique.clone());
-            info!("Maximum number of permutations for clique {:?}: {}", clique, LargeFormatter(number_of_permutations));
+            info!(
+                "Maximum number of permutations for clique {:?}: {}",
+                clique,
+                LargeFormatter(number_of_permutations)
+            );
 
             if number_of_candidates == 1 {
                 combined_candidates = Box::new(candidates) as Box<dyn CloneIterator<Item = (Permutation, Permutation)>>;
@@ -119,9 +129,7 @@ impl SymmetryAlgorithm {
                 combined_candidates = Box::new(
                     combined_candidates
                         .cartesian_product(candidates)
-                        .filter(|((_, lhs_beta), (_, rhs_beta))| {
-                            lhs_beta == rhs_beta
-                        })
+                        .filter(|((_, lhs_beta), (_, rhs_beta))| lhs_beta == rhs_beta)
                         .map(|((lhs_alpha, beta), (rhs_alpha, _))| (lhs_alpha.concat(&rhs_alpha), beta)),
                 ) as Box<dyn CloneIterator<Item = (Permutation, Permutation)>>;
             }
@@ -129,9 +137,12 @@ impl SymmetryAlgorithm {
             number_of_candidates *= number_of_permutations;
         }
 
-        info!("Maximum number of symmetry candidates: {}", LargeFormatter(number_of_candidates));
+        info!(
+            "Maximum number of symmetry candidates: {}",
+            LargeFormatter(number_of_candidates)
+        );
 
-        for (i, (alpha, beta)) in combined_candidates.enumerate() {
+        for (alpha, beta) in combined_candidates {
             let permutation = alpha.concat(&beta);
             info!("Found candidate: {}", permutation);
         }
@@ -166,7 +177,10 @@ impl SymmetryAlgorithm {
     }
 
     /// Computes the set of candidates we can derive from a single clique
-    fn clique_candidates(&self, I: Vec<usize>) -> (usize, Box<dyn CloneIterator<Item = (Permutation, Permutation)> + '_>) {
+    fn clique_candidates(
+        &self,
+        I: Vec<usize>,
+    ) -> (usize, Box<dyn CloneIterator<Item = (Permutation, Permutation)> + '_>) {
         // Determine the parameter indices involved in the clique
         let control_glow_parameter_indices: Vec<usize> = I
             .iter()
@@ -207,18 +221,21 @@ impl SymmetryAlgorithm {
         let mut number_of_permutations = 1usize;
         let mut all_data_groups: Box<dyn CloneIterator<Item = Permutation>> = Box::new(iter::empty()); // Default value is overwritten in first iteration.
         for group in same_sort_parameters {
-
             // Determine the indices of these parameters.
             let parameter_indices: Vec<usize> = group
                 .iter()
                 .map(|param| self.parameters.iter().position(|p| p.name() == param.name()).unwrap())
                 .collect();
 
-            info!("Same sort data parameters: {:?}, indices: {:?}", group, parameter_indices);
+            info!(
+                "Same sort data parameters: {:?}, indices: {:?}",
+                group, parameter_indices
+            );
 
             // Compute the product of the current data group with the already concatenated ones.
-            if number_of_permutations == 1 { 
-                all_data_groups = Box::new(permutation_group(parameter_indices.clone())) as Box<dyn CloneIterator<Item = Permutation>>;
+            if number_of_permutations == 1 {
+                all_data_groups = Box::new(permutation_group(parameter_indices.clone()))
+                    as Box<dyn CloneIterator<Item = Permutation>>;
             } else {
                 all_data_groups = Box::new(
                     all_data_groups
@@ -234,65 +251,80 @@ impl SymmetryAlgorithm {
 
         (
             number_of_permutations,
-            Box::new(permutation_group(control_glow_parameter_indices)
-                .cartesian_product(all_data_groups)
-                .filter(move |(a, b)| {
-                    let pi = a.clone().concat(&b);
-                    if !self.complies(&pi, &I)  {
-                        debug!("Non compliant permutation {}.", pi);
-                        return false;
-                    }
+            Box::new(
+                permutation_group(control_glow_parameter_indices)
+                    .cartesian_product(all_data_groups)
+                    .filter(move |(a, b)| {
+                        let pi = a.clone().concat(&b);
+                        if !self.complies(&pi, &I) {
+                            debug!("Non compliant permutation {}.", pi);
+                            return false;
+                        }
 
-                    true
-                })) as Box<dyn CloneIterator<Item = (Permutation, Permutation)>>
+                        true
+                    }),
+            ) as Box<dyn CloneIterator<Item = (Permutation, Permutation)>>,
         )
     }
 
     /// Returns true iff the two control flow graphs are compatible.
-    fn compatible(
-        &self,
-        c: &ControlFlowGraph,
-        c_prime: &ControlFlowGraph,
-    ) -> Result<(), MercError> {
+    fn compatible(&self, c: &ControlFlowGraph, c_prime: &ControlFlowGraph) -> Result<(), MercError> {
         // First check whether the vertex sets are compatible.
         if let Err(x) = self.vertex_sets_compatible(c, c_prime) {
             return Err(format!("Incompatible vertex sets.\n {x}").into());
         }
 
         for s in c.vertices() {
-
+            let mut s_matched = false;
             for s_c_prime in c_prime.vertices() {
+                println!("Checking vertices {:?} and {:?}.", s, s_c_prime);
                 // Check whether there is a matching value in c' for every value in c.
                 if s.value() == s_c_prime.value() && s.name() == s_c_prime.name() {
+                    s_matched = true;
+
                     // There exist t such that s_c and s'_c' match according to the definitions in the paper.
                     for s_prime in c.vertices() {
                         for s_c_prime_prime in c_prime.vertices() {
+                            println!(
+                                "  Checking outgoing edges to {:?} and {:?}.",
+                                s_prime, s_c_prime_prime
+                            );
                             // Y(v) in c and Y(v) in c_prime.
-                            if s_prime.value() == s_c_prime_prime.value()
-                                && s_prime.name() == s_c_prime_prime.name() {
+                            if s_prime.value() == s_c_prime_prime.value() && s_prime.name() == s_c_prime_prime.name() {
+                                let v_c = s.outgoing_edges().iter().find(|(vertex, _)| *vertex == s_prime.get());
+                                let v_c_prime = s_c_prime
+                                    .outgoing_edges()
+                                    .iter()
+                                    .find(|(vertex, _)| *vertex == s_c_prime_prime.get());
 
-                                    let v_c = s.outgoing_edges().iter().find(|(vertex, _)| *vertex == s_prime.get());
-                                    let v_c_prime = s_c_prime.outgoing_edges().iter().find(|(vertex, _)| *vertex == s_c_prime_prime.get());
+                                if v_c.is_none() != v_c_prime.is_none() {
+                                    return Err("Could not match outgoing edges.".into());
+                                }
 
-                                    if v_c.is_none() != v_c_prime.is_none() {
-                                        return Err("Could not match outgoing edges.".into());
-                                    }
-
-                                    if let Some((_, edges)) = v_c {
-                                        if let Some((_, edges_prime)) = v_c_prime {
-                                            if edges.len() != edges_prime.len() {
-                                                return Err(format!("Found different number of outgoing edges ({} != {}).", edges.len(), edges_prime.len()).into());
-                                            }
+                                if let Some((_, edges)) = v_c {
+                                    if let Some((_, edges_prime)) = v_c_prime {
+                                        if edges.len() != edges_prime.len() {
+                                            return Err(format!(
+                                                "Found different number of outgoing edges ({} != {}).",
+                                                edges.len(),
+                                                edges_prime.len()
+                                            )
+                                            .into());
                                         }
                                     }
+                                }
 
-                                    if self.sizes(c, s, s_prime) != self.sizes(c_prime, s_c_prime, s_c_prime_prime) {
-                                        return Err("Different sizes of outgoing edges.".into());
+                                if self.sizes(c, s, s_prime) != self.sizes(c_prime, s_c_prime, s_c_prime_prime) {
+                                    return Err("Different sizes of outgoing edges.".into());
                                 }
                             }
                         }
                     }
                 }
+            }
+
+            if !s_matched {
+                return Err(format!("No matching vertex found in c' for vertex {:?}.", s).into());
             }
         }
 
@@ -301,11 +333,7 @@ impl SymmetryAlgorithm {
 
     /// Checks whether two control flow graphs have compatible vertex sets, meaning that the PVI and values of the
     /// vertices match.
-    fn vertex_sets_compatible(
-        &self,
-        c: &ControlFlowGraph,
-        c_prime: &ControlFlowGraph,
-    ) -> Result<(), MercError> {
+    fn vertex_sets_compatible(&self, c: &ControlFlowGraph, c_prime: &ControlFlowGraph) -> Result<(), MercError> {
         if c.vertices().len() != c_prime.vertices().len() {
             return Err(format!(
                 "Different number of vertices ({} != {}).",
@@ -319,11 +347,9 @@ impl SymmetryAlgorithm {
             if !c_prime
                 .vertices()
                 .iter()
-                .any(|vertex_prime| vertex.name() == vertex_prime.name() && vertex.value() == vertex_prime.value()) {
-                return Err(format!(
-                    "Vertex {:?} has no matching vertex in the c' CFG.",
-                    vertex,
-                ).into())
+                .any(|vertex_prime| vertex.name() == vertex_prime.name() && vertex.value() == vertex_prime.value())
+            {
+                return Err(format!("Vertex {:?} has no matching vertex in the c' CFG.", vertex,).into());
             }
         }
 
@@ -331,11 +357,9 @@ impl SymmetryAlgorithm {
             if !c
                 .vertices()
                 .iter()
-                .any(|vertex| vertex.name() == vertex_prime.name() && vertex.value() == vertex_prime.value()) {
-                return Err(format!(
-                    "Vertex {:?} has no matching vertex in the c CFG.",
-                    vertex_prime,
-                ).into())
+                .any(|vertex| vertex.name() == vertex_prime.name() && vertex.value() == vertex_prime.value())
+            {
+                return Err(format!("Vertex {:?} has no matching vertex in the c CFG.", vertex_prime,).into());
             }
         }
 
@@ -344,23 +368,26 @@ impl SymmetryAlgorithm {
 
     /// Returns true iff all vertices in I comply with the detail::permutation pi.
     fn complies(&self, pi: &Permutation, I: &Vec<usize>) -> bool {
-        I.iter().all(|c| self.complies_cfg(pi, &self.state_graph.control_flow_graphs()[*c]))
+        I.iter()
+            .all(|c| self.complies_cfg(pi, &self.state_graph.control_flow_graphs()[*c]))
     }
 
     /// Takes a detail::permutation and a control flow parameter and returns true or
     /// false depending on whether the detail::permutation complies with the control
     /// flow parameter.
     fn complies_cfg(&self, pi: &Permutation, c: &ControlFlowGraph) -> bool {
-        let c_prime = self.state_graph.control_flow_graphs().iter().find(|cfg| {
-            variable_index(cfg) == pi.value(variable_index(c))
-        }).expect("There should be a matching control flow graph.");
+        let c_prime = self
+            .state_graph
+            .control_flow_graphs()
+            .iter()
+            .find(|cfg| variable_index(cfg) == pi.value(variable_index(c)))
+            .expect("There should be a matching control flow graph.");
 
         for s in c.vertices() {
             for s_prime in c_prime.vertices() {
                 if s.value() == s_prime.value() && s.name() == s_prime.name() {
                     // s == s'
                     for (to, labels) in s.outgoing_edges() {
-
                         for (to_prime, labels_prime) in s_prime.outgoing_edges() {
                             // TODO: This is not optimal since we are not interested in the outgoing edges, which new() computes.
                             let to = ControlFlowGraphVertex::new(*to);
@@ -384,7 +411,13 @@ impl SymmetryAlgorithm {
     }
 
     /// Checks whether there is a matching summand in the equation for the given labels under the permutation pi.
-    fn matching_summand(&self, equation: &StategraphEquation, pi: &Permutation, labels: &Vec<usize>, labels_prime: &Vec<usize>) -> bool {
+    fn matching_summand(
+        &self,
+        equation: &StategraphEquation,
+        pi: &Permutation,
+        labels: &Vec<usize>,
+        labels_prime: &Vec<usize>,
+    ) -> bool {
         let mut remaining_j = labels_prime.clone();
 
         for i in labels {
@@ -399,7 +432,10 @@ impl SymmetryAlgorithm {
 
             if let Some(x) = result {
                 // Remove x from remaining_j
-                let index = remaining_j.iter().position(|r| r == x).expect("Element should exist since it was found before.");
+                let index = remaining_j
+                    .iter()
+                    .position(|r| r == x)
+                    .expect("Element should exist since it was found before.");
                 remaining_j.remove(index);
             } else {
                 return false;
@@ -433,16 +469,21 @@ impl SymmetryAlgorithm {
     }
 
     /// Computes the sizes(c, s, s')
-    /// 
+    ///
     /// TODO: used is used_for and used_in in the theory (and should be split eventually)
-    fn sizes(&self, _c: &ControlFlowGraph, s: &mcrl2::ControlFlowGraphVertex, s_prime: &mcrl2::ControlFlowGraphVertex) -> Vec<(usize, usize)> {        
+    fn sizes(
+        &self,
+        _c: &ControlFlowGraph,
+        s: &mcrl2::ControlFlowGraphVertex,
+        s_prime: &mcrl2::ControlFlowGraphVertex,
+    ) -> Vec<(usize, usize)> {
         if let Some((_, edges)) = s.outgoing_edges().iter().find(|(vertex, _)| *vertex == s_prime.get()) {
             let mut result = Vec::new();
 
             let equation = self.find_equation_by_name(&s.name()).expect("Equation should exist");
             for label in edges {
-                let variable = &equation.predicate_variables()[*label];  
-                result.push((variable.changed().len(), variable.used().len()));              
+                let variable = &equation.predicate_variables()[*label];
+                result.push((variable.changed().len(), variable.used().len()));
             }
 
             // Remove duplicates
@@ -456,7 +497,6 @@ impl SymmetryAlgorithm {
 
     /// Returns the equation with the given name.
     fn find_equation_by_name(&self, name: &AtermString) -> Option<&StategraphEquation> {
-
         // TODO: Fix naive implementation
         for equation in self.state_graph.equations() {
             if equation.variable().name() == *name {
