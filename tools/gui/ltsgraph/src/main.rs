@@ -3,7 +3,6 @@
 
 slint::include_modules!();
 
-use std::fs::File;
 use std::ops::Deref;
 use std::path::Path;
 use std::process::ExitCode;
@@ -19,8 +18,11 @@ use femtovg::Canvas;
 use femtovg::renderer::WGPURenderer;
 use log::debug;
 use log::info;
+use log::warn;
+use merc_lts::LtsFormat;
 use merc_lts::guess_format_from_extension;
 use merc_lts::read_explicit_lts;
+use merc_utilities::Timing;
 use slint::Image;
 use slint::Rgba8Pixel;
 use slint::SharedPixelBuffer;
@@ -30,15 +32,15 @@ use wgpu::TextureDescriptor;
 use wgpu::TextureFormat;
 use wgpu::TextureUsages;
 
-use merc_lts::LabelledTransitionSystem;
 use merc_lts::LTS;
+use merc_lts::LabelledTransitionSystem;
 use merc_ltsgraph_lib::FemtovgRenderer;
 use merc_ltsgraph_lib::GraphLayout;
 use merc_ltsgraph_lib::SkiaRenderer;
 use merc_ltsgraph_lib::Viewer;
+use merc_tools::Version;
 use merc_tools::console;
 use merc_tools::verbosity::VerbosityFlag;
-use merc_tools::Version;
 use merc_utilities::LargeFormatter;
 use merc_utilities::MercError;
 
@@ -481,14 +483,19 @@ async fn main() -> Result<ExitCode, MercError> {
         let layout_handle = layout_handle.clone();
         let render_handle = render_handle.clone();
 
-        move |path: &Path, format: LtsFormat| {
+        move |path: &Path, format: Option<LtsFormat>| -> Result<(), MercError> {
             debug!("Loading LTS {} ...", path.to_string_lossy());
 
-            let format = guess_format_from_extension(path, format);
-            match read_explicit_lts(&path, format, vec![]) {
+            let mut timing = Timing::new();
+            let format = guess_format_from_extension(path, format).ok_or("Unknown LTS file format.")?;
+            match read_explicit_lts(&path, format, vec![], &mut timing) {
                 Ok(lts) => {
                     let lts = Arc::new(lts);
-                    info!("Loaded lts with {} states and {} transitions", LargeFormatter(lts.num_of_states()), LargeFormatter(lts.num_of_transitions()));
+                    info!(
+                        "Loaded lts with {} states and {} transitions",
+                        LargeFormatter(lts.num_of_states()),
+                        LargeFormatter(lts.num_of_transitions())
+                    );
 
                     // Create the layout and viewer separately to make the initial state sensible.
                     let layout = GraphLayout::new(lts.clone());
@@ -507,10 +514,9 @@ async fn main() -> Result<ExitCode, MercError> {
                     // Enable the layout and rendering threads.
                     layout_handle.resume();
                     render_handle.resume();
+                    Ok(())
                 }
-                Err(x) => {
-                    show_error_dialog("Failed to load LTS!", &format!("{x}"));
-                }
+                Err(x) => Ok(show_error_dialog("Failed to load LTS!", &format!("{x}"))),
             }
         }
     };
@@ -571,7 +577,9 @@ async fn main() -> Result<ExitCode, MercError> {
             invoke_from_event_loop(move || {
                 slint::spawn_local(async move {
                     if let Some(handle) = rfd::AsyncFileDialog::new().add_filter("", &["aut"]).pick_file().await {
-                        load_lts(handle.path());
+                        if load_lts(handle.path(), cli.lts_format).is_err() {
+                            warn!("Failed to load LTS from file dialog.");
+                        }
                     }
                 })
                 .unwrap();
@@ -616,7 +624,7 @@ async fn main() -> Result<ExitCode, MercError> {
 
     // Loads the LTS given on the command line.
     if let Some(path) = &cli.labelled_transition_system {
-        load_lts(Path::new(path));
+        load_lts(Path::new(path), cli.lts_format)?;
     }
 
     app.run()?;
