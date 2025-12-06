@@ -1408,6 +1408,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
+name = "dashmap"
+version = "7.0.0-rc2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e4a1e35a65fe0538a60167f0ada6e195ad5d477f6ddae273943596d4a1a5730b"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
+ "equivalent",
+ "hashbrown 0.15.5",
+ "lock_api",
+ "parking_lot_core",
+]
+
+[[package]]
 name = "data-url"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3254,6 +3268,7 @@ dependencies = [
  "allocator-api2 0.3.1",
  "arbitrary",
  "arbtest",
+ "dashmap",
  "delegate",
  "equivalent",
  "itertools 0.14.0",
@@ -3264,7 +3279,6 @@ dependencies = [
  "merc_sharedmutex",
  "merc_unsafety",
  "merc_utilities",
- "papaya",
  "parking_lot",
  "pest",
  "pest_consume",
@@ -3394,11 +3408,11 @@ name = "merc_unsafety"
 version = "1.0.0"
 dependencies = [
  "allocator-api2 0.3.1",
+ "dashmap",
  "equivalent",
  "itertools 0.14.0",
  "log",
  "merc_utilities",
- "papaya",
  "rand",
  "rustc-hash 2.1.1",
 ]
@@ -4133,16 +4147,6 @@ checksum = "30d5b2194ed13191c1999ae0704b7839fb18384fa22e49b57eeaa97d79ce40da"
 dependencies = [
  "libc",
  "winapi",
-]
-
-[[package]]
-name = "papaya"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f92dd0b07c53a0a0c764db2ace8c541dc47320dad97c2200c2a637ab9dd2328f"
-dependencies = [
- "equivalent",
- "seize",
 ]
 
 [[package]]
@@ -4947,16 +4951,6 @@ dependencies = [
  "memmap2",
  "smithay-client-toolkit 0.19.2",
  "tiny-skia",
-]
-
-[[package]]
-name = "seize"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b55fb86dfd3a2f5f76ea78310a88f96c4ea21a3031f8d212443d56123fd0521"
-dependencies = [
- "libc",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
