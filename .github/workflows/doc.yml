@@ -70,7 +70,7 @@ jobs:
         run: |
           cargo doc --no-deps
           cp -r target/coverage/html target/doc/coverage/
-          echo "<meta http-equiv=\"refresh\" content=\"0; url=merc\">" > target/doc/index.html
+          echo "<meta http-equiv=\"refresh\" content=\"0; url=merc_aterm\">" > target/doc/index.html
         env:
           RUSTC_WRAPPER: sccache
 
