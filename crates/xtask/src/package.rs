@@ -46,7 +46,7 @@ pub fn package() -> Result<(), Box<dyn Error>> {
     // Using release profile for optimized performance in distribution
     for (workspace_path, binaries) in &workspace_binaries {
         cmd!("cargo", "build", "--release").dir(workspace_path).run()?;
-        
+
         let target_release_dir = workspace_path.join("target").join("release");
 
         for binary_name in binaries {
@@ -70,29 +70,6 @@ pub fn package() -> Result<(), Box<dyn Error>> {
 
             copy(&source_path, &dest_path)?;
             println!("Copied {binary_name} to package directory");
-
-            // Copy debug symbols if they exist
-            #[cfg(target_os = "linux")]
-            {
-                let dwp_source = target_release_dir.join(format!("{binary_name}.dwp"));
-                if dwp_source.exists() {
-                    let dwp_dest = package_dir.join(format!("{binary_name}.dwp"));
-                    copy(&dwp_source, &dwp_dest)?;
-                    println!("Copied {binary_name}.dwp to package directory");
-                }
-            }
-
-            #[cfg(target_os = "macos")]
-            {
-                let dsym_source = target_release_dir.join(format!("{binary_name}.dSYM"));
-                if dsym_source.exists() {
-                    let dsym_dest = package_dir.join(format!("{binary_name}.dSYM"));
-                    // .dSYM is a directory, so we need to copy recursively
-                    std::fs::create_dir_all(&dsym_dest)?;
-                    copy_dir_all(&dsym_source, &dsym_dest)?;
-                    println!("Copied {binary_name}.dSYM to package directory");
-                }
-            }
         }
     }
 
@@ -123,12 +100,12 @@ pub fn package() -> Result<(), Box<dyn Error>> {
 #[cfg(target_os = "macos")]
 fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> Result<(), Box<dyn Error>> {
     use std::fs;
-    
+
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let ty = entry.file_type()?;
         let dst_path = dst.join(entry.file_name());
-        
+
         if ty.is_dir() {
             fs::create_dir_all(&dst_path)?;
             copy_dir_all(&entry.path(), &dst_path)?;
