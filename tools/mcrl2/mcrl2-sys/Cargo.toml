@@ -12,16 +12,12 @@ cxx.workspace = true
 [build-dependencies]
 cxx-build.workspace = true
 cc.workspace = true
-cmake.workspace = true
+cmake = { optional = true, workspace = true }
 cargo-emit.workspace = true
 
 [features]
 # Enables the compiling cpptrace option for mCRL2, this gives proper backtraces on exceptions.
-mcrl2_cpptrace = []
+mcrl2_cpptrace = ["dep:cmake"]
 
 # Enables the compiling rewriter option for mCRL2.
 mcrl2_jittyc = []
-
-# On Windows to compile `cpptrace` we need to use the `Naive Tools Command Prompt`, which is not commonly used.
-[target.'cfg(target_os = "linux")'.features]
-default = ["mcrl2_cpptrace"]

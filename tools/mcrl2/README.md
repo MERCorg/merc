@@ -45,8 +45,9 @@ opening the root directory can make it confused by the different workspaces.
 
 # Caching
 
-Since the C++ code is slow to compile due to the heavy usage of templated code
-in header files it can be useful to install `sccache` with `cargo install
-sccache` and define the `RUSTC_WRAPPER=sccache` environment variable. This can
-be put into `.bashrc` for a more permanent solution. This cache will speed up 
-both Rust and C++ compilation.
+The `cc` crate does not support incremental compilation for all targets. Since
+the C++ code is slow to compile due to the heavy usage of templated code in
+header files it can be useful to install `sccache` with `cargo install sccache`
+and define the `RUSTC_WRAPPER=sccache` environment variable. This can be put
+into `.bashrc` for a more permanent solution. This cache will speed up both Rust
+and C++ compilation.
