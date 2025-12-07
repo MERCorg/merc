@@ -32,7 +32,7 @@ impl<T: ?Sized + Erasable> Thin<T> {
     }
 
     /// # Safety
-    /// 
+    ///
     /// The caller must ensure that the underlying pointer is valid for reads.
     pub unsafe fn as_ref(&self) -> &T {
         unsafe { T::unerase(self.ptr).as_ref() }
@@ -40,9 +40,9 @@ impl<T: ?Sized + Erasable> Thin<T> {
 }
 
 /// This is the trait that allows a type to be erased and unerased.
-/// 
+///
 /// # Safety
-/// 
+///
 /// See the documentation of the trait functions.
 pub unsafe trait Erasable {
     /// Turn this erasable pointer into an erased pointer.

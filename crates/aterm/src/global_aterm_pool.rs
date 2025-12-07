@@ -161,9 +161,9 @@ impl GlobalTermPool {
     }
 
     /// Registers a new thread term pool.
-    /// 
+    ///
     /// # Safety
-    /// 
+    ///
     /// Note that the returned `Arc<UnsafeCell<...>>` is not Send or Sync, so it
     /// *must* be protected through other means.
     #[allow(clippy::arc_with_non_send_sync)]

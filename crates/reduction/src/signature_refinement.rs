@@ -419,7 +419,9 @@ where
             let mut new_id = BlockIndex::new(id.len());
             if let Some((signature, index)) = id.get_key_value(&Signature::new(&builder)) {
                 // SAFETY: We know that the signature lives as long as the arena
-                state_to_signature[state_index] = unsafe { std::mem::transmute::<Signature<'_>, Signature<'_>>(Signature::new(signature.as_slice())) };
+                state_to_signature[state_index] = unsafe {
+                    std::mem::transmute::<Signature<'_>, Signature<'_>>(Signature::new(signature.as_slice()))
+                };
                 new_id = *index;
             } else {
                 let slice = if builder.is_empty() {

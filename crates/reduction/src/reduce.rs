@@ -1,4 +1,3 @@
-
 use clap::ValueEnum;
 use merc_lts::LTS;
 use merc_lts::LabelledTransitionSystem;

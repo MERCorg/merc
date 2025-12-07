@@ -96,7 +96,9 @@ impl SymbolPool {
             None => {
                 let result = Arc::new(AtomicUsize::new(0));
                 assert!(
-                    self.prefix_to_register_function_map.insert(prefix.to_string(), result.clone()).is_none(),
+                    self.prefix_to_register_function_map
+                        .insert(prefix.to_string(), result.clone())
+                        .is_none(),
                     "This key should not yet exist"
                 );
                 result

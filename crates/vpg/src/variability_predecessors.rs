@@ -73,6 +73,4 @@ impl VariabilityPredecessors {
         let end = self.vertex_to_predecessors.index(state_index.value() + 1);
         (start..end).map(move |i| (self.edges_from.index(i), &self.edges_configuration[i]))
     }
-
-    
 }

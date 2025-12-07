@@ -67,7 +67,7 @@ impl<T: ?Sized> StablePointer<T> {
     }
 
     /// Returns public access to the underlying pointer.
-    pub fn ptr(&self) ->  NonNull<T> {
+    pub fn ptr(&self) -> NonNull<T> {
         self.ptr
     }
 }
@@ -496,10 +496,10 @@ where
             let entry = Entry::new(ptr);
             let ptr = StablePointer::from_entry(&entry);
 
-        let inserted = self.index.insert(entry);
-        if !inserted {
-            // Add the result to the storage, it could be at this point that the entry was inserted by another thread. So
-            // this insertion might actually fail, in which case we should clean up the created entry and return the old pointer.
+            let inserted = self.index.insert(entry);
+            if !inserted {
+                // Add the result to the storage, it could be at this point that the entry was inserted by another thread. So
+                // this insertion might actually fail, in which case we should clean up the created entry and return the old pointer.
 
                 // TODO: I suppose this can go wrong with begin_insert(x); insert(x); remove(x); end_insert(x) chain.
                 if let Some(existing_ptr) = self.get(value) {

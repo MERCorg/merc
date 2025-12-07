@@ -11,7 +11,7 @@ use super::DataPosition;
 
 pub type DataSubstitutionBuilder = Protected<Vec<DataExpressionRef<'static>>>;
 
-/// This function substitutes the term 't' at the position 'p' with 'new_subterm', see [substitute].
+/// This function substitutes the term 't' at the position 'p' with 'new_subterm', see [`merc_aterm::substitute`].
 pub fn data_substitute(
     tp: &ThreadTermPool,
     t: &DataExpressionRef<'_>,
@@ -22,7 +22,7 @@ pub fn data_substitute(
     substitute_rec(tp, t, new_subterm, position.indices(), &mut args, 0)
 }
 
-/// This is the same as [data_substitute], but it uses a [SubstitutionBuilder] to store the arguments.
+/// This is the same as [data_substitute], but it uses a [`DataSubstitutionBuilder`] to store the arguments temporarily.
 pub fn data_substitute_with(
     builder: &mut DataSubstitutionBuilder,
     tp: &ThreadTermPool,

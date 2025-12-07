@@ -113,7 +113,10 @@ impl<R: BitStreamRead> BinaryLddReader<R> {
         }
 
         // Add the true and false constants
-        let nodes = vec![Storage::default().empty_set().clone(), Storage::default().empty_vector().clone()];
+        let nodes = vec![
+            Storage::default().empty_set().clone(),
+            Storage::default().empty_vector().clone(),
+        ];
         Ok(Self { reader, nodes })
     }
 
