@@ -36,19 +36,21 @@ pub fn weak_bisimulation(lts: impl LTS, timing: &mut Timing) -> (LabelledTransit
 
     let incoming = IncomingTransitions::new(&tau_loop_free_lts);
 
-    let mut progress = TimeProgress::new(|num_of_blocks: usize| {
-        info!("Found {} blocks...", num_of_blocks);
-    }, 1);
+    let mut progress = TimeProgress::new(
+        |num_of_blocks: usize| {
+            info!("Found {} blocks...", num_of_blocks);
+        },
+        1,
+    );
 
     loop {
         let mut stable = true;
         for block_index in (0usize..blocks.num_of_blocks()).map(BlockIndex::new) {
-
             progress.print(blocks.num_of_blocks());
             if blocks.block(block_index).is_stable() {
                 continue;
             }
-            
+
             trace!("Stabilising block {:?}", block_index);
             stable = false;
             blocks.mark_block_stable(block_index);
@@ -70,8 +72,9 @@ pub fn weak_bisimulation(lts: impl LTS, timing: &mut Timing) -> (LabelledTransit
                     label,
                 );
 
+                // Note that we cannot use the block references here, and instead uses indices, because stabilise
+                // also modifies the blocks structure.
                 for block_prime in (0usize..blocks.num_of_blocks()).map(BlockIndex::new) {
-                    // This cannot be a reference since the blocks are updated.
                     stabilise(block_prime, &mut act_mark, &mut blocks);
                 }
             }
@@ -88,7 +91,7 @@ pub fn weak_bisimulation(lts: impl LTS, timing: &mut Timing) -> (LabelledTransit
     (tau_loop_free_lts, blocks)
 }
 
-/// Sets s.act_mark to true iff exists t: S. s =!a=> t
+/// Sets s.act_mark to true iff exists t: S. s =\not{a}=> t
 /// If a = tau, then also updates s.tau_mark
 fn compute_weak_act(
     act_mark: &mut BitArray,
@@ -110,10 +113,7 @@ fn compute_weak_act(
             if transition.label == label {
                 // s.act_mark := true iff a != tau && tau_mark[t]
                 if !lts.is_hidden_label(transition.label) && tau_mark[*transition.to] {
-                    act_mark.set(
-                        *s,
-                        true,
-                    );
+                    act_mark.set(*s, true);
                 }
             }
         }
@@ -124,7 +124,7 @@ fn compute_weak_act(
         if lts.is_hidden_label(label) {
             tau_mark.set(*t, act_mark[*t]);
         }
-        
+
         if act_mark[*t] {
             for transition in incoming.incoming_silent_transitions(t) {
                 act_mark.set(*transition.to, true);
@@ -135,9 +135,7 @@ fn compute_weak_act(
 
 /// Splits the given block according to the given marking.
 fn stabilise(block: BlockIndex, act_mark: &mut BitArray, blocks: &mut SimpleBlockPartition) {
-    blocks.split_block(block, |state| {
-        act_mark[*state]
-    });
+    blocks.split_block(block, |state| act_mark[*state]);
 }
 
 #[cfg(test)]
@@ -158,16 +156,16 @@ mod tests {
             let mut timing = Timing::new();
             println!("Original {lts:?}");
 
-            let expected = reduce_lts(lts.clone(), Equivalence::WeakBisim, &mut timing);
-            let reduced = reduce_lts(lts, Equivalence::WeakBisimSigref, &mut timing);
+            let result = reduce_lts(lts.clone(), Equivalence::WeakBisim, &mut timing);
+            let expected = reduce_lts(lts, Equivalence::WeakBisimSigref, &mut timing);
 
-            assert_eq!(expected.num_of_states(), reduced.num_of_states());
-            assert_eq!(expected.num_of_transitions(), reduced.num_of_transitions());
+            assert_eq!(result.num_of_states(), expected.num_of_states());
+            assert_eq!(result.num_of_transitions(), expected.num_of_transitions());
 
-            println!("Expected: {expected:?}");
-            println!("Reduced: {reduced:?}");
+            println!("Expected: {result:?}");
+            println!("Reduced: {expected:?}");
 
-            assert!(compare_lts(Equivalence::StrongBisim, expected, &reduced, &mut timing));
+            assert!(compare_lts(Equivalence::StrongBisim, result, expected, &mut timing));
         })
     }
 }
