@@ -110,6 +110,9 @@ impl fmt::Display for SimpleBlockPartition {
 
 impl Partition for SimpleBlockPartition {
     fn block_number(&self, state_index: StateIndex) -> BlockIndex {
+        // Note that this is O(n) in the number of blocks. This could be improved
+        // by storing a mapping from state index to block index. However, this
+        // is only used in the comparison functions, so it is not a big issue.
         for (block_index, block) in self.blocks.iter().enumerate() {
             for element in block.iter(&self.elements) {
                 if element == state_index {
@@ -130,12 +133,9 @@ impl Partition for SimpleBlockPartition {
     }
 }
 
-/// A block stores a subset of the elements in a partition. It uses start,
-/// middle and end to indicate a range start..end of elements in the partition.
-/// The middle is used such that marked_split..end are the marked elements. This
-/// is useful to be able to split off new blocks cheaply.
-///
-/// Invariant: start <= middle <= end && start < end.
+/// A block stores a subset of the elements in a partition. It uses start, and
+/// end to indicate a range start..end of elements in the partition. The stable
+/// flag indicates whether the block is stable.
 #[derive(Clone, Copy, Debug)]
 pub struct SimpleBlock {
     begin: usize,
