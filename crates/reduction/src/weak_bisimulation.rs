@@ -150,6 +150,7 @@ mod tests {
     use crate::reduce_lts;
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_weak_bisimulation() {
         random_test(100, |rng| {
             let lts = random_lts(rng, 2, 10, 3);

@@ -208,6 +208,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn random_lts_product_test() {
         random_test(100, |rng| {
             // This test only checks the assertions of an LTS internally.
