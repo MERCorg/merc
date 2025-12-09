@@ -146,7 +146,7 @@ pub fn write_aut(writer: &mut impl Write, lts: &impl LTS) -> Result<(), MercErro
 
 #[cfg(test)]
 mod tests {
-    use crate::random_lts;
+    use crate::random_lts_monolithic;
 
     use super::*;
 
@@ -212,7 +212,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_random_aut_io() {
         random_test(100, |rng| {
-            let lts = random_lts(rng, 100, 3, 20);
+            let lts = random_lts_monolithic(rng, 100, 3, 20);
 
             let mut buffer: Vec<u8> = Vec::new();
             write_aut(&mut buffer, &lts).unwrap();
