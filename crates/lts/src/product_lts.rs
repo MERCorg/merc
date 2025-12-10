@@ -93,6 +93,11 @@ pub fn product_lts(left: &impl LTS, right: &impl LTS) -> LabelledTransitionSyste
         }
 
         for right_transition in right.outgoing_transitions(right_state) {
+            if synchronised_labels.contains(&right.labels()[*right_transition.label]) {
+                // Already handled in the left transitions loop.
+                continue;
+            }
+
             // (left, right) -[a]-> (left', right) iff left -[a]->right and a is not a synchronous action.
             let (right_index, inserted) = discovered_states.insert((left_state, right_transition.to));
 
