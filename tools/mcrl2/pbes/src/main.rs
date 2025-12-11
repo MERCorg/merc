@@ -3,9 +3,9 @@ use std::process::ExitCode;
 use clap::Parser;
 use clap::Subcommand;
 
+use mcrl2::Pbes;
 use mcrl2::set_reporting_level;
 use mcrl2::verbosity_to_log_level_t;
-use mcrl2::Pbes;
 use merc_tools::VerbosityFlag;
 use merc_tools::Version;
 use merc_tools::VersionFlag;
