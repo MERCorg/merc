@@ -97,7 +97,11 @@ fn main() -> Result<ExitCode, MercError> {
         let algorithm = SymmetryAlgorithm::new(&pbes, false)?;
         if let Some(permutation) = &args.permutation {
             let pi = Permutation::from_input(permutation)?;
-            algorithm.check_symmetry(&pi)?;
+            if algorithm.check_symmetry(&pi) {
+                println!("true");
+            } else {
+                println!("false");
+            }
         } else {
             algorithm.find_symmetries();
         }
