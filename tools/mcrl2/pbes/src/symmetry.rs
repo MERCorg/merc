@@ -103,7 +103,7 @@ impl SymmetryAlgorithm {
         );
 
         for clique in &cliques {
-            let (number_of_permutations, candidates) = self.clique_candidates(&mut progress, clique.clone());
+            let (number_of_permutations, candidates) = self.clique_candidates(clique.clone());
             info!(
                 "Maximum number of permutations for clique {:?}: {}",
                 clique,
@@ -202,7 +202,6 @@ impl SymmetryAlgorithm {
     /// Computes the set of candidates we can derive from a single clique
     fn clique_candidates(
         &self,
-        progress: &mut TimeProgress<usize>,
         I: Vec<usize>,
     ) -> (usize, Box<dyn CloneIterator<Item = (Permutation, Permutation)> + '_>) {
         // Determine the parameter indices involved in the clique
