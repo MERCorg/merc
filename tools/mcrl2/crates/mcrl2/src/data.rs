@@ -10,9 +10,9 @@ use mcrl2_sys::data::ffi::mcrl2_variable_name;
 use mcrl2_sys::data::ffi::mcrl2_variable_sort;
 
 #[cfg(feature = "mcrl2_jittyc")]
-use mcrl2_sys::data::ffi::mcrl2_create_rewriter_jittyc;
-#[cfg(feature = "mcrl2_jittyc")]
 use mcrl2_sys::data::ffi::RewriterCompilingJitty;
+#[cfg(feature = "mcrl2_jittyc")]
+use mcrl2_sys::data::ffi::mcrl2_create_rewriter_jittyc;
 
 use crate::Aterm;
 use crate::AtermString;
@@ -24,7 +24,6 @@ pub struct DataVariable {
 }
 
 impl DataVariable {
-
     /// Returns the name of the variable.
     pub fn name(&self) -> AtermString {
         AtermString::new(Aterm::new(mcrl2_variable_name(self.term.get())))
@@ -62,9 +61,7 @@ pub struct DataSort {
 impl DataSort {
     /// Creates a new data::sort from the given term.
     pub(crate) fn new(term: Aterm) -> Self {
-        DataSort {
-            term,
-        }
+        DataSort { term }
     }
 }
 
@@ -81,11 +78,20 @@ pub struct DataExpression {
 }
 
 impl DataExpression {
+    /// Returns a reference to the underlying Aterm.
+    pub fn get(&self) -> &Aterm {
+        &self.term
+    }
+
     /// Creates a new data::data_expression from the given term.
     pub(crate) fn new(term: Aterm) -> Self {
-        DataExpression {
-            term,
-        }
+        DataExpression { term }
+    }
+}
+
+impl From<DataVariable> for DataExpression {
+    fn from(var: DataVariable) -> Self {
+        DataExpression::new(var.term)
     }
 }
 
@@ -110,7 +116,6 @@ impl DataSpecification {
         &self.spec
     }
 }
-
 
 /// Represents a mcrl2::data::detail::RewriterJitty from the mCRL2 toolset.
 pub struct Mcrl2RewriterJitty {
