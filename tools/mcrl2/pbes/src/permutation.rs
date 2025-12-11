@@ -15,7 +15,7 @@ pub struct Permutation {
 impl Permutation {
     /// Create a permutation from a given mapping of (domain -> image) pairs. Internally
     /// sorts the mapping by domain for a unique representation. The input must be
-    /// a valid permutation (so a bijection). Furthermore, 
+    /// a valid permutation (so a bijection).
     pub fn from_mapping(mut mapping: Vec<(usize, usize)>) -> Self {
         // Validate lengths and uniqueness in debug builds.
         if cfg!(debug_assertions) {

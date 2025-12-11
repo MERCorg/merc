@@ -10,19 +10,22 @@ use log::info;
 use mcrl2::AtermString;
 use mcrl2::ControlFlowGraph;
 use mcrl2::ControlFlowGraphVertex;
+use mcrl2::DataExpression;
 use mcrl2::DataVariable;
 use mcrl2::Pbes;
 use mcrl2::PbesExpression;
 use mcrl2::PbesStategraph;
 use mcrl2::SrfPbes;
 use mcrl2::StategraphEquation;
+use mcrl2::replace_variables;
+use merc_io::TimeProgress;
 use merc_utilities::LargeFormatter;
 use merc_utilities::MercError;
 
 use crate::clone_iterator::CloneIterator;
+use crate::permutation::Permutation;
 use crate::permutation::permutation_group;
 use crate::permutation::permutation_group_size;
-use crate::permutation::Permutation;
 
 /// Implements symmetry detection for PBESs.
 pub struct SymmetryAlgorithm {
@@ -92,12 +95,15 @@ impl SymmetryAlgorithm {
             Box::new(iter::empty()) as Box<dyn CloneIterator<Item = (Permutation, Permutation)>>;
         let mut number_of_candidates = 1usize;
 
-        // let mut progress = TimeProgress::new(|index: usize| {
-        //     info!("Checked {index} candidates...");
-        // }, 1);
+        let mut progress = TimeProgress::new(
+            |index: usize| {
+                info!("Checked {index} candidates...");
+            },
+            1,
+        );
 
         for clique in &cliques {
-            let (number_of_permutations, candidates) = self.clique_candidates(clique.clone());
+            let (number_of_permutations, candidates) = self.clique_candidates(&mut progress, clique.clone());
             info!(
                 "Maximum number of permutations for clique {:?}: {}",
                 clique,
@@ -138,8 +144,9 @@ impl SymmetryAlgorithm {
                 for other_equation in self.srf.equations() {
                     for other_summand in other_equation.summands() {
                         if equation.variable().name() == other_equation.variable().name()
-                            && apply_permutation(summand.condition(), &self.parameters, &pi) == other_summand.condition()
-                            && apply_permutation(summand.variable(), &self.parameters, &pi) == other_summand.variable()
+                            && apply_permutation(&summand.condition(), &self.parameters, &pi)
+                                == other_summand.condition()
+                            && apply_permutation(&summand.variable(), &self.parameters, &pi) == other_summand.variable()
                         {
                             matched = true;
                             break;
@@ -195,6 +202,7 @@ impl SymmetryAlgorithm {
     /// Computes the set of candidates we can derive from a single clique
     fn clique_candidates(
         &self,
+        progress: &mut TimeProgress<usize>,
         I: Vec<usize>,
     ) -> (usize, Box<dyn CloneIterator<Item = (Permutation, Permutation)> + '_>) {
         // Determine the parameter indices involved in the clique
@@ -437,8 +445,11 @@ impl SymmetryAlgorithm {
             let result = remaining_j.iter().find(|&&j| {
                 let variable_prime = &equation.predicate_variables()[j];
 
-                self.equal_under_permutation(pi, &variable.changed(), &variable_prime.changed()).is_ok()
-                    && self.equal_under_permutation(pi, &variable.used(), &variable_prime.used()).is_ok()
+                self.equal_under_permutation(pi, &variable.changed(), &variable_prime.changed())
+                    .is_ok()
+                    && self
+                        .equal_under_permutation(pi, &variable.used(), &variable_prime.used())
+                        .is_ok()
             });
 
             if let Some(x) = result {
@@ -557,19 +568,21 @@ fn variable_index(cfg: &ControlFlowGraph) -> usize {
     panic!("No variable found in control flow graph.");
 }
 
+/// Applies the given permutation to the given expression.
 fn apply_permutation(expression: &PbesExpression, parameters: &Vec<DataVariable>, pi: &Permutation) -> PbesExpression {
-    let sigma: Vec<(DataVariable, DataVariable)> = (0..parameters.len())
+    let sigma: Vec<(DataExpression, DataExpression)> = (0..parameters.len())
         .map(|i| {
             let var = &parameters[i];
             let permuted_var = &parameters[pi.value(i)];
 
-            (var.clone(), permuted_var.clone())
+            (var.clone().into(), permuted_var.clone().into())
         })
         .collect();
 
-    // let result = replace_variables(expression, sigma);
+    let result = replace_variables(expression, sigma);
 
     // replace_propositional_variables(&result, pi, parameters)
+    result
 }
 
 #[cfg(test)]

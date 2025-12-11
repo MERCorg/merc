@@ -27,6 +27,7 @@ namespace mcrl2::pbes_system
 using srf_equation = detail::pre_srf_equation<false>;
 
 struct vertex_outgoing_edge;
+struct assignment_pair;
 
 // mcrl2::pbes_system::pbes
 
@@ -128,30 +129,30 @@ void mcrl2_local_control_flow_graph_vertices(std::vector<detail::local_control_f
 
 inline
 std::size_t mcrl2_local_control_flow_graph_vertex_index(
-    const detail::local_control_flow_graph_vertex* vertex)
+    const detail::local_control_flow_graph_vertex& vertex)
 {
-  return vertex->index();
+  return vertex.index();
 }
 
 inline
 std::unique_ptr<atermpp::aterm> mcrl2_local_control_flow_graph_vertex_name(
-    const detail::local_control_flow_graph_vertex* vertex)
+    const detail::local_control_flow_graph_vertex& vertex)
 {
-  return std::make_unique<atermpp::aterm>(vertex->name());
+  return std::make_unique<atermpp::aterm>(vertex.name());
 }
 
 inline
 std::unique_ptr<atermpp::aterm> mcrl2_local_control_flow_graph_vertex_value(
-    const detail::local_control_flow_graph_vertex* vertex)
+    const detail::local_control_flow_graph_vertex& vertex)
 {
-  return std::make_unique<atermpp::aterm>(vertex->value());
+  return std::make_unique<atermpp::aterm>(vertex.value());
 }
 
 void mcrl2_local_control_flow_graph_vertex_outgoing_edges(std::vector<vertex_outgoing_edge>& result,
-    const detail::local_control_flow_graph_vertex* vertex);
+    const detail::local_control_flow_graph_vertex& vertex);
 
 void mcrl2_local_control_flow_graph_vertex_incoming_edges(std::vector<vertex_outgoing_edge>& result,
-    const detail::local_control_flow_graph_vertex* vertex);
+    const detail::local_control_flow_graph_vertex& vertex);
 
 
 inline
@@ -188,7 +189,7 @@ std::unique_ptr<srf_pbes> mcrl2_pbes_to_srf_pbes(const pbes& p)
 }
 
 inline
-void mcrl2_unify_parameters(srf_pbes& p, bool ignore_ce_equations, bool reset)
+void mcrl2_srf_pbes_unify_parameters(srf_pbes& p, bool ignore_ce_equations, bool reset)
 {
   unify_parameters(p, ignore_ce_equations, reset);
 }
@@ -247,9 +248,9 @@ void mcrl2_srf_pbes_equations(std::vector<srf_equation>& result, const srf_pbes&
 }
 
 inline
-std::unique_ptr<atermpp::aterm> mcrl2_srf_pbes_equation_variable(const srf_equation* equation)
+std::unique_ptr<atermpp::aterm> mcrl2_srf_pbes_equation_variable(const srf_equation& equation)
 {
-  return std::make_unique<atermpp::aterm>(equation->variable());
+  return std::make_unique<atermpp::aterm>(equation.variable());
 }
 
 // mcrl2::pbes_system::propositional_variable
@@ -282,5 +283,28 @@ rust::String mcrl2_propositional_variable_to_string(const atermpp::aterm& variab
   ss << atermpp::down_cast<propositional_variable>(variable);
   return ss.str();
 }
+
+inline
+void mcrl2_srf_equations_summands(std::vector<srf_summand>& result, const srf_equation& equation)
+{
+  for (const auto& summand : equation.summands())
+  {
+    result.push_back(summand);
+  }
+}
+
+inline
+std::unique_ptr<atermpp::aterm> mcrl2_srf_summand_variable(const srf_summand& summand)
+{
+  return std::make_unique<atermpp::aterm>(summand.variable());
+}
+
+inline
+std::unique_ptr<atermpp::aterm> mcrl2_srf_summand_condition(const srf_summand& summand)
+{
+  return std::make_unique<atermpp::aterm>(summand.condition());
+}
+
+std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_variables(const atermpp::aterm& expr, const rust::Vec<assignment_pair>& sigma);
 
 } // namespace mcrl2::pbes_system
