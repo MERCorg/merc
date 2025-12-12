@@ -138,7 +138,7 @@ pub struct Mcrl2RewriterJittyCompiling {
 
 #[cfg(feature = "mcrl2_jittyc")]
 impl Mcrl2RewriterJittyCompiling {
-    /// Creates a new Jitty rewriter from the given data specification.
+    /// Creates a new compiling Jitty rewriter from the given data specification.
     pub fn new(data_spec: &DataSpecification) -> Self {
         let rewriter = mcrl2_create_rewriter_jittyc(data_spec.get());
         Self { rewriter }

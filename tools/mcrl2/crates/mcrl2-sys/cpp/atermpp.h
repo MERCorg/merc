@@ -9,10 +9,14 @@
 #include "rust/cxx.h"
 
 #include <cstddef>
+#include <stack>
 #include <memory>
 
 namespace atermpp
 {
+
+// Type definition
+using term_mark_stack = std::stack<std::reference_wrapper<detail::_aterm>>;
 
 // atermpp::aterm_list
 

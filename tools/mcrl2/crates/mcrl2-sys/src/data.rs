@@ -36,5 +36,12 @@ pub mod ffi {
         /// Creates a compiling rewriter from the given data specification.
         #[cfg(feature = "mcrl2_jittyc")]
         fn mcrl2_create_rewriter_jittyc(data_spec: &data_specification) -> UniquePtr<RewriterCompilingJitty>;
+
+        // Recognizers for the various variants of data expressions.
+        fn mcrl2_data_expression_is_variable(input: &aterm) -> bool;
+
+        fn mcrl2_data_expression_is_application(input: &aterm) -> bool;
+
+        fn mcrl2_data_expression_is_abstraction(input: &aterm) -> bool;
     }
 }

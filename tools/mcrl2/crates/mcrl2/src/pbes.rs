@@ -14,6 +14,7 @@ use mcrl2_sys::pbes::ffi::mcrl2_local_control_flow_graph_vertex_outgoing_edges;
 use mcrl2_sys::pbes::ffi::mcrl2_local_control_flow_graph_vertex_value;
 use mcrl2_sys::pbes::ffi::mcrl2_local_control_flow_graph_vertices;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_data_specification;
+use mcrl2_sys::pbes::ffi::mcrl2_pbes_expression_replace_propositional_variables;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_expression_replace_variables;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_to_srf_pbes;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_to_string;
@@ -346,7 +347,7 @@ pub struct SrfEquation {
     equation: *const srf_equation,
 
     summands: Vec<SrfSummand>,
-    summands_ffi: UniquePtr<CxxVector<srf_summand>>,
+    _summands_ffi: UniquePtr<CxxVector<srf_summand>>,
 }
 
 impl SrfEquation {
@@ -368,11 +369,11 @@ impl SrfEquation {
         mcrl2_srf_equations_summands(summands_ffi.pin_mut(), unsafe {
             equation.as_ref().expect("Pointer should be valid")
         });
-        let summands = summands_ffi.iter().map(|s| SrfSummand { summand: s }).collect();
+        let summands = summands_ffi.iter().map(|s| SrfSummand::new(s)).collect();
 
         SrfEquation {
             equation,
-            summands_ffi,
+            _summands_ffi: summands_ffi,
             summands,
         }
     }
@@ -459,5 +460,13 @@ pub fn replace_variables(expr: &PbesExpression, sigma: Vec<(DataExpression, Data
     PbesExpression::new(Aterm::new(mcrl2_pbes_expression_replace_variables(
         expr.term.get(),
         &sigma,
+    )))
+}
+
+/// Replaces propositional variables in the given PBES expression according to the given substitution sigma.
+pub fn replace_propositional_variables(expr: &PbesExpression, pi: &Vec<usize>) -> PbesExpression {
+    PbesExpression::new(Aterm::new(mcrl2_pbes_expression_replace_propositional_variables(
+        expr.term.get(),
+        pi,
     )))
 }

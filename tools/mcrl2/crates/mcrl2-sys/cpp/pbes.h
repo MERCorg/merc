@@ -307,4 +307,6 @@ std::unique_ptr<atermpp::aterm> mcrl2_srf_summand_condition(const srf_summand& s
 
 std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_variables(const atermpp::aterm& expr, const rust::Vec<assignment_pair>& sigma);
 
+std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_propositional_variables(const atermpp::aterm& expr, const rust::Vec<std::size_t>& pi);
+
 } // namespace mcrl2::pbes_system

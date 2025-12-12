@@ -146,10 +146,16 @@ pub mod ffi {
 
         fn mcrl2_srf_summand_variable(summand: &srf_summand) -> UniquePtr<aterm>;
 
-        /// Replace variables in an expression according to the given substitutions.
+        /// Replace data variables in a pbes expression according to the given substitutions.
         fn mcrl2_pbes_expression_replace_variables(
             expression: &aterm,
             substitutions: &Vec<assignment_pair>,
+        ) -> UniquePtr<aterm>;
+        
+        /// Replace propositional variables in a pbes expression according to the given substitutions.
+        fn mcrl2_pbes_expression_replace_propositional_variables(
+            expression: &aterm,
+            pi: &Vec<usize>,
         ) -> UniquePtr<aterm>;
     }
 }
