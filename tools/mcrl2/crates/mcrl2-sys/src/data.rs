@@ -39,9 +39,12 @@ pub mod ffi {
 
         // Recognizers for the various variants of data expressions.
         fn mcrl2_data_expression_is_variable(input: &aterm) -> bool;
-
         fn mcrl2_data_expression_is_application(input: &aterm) -> bool;
-
         fn mcrl2_data_expression_is_abstraction(input: &aterm) -> bool;
+        fn mcrl2_data_expression_is_function_symbol(input: &aterm) -> bool;
+        fn mcrl2_data_expression_is_where_clause(input: &aterm) -> bool;
+        fn mcrl2_data_expression_is_machine_number(input: &aterm) -> bool;
+        fn mcrl2_data_expression_is_untyped_identifier(input: &aterm) -> bool;
+        fn mcrl2_data_expression_is_data_expression(input: &aterm) -> bool;
     }
 }

@@ -97,4 +97,29 @@ bool mcrl2_data_expression_is_abstraction(const atermpp::aterm& input)
   return data::is_abstraction(input);
 }
 
+bool mcrl2_data_expression_is_function_symbol(const atermpp::aterm& input)
+{
+  return data::is_function_symbol(input);
+}
+
+bool mcrl2_data_expression_is_where_clause(const atermpp::aterm& input)
+{
+  return data::is_where_clause(input);
+}
+
+bool mcrl2_data_expression_is_machine_number(const atermpp::aterm& input)
+{
+  return data::is_machine_number(input);
+}
+
+bool mcrl2_data_expression_is_untyped_identifier(const atermpp::aterm& input)
+{
+  return data::is_untyped_identifier(input);
+}
+
+bool mcrl2_data_expression_is_data_expression(const atermpp::aterm& input)
+{
+  return data::is_data_expression(input);
+}
+
 } // namespace mcrl2::data
