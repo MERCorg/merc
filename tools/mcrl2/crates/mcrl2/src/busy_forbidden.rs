@@ -10,8 +10,15 @@ use mcrl2_sys::atermpp::ffi::mcrl2_unlock_shared;
 
 /// Provides access to the mCRL2 busy forbidden protocol, where there
 /// are thread local busy flags and one central storage for the forbidden
-/// flags. Care must be taken to avoid deadlocks since the FFI also uses
-/// the same flags.
+/// flags.
+///
+/// # Deadlock Warning
+///
+/// Care must be taken to avoid deadlocks since the FFI also uses the same flags.
+/// In particular, **do not call FFI functions that may acquire busy/forbidden flags
+/// while holding a lock (read or write) on a `BfTermPool`**. This can result in a
+/// deadlock if the FFI function attempts to acquire a lock that is already held by
+/// the current thread.
 pub struct BfTermPool<T: ?Sized> {
     object: UnsafeCell<T>,
 }

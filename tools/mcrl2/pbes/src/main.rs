@@ -57,7 +57,7 @@ struct SymmetryArgs {
     #[arg(long, short('i'), value_enum)]
     format: Option<PbesFormat>,
 
-    /// Pass a single permutation to check for symmetry
+    /// Pass a single permutation in cycles notation to check for begin a (syntactic) symmetry
     permutation: Option<String>,
 
     #[arg(
@@ -103,7 +103,7 @@ fn main() -> Result<ExitCode, MercError> {
                 println!("false");
             }
         } else {
-            algorithm.find_symmetries();
+            algorithm.find_symmetries(args.partition_data_sorts);
         }
     }
 

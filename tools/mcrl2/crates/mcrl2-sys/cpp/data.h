@@ -2,15 +2,18 @@
 
 #pragma once
 
-#include "mcrl2/atermpp/aterm_string.h"
 #include "mcrl2/atermpp/aterm.h"
+#include "mcrl2/atermpp/aterm_string.h"
 #include "mcrl2/data/data_expression.h"
 #include "mcrl2/data/data_specification.h"
 #include "mcrl2/data/detail/rewrite/jitty.h"
-#include "mcrl2/data/detail/rewrite/jittyc.h"
 #include "mcrl2/data/parse.h"
 #include "mcrl2/data/sort_expression.h"
 #include "mcrl2/data/variable.h"
+
+#ifdef MCRL2_ENABLE_JITTYC
+#include "mcrl2/data/detail/rewrite/jittyc.h"
+#endif // MCRL2_ENABLE_JITTYC
 
 #include "mcrl2-sys/cpp/assert.h"
 
