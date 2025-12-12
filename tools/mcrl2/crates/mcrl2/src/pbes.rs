@@ -447,7 +447,7 @@ impl fmt::Debug for PropositionalVariable {
 }
 
 /// mcrl2::pbes_system::pbes_expression
-#[derive(PartialEq, Eq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct PbesExpression {
     term: Aterm,
 }
