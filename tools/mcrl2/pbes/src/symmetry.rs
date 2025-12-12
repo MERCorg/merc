@@ -17,6 +17,7 @@ use mcrl2::PbesExpression;
 use mcrl2::PbesStategraph;
 use mcrl2::SrfPbes;
 use mcrl2::StategraphEquation;
+use mcrl2::replace_propositional_variables;
 use mcrl2::replace_variables;
 use merc_io::TimeProgress;
 use merc_utilities::LargeFormatter;
@@ -95,7 +96,7 @@ impl SymmetryAlgorithm {
             Box::new(iter::empty()) as Box<dyn CloneIterator<Item = (Permutation, Permutation)>>;
         let mut number_of_candidates = 1usize;
 
-        let mut progress = TimeProgress::new(
+        let _progress = TimeProgress::new(
             |index: usize| {
                 info!("Checked {index} candidates...");
             },
@@ -580,8 +581,11 @@ fn apply_permutation(expression: &PbesExpression, parameters: &Vec<DataVariable>
 
     let result = replace_variables(expression, sigma);
 
-    // replace_propositional_variables(&result, pi, parameters)
-    result
+    let pi = (0..parameters.len())
+        .map(|i| pi.value(i))
+        .collect::<Vec<usize>>();
+
+    replace_propositional_variables(&result, &pi)
 }
 
 #[cfg(test)]

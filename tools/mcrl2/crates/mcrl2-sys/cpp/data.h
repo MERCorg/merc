@@ -82,4 +82,19 @@ std::unique_ptr<detail::RewriterCompilingJitty> mcrl2_create_rewriter_jittyc(con
 
 #endif
 
+bool mcrl2_data_expression_is_variable(const atermpp::aterm& input)
+{
+  return data::is_variable(input);
+}
+
+bool mcrl2_data_expression_is_application(const atermpp::aterm& input)
+{
+  return data::is_application(input);
+}
+
+bool mcrl2_data_expression_is_abstraction(const atermpp::aterm& input)
+{
+  return data::is_abstraction(input);
+}
+
 } // namespace mcrl2::data

@@ -6,6 +6,12 @@ pub mod ffi {
 
         type aterm;
 
+        #[namespace = "atermpp::detail"]
+        type _aterm;
+
+        #[namespace = "atermpp"]
+        type term_mark_stack;
+
         /// Returns the `index` argument of the term.
         fn mcrl2_aterm_argument(input: &aterm, index: usize) -> UniquePtr<aterm>;
 

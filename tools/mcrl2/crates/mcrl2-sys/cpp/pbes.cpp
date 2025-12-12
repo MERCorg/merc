@@ -42,13 +42,28 @@ std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_variables(const at
   MCRL2_ASSERT(is_pbes_expression(expr));
 
   data::mutable_map_substitution<> tmp;
-  // for (const auto& assign : sigma) 
-  // {
-  //     tmp[atermpp::assign_cast<data::variable>(*(assign.lhs))] = atermpp::down_cast<data::data_expression>(*(assign.rhs));
-  // }
+  for (const auto& assign : sigma) 
+  {
+      tmp[atermpp::down_cast<data::variable>(*(assign.lhs))] = atermpp::down_cast<data::data_expression>(*(assign.rhs));
+  }
 
-  // return std::make_unique<atermpp::aterm>(pbes_system::replace_variables(atermpp::assign_cast<pbes_expression>(expr), tmp));
-  return std::nullptr_t{};
+  return std::make_unique<atermpp::aterm>(pbes_system::replace_variables(atermpp::down_cast<pbes_expression>(expr), tmp));
+}
+
+std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_propositional_variables(const atermpp::aterm& expr, const rust::Vec<std::size_t>& pi) 
+{    
+  MCRL2_ASSERT(is_pbes_expression(expr));
+
+  pbes_expression result;
+  pbes_system::replace_propositional_variables(result, atermpp::down_cast<pbes_expression>(expr), [pi](const propositional_variable_instantiation& v) -> pbes_expression {
+    std::vector<data::data_expression> new_parameters(v.parameters().size());
+    for (std::size_t i = 0; i < v.parameters().size(); ++i)
+    {
+      new_parameters[pi[i]] = data::data_expression(*std::next(v.parameters().begin(), i));
+    }
+    return propositional_variable_instantiation(v.name(), data::data_expression_list(new_parameters));
+  });
+  return std::make_unique<atermpp::aterm>(result);
 }
 
 }
