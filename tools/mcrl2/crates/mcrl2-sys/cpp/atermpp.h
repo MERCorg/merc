@@ -11,9 +11,24 @@
 #include <cstddef>
 #include <stack>
 #include <memory>
+#include <new>
 
 namespace atermpp
 {
+  
+// Leaks the inner type because unions are not destructed automatically.
+template<typename T>
+class Forget
+{
+public:
+  union { T m_val; char dummy; };
+  template<typename... Args>
+  explicit Forget(Args&&... inputArgs)
+  {
+    new(&m_val) T(std::forward<Args>(inputArgs)...);
+  }
+  ~Forget() { }
+};
 
 // Type definition
 using term_mark_stack = std::stack<std::reference_wrapper<detail::_aterm>>;
@@ -74,6 +89,29 @@ rust::String mcrl2_aterm_string_to_string(const aterm& term)
     std::stringstream ss;
     ss << down_cast<aterm_string>(term);
     return ss.str();
+}
+
+inline
+void mcrl2_lock_shared() 
+{
+  // Forget(std::move(detail::g_thread_term_pool().shared_mutex().lock_shared()));
+}
+
+bool mcrl2_unlock_shared() 
+{
+  // detail::g_thread_term_pool().shared_mutex().unlock_shared();
+  return !detail::g_thread_term_pool().is_shared_locked();
+}
+
+inline
+void mcrl2_lock_exclusive() 
+{
+  // Forget(std::move(detail::g_thread_term_pool().shared_mutex().lock()));
+}
+
+void mcrl2_unlock_exclusive() 
+{
+  // detail::g_thread_term_pool().shared_mutex().unlock();
 }
 
 } // namespace atermpp

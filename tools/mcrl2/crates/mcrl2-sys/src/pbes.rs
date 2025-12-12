@@ -157,5 +157,7 @@ pub mod ffi {
             expression: &aterm,
             pi: &Vec<usize>,
         ) -> UniquePtr<aterm>;
+
+        fn mcrl2_pbes_expression_to_string(expression: &aterm) -> String;
     }
 }
