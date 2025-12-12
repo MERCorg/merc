@@ -16,6 +16,7 @@ use mcrl2_sys::pbes::ffi::mcrl2_local_control_flow_graph_vertices;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_data_specification;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_expression_replace_propositional_variables;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_expression_replace_variables;
+use mcrl2_sys::pbes::ffi::mcrl2_pbes_expression_to_string;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_to_srf_pbes;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_to_string;
 use mcrl2_sys::pbes::ffi::mcrl2_propositional_variable_name;
@@ -405,6 +406,17 @@ impl SrfSummand {
     }
 }
 
+impl fmt::Debug for SrfSummand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Summand(condition: {:?}, variable: {:?})",
+            self.condition(),
+            self.variable()
+        )
+    }
+}
+
 /// mcrl2::pbes_system::propositional_variable
 pub struct PropositionalVariable {
     term: Aterm,
@@ -444,6 +456,12 @@ impl PbesExpression {
     /// Creates a new [PbesExpression] from the given term.
     pub(crate) fn new(term: Aterm) -> Self {
         PbesExpression { term }
+    }
+}
+
+impl fmt::Debug for PbesExpression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", mcrl2_pbes_expression_to_string(&self.term.get()))
     }
 }
 
