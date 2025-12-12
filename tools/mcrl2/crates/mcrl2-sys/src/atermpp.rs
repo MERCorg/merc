@@ -32,5 +32,15 @@ pub mod ffi {
         fn mcrl2_aterm_list_tail(input: &aterm) -> UniquePtr<aterm>;
 
         fn mcrl2_aterm_list_is_empty(input: &aterm) -> bool;
+
+        /// Locks and unlocks the global aterm pool for shared access.
+        fn mcrl2_lock_shared();
+
+        /// Returns true iff the unlock was successful, otherwise the recursive count was non-zero.
+        fn mcrl2_unlock_shared() -> bool;
+        
+        /// Locks and unlocks the global aterm pool for exclusive access.
+        fn mcrl2_lock_exclusive();
+        fn mcrl2_unlock_exclusive();
     }
 }
