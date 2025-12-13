@@ -114,4 +114,16 @@ void mcrl2_unlock_exclusive()
   // detail::g_thread_term_pool().shared_mutex().unlock();
 }
 
+inline
+rust::Str mcrl2_function_symbol_name(const detail::_function_symbol* symbol)
+{
+  return symbol->name();
+}
+
+inline
+std::size_t mcrl2_function_symbol_arity(const detail::_function_symbol* symbol)
+{
+  return symbol->arity();
+}
+
 } // namespace atermpp

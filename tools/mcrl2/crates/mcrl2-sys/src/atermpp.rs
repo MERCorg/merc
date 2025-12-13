@@ -6,11 +6,15 @@ pub mod ffi {
 
         type aterm;
 
+        type term_mark_stack;
+
         #[namespace = "atermpp::detail"]
         type _aterm;
 
-        #[namespace = "atermpp"]
-        type term_mark_stack;
+        type function_symbol;
+
+        #[namespace = "atermpp::detail"]
+        type _function_symbol;
 
         /// Returns the `index` argument of the term.
         fn mcrl2_aterm_argument(input: &aterm, index: usize) -> UniquePtr<aterm>;
@@ -42,5 +46,17 @@ pub mod ffi {
         /// Locks and unlocks the global aterm pool for exclusive access.
         fn mcrl2_lock_exclusive();
         fn mcrl2_unlock_exclusive();
+        
+        /// Returns the function symbol name
+        unsafe fn mcrl2_function_symbol_name<'a>(symbol: *const _function_symbol) -> &'a str;
+
+        /// Returns the function symbol arity
+        unsafe fn mcrl2_function_symbol_arity(symbol: *const _function_symbol) -> usize;
+
+        /// Protects the given function symbol by incrementing the reference counter.
+        unsafe fn mcrl2_protect_function_symbol(symbol: *const _function_symbol);
+
+        /// Decreases the reference counter of the function symbol by one.
+        unsafe fn mcrl2_drop_function_symbol(symbol: *const _function_symbol);
     }
 }
