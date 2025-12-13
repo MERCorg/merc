@@ -63,5 +63,8 @@ pub mod ffi {
 
         /// Decreases the reference counter of the function symbol by one.
         unsafe fn mcrl2_drop_function_symbol(symbol: *const _function_symbol);
+        
+        /// Marks the aterm to prevent garbage collection.
+        unsafe fn mcrl2_aterm_mark_address(term: *const _aterm, todo: Pin<&mut term_mark_stack>);
     }
 }
