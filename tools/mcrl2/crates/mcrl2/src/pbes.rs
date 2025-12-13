@@ -467,8 +467,9 @@ impl fmt::Debug for PbesExpression {
 
 /// Replace variables in the given PBES expression according to the given substitution sigma.
 pub fn replace_variables(expr: &PbesExpression, sigma: Vec<(DataExpression, DataExpression)>) -> PbesExpression {
+    // Do not into_iter here, as we need to keep sigma alive for the call.
     let sigma: Vec<assignment_pair> = sigma
-        .into_iter()
+        .iter()
         .map(|(lhs, rhs)| assignment_pair {
             lhs: lhs.get().get(),
             rhs: rhs.get().get(),
