@@ -65,7 +65,7 @@ pub mod ffi {
         );
 
         /// Returns the propositional variable of a pbes equation
-        fn mcrl2_stategraph_equation_variable(equation: &stategraph_equation) -> UniquePtr<aterm>;
+        fn mcrl2_stategraph_equation_variable(equation: &stategraph_equation) -> *const _aterm;
 
         /// Returns the used set of a predicate variable.
         fn mcrl2_predicate_variable_used(input: &predicate_variable) -> Vec<usize>;
@@ -82,14 +82,17 @@ pub mod ffi {
             input: &local_control_flow_graph,
         );
 
+        #[namespace = "atermpp::detail"]
+        type _aterm = crate::atermpp::ffi::_aterm;
+
         /// Obtain the index of the variable associated with the vertex.
         fn mcrl2_local_control_flow_graph_vertex_index(vertex: &local_control_flow_graph_vertex) -> usize;
 
         /// Obtain the name of the variable associated with the vertex.
-        fn mcrl2_local_control_flow_graph_vertex_name(vertex: &local_control_flow_graph_vertex) -> UniquePtr<aterm>;
+        fn mcrl2_local_control_flow_graph_vertex_name(vertex: &local_control_flow_graph_vertex) -> *const _aterm;
 
         /// Obtain the value of the variable associated with the vertex.
-        fn mcrl2_local_control_flow_graph_vertex_value(vertex: &local_control_flow_graph_vertex) -> UniquePtr<aterm>;
+        fn mcrl2_local_control_flow_graph_vertex_value(vertex: &local_control_flow_graph_vertex) -> *const _aterm;
 
         /// Obtain the outgoing edges of the vertex.
         fn mcrl2_local_control_flow_graph_vertex_outgoing_edges(
@@ -131,20 +134,11 @@ pub mod ffi {
         fn mcrl2_srf_pbes_equations(result: Pin<&mut CxxVector<srf_equation>>, input: &srf_pbes);
 
         /// Returns the variable of the given srf_equation.
-        fn mcrl2_srf_pbes_equation_variable(input: &srf_equation) -> UniquePtr<aterm>;
+        fn mcrl2_pbes_is_propositional_variable(input: &aterm) -> bool;
 
-        fn mcrl2_propositional_variable_name(input: &aterm) -> UniquePtr<aterm>;
+        fn mcrl2_srf_summand_condition(summand: &srf_summand) -> *const _aterm;
 
-        /// Returns an aterm_list<variable>
-        fn mcrl2_propositional_variable_parameters(input: &aterm) -> UniquePtr<aterm>;
-
-        fn mcrl2_propositional_variable_to_string(input: &aterm) -> String;
-
-        fn mcrl2_propositional_variable_is(input: &aterm) -> bool;
-
-        fn mcrl2_srf_summand_condition(summand: &srf_summand) -> UniquePtr<aterm>;
-
-        fn mcrl2_srf_summand_variable(summand: &srf_summand) -> UniquePtr<aterm>;
+        fn mcrl2_srf_summand_variable(summand: &srf_summand) -> *const _aterm;
 
         /// Replace data variables in a pbes expression according to the given substitutions.
         fn mcrl2_pbes_expression_replace_variables(

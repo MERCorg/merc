@@ -5,13 +5,16 @@ pub mod ffi {
         include!("mcrl2-sys/cpp/exception.h");
 
         type aterm;
-        type term_mark_stack;
         type function_symbol;
+        type term_mark_stack;
+        type tls_callback_container;
 
         #[namespace = "atermpp::detail"]
         type _aterm;
         #[namespace = "atermpp::detail"]
         type _function_symbol;
+        
+        // Functions for managing the aterm pool
         
         /// Enable automated garbage collection.
         ///
@@ -19,52 +22,105 @@ pub mod ffi {
         /// This will deadlock when any Rust terms are created due to the
         /// interaction with the busy flags. Instead, call collect_garbage
         /// periodically to trigger garbage collection when needed.
-        fn enable_automatic_garbage_collection(enabled: bool);
+        fn mcrl2_aterm_pool_enable_automatic_garbage_collection(enabled: bool);
+        
+        /// Returns the number of terms in the pool.
+        fn mcrl2_aterm_pool_size() -> usize;
 
-        /// Returns the `index` argument of the term.
-        fn mcrl2_aterm_argument(input: &aterm, index: usize) -> UniquePtr<aterm>;
+        /// Returns the capacity of the pool, for terms of all arities so this is slightly misleading.
+        fn mcrl2_aterm_pool_capacity() -> usize;
 
-        /// Clones the given aterm.
-        fn mcrl2_aterm_clone(input: &aterm) -> UniquePtr<aterm>;
+        /// Trigger garbage collection.
+        fn mcrl2_aterm_pool_collect_garbage();
 
-        /// Compares two aterms for equality.
-        fn mcrl2_aterm_are_equal(left: &aterm, right: &aterm) -> bool;
-
-        /// Converts the given aterm to a string.
-        fn mcrl2_aterm_to_string(input: &aterm) -> String;
-
-        fn mcrl2_aterm_string_to_string(input: &aterm) -> String;
-
-        /// Returns the size of the aterm list.
-        fn mcrl2_aterm_list_front(input: &aterm) -> UniquePtr<aterm>;
-
-        fn mcrl2_aterm_list_tail(input: &aterm) -> UniquePtr<aterm>;
-
-        fn mcrl2_aterm_list_is_empty(input: &aterm) -> bool;
+        /// Triggers a garbage collection when internal heuristics have determined it to be necessasry.
+        fn mcrl2_aterm_pool_test_garbage_collection();
 
         /// Locks and unlocks the global aterm pool for shared access.
-        fn mcrl2_lock_shared();
+        fn mcrl2_aterm_pool_lock_shared();
 
         /// Returns true iff the unlock was successful, otherwise the recursive count was non-zero.
-        fn mcrl2_unlock_shared() -> bool;
+        fn mcrl2_aterm_pool_unlock_shared() -> bool;
 
-        /// Locks and unlocks the global aterm pool for exclusive access.
-        fn mcrl2_lock_exclusive();
-        fn mcrl2_unlock_exclusive();
+        /// Locks the global aterm pool for exclusive access.
+        fn mcrl2_aterm_pool_lock_exclusive();
+
+        /// Unlocks exclusive access to the global aterm pool.
+        fn mcrl2_aterm_pool_unlock_exclusive();
         
-        /// Returns the function symbol name
-        unsafe fn mcrl2_function_symbol_name<'a>(symbol: *const _function_symbol) -> &'a str;
+        /// Register a function to be called during marking of the garbage
+        /// collection
+        /// 
+        /// Note that the resulting pointer can never be destroyed since the
+        /// order of destruction for thread-local storage is not guaranteed.
+        fn mcrl2_aterm_pool_register_mark_callback(
+            callback_mark: fn(Pin<&mut term_mark_stack>) -> (),
+            callback_size: fn() -> usize,
+        ) -> UniquePtr<tls_callback_container>;
 
-        /// Returns the function symbol arity
-        unsafe fn mcrl2_function_symbol_arity(symbol: *const _function_symbol) -> usize;
+        /// Prints various metrics that are being tracked for terms.
+        fn mcrl2_aterm_pool_print_metrics();
 
-        /// Protects the given function symbol by incrementing the reference counter.
-        unsafe fn mcrl2_protect_function_symbol(symbol: *const _function_symbol);
+        // Functions for managing aterms
 
-        /// Decreases the reference counter of the function symbol by one.
-        unsafe fn mcrl2_drop_function_symbol(symbol: *const _function_symbol);
-        
+        /// Creates a term from the given function and arguments, must be
+        /// protected before the busy flags are set to false.
+        ///
+        /// # Safety
+        /// The function symbol and arguments will not be modified unless
+        /// garbage collection marks the terms, which is done atomically.
+        unsafe fn mcrl2_aterm_create(function: *const _function_symbol, arguments: &[*const _aterm]) -> *const _aterm;
+
+        /// Parses the given string and returns an aterm
+        fn mcrl2_aterm_from_string(text: String) -> Result<UniquePtr<aterm>>;
+
+        /// Returns the pointer underlying the given term.
+        unsafe fn mcrl2_aterm_get_address(term: &aterm) -> *const _aterm;
+
         /// Marks the aterm to prevent garbage collection.
         unsafe fn mcrl2_aterm_mark_address(term: *const _aterm, todo: Pin<&mut term_mark_stack>);
+
+        /// Returns true iff the term is an aterm_list.
+        unsafe fn mcrl2_aterm_is_list(term: *const _aterm) -> bool;
+
+        /// Returns true iff the term is the empty aterm_list.
+        unsafe fn mcrl2_aterm_is_empty_list(term: *const _aterm) -> bool;
+
+        /// Returns true iff the term is an aterm_int.
+        unsafe fn mcrl2_aterm_is_int(term: *const _aterm) -> bool;
+
+        /// Converts an aterm to a string.
+        unsafe fn mcrl2_aterm_print(term: *const _aterm) -> String;
+        
+        /// Returns the ith argument of this term.
+        unsafe fn mcrl2_aterm_get_argument(term: *const _aterm, index: usize) -> *const _aterm;
+
+        /// Returns the function symbol of an aterm.
+        unsafe fn mcrl2_aterm_get_function_symbol(term: *const _aterm) -> *const _function_symbol;
+
+        // Functions for managing function symbols
+
+        /// Creates a function symbol with the given name and arity, increases the reference counter by one.
+        fn mcrl2_function_symbol_create(name: String, arity: usize) -> *const _function_symbol;
+
+        /// Protects the given function symbol by incrementing the reference counter.
+        unsafe fn mcrl2_function_symbol_protect(symbol: *const _function_symbol);
+
+        /// Decreases the reference counter of the function symbol by one.
+        unsafe fn mcrl2_function_symbol_drop(symbol: *const _function_symbol);
+
+        /// Returns the function symbol name
+        unsafe fn mcrl2_function_symbol_get_name<'a>(symbol: *const _function_symbol) -> &'a str;
+
+        /// Returns the function symbol arity
+        unsafe fn mcrl2_function_symbol_get_arity(symbol: *const _function_symbol) -> usize;
+
+        /// Obtain the address of the given function symbol.
+        unsafe fn mcrl2_function_symbol_get_address(symbol: &function_symbol) -> *const _function_symbol;
+        
+        // These functions are used to test whether the definitions used in the mCRL2 toolset are the same
+        // as our FFI. It is inconvenient to have accessor function for all terms, i.e., head and tail for
+        // lists. So instead we simply obtain the arg(0) and arg(1) directly in Rust. However, to ensure that
+        // our assumptions are correct, we provide these functions to compare the results.
     }
 }

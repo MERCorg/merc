@@ -4,20 +4,6 @@ pub mod ffi {
         include!("mcrl2-sys/cpp/data.h");
         include!("mcrl2-sys/cpp/exception.h");
 
-        /// Returns the variable in string form.
-        fn mcrl2_variable_to_string(input: &aterm) -> String;
-
-        fn mcrl2_variable_name(input: &aterm) -> UniquePtr<aterm>;
-
-        fn mcrl2_variable_sort(input: &aterm) -> UniquePtr<aterm>;
-
-        fn mcrl2_data_expression_to_string(input: &aterm) -> String;
-
-        fn mcrl2_sort_to_string(input: &aterm) -> String;
-
-        #[namespace = "atermpp"]
-        type aterm = crate::atermpp::ffi::aterm;
-
         type data_specification;
 
         /// Creates a data specification from the given string.
@@ -36,6 +22,9 @@ pub mod ffi {
         /// Creates a compiling rewriter from the given data specification.
         #[cfg(feature = "mcrl2_jittyc")]
         fn mcrl2_create_rewriter_jittyc(data_spec: &data_specification) -> UniquePtr<RewriterCompilingJitty>;
+
+        #[namespace = "atermpp"]
+        type aterm = crate::atermpp::ffi::aterm;
 
         // Recognizers for the various variants of data expressions.
         fn mcrl2_data_expression_is_variable(input: &aterm) -> bool;

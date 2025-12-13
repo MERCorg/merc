@@ -21,52 +21,10 @@
 
 namespace mcrl2::data
 {
-
-inline
-rust::String mcrl2_variable_to_string(const atermpp::aterm& variable)
-{
-  MCRL2_ASSERT(data::is_variable(variable));
-    std::stringstream ss;
-    ss << atermpp::down_cast<data::variable>(variable);
-    return ss.str();
-}
-
-inline
-rust::String mcrl2_data_expression_to_string(const atermpp::aterm& variable)
-{
-  MCRL2_ASSERT(data::is_data_expression(variable));
-    std::stringstream ss;
-    ss << atermpp::down_cast<data::data_expression>(variable);
-    return ss.str();
-}
-
-inline
-rust::String mcrl2_sort_to_string(const atermpp::aterm& variable)
-{
-  MCRL2_ASSERT(data::is_sort_expression(variable));
-    std::stringstream ss;
-    ss << atermpp::down_cast<data::sort_expression>(variable);
-    return ss.str();
-}
-
 inline
 std::unique_ptr<data_specification> mcrl2_data_specification_from_string(rust::Str input)
 {
   return std::make_unique<data_specification>(parse_data_specification(std::string(input)));
-}
-
-inline
-std::unique_ptr<atermpp::aterm> mcrl2_variable_sort(const atermpp::aterm& variable)
-{
-  MCRL2_ASSERT(data::is_variable(variable));
-  return std::make_unique<atermpp::aterm>(atermpp::down_cast<data::variable>(variable).sort());
-}
-
-inline
-std::unique_ptr<atermpp::aterm> mcrl2_variable_name(const atermpp::aterm& variable)
-{
-  MCRL2_ASSERT(data::is_variable(variable));
-  return std::make_unique<atermpp::aterm>(atermpp::down_cast<data::variable>(variable).name());
 }
 
 inline
