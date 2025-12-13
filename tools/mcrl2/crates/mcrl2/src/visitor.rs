@@ -17,11 +17,11 @@ pub trait DataExpressionVisitor {
         DataExpression::from(var.clone())
     }
 
-    fn visit_application(&mut self, app: &DataApplication) -> DataExpression {
+    fn visit_application(&mut self, _app: &DataApplication) -> DataExpression {
         unimplemented!()
     }
 
-    fn visit_abstraction(&mut self, abs: &DataAbstraction) -> DataExpression {
+    fn visit_abstraction(&mut self, _abs: &DataAbstraction) -> DataExpression {
         unimplemented!()
     }
 
@@ -55,7 +55,6 @@ pub trait DataExpressionVisitor {
 pub fn data_expression_replace_variables(expr: &DataExpression, f: &impl Fn(&DataVariable) -> DataExpression) -> DataExpression {
     struct ReplaceVariableBuilder<'a> {
         apply: &'a dyn Fn(&DataVariable) -> DataExpression,
-        result: Option<DataExpression>,
     }
 
     impl<'a> DataExpressionVisitor for ReplaceVariableBuilder<'a> {
@@ -64,6 +63,6 @@ pub fn data_expression_replace_variables(expr: &DataExpression, f: &impl Fn(&Dat
         }
     }
 
-    let mut builder = ReplaceVariableBuilder { apply: f, result: None };
+    let mut builder = ReplaceVariableBuilder { apply: f };
     builder.visit(expr)
 }
