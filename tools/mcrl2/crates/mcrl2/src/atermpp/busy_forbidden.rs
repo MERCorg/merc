@@ -174,12 +174,38 @@ impl<T: ?Sized> Drop for BfTermPoolThreadWrite<'_, T> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use merc_utilities::random_test_threads;
+
+    use crate::BfTermPool;
 
     #[test]
     fn test_random_busy_forbidden_threaded() {
-        random_test_threads(100, 2, || (), |id| {
+        let pool = Arc::new(BfTermPool::new(0u64));
 
-        });
+        random_test_threads(
+            100,
+            2,
+            || pool.clone(),
+            |_id, pool| {
+                // Test read lock
+                {
+                    let guard = pool.read();
+                    let value = *guard;
+                }
+
+                // Test write lock and increment
+                {
+                    let mut guard = pool.write();
+                    *guard += 1;
+                }
+            },
+        );
+
+        // Verify final count
+        let guard = pool.read();
+        let final_value = *guard;
+        assert_eq!(final_value, 200); // 100 iterations * 2 threads
     }
 }
