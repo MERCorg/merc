@@ -144,5 +144,10 @@ void mcrl2_drop_function_symbol(const detail::_function_symbol* symbol)
   symbol->decrement_reference_count();
 }
 
+inline
+void aterm_mark_address(const detail::_aterm* term, term_mark_stack& todo)
+{
+  mark_term(*term, todo);
+}
 
 } // namespace atermpp
