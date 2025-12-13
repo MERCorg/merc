@@ -5,16 +5,21 @@ pub mod ffi {
         include!("mcrl2-sys/cpp/exception.h");
 
         type aterm;
-
         type term_mark_stack;
-
-        #[namespace = "atermpp::detail"]
-        type _aterm;
-
         type function_symbol;
 
         #[namespace = "atermpp::detail"]
+        type _aterm;
+        #[namespace = "atermpp::detail"]
         type _function_symbol;
+        
+        /// Enable automated garbage collection.
+        ///
+        /// # Warning
+        /// This will deadlock when any Rust terms are created due to the
+        /// interaction with the busy flags. Instead, call collect_garbage
+        /// periodically to trigger garbage collection when needed.
+        fn enable_automatic_garbage_collection(enabled: bool);
 
         /// Returns the `index` argument of the term.
         fn mcrl2_aterm_argument(input: &aterm, index: usize) -> UniquePtr<aterm>;

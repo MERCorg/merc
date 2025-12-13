@@ -94,24 +94,30 @@ rust::String mcrl2_aterm_string_to_string(const aterm& term)
 inline
 void mcrl2_lock_shared() 
 {
-  // Forget(std::move(detail::g_thread_term_pool().shared_mutex().lock_shared()));
+  detail::g_thread_term_pool().shared_mutex().lock_shared_impl();
 }
 
 bool mcrl2_unlock_shared() 
 {
-  // detail::g_thread_term_pool().shared_mutex().unlock_shared();
+  detail::g_thread_term_pool().shared_mutex().unlock_shared();
   return !detail::g_thread_term_pool().is_shared_locked();
 }
 
 inline
 void mcrl2_lock_exclusive() 
 {
-  // Forget(std::move(detail::g_thread_term_pool().shared_mutex().lock()));
+  detail::g_thread_term_pool().shared_mutex().lock_impl();
 }
 
 void mcrl2_unlock_exclusive() 
 {
-  // detail::g_thread_term_pool().shared_mutex().unlock();
+  detail::g_thread_term_pool().shared_mutex().unlock();
+}
+
+inline
+void enable_automatic_garbage_collection(bool enabled)
+{
+  detail::g_term_pool().enable_garbage_collection(enabled);
 }
 
 inline
@@ -125,5 +131,18 @@ std::size_t mcrl2_function_symbol_arity(const detail::_function_symbol* symbol)
 {
   return symbol->arity();
 }
+
+inline
+void mcrl2_protect_function_symbol(const detail::_function_symbol* symbol)
+{
+  symbol->increment_reference_count();
+}
+
+inline
+void mcrl2_drop_function_symbol(const detail::_function_symbol* symbol)
+{
+  symbol->decrement_reference_count();
+}
+
 
 } // namespace atermpp
