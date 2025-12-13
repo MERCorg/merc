@@ -1,30 +1,28 @@
 use std::marker::PhantomData;
 
-use mcrl2_sys::atermpp::ffi::{mcrl2_aterm_list_front, mcrl2_aterm_list_is_empty, mcrl2_aterm_list_tail};
-
 use crate::Aterm;
 
-
-
-/// Represents a list of terms from the mCRL2 toolset.
-#[derive(Clone)]
-pub struct AtermList<T> {
-    term: Aterm,
+pub struct ATermList<T> {
+    term: ATerm,
     _marker: PhantomData<T>,
 }
 
-impl<T: Clone + From<Aterm>> AtermList<T> {
-    /// Returns the head of the list
-    pub fn head(&self) -> T
-    where
-        T: From<Aterm>,
-    {
-        Aterm::new(mcrl2_aterm_list_front(&self.term.get())).into()
+impl<T: From<ATerm>> ATermList<T> {
+    /// Obtain the head, i.e. the first element, of the list.
+    pub fn head(&self) -> T {
+        self.term.arg(0).protect().into()
+    }
+}
+
+impl<T> ATermList<T> {
+    /// Returns true iff the list is empty.
+    pub fn is_empty(&self) -> bool {
+        self.term.is_empty_list()
     }
 
-    /// Returns the length of the list.
-    pub fn len(&self) -> usize {
-        self.iter().count()
+    /// Obtain the tail, i.e. the remainder, of the list.
+    pub fn tail(&self) -> ATermList<T> {
+        self.term.arg(1).into()
     }
 
     /// Converts the list to a `Vec<T>`.
@@ -32,59 +30,79 @@ impl<T: Clone + From<Aterm>> AtermList<T> {
         self.iter().collect()
     }
 
-    /// Returns an iterator over the elements of the list.
+    /// Returns an iterator over all elements in the list.
     pub fn iter(&self) -> ATermListIter<T> {
-        ATermListIter::new(self.clone())
+        ATermListIter { current: self.clone() }
     }
 }
 
-
-impl<T> AtermList<T> {
-    /// Returns true if the list is empty.
-    pub fn is_empty(&self) -> bool {
-        mcrl2_aterm_list_is_empty(&self.term.get())
-    }
-
-    /// Returns the tail of the list
-    pub fn tail(&self) -> AtermList<T> {
-        AtermList::new(Aterm::new(mcrl2_aterm_list_tail(&self.term.get()).into()))
-    }
-
-    /// Creates a new list from the given term.
-    pub(crate) fn new(term: Aterm) -> Self {
-        AtermList {
-            term,
+impl<T> Clone for ATermList<T> {
+    fn clone(&self) -> Self {
+        ATermList {
+            term: self.term.clone(),
             _marker: PhantomData,
         }
     }
 }
 
-impl From<Aterm> for AtermList<Aterm> {
-    fn from(term: Aterm) -> Self {
-        AtermList::new(term)
+impl<T> From<ATermList<T>> for ATerm {
+    fn from(value: ATermList<T>) -> Self {
+        value.term
+    }
+}
+
+impl<T: From<ATerm>> Iterator for ATermListIter<T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current.is_empty() {
+            None
+        } else {
+            let head = self.current.head();
+            self.current = self.current.tail();
+            Some(head)
+        }
+    }
+}
+
+impl<T> From<ATerm> for ATermList<T> {
+    fn from(value: ATerm) -> Self {
+        debug_assert!(value.term.is_list(), "Can only convert a aterm_list");
+        ATermList::<T> {
+            term: value,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<'a, T> From<ATermRef<'a>> for ATermList<T> {
+    fn from(value: ATermRef<'a>) -> Self {
+        debug_assert!(value.is_list(), "Can only convert a aterm_list");
+        ATermList::<T> {
+            term: value.protect(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<T: From<ATerm>> IntoIterator for ATermList<T> {
+    type IntoIter = ATermListIter<T>;
+    type Item = T;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
+impl<T: From<ATerm>> IntoIterator for &ATermList<T> {
+    type IntoIter = ATermListIter<T>;
+    type Item = T;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 
 pub struct ATermListIter<T> {
-    list: AtermList<T>,
-}
-
-impl<T> ATermListIter<T> {
-    pub fn new(list: AtermList<T>) -> Self {
-        ATermListIter { list }
-    }
-}
-
-impl<T: Clone + From<Aterm>> Iterator for ATermListIter<T> {
-    type Item = T;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.list.is_empty() {
-            None
-        } else {
-            let head = self.list.head();
-            self.list = self.list.tail();
-            Some(head)
-        }
-    }
+    current: ATermList<T>,
 }

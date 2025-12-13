@@ -143,17 +143,17 @@ std::size_t mcrl2_local_control_flow_graph_vertex_index(
 }
 
 inline
-std::unique_ptr<atermpp::aterm> mcrl2_local_control_flow_graph_vertex_name(
+const atermpp::detail::_aterm* mcrl2_local_control_flow_graph_vertex_name(
     const detail::local_control_flow_graph_vertex& vertex)
 {
-  return std::make_unique<atermpp::aterm>(vertex.name());
+  return atermpp::detail::address(vertex.name());
 }
 
 inline
-std::unique_ptr<atermpp::aterm> mcrl2_local_control_flow_graph_vertex_value(
+const atermpp::detail::_aterm* mcrl2_local_control_flow_graph_vertex_value(
     const detail::local_control_flow_graph_vertex& vertex)
 {
-  return std::make_unique<atermpp::aterm>(vertex.value());
+  return atermpp::detail::address(vertex.value());
 }
 
 void mcrl2_local_control_flow_graph_vertex_outgoing_edges(std::vector<vertex_outgoing_edge>& result,
@@ -184,9 +184,9 @@ void mcrl2_stategraph_local_algorithm_equations(std::vector<detail::stategraph_e
 }
 
 inline
-std::unique_ptr<atermpp::aterm> mcrl2_stategraph_equation_variable(const detail::stategraph_equation& equation)
+const atermpp::detail::_aterm* mcrl2_stategraph_equation_variable(const detail::stategraph_equation& equation)
 {
-  return std::make_unique<atermpp::aterm>(equation.variable());
+  return atermpp::detail::address(equation.variable());
 }
 
 
@@ -264,21 +264,7 @@ std::unique_ptr<atermpp::aterm> mcrl2_srf_pbes_equation_variable(const srf_equat
 // mcrl2::pbes_system::propositional_variable
 
 inline
-std::unique_ptr<atermpp::aterm> mcrl2_propositional_variable_name(const atermpp::aterm& variable)
-{
-  MCRL2_ASSERT(pbes_system::is_propositional_variable(variable));
-  return std::make_unique<atermpp::aterm>(atermpp::down_cast<propositional_variable>(variable).name());
-}
-
-inline
-std::unique_ptr<atermpp::aterm> mcrl2_propositional_variable_parameters(const atermpp::aterm& variable)
-{
-  MCRL2_ASSERT(pbes_system::is_propositional_variable(variable));
-  return std::make_unique<atermpp::aterm>(atermpp::down_cast<propositional_variable>(variable).parameters());
-}
-
-inline
-bool mcrl2_propositional_variable_is(const atermpp::aterm& variable)
+bool mcrl2_pbes_is_propositional_variable(const atermpp::aterm& variable)
 {
   return pbes_system::is_propositional_variable(variable);
 }
@@ -302,15 +288,15 @@ void mcrl2_srf_equations_summands(std::vector<srf_summand>& result, const srf_eq
 }
 
 inline
-std::unique_ptr<atermpp::aterm> mcrl2_srf_summand_variable(const srf_summand& summand)
+const atermpp::detail::_aterm* mcrl2_srf_summand_variable(const srf_summand& summand)
 {
-  return std::make_unique<atermpp::aterm>(summand.variable());
+  return atermpp::detail::address(summand.variable());
 }
 
 inline
-std::unique_ptr<atermpp::aterm> mcrl2_srf_summand_condition(const srf_summand& summand)
+const atermpp::detail::_aterm* mcrl2_srf_summand_condition(const srf_summand& summand)
 {
-  return std::make_unique<atermpp::aterm>(summand.condition());
+  return atermpp::detail::address(summand.variable());
 }
 
 std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_variables(const atermpp::aterm& expr, const rust::Vec<assignment_pair>& sigma);
