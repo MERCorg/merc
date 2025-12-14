@@ -191,8 +191,7 @@ pub fn permutation_group(indices: Vec<usize>) -> impl Iterator<Item = Permutatio
         let mapping: Vec<(usize, usize)> = indices2
             .iter()
             .cloned()
-            .zip(perm.into_iter())
-            .map(|(a, b)| (a, b))
+            .zip(perm)
             .collect();
         Permutation::from_mapping(mapping)
     })

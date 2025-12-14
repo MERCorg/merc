@@ -215,7 +215,7 @@ impl ControlFlowGraphVertex {
 
         let outgoing_edges = outgoing_edges_ffi
             .iter()
-            .map(|pair| (pair.vertex, pair.edges.iter().map(|i| *i).collect()))
+            .map(|pair| (pair.vertex, pair.edges.iter().copied().collect()))
             .collect();
 
         ControlFlowGraphVertex {
