@@ -16,12 +16,9 @@ use mcrl2_sys::pbes::ffi::mcrl2_local_control_flow_graph_vertices;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_data_specification;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_expression_replace_propositional_variables;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_expression_replace_variables;
-use mcrl2_sys::pbes::ffi::mcrl2_pbes_expression_to_string;
+use mcrl2_sys::pbes::ffi::mcrl2_pbes_is_propositional_variable;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_to_srf_pbes;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_to_string;
-use mcrl2_sys::pbes::ffi::mcrl2_propositional_variable_name;
-use mcrl2_sys::pbes::ffi::mcrl2_propositional_variable_parameters;
-use mcrl2_sys::pbes::ffi::mcrl2_propositional_variable_to_string;
 use mcrl2_sys::pbes::ffi::mcrl2_srf_equations_summands;
 use mcrl2_sys::pbes::ffi::mcrl2_srf_pbes_equation_variable;
 use mcrl2_sys::pbes::ffi::mcrl2_srf_pbes_equations;
@@ -41,9 +38,8 @@ use mcrl2_sys::pbes::ffi::stategraph_algorithm;
 use mcrl2_sys::pbes::ffi::stategraph_equation;
 use merc_utilities::MercError;
 
-use crate::Aterm;
-use crate::AtermList;
-use crate::AtermString;
+use crate::ATerm;
+use crate::ATermString;
 use crate::DataExpression;
 use crate::DataSpecification;
 use crate::DataVariable;
@@ -178,14 +174,14 @@ impl ControlFlowGraphVertex {
     }
 
     /// Returns the name of the variable associated with this vertex.
-    pub fn name(&self) -> AtermString {
-        AtermString::new(Aterm::new(unsafe {
+    pub fn name(&self) -> ATermString {
+        ATermString::new(ATerm::new(unsafe {
             mcrl2_local_control_flow_graph_vertex_name(self.vertex.as_ref().expect("Pointer should be valid"))
         }))
     }
 
     pub fn value(&self) -> DataExpression {
-        DataExpression::new(Aterm::new(unsafe {
+        DataExpression::new(ATerm::new(unsafe {
             mcrl2_local_control_flow_graph_vertex_value(self.vertex.as_ref().expect("Pointer should be valid"))
         }))
     }
@@ -285,7 +281,7 @@ impl StategraphEquation {
 
     /// Returns the variable of the equation.
     pub fn variable(&self) -> PropositionalVariable {
-        PropositionalVariable::new(Aterm::new(unsafe {
+        PropositionalVariable::new(ATerm::new(unsafe {
             mcrl2_stategraph_equation_variable(self.equation.as_ref().expect("Pointer should be valid"))
         }))
     }
@@ -354,7 +350,7 @@ pub struct SrfEquation {
 impl SrfEquation {
     /// Returns the parameters of the equation.
     pub fn variable(&self) -> PropositionalVariable {
-        PropositionalVariable::new(Aterm::new(unsafe {
+        PropositionalVariable::new(ATerm::new(unsafe {
             mcrl2_srf_pbes_equation_variable(self.equation.as_ref().expect("Pointer should be valid"))
         }))
     }
@@ -388,14 +384,14 @@ pub struct SrfSummand {
 impl SrfSummand {
     /// Returns the condition of the summand.
     pub fn condition(&self) -> PbesExpression {
-        PbesExpression::new(Aterm::new(unsafe {
+        PbesExpression::new(ATerm::from_ptr(unsafe {
             mcrl2_sys::pbes::ffi::mcrl2_srf_summand_condition(self.summand.as_ref().expect("Pointer should be valid"))
         }))
     }
 
     /// Returns the variable of the summand.
     pub fn variable(&self) -> PbesExpression {
-        PbesExpression::new(Aterm::new(unsafe {
+        PbesExpression::new(ATerm::from_ptr(unsafe {
             mcrl2_sys::pbes::ffi::mcrl2_srf_summand_variable(self.summand.as_ref().expect("Pointer should be valid"))
         }))
     }
@@ -419,49 +415,49 @@ impl fmt::Debug for SrfSummand {
 
 /// mcrl2::pbes_system::propositional_variable
 pub struct PropositionalVariable {
-    term: Aterm,
+    term: ATerm,
 }
 
 impl PropositionalVariable {
+    /// Creates a new `PbesPropositionalVariable` from the given term.
+    pub fn new(term: ATerm) -> Self {
+        debug_assert!(mcrl2_pbes_is_propositional_variable(term.get()));
+        PropositionalVariable { term }
+    }
+
     /// Returns the name of the propositional variable.
-    pub fn name(&self) -> AtermString {
-        AtermString::new(Aterm::new(mcrl2_propositional_variable_name(self.term.get())))
+    pub fn name(&self) -> ATermString {
+        ATermString::new(self.term.arg(0).protect())
     }
 
     /// Returns the parameters of the propositional variable.
-    pub fn parameters(&self) -> AtermList<DataVariable> {
-        let term = mcrl2_propositional_variable_parameters(self.term.get());
-        AtermList::new(Aterm::new(term))
-    }
-
-    /// Creates a new `PbesPropositionalVariable` from the given term.
-    pub(crate) fn new(term: Aterm) -> Self {
-        PropositionalVariable { term }
+    pub fn parameters(&self) -> ATermList<DataVariable> {
+        ATermList::new(self.term.arg(1)).into()
     }
 }
 
 impl fmt::Debug for PropositionalVariable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", mcrl2_propositional_variable_to_string(self.term.get()))
+        write!(f, "{}", self.term)
     }
 }
 
 /// mcrl2::pbes_system::pbes_expression
 #[derive(Clone, Eq, PartialEq)]
 pub struct PbesExpression {
-    term: Aterm,
+    term: ATerm,
 }
 
 impl PbesExpression {
-    /// Creates a new [PbesExpression] from the given term.
-    pub(crate) fn new(term: Aterm) -> Self {
+    /// Creates a new pbes expression from the given term.
+    fn new(term: ATerm) -> Self {
         PbesExpression { term }
     }
 }
 
 impl fmt::Debug for PbesExpression {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", mcrl2_pbes_expression_to_string(&self.term.get()))
+        write!(f, "{}", self.term)
     }
 }
 
@@ -471,12 +467,12 @@ pub fn replace_variables(expr: &PbesExpression, sigma: Vec<(DataExpression, Data
     let sigma: Vec<assignment_pair> = sigma
         .iter()
         .map(|(lhs, rhs)| assignment_pair {
-            lhs: lhs.get().get(),
-            rhs: rhs.get().get(),
+            lhs: lhs.get().address(),
+            rhs: rhs.get().address(),
         })
         .collect();
 
-    PbesExpression::new(Aterm::new(mcrl2_pbes_expression_replace_variables(
+    PbesExpression::new(ATerm::from_unique_ptr(mcrl2_pbes_expression_replace_variables(
         expr.term.get(),
         &sigma,
     )))
@@ -484,8 +480,7 @@ pub fn replace_variables(expr: &PbesExpression, sigma: Vec<(DataExpression, Data
 
 /// Replaces propositional variables in the given PBES expression according to the given substitution sigma.
 pub fn replace_propositional_variables(expr: &PbesExpression, pi: &Vec<usize>) -> PbesExpression {
-    PbesExpression::new(Aterm::new(mcrl2_pbes_expression_replace_propositional_variables(
-        expr.term.get(),
-        pi,
-    )))
+    PbesExpression::new(ATerm::from_unique_ptr(
+        mcrl2_pbes_expression_replace_propositional_variables(expr.term.get(), pi),
+    ))
 }
