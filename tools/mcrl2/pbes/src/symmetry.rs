@@ -72,7 +72,7 @@ impl SymmetryAlgorithm {
         let all_control_flow_parameters = state_graph
             .control_flow_graphs()
             .iter()
-            .map(|cfg| variable_index(cfg))
+            .map(variable_index)
             .collect::<Vec<_>>();
 
         let progress = TimeProgress::new(
@@ -155,9 +155,9 @@ impl SymmetryAlgorithm {
                 for other_equation in self.srf.equations() {
                     for other_summand in other_equation.summands() {
                         if equation.variable().name() == other_equation.variable().name()
-                            && apply_permutation(&summand.condition(), &self.parameters, &pi)
+                            && apply_permutation(&summand.condition(), &self.parameters, pi)
                                 == other_summand.condition()
-                            && apply_permutation(&summand.variable(), &self.parameters, &pi) == other_summand.variable()
+                            && apply_permutation(&summand.variable(), &self.parameters, pi) == other_summand.variable()
                         {
                             matched = true;
                             break;
@@ -307,7 +307,7 @@ impl SymmetryAlgorithm {
                 permutation_group(control_flow_parameter_indices)
                     .cartesian_product(all_data_groups)
                     .filter(move |(a, b)| {
-                        let pi = a.clone().concat(&b);
+                        let pi = a.clone().concat(b);
 
                         // Print progress messages.
                         self.num_of_checked_candidates
@@ -479,10 +479,10 @@ impl SymmetryAlgorithm {
             let result = remaining_j.iter().find(|&&j| {
                 let variable_prime = &equation.predicate_variables()[j];
 
-                self.equal_under_permutation(pi, &variable.changed(), &variable_prime.changed())
+                self.equal_under_permutation(pi, variable.changed(), variable_prime.changed())
                     .is_ok()
                     && self
-                        .equal_under_permutation(pi, &variable.used(), &variable_prime.used())
+                        .equal_under_permutation(pi, variable.used(), variable_prime.used())
                         .is_ok()
             });
 
@@ -563,13 +563,7 @@ impl SymmetryAlgorithm {
     /// Returns the equation with the given name.
     fn find_equation_by_name(&self, name: &ATermString) -> Option<&StategraphEquation> {
         // TODO: Fix naive implementation
-        for equation in self.state_graph.equations() {
-            if equation.variable().name() == *name {
-                return Some(equation);
-            }
-        }
-
-        None
+        self.state_graph.equations().iter().find(|&equation| equation.variable().name() == *name).map(|v| v as _)
     }
 }
 
@@ -588,7 +582,7 @@ fn variable_index(cfg: &ControlFlowGraph) -> usize {
         }
     });
 
-    for v in cfg.vertices() {
+    if let Some(v) = cfg.vertices().iter().next() {
         // Simply return the index of the variable
         return v.index();
     }

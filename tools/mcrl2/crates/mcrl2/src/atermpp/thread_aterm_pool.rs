@@ -178,7 +178,7 @@ impl Default for ThreadTermPool {
 impl Drop for ThreadTermPool {
     fn drop(&mut self) {
         debug_assert!(
-            self.protection_set.read().len() == 0,
+            self.protection_set.read().is_empty(),
             "The protection set should be empty"
         );
 
@@ -232,16 +232,16 @@ impl TermPool {
             "Number of arguments does not match arity"
         );
 
-        let result = THREAD_TERM_POOL.with_borrow_mut(|tp| {
+        
+
+        THREAD_TERM_POOL.with_borrow_mut(|tp| {
             unsafe {
                 // ThreadPool is not Sync, so only one has access.
                 let protection_set = tp.protection_set.write_exclusive();
                 let term: *const ffi::_aterm = mcrl2_aterm_create(symbol.borrow().get(), &self.arguments);
                 protect_with(protection_set, &mut tp.gc_counter, tp.index, term)
             }
-        });
-
-        result
+        })
     }
 
     /// Creates an [ATerm] with the given symbol, head argument and other arguments.
@@ -275,14 +275,14 @@ impl TermPool {
                 "Number of arguments does not match arity"
             );
 
-            let result = unsafe {
+            
+
+            unsafe {
                 // ThreadPool is not Sync, so only one has access.
                 let protection_set = tp.protection_set.write_exclusive();
                 let term: *const ffi::_aterm = mcrl2_aterm_create(symbol.get(), &self.arguments);
                 protect_with(protection_set, &mut tp.gc_counter, tp.index, term)
-            };
-
-            result
+            }
         })
     }
 
