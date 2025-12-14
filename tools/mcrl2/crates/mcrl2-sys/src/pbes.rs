@@ -134,7 +134,7 @@ pub mod ffi {
         fn mcrl2_srf_pbes_equations(result: Pin<&mut CxxVector<srf_equation>>, input: &srf_pbes);
 
         /// Returns the variable of the given srf_equation.
-        fn mcrl2_pbes_is_propositional_variable(input: &aterm) -> bool;
+        fn mcrl2_pbes_is_propositional_variable(input: &_aterm) -> bool;
 
         fn mcrl2_srf_summand_condition(summand: &srf_summand) -> *const _aterm;
 
@@ -144,13 +144,13 @@ pub mod ffi {
 
         /// Replace data variables in a pbes expression according to the given substitutions.
         fn mcrl2_pbes_expression_replace_variables(
-            expression: &aterm,
+            expression: &_aterm,
             substitutions: &Vec<assignment_pair>,
         ) -> UniquePtr<aterm>;
 
         /// Replace propositional variables in a pbes expression according to the given substitutions.
         fn mcrl2_pbes_expression_replace_propositional_variables(
-            expression: &aterm,
+            expression: &_aterm,
             pi: &Vec<usize>,
         ) -> UniquePtr<aterm>;
 

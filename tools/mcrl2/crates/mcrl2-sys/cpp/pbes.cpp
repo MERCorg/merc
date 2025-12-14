@@ -38,9 +38,10 @@ void mcrl2_local_control_flow_graph_vertex_incoming_edges(std::vector<vertex_out
   }
 }
 
-std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_variables(const atermpp::aterm& expr,
+std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_variables(const atermpp::detail::_aterm& term,
     const rust::Vec<assignment_pair>& sigma)
 {
+  const atermpp::aterm& expr = atermpp::mcrl2_aterm_cast(term);
   MCRL2_ASSERT(is_pbes_expression(expr));
 
   data::mutable_map_substitution<> tmp;
@@ -54,9 +55,10 @@ std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_variables(const at
       pbes_system::replace_variables(atermpp::down_cast<pbes_expression>(expr), tmp));
 }
 
-std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_propositional_variables(const atermpp::aterm& expr,
+std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_propositional_variables(const atermpp::detail::_aterm& term,
     const rust::Vec<std::size_t>& pi)
 {
+  const atermpp::aterm& expr = atermpp::mcrl2_aterm_cast(term);
   MCRL2_ASSERT(is_pbes_expression(expr));
 
   pbes_expression result;

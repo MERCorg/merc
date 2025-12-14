@@ -265,9 +265,9 @@ const atermpp::detail::_aterm* mcrl2_srf_pbes_equation_variable(const srf_equati
 // mcrl2::pbes_system::propositional_variable
 
 inline
-bool mcrl2_pbes_is_propositional_variable(const atermpp::aterm& variable)
+bool mcrl2_pbes_is_propositional_variable(const atermpp::detail::_aterm& variable)
 {
-  return pbes_system::is_propositional_variable(variable);
+  return pbes_system::is_propositional_variable(atermpp::mcrl2_aterm_cast(variable));
 }
 
 inline
@@ -300,8 +300,8 @@ const atermpp::detail::_aterm* mcrl2_srf_summand_condition(const srf_summand& su
   return atermpp::detail::address(summand.variable());
 }
 
-std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_variables(const atermpp::aterm& expr, const rust::Vec<assignment_pair>& sigma);
+std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_variables(const atermpp::detail::_aterm& expr, const rust::Vec<assignment_pair>& sigma);
 
-std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_propositional_variables(const atermpp::aterm& expr, const rust::Vec<std::size_t>& pi);
+std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_propositional_variables(const atermpp::detail::_aterm& expr, const rust::Vec<std::size_t>& pi);
 
 } // namespace mcrl2::pbes_system
