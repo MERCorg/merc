@@ -16,11 +16,18 @@ impl ATermString {
 
     /// Returns the string value.
     pub fn str(&self) -> String {
+        // The Rust::Str should ensure that this is a valid string.
         self.term.get_head_symbol().name().to_string()
     }
 }
 
 impl fmt::Debug for ATermString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.str())
+    }
+}
+
+impl fmt::Display for ATermString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.str())
     }

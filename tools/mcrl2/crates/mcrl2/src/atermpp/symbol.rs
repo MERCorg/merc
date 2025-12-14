@@ -52,6 +52,7 @@ impl<'a> SymbolRef<'a> {
 impl SymbolRef<'_> {
     /// Obtain the symbol's name
     pub fn name(&self) -> &str {
+        // String will not be dropped as long as SymbolRef exists. The pointer is stable.
         mcrl2_function_symbol_get_name(self.get())
     }
 

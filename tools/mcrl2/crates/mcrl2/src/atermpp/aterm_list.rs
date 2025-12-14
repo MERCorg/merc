@@ -9,9 +9,19 @@ pub struct ATermList<T> {
 }
 
 impl<T: From<ATerm>> ATermList<T> {
-    /// Obtain the head, i.e. the first element, of the list.
+    /// Obtain the head, i.e. the first element, of the list. Will panic if the
+    /// list is empty.
     pub fn head(&self) -> T {
         self.term.arg(0).protect().into()
+    }
+
+    /// Returns the head if it exists, or None if the list is empty.
+    pub fn try_head(&self) -> Option<T> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.head())
+        }
     }
 }
 
@@ -30,19 +40,34 @@ impl<T> ATermList<T> {
         self.term.is_empty_list()
     }
 
-    /// Obtain the tail, i.e. the remainder, of the list.
+    /// Obtain the tail, i.e. the remainder, of the list. Will panic if the list
+    /// is empty.
     pub fn tail(&self) -> ATermList<T> {
         self.term.arg(1).into()
     }
 
-    /// Returns an iterator over all elements in the list.
-    pub fn iter(&self) -> ATermListIter<T> {
-        ATermListIter { current: self.clone() }
+    /// Returns the tail if it exists, or None if the list is empty.
+    pub fn try_tail(&self) -> Option<ATermList<T>> {
+        if self.is_empty() {
+            None
+        } else {
+            Some(self.tail())
+        }
     }
 }
 
 impl<T: From<ATerm>> ATermList<T> {
-    /// Converts the list to a `Vec<T>`.
+    /// Returns an iterator over all elements in the list.
+    pub fn iter(&self) -> ATermListIter<T> {
+        ATermListIter { current: self.clone() }
+    }
+
+    /// Returns the number of elements in the list.
+    pub fn len(&self) -> usize {
+        self.iter().count()
+    }
+
+    /// Converts the list to a `Vec<T>`. Will convert every `ATerm` into `T``.
     pub fn to_vec(&self) -> Vec<T> {
         self.iter().collect()
     }
