@@ -1,4 +1,5 @@
-#pragma once
+#ifndef MCRL2_SYS_CPP_EXCEPTION_H
+#define MCRL2_SYS_CPP_EXCEPTION_H
 
 #include <cstdlib>
 
@@ -27,3 +28,5 @@ namespace rust::behavior {
 #endif // MCRL2_ENABLE_CPPTRACE
 
 } // namespace rust::behaviour
+
+#endif // MCRL2_SYS_CPP_EXCEPTION_H

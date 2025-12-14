@@ -1,7 +1,6 @@
 /// Wrapper around the log library of the mCRL2 toolset.
-
-#pragma once
-
+#ifndef MCRL2_SYS_CPP_LOG_H
+#define MCRL2_SYS_CPP_LOG_H
 
 #include "mcrl2/utilities/logger.h"
 
@@ -15,3 +14,5 @@ void mcrl2_set_reporting_level(std::size_t level)
 }
 
 } // namespace mcrl2::log
+
+#endif // MCRL2_SYS_CPP_LOG_H

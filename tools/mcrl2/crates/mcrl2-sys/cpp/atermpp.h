@@ -1,6 +1,7 @@
 /// Wrapper around the atermpp library of the mCRL2 toolset.
 
-#pragma once
+#ifndef MCRL2_SYS_CPP_ATERMPP_H
+#define MCRL2_SYS_CPP_ATERMPP_H
 
 #include "mcrl2/atermpp/aterm.h"
 #include "mcrl2/atermpp/aterm_io.h"
@@ -236,3 +237,5 @@ inline void mcrl2_function_symbol_drop(const detail::_function_symbol& symbol)
 }
 
 } // namespace atermpp
+
+#endif // MCRL2_SYS_CPP_ATERMPP_H
