@@ -39,12 +39,12 @@ inline const detail::_function_symbol* mcrl2_function_symbol_address(const funct
 }
 
 /// Casts an atermpp::_aterm to an atermpp::aterm.
-const aterm& mcrl2_aterm_cast(const detail::_aterm& term)
+inline const aterm& mcrl2_aterm_cast(const detail::_aterm& term)
 {
   return reinterpret_cast<const aterm&>(term);
 }
 
-const function_symbol& mcrl2_function_symbol_cast(const detail::_function_symbol& symbol)
+inline const function_symbol& mcrl2_function_symbol_cast(const detail::_function_symbol& symbol)
 {
   return reinterpret_cast<const function_symbol&>(symbol);
 }
