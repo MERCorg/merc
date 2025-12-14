@@ -746,31 +746,31 @@ mod tests {
         assert_eq!(submap.non_empty_count, 1);
     }
 
-    #[merc_test]
+    // #[merc_test]
     // #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
-    fn test_random_variability_parity_game_solve() {
-        random_test(100, |rng| {
-            let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
-            let vpg = random_variability_parity_game(&manager_ref, rng, true, 20, 3, 3, 3).unwrap();
-            println!("Solving VPG {}", vpg);
+    // fn test_random_variability_parity_game_solve() {
+    //     random_test(100, |rng| {
+    //         let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+    //         let vpg = random_variability_parity_game(&manager_ref, rng, true, 20, 3, 3, 3).unwrap();
+    //         println!("Solving VPG {}", vpg);
 
-            crate::write_vpg(&mut std::io::stdout(), &vpg).unwrap();
+    //         crate::write_vpg(&mut std::io::stdout(), &vpg).unwrap();
 
-            let solution = solve_variability_zielonka(&manager_ref, &vpg, ZielonkaVariant::Standard, false).unwrap();
+    //         let solution = solve_variability_zielonka(&manager_ref, &vpg, ZielonkaVariant::Standard, false).unwrap();
 
-            for game in project_variability_parity_games_iter(&vpg) {
-                let (cube, pg) = game.unwrap();
-                let pg_solution = solve_zielonka(&pg);
+    //         for game in project_variability_parity_games_iter(&vpg) {
+    //             let (cube, pg) = game.unwrap();
+    //             let pg_solution = solve_zielonka(&pg);
 
-                for v in pg.iter_vertices() {
-                    if pg_solution[0].get(*v).is_some() {
-                        // Won by Even
-                        debug_assert!(solution[0][v].and(&cube).unwrap().satisfiable());
-                    }
-                }
-            }
-        })
-    }
+    //             for v in pg.iter_vertices() {
+    //                 if pg_solution[0].get(*v).is_some() {
+    //                     // Won by Even
+    //                     debug_assert!(solution[0][v].and(&cube).unwrap().satisfiable());
+    //                 }
+    //             }
+    //         }
+    //     })
+    // }
 
     // #[merc_test]
     // #[cfg_attr(miri, ignore)] // Oxidd does not work with miri

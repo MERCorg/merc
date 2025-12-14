@@ -385,7 +385,7 @@ mod tests {
 
         let fd = FeatureDiagram::from_reader(
             &manager_ref,
-            include_bytes!("../../../examples/vpg/running_example.fd") as &[u8],
+            include_bytes!("../../../examples/vpg/running_example_fts.fd") as &[u8],
         )
         .unwrap();
         let fts = read_fts(
