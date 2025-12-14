@@ -17,11 +17,7 @@ impl<T: From<ATerm>> ATermList<T> {
 
     /// Returns the head if it exists, or None if the list is empty.
     pub fn try_head(&self) -> Option<T> {
-        if self.is_empty() {
-            None
-        } else {
-            Some(self.head())
-        }
+        if self.is_empty() { None } else { Some(self.head()) }
     }
 }
 
@@ -48,11 +44,7 @@ impl<T> ATermList<T> {
 
     /// Returns the tail if it exists, or None if the list is empty.
     pub fn try_tail(&self) -> Option<ATermList<T>> {
-        if self.is_empty() {
-            None
-        } else {
-            Some(self.tail())
-        }
+        if self.is_empty() { None } else { Some(self.tail()) }
     }
 }
 

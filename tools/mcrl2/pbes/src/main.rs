@@ -104,11 +104,11 @@ fn main() -> Result<ExitCode, MercError> {
                 println!("false");
             }
         } else {
-            for permutation in algorithm.find_symmetries(args.partition_data_sorts) { 
-                info!("Found candidate: {}", permutation);
+            for candidate in algorithm.candidates(args.partition_data_sorts) {
+                info!("Found candidate: {}", candidate);
 
-                if algorithm.check_symmetry(&permutation) {
-                    info!("Found symmetry: {}", permutation);
+                if algorithm.check_symmetry(&candidate) {
+                    info!("Found symmetry: {}", candidate);
                 }
             }
         }
