@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
-use crate::{TermPool, atermpp::aterm::ATerm};
+use crate::TermPool;
+use crate::atermpp::aterm::ATerm;
 
 /// Create a random term consisting of the given symbol and constants. Performs
 /// iterations number of constructions, and uses chance_duplicates to choose the

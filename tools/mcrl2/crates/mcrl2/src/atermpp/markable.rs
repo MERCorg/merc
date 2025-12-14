@@ -2,7 +2,8 @@ use std::pin::Pin;
 
 use mcrl2_sys::atermpp::ffi;
 
-use crate::{BfTermPool, atermpp::aterm::ATermRef};
+use crate::BfTermPool;
+use crate::atermpp::aterm::ATermRef;
 
 /// A type for the todo queue.
 pub type Todo<'a> = Pin<&'a mut ffi::term_mark_stack>;

@@ -52,7 +52,10 @@ pub trait DataExpressionVisitor {
 
 /// Replaces data variables in the given data expression according to the
 /// provided substitution function.
-pub fn data_expression_replace_variables(expr: &DataExpression, f: &impl Fn(&DataVariable) -> DataExpression) -> DataExpression {
+pub fn data_expression_replace_variables(
+    expr: &DataExpression,
+    f: &impl Fn(&DataVariable) -> DataExpression,
+) -> DataExpression {
     struct ReplaceVariableBuilder<'a> {
         apply: &'a dyn Fn(&DataVariable) -> DataExpression,
     }

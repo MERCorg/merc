@@ -3,10 +3,10 @@ use std::marker::PhantomData;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
-use mcrl2_sys::atermpp::ffi::mcrl2_lock_exclusive;
-use mcrl2_sys::atermpp::ffi::mcrl2_lock_shared;
-use mcrl2_sys::atermpp::ffi::mcrl2_unlock_exclusive;
-use mcrl2_sys::atermpp::ffi::mcrl2_unlock_shared;
+use mcrl2_sys::atermpp::ffi::mcrl2_aterm_pool_lock_exclusive;
+use mcrl2_sys::atermpp::ffi::mcrl2_aterm_pool_lock_shared;
+use mcrl2_sys::atermpp::ffi::mcrl2_aterm_pool_unlock_exclusive;
+use mcrl2_sys::atermpp::ffi::mcrl2_aterm_pool_unlock_shared;
 
 /// Provides access to the mCRL2 busy forbidden protocol, where there
 /// are thread local busy flags and one central storage for the forbidden
@@ -37,7 +37,7 @@ impl<T> BfTermPool<T> {
 impl<'a, T: ?Sized> BfTermPool<T> {
     /// Provides read access to the underlying object.
     pub fn read(&'a self) -> BfTermPoolRead<'a, T> {
-        mcrl2_lock_shared();
+        mcrl2_aterm_pool_lock_shared();
         BfTermPoolRead {
             mutex: self,
             _marker: Default::default(),
@@ -46,7 +46,7 @@ impl<'a, T: ?Sized> BfTermPool<T> {
 
     /// Provides write access to the underlying object.
     pub fn write(&'a self) -> BfTermPoolWrite<'a, T> {
-        mcrl2_lock_exclusive();
+        mcrl2_aterm_pool_lock_exclusive();
 
         BfTermPoolWrite {
             mutex: self,
@@ -72,7 +72,7 @@ impl<'a, T: ?Sized> BfTermPool<T> {
     /// set to false.
     pub unsafe fn write_exclusive(&'a self) -> BfTermPoolThreadWrite<'a, T> {
         // This is a lock shared, but assuming that only ONE thread uses this function.
-        mcrl2_lock_shared();
+        mcrl2_aterm_pool_lock_shared();
 
         BfTermPoolThreadWrite {
             mutex: self,
@@ -99,7 +99,7 @@ impl<T: ?Sized> Deref for BfTermPoolRead<'_, T> {
 impl<T: ?Sized> Drop for BfTermPoolRead<'_, T> {
     fn drop(&mut self) {
         // If we leave the shared section and the counter is zero.
-        mcrl2_unlock_shared();
+        mcrl2_aterm_pool_unlock_shared();
     }
 }
 
@@ -126,7 +126,7 @@ impl<T: ?Sized> DerefMut for BfTermPoolWrite<'_, T> {
 
 impl<T: ?Sized> Drop for BfTermPoolWrite<'_, T> {
     fn drop(&mut self) {
-        mcrl2_unlock_exclusive();
+        mcrl2_aterm_pool_unlock_exclusive();
     }
 }
 
@@ -141,7 +141,7 @@ impl<T: ?Sized> BfTermPoolThreadWrite<'_, T> {
     pub fn unlock(&mut self) -> bool {
         if self.locked {
             self.locked = false;
-            mcrl2_unlock_shared()
+            mcrl2_aterm_pool_unlock_shared()
         } else {
             false
         }
@@ -167,7 +167,7 @@ impl<T: ?Sized> DerefMut for BfTermPoolThreadWrite<'_, T> {
 impl<T: ?Sized> Drop for BfTermPoolThreadWrite<'_, T> {
     fn drop(&mut self) {
         if self.locked {
-            mcrl2_unlock_shared();
+            mcrl2_aterm_pool_unlock_shared();
         }
     }
 }
@@ -192,7 +192,7 @@ mod tests {
                 // Test read lock
                 {
                     let guard = pool.read();
-                    let value = *guard;
+                    let _value = *guard;
                 }
 
                 // Test write lock and increment
