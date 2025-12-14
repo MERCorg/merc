@@ -217,13 +217,9 @@ pub struct ATerm {
 }
 
 impl ATerm {
-
     /// Creates a new ATerm with the given symbol and arguments.
-    pub fn new<'a, 'b>(symbol: &impl Borrow<SymbolRef<'a>>,
-        arguments: &[impl Borrow<ATermRef<'b>>],) -> ATerm {
-        THREAD_TERM_POOL.with_borrow(|tp| {
-            tp.create(symbol, arguments)
-        })
+    pub fn new<'a, 'b>(symbol: &impl Borrow<SymbolRef<'a>>, arguments: &[impl Borrow<ATermRef<'b>>]) -> ATerm {
+        THREAD_TERM_POOL.with_borrow(|tp| tp.create(symbol, arguments))
     }
 
     /// Constructs an ATerm from a string by parsing it.
@@ -235,8 +231,7 @@ impl ATerm {
     /// protection here, so the term is copied into the thread local term pool.
     pub(crate) fn from_unique_ptr(term: UniquePtr<aterm>) -> Self {
         debug_assert!(!term.is_null(), "Cannot create ATerm from null unique ptr");
-        THREAD_TERM_POOL
-            .with_borrow(|tp| tp.protect(mcrl2_aterm_get_address(term.as_ref().expect("Pointer is valid"))))
+        THREAD_TERM_POOL.with_borrow(|tp| tp.protect(mcrl2_aterm_get_address(term.as_ref().expect("Pointer is valid"))))
     }
 
     /// Creates an ATerm from a raw pointer. It will be protected on creation.

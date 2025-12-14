@@ -18,8 +18,6 @@ use mcrl2_derive_terms::mcrl2_derive_terms_impl;
 /// ATermRef implementation, as well as `protect` and `borrow` functions to
 /// convert between both types. Furthermore, all of these can be converted to
 /// and from ATerms.
-///
-/// # Example
 #[proc_macro_attribute]
 pub fn mcrl2_derive_terms(
     _attributes: proc_macro::TokenStream,

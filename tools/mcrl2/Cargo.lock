@@ -538,11 +538,21 @@ name = "mcrl2"
 version = "1.0.0"
 dependencies = [
  "log",
+ "mcrl2-macros",
  "mcrl2-sys",
  "merc_tools",
  "merc_utilities",
  "parking_lot",
  "rand",
+]
+
+[[package]]
+name = "mcrl2-macros"
+version = "1.0.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

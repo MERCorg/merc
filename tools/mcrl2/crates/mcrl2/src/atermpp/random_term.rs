@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
-use crate::{Symbol, atermpp::aterm::ATerm};
+use crate::Symbol;
+use crate::atermpp::aterm::ATerm;
 
 /// Create a random term consisting of the given symbol and constants. Performs
 /// iterations number of constructions, and uses chance_duplicates to choose the
@@ -15,9 +16,11 @@ pub fn random_term(
 
     debug_assert!(!constants.is_empty(), "We need constants to be able to create a term");
 
-    let mut subterms = HashSet::<ATerm>::from_iter(constants.iter().map(|name| {
-        ATerm::new(&Symbol::new(name, 0), &[] as &[ATerm])
-    }));
+    let mut subterms = HashSet::<ATerm>::from_iter(
+        constants
+            .iter()
+            .map(|name| ATerm::new(&Symbol::new(name, 0), &[] as &[ATerm])),
+    );
 
     let mut result = ATerm::default();
     for _ in 0..iterations {

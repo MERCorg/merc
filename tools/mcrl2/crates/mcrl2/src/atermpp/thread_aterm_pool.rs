@@ -80,8 +80,7 @@ impl ThreadTermPool {
                 protection_set_size,
             )),
         }
-        }
-    
+    }
 
     /// Trigger a garbage collection explicitly.
     pub fn collect(&self) {
@@ -182,12 +181,7 @@ impl ThreadTermPool {
 
     /// Protects the given aterm address and returns the term.
     pub fn protect(&self, term: *const ffi::_aterm) -> ATerm {
-        unsafe {
-            self.protect_with(
-                self.protection_set.write_exclusive(),
-                term,
-            )
-        }
+        unsafe { self.protect_with(self.protection_set.write_exclusive(), term) }
     }
 
     /// Protects the given aterm address and returns the term.
@@ -231,16 +225,13 @@ impl ThreadTermPool {
         // It can be that data_applications are created without create_data_application in the mcrl2 ffi.
         let mut data_appl = self.data_appl.borrow_mut();
         while data_appl.len() <= symbol.arity() {
-            let symbol = Symbol::take(mcrl2_function_symbol_create(
-                String::from("DataAppl"),
-                data_appl.len(),
-            ));
+            let symbol = Symbol::take(mcrl2_function_symbol_create(String::from("DataAppl"), data_appl.len()));
             data_appl.push(symbol);
         }
 
         symbol == data_appl[symbol.arity()].copy()
     }
-    
+
     /// Protects the given aterm address and returns the term.
     ///     - guard: An existing guard to the ThreadTermPool.protection_set.
     fn protect_with(
@@ -253,7 +244,10 @@ impl ThreadTermPool {
         let root = guard.protect(aterm.clone());
 
         let term = ATermRef::new(term);
-        trace!("Protected term {:?}, index {}, protection set {}", term, root, self.index);
+        trace!(
+            "Protected term {:?}, index {}, protection set {}",
+            term, root, self.index
+        );
 
         let result = ATerm::from_ref(term, root);
 
@@ -332,7 +326,6 @@ mod tests {
         thread::scope(|s| {
             for _ in 0..2 {
                 s.spawn(|| {
-
                     let mut rng = StdRng::seed_from_u64(seed);
                     let terms: Vec<ATerm> = (0..100)
                         .map(|_| {
@@ -346,9 +339,7 @@ mod tests {
                         .collect();
 
                     // Force garbage collection.
-                    THREAD_TERM_POOL.with_borrow(|tp|
-                        tp.collect()
-                    );
+                    THREAD_TERM_POOL.with_borrow(|tp| tp.collect());
 
                     for term in &terms {
                         verify_term(term);

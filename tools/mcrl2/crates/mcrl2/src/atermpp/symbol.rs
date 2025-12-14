@@ -94,7 +94,6 @@ pub struct Symbol {
 }
 
 impl Symbol {
-
     /// Creates a new Symbol with the given name and arity.
     pub fn new(name: &str, arity: usize) -> Symbol {
         THREAD_TERM_POOL.with_borrow(|tp| tp.create_symbol(name, arity))
