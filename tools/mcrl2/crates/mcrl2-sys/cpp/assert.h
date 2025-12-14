@@ -1,4 +1,5 @@
-#pragma once
+#ifndef MCRL2_SYS_CPP_ASSERT_H
+#define MCRL2_SYS_CPP_ASSERT_H
 
 #include <cassert>
 
@@ -30,3 +31,5 @@
 #else
   #define MCRL2_ASSERT(x) do { assert(x); } while(0)
 #endif // MCRL2_ENABLE_CPPTRACE
+
+#endif // MCRL2_SYS_CPP_ASSERT_H

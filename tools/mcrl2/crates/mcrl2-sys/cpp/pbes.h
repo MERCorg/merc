@@ -1,6 +1,6 @@
 /// Wrapper around the PBES library of the mCRL2 toolset.
-
-#pragma once
+#ifndef MCRL2_SYS_CPP_PBES_H
+#define MCRL2_SYS_CPP_PBES_H
 
 #include "mcrl2/atermpp/aterm.h"
 #include "mcrl2/data/data_specification.h"
@@ -306,3 +306,5 @@ std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_variables(const at
 std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_propositional_variables(const atermpp::detail::_aterm& expr, const rust::Vec<std::size_t>& pi);
 
 } // namespace mcrl2::pbes_system
+
+#endif // MCRL2_SYS_CPP_PBES_H

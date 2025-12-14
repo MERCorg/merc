@@ -1,6 +1,7 @@
-/// Wrapper around the atermpp library of the mCRL2 toolset.
+/// Wrapper around the data library of the mCRL2 toolset.
 
-#pragma once
+#ifndef MCRL2_SYS_CPP_DATA_H
+#define MCRL2_SYS_CPP_DATA_H
 
 #include "mcrl2/atermpp/aterm.h"
 #include "mcrl2/atermpp/aterm_string.h"
@@ -93,3 +94,5 @@ bool mcrl2_data_expression_is_data_expression(const atermpp::detail::_aterm& inp
 }
 
 } // namespace mcrl2::data
+
+#endif // MCRL2_SYS_CPP_DATA_H
