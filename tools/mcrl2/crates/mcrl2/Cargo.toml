@@ -11,6 +11,8 @@ merc_tools.workspace = true
 merc_utilities.workspace = true
 
 log.workspace = true
+parking_lot.workspace = true
+rand.workspace = true
 
 [features]
 # Enables the compiling rewriter option for mCRL2.

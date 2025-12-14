@@ -26,6 +26,7 @@ log = "0.4"
 itertools = "0.14"
 cmake = "0.1"
 parking_lot = "0.12"
+rand = "0.9"
 
 # Dependencies for building the mCRL2 C++ bindings.
 cxx = "1.0"
