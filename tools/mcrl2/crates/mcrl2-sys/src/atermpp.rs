@@ -69,34 +69,34 @@ pub mod ffi {
         /// # Safety
         /// The function symbol and arguments will not be modified unless
         /// garbage collection marks the terms, which is done atomically.
-        unsafe fn mcrl2_aterm_create(function: *const _function_symbol, arguments: &[*const _aterm]) -> *const _aterm;
+        unsafe fn mcrl2_aterm_create(function: &_function_symbol, arguments: &[*const _aterm]) -> *const _aterm;
 
         /// Parses the given string and returns an aterm
         fn mcrl2_aterm_from_string(text: String) -> Result<UniquePtr<aterm>>;
 
         /// Returns the pointer underlying the given term.
-        unsafe fn mcrl2_aterm_get_address(term: &aterm) -> *const _aterm;
+        fn mcrl2_aterm_get_address(term: &_aterm) -> *const _aterm;
 
         /// Marks the aterm to prevent garbage collection.
-        unsafe fn mcrl2_aterm_mark_address(term: *const _aterm, todo: Pin<&mut term_mark_stack>);
+        fn mcrl2_aterm_mark_address(term: & _aterm, todo: Pin<&mut term_mark_stack>);
 
         /// Returns true iff the term is an aterm_list.
-        unsafe fn mcrl2_aterm_is_list(term: *const _aterm) -> bool;
+        fn mcrl2_aterm_is_list(term: &_aterm) -> bool;
 
         /// Returns true iff the term is the empty aterm_list.
-        unsafe fn mcrl2_aterm_is_empty_list(term: *const _aterm) -> bool;
+        fn mcrl2_aterm_is_empty_list(term: &_aterm) -> bool;
 
         /// Returns true iff the term is an aterm_int.
-        unsafe fn mcrl2_aterm_is_int(term: *const _aterm) -> bool;
+        fn mcrl2_aterm_is_int(term: &_aterm) -> bool;
 
         /// Converts an aterm to a string.
-        unsafe fn mcrl2_aterm_print(term: *const _aterm) -> String;
+        fn mcrl2_aterm_print(term: &_aterm) -> String;
         
         /// Returns the ith argument of this term.
-        unsafe fn mcrl2_aterm_get_argument(term: *const _aterm, index: usize) -> *const _aterm;
+        fn mcrl2_aterm_get_argument(term: &_aterm, index: usize) -> *const _aterm;
 
         /// Returns the function symbol of an aterm.
-        unsafe fn mcrl2_aterm_get_function_symbol(term: *const _aterm) -> *const _function_symbol;
+        fn mcrl2_aterm_get_function_symbol(term: &_aterm) -> *const _function_symbol;
 
         // Functions for managing function symbols
 
@@ -104,19 +104,19 @@ pub mod ffi {
         fn mcrl2_function_symbol_create(name: String, arity: usize) -> *const _function_symbol;
 
         /// Protects the given function symbol by incrementing the reference counter.
-        unsafe fn mcrl2_function_symbol_protect(symbol: *const _function_symbol);
+        fn mcrl2_function_symbol_protect(symbol: &_function_symbol);
 
         /// Decreases the reference counter of the function symbol by one.
-        unsafe fn mcrl2_function_symbol_drop(symbol: *const _function_symbol);
+        fn mcrl2_function_symbol_drop(symbol: &_function_symbol);
 
         /// Returns the function symbol name
-        unsafe fn mcrl2_function_symbol_get_name<'a>(symbol: *const _function_symbol) -> &'a str;
+        fn mcrl2_function_symbol_get_name<'a>(symbol: &_function_symbol) -> &'a str;
 
         /// Returns the function symbol arity
-        unsafe fn mcrl2_function_symbol_get_arity(symbol: *const _function_symbol) -> usize;
+        fn mcrl2_function_symbol_get_arity(symbol: &_function_symbol) -> usize;
 
         /// Obtain the address of the given function symbol.
-        unsafe fn mcrl2_function_symbol_get_address(symbol: &function_symbol) -> *const _function_symbol;
+        fn mcrl2_function_symbol_get_address(symbol: &function_symbol) -> *const _function_symbol;
         
         // These functions are used to test whether the definitions used in the mCRL2 toolset are the same
         // as our FFI. It is inconvenient to have accessor function for all terms, i.e., head and tail for

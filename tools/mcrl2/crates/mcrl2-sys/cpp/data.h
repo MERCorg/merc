@@ -16,6 +16,7 @@
 #endif // MCRL2_ENABLE_JITTYC
 
 #include "mcrl2-sys/cpp/assert.h"
+#include "mcrl2-sys/cpp/atermpp.h"
 
 #include "rust/cxx.h"
 
@@ -43,44 +44,44 @@ std::unique_ptr<detail::RewriterCompilingJitty> mcrl2_create_rewriter_jittyc(con
 
 #endif
 
-bool mcrl2_data_expression_is_variable(const atermpp::aterm& input)
+bool mcrl2_data_expression_is_variable(const atermpp::detail::_aterm& input)
 {
-  return data::is_variable(input);
+  return data::is_variable(atermpp::mcrl2_aterm_cast(input));
 }
 
-bool mcrl2_data_expression_is_application(const atermpp::aterm& input)
+bool mcrl2_data_expression_is_application(const atermpp::detail::_aterm& input)
 {
-  return data::is_application(input);
+  return data::is_application(atermpp::mcrl2_aterm_cast(input));
 }
 
-bool mcrl2_data_expression_is_abstraction(const atermpp::aterm& input)
+bool mcrl2_data_expression_is_abstraction(const atermpp::detail::_aterm& input)
 {
-  return data::is_abstraction(input);
+  return data::is_abstraction(atermpp::mcrl2_aterm_cast(input));
 }
 
-bool mcrl2_data_expression_is_function_symbol(const atermpp::aterm& input)
+bool mcrl2_data_expression_is_function_symbol(const atermpp::detail::_aterm& input)
 {
-  return data::is_function_symbol(input);
+  return data::is_function_symbol(atermpp::mcrl2_aterm_cast(input));
 }
 
-bool mcrl2_data_expression_is_where_clause(const atermpp::aterm& input)
+bool mcrl2_data_expression_is_where_clause(const atermpp::detail::_aterm& input)
 {
-  return data::is_where_clause(input);
+  return data::is_where_clause(atermpp::mcrl2_aterm_cast(input));
 }
 
-bool mcrl2_data_expression_is_machine_number(const atermpp::aterm& input)
+bool mcrl2_data_expression_is_machine_number(const atermpp::detail::_aterm& input)
 {
-  return data::is_machine_number(input);
+  return data::is_machine_number(atermpp::mcrl2_aterm_cast(input));
 }
 
-bool mcrl2_data_expression_is_untyped_identifier(const atermpp::aterm& input)
+bool mcrl2_data_expression_is_untyped_identifier(const atermpp::detail::_aterm& input)
 {
-  return data::is_untyped_identifier(input);
+  return data::is_untyped_identifier(atermpp::mcrl2_aterm_cast(input));
 }
 
-bool mcrl2_data_expression_is_data_expression(const atermpp::aterm& input)
+bool mcrl2_data_expression_is_data_expression(const atermpp::detail::_aterm& input)
 {
-  return data::is_data_expression(input);
+  return data::is_data_expression(atermpp::mcrl2_aterm_cast(input));
 }
 
 } // namespace mcrl2::data
