@@ -15,6 +15,7 @@ use oxidd::Manager;
 use oxidd::ManagerRef;
 use oxidd::bdd::BDDFunction;
 use oxidd::bdd::BDDManagerRef;
+use oxidd::util::OutOfMemory;
 
 use merc_lts::LTS;
 use merc_lts::LabelledTransitionSystem;
@@ -22,7 +23,6 @@ use merc_lts::read_aut;
 use merc_syntax::DataExpr;
 use merc_syntax::MultiAction;
 use merc_utilities::MercError;
-use oxidd::util::OutOfMemory;
 
 /// Reads a .aut file as feature transition system by using the associated feature diagram.
 ///
@@ -32,12 +32,10 @@ use oxidd::util::OutOfMemory;
 pub fn read_fts(
     manager_ref: &BDDManagerRef,
     reader: impl Read,
-    feature_diagram: FeatureDiagram,
+    features: HashMap<String, BDDFunction>,
 ) -> Result<FeatureTransitionSystem, MercError> {
     // Read the underlying LTS, where the labels are in plain text
     let aut = read_aut(reader, Vec::new())?;
-
-    debug!("Using feature diagram {feature_diagram:?}");
 
     // Parse the labels as data expressions
     let mut feature_labels = Vec::new();
@@ -54,7 +52,7 @@ pub fn read_fts(
 
         if let Some(action) = action.actions.first() {
             if let Some(arg) = action.args.first() {
-                feature_labels.push(data_expr_to_bdd(manager_ref, &feature_diagram.variables, arg)?);
+                feature_labels.push(data_expr_to_bdd(manager_ref, &features, arg)?);
             } else {
                 feature_labels.push(manager_ref.with_manager_shared(|manager| BDDFunction::t(manager)));
             }
@@ -64,7 +62,7 @@ pub fn read_fts(
         }
     }
 
-    Ok(FeatureTransitionSystem::new(aut, feature_labels, feature_diagram))
+    Ok(FeatureTransitionSystem::new(aut, feature_labels, features))
 }
 
 /// Converts the given data expression into a BDD function.
@@ -108,10 +106,10 @@ fn data_expr_to_bdd(
 }
 
 pub struct FeatureDiagram {
-    /// The mapping from variable names to their var representation.
-    variables: HashMap<String, BDDFunction>,
+    /// The mapping from variable names to their BDD variable.
+    features: HashMap<String, BDDFunction>,
 
-    /// Stores the initial configuration as a BDD function.
+    /// Stores the set of products as a BDD function.
     configuration: BDDFunction,
 }
 
@@ -153,7 +151,7 @@ impl FeatureDiagram {
         let initial_configuration = data_expr_to_bdd(manager_ref, &variables, &DataExpr::parse(&second_line)?)?;
 
         Ok(Self {
-            variables,
+            features: variables,
             configuration: initial_configuration,
         })
     }
@@ -162,11 +160,16 @@ impl FeatureDiagram {
     pub fn configuration(&self) -> &BDDFunction {
         &self.configuration
     }
+
+    /// Returns the features used in the feature diagram.
+    pub fn features(&self) -> &HashMap<String, BDDFunction> {
+        &self.features
+    }
 }
 
 impl fmt::Debug for FeatureDiagram {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "variables = {:?}", self.variables.keys())
+        write!(f, "variables = {:?}", self.features.keys())
     }
 }
 
@@ -179,8 +182,8 @@ pub struct FeatureTransitionSystem {
     /// The feature expression associated with each label.
     feature_labels: Vec<BDDFunction>,
 
-    /// The feature diagram for this FTS.
-    feature_diagram: FeatureDiagram,
+    /// The features associated with this feature transition system.
+    features: HashMap<String, BDDFunction>,
 }
 
 impl FeatureTransitionSystem {
@@ -188,12 +191,12 @@ impl FeatureTransitionSystem {
     pub fn new(
         lts: LabelledTransitionSystem,
         feature_labels: Vec<BDDFunction>,
-        feature_diagram: FeatureDiagram,
+        features: HashMap<String, BDDFunction>,
     ) -> Self {
         Self {
             lts,
             feature_labels,
-            feature_diagram,
+            features,
         }
     }
 
@@ -202,14 +205,9 @@ impl FeatureTransitionSystem {
         &self.feature_labels[label_index]
     }
 
-    /// Returns the feature configuration of the feature transition system.
-    pub fn configuration(&self) -> &BDDFunction {
-        self.feature_diagram.configuration()
-    }
-
-    /// Returns the variables used in the feature diagram.
-    pub fn variables(&self) -> &HashMap<String, BDDFunction> {
-        &self.feature_diagram.variables
+    /// Returns the features used in the feature diagram.
+    pub fn features(&self) -> &HashMap<String, BDDFunction> {
+        &self.features
     }
 }
 
@@ -220,13 +218,11 @@ impl LTS for FeatureTransitionSystem {
         self.lts = lts;
         self.feature_labels.extend_from_slice(&other.feature_labels);
 
-        // The feature diagrams must be identical when merging disjoint FTSs.
-        // This is because the feature labels and configurations are defined
-        // with respect to the same set of features and constraints. Merging
-        // FTSs with different feature diagrams would result in an inconsistent
-        // or ill-defined system.
-        assert!(self.feature_diagram.variables == other.feature_diagram.variables);
-        assert!(self.feature_diagram.configuration == other.feature_diagram.configuration);
+        // The features must be identical when merging disjoint FTSs. This is
+        // because the feature labels are defined with respect to the same set
+        // of features. Merging FTSs with different feature diagrams would
+        // result in an inconsistent or ill-defined system.
+        assert!(self.features == other.features);
 
         (self, initial_state)
     }
@@ -265,7 +261,7 @@ mod tests {
         let _result = read_fts(
             &manager_ref,
             include_bytes!("../../../examples/vpg/minepump_fts.aut") as &[u8],
-            feature_diagram,
+            feature_diagram.features,
         )
         .unwrap();
     }
