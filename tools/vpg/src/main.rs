@@ -150,7 +150,6 @@ fn main() -> Result<ExitCode, MercError> {
     Ok(ExitCode::SUCCESS)
 }
 
-
 /// Handle the `solve` subcommand.
 ///
 /// Reads either a standard parity game (PG) or a variability parity game (VPG)
@@ -159,8 +158,7 @@ fn main() -> Result<ExitCode, MercError> {
 fn handle_solve(args: SolveArgs, timing: &mut Timing) -> Result<(), MercError> {
     let path = Path::new(&args.filename);
     let mut file = File::open(path)?;
-    let format =
-        guess_format_from_extension(path, args.format).ok_or("Unknown parity game file format.")?;
+    let format = guess_format_from_extension(path, args.format).ok_or("Unknown parity game file format.")?;
 
     if format == ParityGameFormat::PG {
         // Read and solve a standard parity game.
@@ -226,8 +224,7 @@ fn handle_reachable(args: ReachableArgs, timing: &mut Timing) -> Result<(), Merc
     let path = Path::new(&args.filename);
     let mut file = File::open(&path)?;
 
-    let format =
-        guess_format_from_extension(&path, args.format).ok_or("Unknown parity game file format.")?;
+    let format = guess_format_from_extension(&path, args.format).ok_or("Unknown parity game file format.")?;
 
     match format {
         ParityGameFormat::PG => {
@@ -293,16 +290,15 @@ fn handle_translate(args: TranslateArgs) -> Result<(), MercError> {
             &args.fts_filename, e
         ))
     })?;
-    let fts = read_fts(&manager_ref, &mut fts_file, feature_diagram)?;
+    let fts = read_fts(&manager_ref, &mut fts_file, feature_diagram.features().clone())?;
 
     // Read and validate formula (no actions/data specs supported here)
-    let formula_spec =
-        UntypedStateFrmSpec::parse(&read_to_string(&args.formula_filename).map_err(|e| {
-            MercError::from(format!(
-                "Could not open formula file '{}': {}",
-                &args.formula_filename, e
-            ))
-        })?)?;
+    let formula_spec = UntypedStateFrmSpec::parse(&read_to_string(&args.formula_filename).map_err(|e| {
+        MercError::from(format!(
+            "Could not open formula file '{}': {}",
+            &args.formula_filename, e
+        ))
+    })?)?;
     if !formula_spec.action_declarations.is_empty() {
         return Err(MercError::from("We do not support formulas with action declarations."));
     }
@@ -311,7 +307,12 @@ fn handle_translate(args: TranslateArgs) -> Result<(), MercError> {
         return Err(MercError::from("The formula must not contain a data specification."));
     }
 
-    let vpg = translate(&manager_ref, &fts, &formula_spec.formula)?;
+    let vpg = translate(
+        &manager_ref,
+        &fts,
+        feature_diagram.configuration().clone(),
+        &formula_spec.formula,
+    )?;
     let mut output_file = File::create(&args.output)?;
     write_vpg(&mut output_file, &vpg)?;
 
@@ -325,8 +326,7 @@ fn handle_translate(args: TranslateArgs) -> Result<(), MercError> {
 fn handle_display(args: DisplayArgs, timing: &mut Timing) -> Result<(), MercError> {
     let path = Path::new(&args.filename);
     let mut file = File::open(path)?;
-    let format =
-        guess_format_from_extension(path, args.format).ok_or("Unknown parity game file format.")?;
+    let format = guess_format_from_extension(path, args.format).ok_or("Unknown parity game file format.")?;
 
     if format == ParityGameFormat::PG {
         // Read and display a standard parity game.
