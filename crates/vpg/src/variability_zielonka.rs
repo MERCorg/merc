@@ -29,8 +29,6 @@ use crate::VertexIndex;
 pub enum ZielonkaVariant {
     /// Standard Zielonka algorithm.
     Standard,
-    /// Optimised Zielonka variant.
-    Optimised,
     /// Left-optimised Zielonka variant.
     OptimisedLeft,
 }
@@ -60,7 +58,6 @@ pub fn solve_variability_zielonka(
 
     let mut W = match variant {
         ZielonkaVariant::Standard => zielonka.solve_recursive(V)?,
-        ZielonkaVariant::Optimised => zielonka.solve_optimised_recursive(V)?,
         ZielonkaVariant::OptimisedLeft => zielonka.solve_optimised_left_recursive(V)?,
     };
 
@@ -206,102 +203,7 @@ impl<'a> VariabilityZielonkaSolver<'a> {
         Ok(omega_double_prime)
     }
 
-    /// Optimised Zielonka recursion adapted from C++ `solve_optimised_rec`.
-    fn solve_optimised_recursive(&mut self, gamma: Submap) -> Result<[Submap; 2], MercError> {
-        self.recursive_calls += 1;
-
-        if gamma.is_empty() {
-            debug!("empty subgame");
-            return Ok([gamma.clone(), gamma]);
-        }
-
-        let (highest_prio, lowest_prio) = self.get_highest_lowest_prio(&gamma);
-        let x = Player::from_priority(&highest_prio);
-        let not_x = x.opponent();
-
-        // mu collects configurations at max priority vertices
-        let mut mu = Submap::new(
-            self.manager_ref.with_manager_shared(|manager| BDDFunction::f(manager)),
-            self.game.num_of_vertices(),
-        );
-        for v in &self.priority_vertices[*highest_prio] {
-            mu.set(*v, gamma[*v].clone());
-        }
-
-        debug!(
-            "solve_optimised_rec(gamma) |gamma| = {}, m = {}, l = {}, x = {}, |mu| = {}",
-            gamma.mapping.iter().filter(|f| f.satisfiable()).count(),
-            highest_prio,
-            lowest_prio,
-            x,
-            mu.number_of_non_empty()
-        );
-
-        // A := attr_x(mu)
-        let mut A = self.attractor(x, &gamma, mu)?;
-
-        // Solve on gamma \ A
-        debug!("begin solve_optimised_rec(gamma \\ A)");
-        let mut W_prime = self.solve_optimised_recursive(gamma.clone().minus(&A)?)?;
-        debug!("end solve_optimised_rec(gamma \\ A)");
-
-        if W_prime[not_x.to_index()].is_empty() {
-            // Winner x gets everything remaining
-            debug!("return (W'_0, W'_1)");
-            W_prime[x.to_index()] = gamma;
-            W_prime[not_x.to_index()].clear()?;
-            self.check_partition(&W_prime)?;
-            return Ok(W_prime);
-        }
-
-        // B := attr_not_x(W'_not_x)
-        let mut W_prime_not_x = std::mem::take(&mut W_prime[not_x.to_index()]);
-        let B = self.attractor(not_x, &gamma, W_prime_not_x.clone())?;
-
-        // Compute C := union of configurations present in B over all vertices
-        let mut C = self.manager_ref.with_manager_shared(|m| BDDFunction::f(m));
-        for (v, func) in B.iter() {
-            C = C.or(func)?;
-        }
-
-        // Adjust A := ((A ∪ W'_x) \ B) \ C
-        A = A.or(&W_prime[x.to_index()])?;
-        A = A.minus(&B)?;
-        // A := A \ C (pointwise)
-        {
-            let mut updated = A.clone();
-            let indices: Vec<_> = updated.iter().map(|(v, _)| v).collect();
-                for v in indices {
-                    let func = updated[v].clone();
-                    let adjusted = minus(&func, &C)?;
-                    updated.set(v, adjusted);
-                }
-            A = updated;
-        }
-
-        // Solve on gamma \ (A ∪ B)
-        let mut gamma_reduced = gamma.clone().minus(&A)?;
-        gamma_reduced = gamma_reduced.minus(&B)?;
-        debug!("begin solve_optimised_rec(gamma - (A \\cup B))");
-        let mut W_double = self.solve_optimised_recursive(gamma_reduced)?;
-        debug!("end solve_optimised_rec(gamma - (A \\cup B))");
-
-        // Combine results (clone then assign)
-        {
-            let tmp = W_double[x.to_index()].clone().or(&A)?;
-            W_double[x.to_index()] = tmp;
-        }
-        {
-            let tmp = W_double[not_x.to_index()].clone().or(&B)?;
-            W_double[not_x.to_index()] = tmp;
-        }
-
-        debug!("return (W''_0, W''_1)");
-        self.check_partition(&W_double)?;
-        Ok(W_double)
-    }
-
-    /// Left-optimised Zielonka recursion adapted from C++ `solve_optimised_left_rec`.
+    /// Left-optimised Zielonka solver that has improved theoretical complexity, but might be slower in practice.
     fn solve_optimised_left_recursive(&mut self, gamma: Submap) -> Result<[Submap; 2], MercError> {
         self.recursive_calls += 1;
         let gamma_copy = gamma.clone();
@@ -509,7 +411,10 @@ impl<'a> VariabilityZielonkaSolver<'a> {
             }
         }
 
-        debug_assert!(!self.temp_vertices.any(), "temp_vertices should be empty after attractor computation");
+        debug_assert!(
+            !self.temp_vertices.any(),
+            "temp_vertices should be empty after attractor computation"
+        );
 
         Ok(A)
     }
@@ -561,7 +466,7 @@ impl<'a> VariabilityZielonkaSolver<'a> {
 /// Returns the boolean set difference of two BDD functions: lhs \ rhs.
 /// Implemented as lhs AND (NOT rhs).
 pub fn minus(lhs: &BDDFunction, rhs: &BDDFunction) -> AllocResult<BDDFunction> {
-	lhs.and(&rhs.not()?)
+    lhs.and(&rhs.not()?)
 }
 
 /// A mapping from vertices to configurations.
@@ -769,21 +674,6 @@ mod tests {
     //                 }
     //             }
     //         }
-    //     })
-    // }
-
-    // #[merc_test]
-    // #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
-    // fn test_random_variability_parity_game_solve_optimised() {
-    //     random_test(100, |rng| {
-    //         let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
-    //         let vpg = random_variability_parity_game(&manager_ref, rng, true, 20, 3, 3, 3).unwrap();
-
-    //         let solution = solve_variability_zielonka(&manager_ref, &vpg, ZielonkaVariant::Optimised, false).unwrap();
-    //         let solution_expected = solve_variability_zielonka(&manager_ref, &vpg, ZielonkaVariant::Standard, false).unwrap();
-
-    //         debug_assert_eq!(solution[0], solution_expected[0]);
-    //         debug_assert_eq!(solution[1], solution_expected[1]);
     //     })
     // }
 
