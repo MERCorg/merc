@@ -166,7 +166,6 @@ pub struct ControlFlowGraphVertex {
     vertex: *const local_control_flow_graph_vertex,
 
     outgoing_edges: Vec<(*const local_control_flow_graph_vertex, Vec<usize>)>,
-    incoming_edges: Vec<(*const local_control_flow_graph_vertex, Vec<usize>)>,
 }
 
 impl ControlFlowGraphVertex {
@@ -197,11 +196,6 @@ impl ControlFlowGraphVertex {
         &self.outgoing_edges
     }
 
-    /// Returns the outgoing edges of the vertex.
-    pub fn incoming_edges(&self) -> &Vec<(*const local_control_flow_graph_vertex, Vec<usize>)> {
-        &self.incoming_edges
-    }
-
     /// Construct a new vertex and retrieve its edges as well.
     /// TODO: This should probably be private.
     pub fn new(vertex: *const local_control_flow_graph_vertex) -> Self {
@@ -213,6 +207,8 @@ impl ControlFlowGraphVertex {
             );
         }
 
+        println!("Outgoing edges FFI: {:?}", outgoing_edges_ffi);
+
         let outgoing_edges = outgoing_edges_ffi
             .iter()
             .map(|pair| (pair.vertex, pair.edges.iter().copied().collect()))
@@ -221,7 +217,6 @@ impl ControlFlowGraphVertex {
         ControlFlowGraphVertex {
             vertex,
             outgoing_edges,
-            incoming_edges: vec![],
         }
     }
 
@@ -488,8 +483,8 @@ pub fn replace_variables(expr: &PbesExpression, sigma: Vec<(DataExpression, Data
     let sigma: Vec<assignment_pair> = sigma
         .iter()
         .map(|(lhs, rhs)| assignment_pair {
-            lhs: lhs.get().address(),
-            rhs: rhs.get().address(),
+            lhs: lhs.address(),
+            rhs: rhs.address(),
         })
         .collect();
 
