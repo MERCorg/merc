@@ -8,6 +8,7 @@ use std::ops::Index;
 
 use bitvec::order::Lsb0;
 use bitvec::vec::BitVec;
+use clap::ValueEnum;
 use log::debug;
 use log::trace;
 use merc_utilities::MercError;
@@ -25,11 +26,13 @@ use crate::VariabilityPredecessors;
 use crate::VertexIndex;
 
 /// Variant of the Zielonka algorithm to use.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ZielonkaVariant {
-    /// Standard Zielonka algorithm.
+    /// Product-based Zielonka variant.
+    Product,
+    /// Standard Family-based Zielonka algorithm.
     Standard,
-    /// Left-optimised Zielonka variant.
+    /// Left-optimised Family-based Zielonka variant.
     OptimisedLeft,
 }
 
@@ -59,6 +62,9 @@ pub fn solve_variability_zielonka(
     let mut W = match variant {
         ZielonkaVariant::Standard => zielonka.solve_recursive(V)?,
         ZielonkaVariant::OptimisedLeft => zielonka.solve_optimised_left_recursive(V)?,
+        ZielonkaVariant::Product => {
+            panic!("Product-based Zielonka is implemented in solve_product_zielonka");
+        }
     };
 
     debug!("Performed {} recursive calls", zielonka.recursive_calls);

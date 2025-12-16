@@ -1,24 +1,26 @@
-use std::fs::File;
 use std::fs::read_to_string;
+use std::fs::File;
 use std::io::Write;
 use std::path::Path;
 use std::process::ExitCode;
 
 use clap::Parser;
 use clap::Subcommand;
-
 use duct::cmd;
+use itertools::Itertools;
+use log::debug;
 use log::info;
+
+use merc_vpg::compute_reachable;
+use merc_vpg::solve_variability_product_zielonka;
+use merc_vpg::write_pg;
 use merc_vpg::CubeIterAll;
 use merc_vpg::PgDot;
 use merc_vpg::Player;
 use merc_vpg::VpgDot;
 use merc_vpg::ZielonkaVariant;
-use merc_vpg::compute_reachable;
-use merc_vpg::write_pg;
 use oxidd::BooleanFunction;
 
-use log::debug;
 use merc_syntax::UntypedStateFrmSpec;
 use merc_tools::VerbosityFlag;
 use merc_tools::Version;
@@ -26,9 +28,6 @@ use merc_tools::VersionFlag;
 use merc_unsafety::print_allocator_metrics;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
-use merc_vpg::FeatureDiagram;
-use merc_vpg::FormatConfig;
-use merc_vpg::ParityGameFormat;
 use merc_vpg::guess_format_from_extension;
 use merc_vpg::read_fts;
 use merc_vpg::read_pg;
@@ -37,6 +36,9 @@ use merc_vpg::solve_variability_zielonka;
 use merc_vpg::solve_zielonka;
 use merc_vpg::translate;
 use merc_vpg::write_vpg;
+use merc_vpg::FeatureDiagram;
+use merc_vpg::FormatConfig;
+use merc_vpg::ParityGameFormat;
 
 #[derive(clap::Parser, Debug)]
 #[command(
@@ -72,6 +74,9 @@ struct SolveArgs {
 
     /// The parity game file format
     format: Option<ParityGameFormat>,
+
+    /// For variability parity games there are several ways for solving.
+    solve_variant: Option<ZielonkaVariant>,
 
     /// Whether to output the solution for every single vertex, not just in the initial vertex.
     #[arg(long, default_value_t = false)]
@@ -175,6 +180,10 @@ fn handle_solve(args: SolveArgs, timing: &mut Timing) -> Result<(), MercError> {
         }
         time_solve.finish();
     } else {
+        let solve_variant = args
+            .solve_variant
+            .ok_or("For variability parity game solving a solving strategy should be selected")?;
+
         // Read and solve a variability parity game.
         let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
 
@@ -183,31 +192,42 @@ fn handle_solve(args: SolveArgs, timing: &mut Timing) -> Result<(), MercError> {
         time_read.finish();
 
         let mut time_solve = timing.start("solve_variability_zielonka");
-        let solutions = solve_variability_zielonka(&manager_ref, &game, ZielonkaVariant::Standard, false)?;
-        for (index, w) in solutions.iter().enumerate() {
-            println!("W{index}: ");
+        if solve_variant == ZielonkaVariant::Product {
+            // Since we want to print W0, W1 separately, we need to store the results temporarily.
+            let mut results = [Vec::new(), Vec::new()];
+            for (cube, _bdd, solution) in solve_variability_product_zielonka(&game) {
+                println!("For product {} the following vertices are in:", FormatConfig(&cube));
 
-            for entry in CubeIterAll::new(game.variables(), &game.configuration()) {
-                let (config, config_function) = entry?;
-
-                print!("For product {} the following vertices are in: ", FormatConfig(&config));
-                let mut first = true;
-                for (vertex, configuration) in w.iter() {
-                    if !first {
-                        print!(", ");
-                    }
-
-                    if configuration.and(&config_function)?.satisfiable() {
-                        print!("{}", vertex);
-                        first = false;
-                    }
-
-                    if !args.full_solution {
-                        // Only print the solution for the initial vertex
-                        break;
-                    }
+                for (index, w) in solution.iter().enumerate() {
+                    results[index].push((cube.clone(), w.clone()));
                 }
-                println!();
+            }
+
+            for (index, w) in results.iter().enumerate() {
+                println!("W{index}: ");
+
+                for (cube, vertices) in w {
+                    print!("For product {} the following vertices are in: {}", FormatConfig(&cube), vertices.iter_ones().format(", "));
+                }
+            }
+        } else {
+            let solutions = solve_variability_zielonka(&manager_ref, &game, solve_variant, false)?;
+            for (index, w) in solutions.iter().enumerate() {
+                println!("W{index}: ");
+
+                for entry in CubeIterAll::new(game.variables(), &game.configuration()) {
+                    let (config, config_function) = entry?;
+
+                    println!(
+                        "For product {} the following vertices are in: {}",
+                        FormatConfig(&config),
+                        w.iter() // Do not use iter_vertices because the first one is the initial vertex only
+                            .take(if args.full_solution { usize::MAX } else { 1 }) // Take only first if we don't want full solution
+                            .filter(|(_v, config)| { config.and(&config_function).unwrap().satisfiable() })
+                            .map(|(v, _)| v)
+                            .format(", ")
+                    );
+                }
             }
         }
         time_solve.finish();

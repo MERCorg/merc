@@ -1,6 +1,9 @@
 #![allow(nonstandard_style)]
 //! To keep with the theory, we use capitalized variable names for sets of vertices.
 //! Authors: Maurice Laveaux, Sjef van Loo, Erik de Vink and Tim A.C. Willemse
+//!
+//! Implements the standard Zielonka recursive solver for any parity game
+//! implementing the [crate::PG] trait.
 
 use std::ops::BitAnd;
 
@@ -8,13 +11,18 @@ use bitvec::bitvec;
 use bitvec::order::Lsb0;
 use bitvec::vec::BitVec;
 use log::debug;
+use oxidd::bdd::BDDFunction;
+use oxidd::util::OptBool;
 
 use crate::PG;
 use crate::ParityGame;
 use crate::Player;
 use crate::Predecessors;
 use crate::Priority;
+use crate::VariabilityParityGame;
 use crate::VertexIndex;
+use crate::compute_reachable;
+use crate::project_variability_parity_games_iter;
 
 type Set = BitVec<usize, Lsb0>;
 
@@ -60,6 +68,16 @@ pub fn solve_zielonka(game: &ParityGame) -> [Set; 2] {
     );
 
     W
+}
+
+/// Solves the given variability parity game using the product-based Zielonka algorithm.
+pub fn solve_variability_product_zielonka(vpg: &VariabilityParityGame) -> impl Iterator<Item = (Vec<OptBool>, BDDFunction, [Set;2])> {
+    project_variability_parity_games_iter(&vpg)
+        .map(|result| {
+            let (cube, bdd, pg) = result.expect("Projection should not fail");
+            let (reachable_pg, _) = compute_reachable(&pg);
+            (cube, bdd, solve_zielonka(&reachable_pg))
+        })
 }
 
 struct ZielonkaSolver<'a> {
