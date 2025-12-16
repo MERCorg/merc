@@ -29,19 +29,19 @@ pub trait DataExpressionVisitor {
     }
 
     fn visit(&mut self, expr: &DataExpression) -> DataExpression {
-        if is_variable(expr.get()) {
-            self.visit_variable(&DataVariable::new(expr.get().clone()))
-        } else if is_application(expr.get()) {
-            self.visit_application(&DataApplication::new(expr.get().clone()))
-        } else if is_abstraction(expr.get()) {
-            self.visit_abstraction(&DataAbstraction::new(expr.get().clone()))
-        } else if is_function_symbol(expr.get()) {
-            self.visit_function_symbol(&DataFunctionSymbol::new(expr.get().clone()))
-        } else if is_where_clause(expr.get()) {
+        if is_variable(&expr.copy()) {
+            self.visit_variable(&DataVariable::new(expr.protect()))
+        } else if is_application(&expr.copy()) {
+            self.visit_application(&DataApplication::new(expr.protect()))
+        } else if is_abstraction(&expr.copy()) {
+            self.visit_abstraction(&DataAbstraction::new(expr.protect()))
+        } else if is_function_symbol(&expr.copy()) {
+            self.visit_function_symbol(&DataFunctionSymbol::new(expr.protect()))
+        } else if is_where_clause(&expr.copy()) {
             unimplemented!();
-        } else if is_machine_number(expr.get()) {
+        } else if is_machine_number(&expr.copy()) {
             unimplemented!();
-        } else if is_untyped_identifier(expr.get()) {
+        } else if is_untyped_identifier(&expr.copy()) {
             unimplemented!();
         } else {
             unimplemented!();
