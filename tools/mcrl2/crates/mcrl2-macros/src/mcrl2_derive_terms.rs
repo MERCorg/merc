@@ -65,7 +65,7 @@ pub(crate) fn mcrl2_derive_terms_impl(_attributes: TokenStream, input: TokenStre
                                 }
                             }
 
-                            impl From<ATerm> for #name {
+                            impl ::std::convert::From<ATerm> for #name {
                                 fn from(term: ATerm) -> #name {
                                     #assertion;
                                     #name {
@@ -74,13 +74,13 @@ pub(crate) fn mcrl2_derive_terms_impl(_attributes: TokenStream, input: TokenStre
                                 }
                             }
 
-                            impl Into<ATerm> for #name {
+                            impl ::std::convert::Into<ATerm> for #name {
                                 fn into(self) -> ATerm {
                                     self.term
                                 }
                             }
 
-                            impl Deref for #name {
+                            impl ::std::ops::Deref for #name {
                                 type Target = ATerm;
 
                                 fn deref(&self) -> &Self::Target {
@@ -88,13 +88,13 @@ pub(crate) fn mcrl2_derive_terms_impl(_attributes: TokenStream, input: TokenStre
                                 }
                             }
 
-                            impl Borrow<ATerm> for #name {
+                            impl ::std::borrow::Borrow<ATerm> for #name {
                                 fn borrow(&self) -> &ATerm {
                                     &self.term
                                 }
                             }
 
-                            impl Borrow<ATermRef<'static>> for #name {
+                            impl ::std::borrow::Borrow<ATermRef<'static>> for #name {
                                 fn borrow(&self) -> &ATermRef<'static> {
                                     &self.term
                                 }
@@ -138,13 +138,13 @@ pub(crate) fn mcrl2_derive_terms_impl(_attributes: TokenStream, input: TokenStre
                                 }
                             }
 
-                            impl<'a> Into<ATermRef<'a>> for #name_ref<'a> {
+                            impl<'a> ::std::convert::Into<ATermRef<'a>> for #name_ref<'a> {
                                 fn into(self) -> ATermRef<'a> {
                                     self.term
                                 }
                             }
 
-                            impl<'a> Deref for #name_ref<'a> {
+                            impl<'a> ::std::ops::Deref for #name_ref<'a> {
                                 type Target = ATermRef<'a>;
 
                                 fn deref(&self) -> &Self::Target {
@@ -152,7 +152,7 @@ pub(crate) fn mcrl2_derive_terms_impl(_attributes: TokenStream, input: TokenStre
                                 }
                             }
 
-                            impl<'a> Borrow<ATermRef<'a>> for #name_ref<'a> {
+                            impl<'a> ::std::borrow::Borrow<ATermRef<'a>> for #name_ref<'a> {
                                 fn borrow(&self) -> &ATermRef<'a> {
                                     &self.term
                                 }

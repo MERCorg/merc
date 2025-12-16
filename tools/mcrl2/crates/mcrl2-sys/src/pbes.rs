@@ -1,6 +1,7 @@
 #[cxx::bridge(namespace = "mcrl2::pbes_system")]
 pub mod ffi {
     /// A helper struct for std::pair<const local_control_flow_graph_vertex*, UniquePtr<CxxVector<usize>>>
+    #[derive(Debug)]
     struct vertex_outgoing_edge {
         vertex: *const local_control_flow_graph_vertex,
         edges: UniquePtr<CxxVector<usize>>,
@@ -96,12 +97,6 @@ pub mod ffi {
 
         /// Obtain the outgoing edges of the vertex.
         fn mcrl2_local_control_flow_graph_vertex_outgoing_edges(
-            result: Pin<&mut CxxVector<vertex_outgoing_edge>>,
-            input: &local_control_flow_graph_vertex,
-        );
-
-        /// Obtain the outgoing edges of the vertex.
-        fn mcrl2_local_control_flow_graph_vertex_incoming_edges(
             result: Pin<&mut CxxVector<vertex_outgoing_edge>>,
             input: &local_control_flow_graph_vertex,
         );
