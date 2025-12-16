@@ -13,8 +13,9 @@ merc_utilities.workspace = true
 
 clap.workspace = true
 env_logger.workspace = true
-log.workspace = true
 itertools.workspace = true
+log.workspace = true
+thiserror.workspace = true
 
 [features]
 # Enables the compiling rewriter option for mCRL2.
