@@ -160,10 +160,6 @@ const atermpp::detail::_aterm* mcrl2_local_control_flow_graph_vertex_value(
 void mcrl2_local_control_flow_graph_vertex_outgoing_edges(std::vector<vertex_outgoing_edge>& result,
     const detail::local_control_flow_graph_vertex& vertex);
 
-void mcrl2_local_control_flow_graph_vertex_incoming_edges(std::vector<vertex_outgoing_edge>& result,
-    const detail::local_control_flow_graph_vertex& vertex);
-
-
 inline
 void mcrl2_stategraph_local_algorithm_cfgs(std::vector<detail::local_control_flow_graph>& result,
     const stategraph_algorithm& algorithm)
