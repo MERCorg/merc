@@ -373,6 +373,7 @@ fn match_action_formula(formula: &ActFrm, action: &MultiAction) -> bool {
         ActFrm::MultAct(expected_action) => expected_action == action,
         ActFrm::Binary { op, lhs, rhs } => match op {
             ActFrmBinaryOp::Union => match_action_formula(lhs, action) || match_action_formula(rhs, action),
+            ActFrmBinaryOp::Intersect => match_action_formula(lhs, action) && match_action_formula(rhs, action),
             _ => {
                 unimplemented!("Cannot translate binary operator {}", formula);
             }
