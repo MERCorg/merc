@@ -58,7 +58,7 @@ impl GlobalTermPool {
         }
     }
 
-    /// Register a new thread term pool to manage thread specific aspects.l
+    /// Register a new thread term pool to manage thread specific aspects.
     pub(crate) fn register_thread_term_pool(&mut self) -> (SharedProtectionSet, SharedContainerProtectionSet, usize) {
         trace!("Registered ThreadTermPool {}", self.thread_protection_sets.len());
 

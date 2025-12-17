@@ -125,13 +125,23 @@ std::unique_ptr<stategraph_algorithm> mcrl2_stategraph_local_algorithm_run(const
 }
 
 inline
-void mcrl2_local_control_flow_graph_vertices(std::vector<detail::local_control_flow_graph_vertex>& result,
-    const detail::local_control_flow_graph& cfg)
+std::size_t mcrl2_local_control_flow_graph_vertices(const detail::local_control_flow_graph& cfg)
 {
-  for (const auto& v : cfg.vertices)
+  return cfg.vertices.size();
+}
+
+inline
+const detail::local_control_flow_graph_vertex& mcrl2_local_control_flow_graph_vertex(const detail::local_control_flow_graph& cfg, std::size_t index)
+{
+  for (auto it = cfg.vertices.begin(); it != cfg.vertices.end(); ++it)
   {
-    result.push_back(v);
+    if (std::distance(cfg.vertices.begin(), it) == static_cast<std::ptrdiff_t>(index))
+    {
+      return *it;
+    }
   }
+
+  throw std::out_of_range("Index out of range in mcrl2_local_control_flow_graph_vertex");
 }
 
 // namespace mcrl2::pbes_system::detail::local_control_flow_graph_vertex
@@ -157,29 +167,33 @@ const atermpp::detail::_aterm* mcrl2_local_control_flow_graph_vertex_value(
   return atermpp::detail::address(vertex.value());
 }
 
-void mcrl2_local_control_flow_graph_vertex_outgoing_edges(std::vector<vertex_outgoing_edge>& result,
-    const detail::local_control_flow_graph_vertex& vertex);
+std::unique_ptr<std::vector<vertex_outgoing_edge>> mcrl2_local_control_flow_graph_vertex_outgoing_edges(const detail::local_control_flow_graph_vertex& vertex);
 
 inline
-void mcrl2_stategraph_local_algorithm_cfgs(std::vector<detail::local_control_flow_graph>& result,
-    const stategraph_algorithm& algorithm)
+std::size_t mcrl2_stategraph_local_algorithm_cfgs(const stategraph_algorithm& algorithm)
 {
-  for (const auto& cfg : algorithm.local_control_flow_graphs())
-  {
-    result.push_back(cfg);
-  }
+  return algorithm.local_control_flow_graphs().size();
 }
 
 inline
-void mcrl2_stategraph_local_algorithm_equations(std::vector<detail::stategraph_equation>& result,
-    const stategraph_algorithm& algorithm)
+const detail::local_control_flow_graph& mcrl2_stategraph_local_algorithm_cfg(const stategraph_algorithm& algorithm, std::size_t index)
 {
-  for (const auto& eqn : algorithm.equations())
-  {
-    result.push_back(eqn);
-  }
+  return algorithm.local_control_flow_graphs().at(index);
 }
 
+
+inline
+std::size_t mcrl2_stategraph_local_algorithm_equations(const stategraph_algorithm& algorithm)
+{
+  return algorithm.equations().size();
+}
+
+
+inline
+const detail::stategraph_equation& mcrl2_stategraph_local_algorithm_equation(const stategraph_algorithm& algorithm, std::size_t index)
+{
+  return algorithm.equations().at(index);
+}
 
 inline
 const atermpp::detail::_aterm* mcrl2_stategraph_equation_variable(const detail::stategraph_equation& equation)
@@ -202,13 +216,14 @@ void mcrl2_srf_pbes_unify_parameters(srf_pbes& p, bool ignore_ce_equations, bool
 // mcrl2::pbes_system::detail::predicate_variable
 
 inline
-void mcrl2_stategraph_equation_predicate_variables(std::vector<detail::predicate_variable>& result,
-    const detail::stategraph_equation& eqn)
+std::unique_ptr<std::vector<detail::predicate_variable>> mcrl2_stategraph_equation_predicate_variables(const detail::stategraph_equation& eqn)
 {
+  std::vector<detail::predicate_variable> result;
   for (const auto& v : eqn.predicate_variables())
   {
     result.push_back(v);
   }
+  return std::make_unique<std::vector<detail::predicate_variable>>(std::move(result));
 }
 
 inline

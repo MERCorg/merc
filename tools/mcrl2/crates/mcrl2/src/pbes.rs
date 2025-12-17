@@ -1,13 +1,14 @@
 use std::fmt;
+use std::rc::Rc;
 
 use mcrl2_sys::cxx::CxxVector;
 use mcrl2_sys::cxx::UniquePtr;
 use mcrl2_sys::pbes::ffi::assignment_pair;
-use mcrl2_sys::pbes::ffi::local_control_flow_graph;
 use mcrl2_sys::pbes::ffi::local_control_flow_graph_vertex;
 use mcrl2_sys::pbes::ffi::mcrl2_load_pbes_from_pbes_file;
 use mcrl2_sys::pbes::ffi::mcrl2_load_pbes_from_text;
 use mcrl2_sys::pbes::ffi::mcrl2_load_pbes_from_text_file;
+use mcrl2_sys::pbes::ffi::mcrl2_local_control_flow_graph_vertex;
 use mcrl2_sys::pbes::ffi::mcrl2_local_control_flow_graph_vertex_index;
 use mcrl2_sys::pbes::ffi::mcrl2_local_control_flow_graph_vertex_name;
 use mcrl2_sys::pbes::ffi::mcrl2_local_control_flow_graph_vertex_outgoing_edges;
@@ -26,7 +27,9 @@ use mcrl2_sys::pbes::ffi::mcrl2_srf_pbes_to_pbes;
 use mcrl2_sys::pbes::ffi::mcrl2_srf_pbes_unify_parameters;
 use mcrl2_sys::pbes::ffi::mcrl2_stategraph_equation_predicate_variables;
 use mcrl2_sys::pbes::ffi::mcrl2_stategraph_equation_variable;
+use mcrl2_sys::pbes::ffi::mcrl2_stategraph_local_algorithm_cfg;
 use mcrl2_sys::pbes::ffi::mcrl2_stategraph_local_algorithm_cfgs;
+use mcrl2_sys::pbes::ffi::mcrl2_stategraph_local_algorithm_equation;
 use mcrl2_sys::pbes::ffi::mcrl2_stategraph_local_algorithm_equations;
 use mcrl2_sys::pbes::ffi::mcrl2_stategraph_local_algorithm_run;
 use mcrl2_sys::pbes::ffi::pbes;
@@ -93,33 +96,27 @@ pub struct PbesStategraph {
     control_flow_graphs: Vec<ControlFlowGraph>,
     equations: Vec<StategraphEquation>,
 
-    _algorithm: UniquePtr<stategraph_algorithm>,
-    _equations_ffi: UniquePtr<CxxVector<stategraph_equation>>,
-    _control_flow_graphs_ffi: UniquePtr<CxxVector<local_control_flow_graph>>,
+    _algorithm: Rc<UniquePtr<stategraph_algorithm>>,
 }
 
 impl PbesStategraph {
     /// Run the state graph algorithm on the given PBES.
     pub fn run(pbes: &Pbes) -> Result<Self, MercError> {
-        let algorithm = mcrl2_stategraph_local_algorithm_run(&pbes.pbes)?;
+        let algorithm = Rc::new(mcrl2_stategraph_local_algorithm_run(&pbes.pbes)?);
 
         // Obtain a copy of the control flow graphs.
-        let mut control_flow_graphs_ffi = CxxVector::new();
-        mcrl2_stategraph_local_algorithm_cfgs(control_flow_graphs_ffi.pin_mut(), &algorithm);
+        let control_flow_graphs = (0..mcrl2_stategraph_local_algorithm_cfgs(&algorithm))
+            .map(|index| ControlFlowGraph::new(algorithm.clone(), index))
+            .collect::<Vec<_>>();
 
-        // Obtain the original equations.
-        let mut equations_ffi = CxxVector::new();
-        mcrl2_stategraph_local_algorithm_equations(equations_ffi.pin_mut(), &algorithm);
+        let equations = (0..mcrl2_stategraph_local_algorithm_equations(&algorithm))
+            .map(|index| StategraphEquation::new(algorithm.clone(), index))
+            .collect::<Vec<_>>();
 
         Ok(PbesStategraph {
-            control_flow_graphs: control_flow_graphs_ffi
-                .iter()
-                .map(|cfg| ControlFlowGraph::new(cfg))
-                .collect(),
-            equations: equations_ffi.iter().map(|eq| StategraphEquation::new(eq)).collect(),
+            control_flow_graphs,
+            equations,
             _algorithm: algorithm,
-            _control_flow_graphs_ffi: control_flow_graphs_ffi,
-            _equations_ffi: equations_ffi,
         })
     }
 
@@ -136,9 +133,7 @@ impl PbesStategraph {
 
 /// mcrl2::pbes_system::detail::local_control_flow_graph
 pub struct ControlFlowGraph {
-    _cfg: *const local_control_flow_graph,
     vertices: Vec<ControlFlowGraphVertex>,
-    _vertices_ffi: UniquePtr<CxxVector<local_control_flow_graph_vertex>>,
 }
 
 impl ControlFlowGraph {
@@ -147,16 +142,19 @@ impl ControlFlowGraph {
         &self.vertices
     }
 
-    pub(crate) fn new(cfg: *const local_control_flow_graph) -> Self {
-        // Obtain the vertices of the control flow graph.
-        let mut vertices_ffi = CxxVector::new();
-        mcrl2_local_control_flow_graph_vertices(vertices_ffi.pin_mut(), unsafe { &*cfg });
-        let vertices = vertices_ffi.iter().map(|v| ControlFlowGraphVertex::new(v)).collect();
+    /// Finds a vertex by its pointer.
+    pub fn find_by_ptr(&self, ptr: *const local_control_flow_graph_vertex) -> &ControlFlowGraphVertex {
+        self.vertices.iter().find(|v| v.get() == ptr).expect("Vertex should exist")
+    }
+
+    pub(crate) fn new(algorithm: Rc<UniquePtr<stategraph_algorithm>>, index: usize) -> Self {
+        let cfg = mcrl2_stategraph_local_algorithm_cfg(&algorithm, index);
+        let vertices = (0..mcrl2_local_control_flow_graph_vertices(cfg))
+            .map(|vertex_index| ControlFlowGraphVertex::new(algorithm.clone(), index, vertex_index))
+            .collect::<Vec<_>>();
 
         ControlFlowGraph {
-            _cfg: cfg,
             vertices,
-            _vertices_ffi: vertices_ffi,
         }
     }
 }
@@ -198,26 +196,17 @@ impl ControlFlowGraphVertex {
 
     /// Construct a new vertex and retrieve its edges as well.
     /// TODO: This should probably be private.
-    pub fn new(vertex: *const local_control_flow_graph_vertex) -> Self {
-        let mut outgoing_edges_ffi = CxxVector::new();
-        unsafe {
-            mcrl2_local_control_flow_graph_vertex_outgoing_edges(
-                outgoing_edges_ffi.pin_mut(),
-                vertex.as_ref().expect("Pointer should be valid"),
-            );
-        }
-
-        println!("Outgoing edges FFI: {:?}", outgoing_edges_ffi);
+    pub fn new(algorithm: Rc<UniquePtr<stategraph_algorithm>>, cfg: usize, vertex: usize) -> Self {
+        let cfg = mcrl2_stategraph_local_algorithm_cfg(&algorithm, cfg);
+        let vertex = mcrl2_local_control_flow_graph_vertex(cfg, vertex);
+        let outgoing_edges_ffi = mcrl2_local_control_flow_graph_vertex_outgoing_edges(vertex);
 
         let outgoing_edges = outgoing_edges_ffi
             .iter()
             .map(|pair| (pair.vertex, pair.edges.iter().copied().collect()))
             .collect();
 
-        ControlFlowGraphVertex {
-            vertex,
-            outgoing_edges,
-        }
+        ControlFlowGraphVertex { vertex, outgoing_edges }
     }
 
     fn as_ref(&self) -> &local_control_flow_graph_vertex {
@@ -231,7 +220,12 @@ impl ControlFlowGraphVertex {
 
 impl fmt::Debug for ControlFlowGraphVertex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Vertex(name: {:?}, value: {:?})", self.name(), self.value())
+        write!(
+            f,
+            "{:?}({})",
+            self.name(),
+            self.value().pretty_print()
+        )
     }
 }
 
@@ -272,9 +266,9 @@ impl PredicateVariable {
 
 /// mcrl2::pbes_system::detail::stategraph_equation
 pub struct StategraphEquation {
+    index: usize,
+    algorithm: Rc<UniquePtr<stategraph_algorithm>>,
     predicate_variables: Vec<PredicateVariable>,
-
-    equation: *const stategraph_equation,
 }
 
 impl StategraphEquation {
@@ -288,22 +282,21 @@ impl StategraphEquation {
         PropositionalVariable::new(ATerm::from_ptr(mcrl2_stategraph_equation_variable(self.as_ref())))
     }
 
-    pub(crate) fn new(equation: *const stategraph_equation) -> Self {
-        let mut predicate_variables = CxxVector::new();
-        mcrl2_stategraph_equation_predicate_variables(predicate_variables.pin_mut(), unsafe {
-            equation.as_ref().expect("Pointer should be valid")
-        });
+    pub(crate) fn new(algorithm: Rc<UniquePtr<stategraph_algorithm>>, index: usize) -> Self {
+        let equation = mcrl2_stategraph_local_algorithm_equation(&algorithm, index);
+        let predicate_variables = mcrl2_stategraph_equation_predicate_variables(equation);
         let predicate_variables = predicate_variables.iter().map(|v| PredicateVariable::new(v)).collect();
 
         StategraphEquation {
             predicate_variables,
-            equation,
+            index,
+            algorithm,
         }
     }
 
     /// Returns a reference to the underlying FFI equation.
     fn as_ref(&self) -> &stategraph_equation {
-        unsafe { self.equation.as_ref().expect("Pointer should be valid") }
+        mcrl2_stategraph_local_algorithm_equation(&self.algorithm, self.index)
     }
 }
 

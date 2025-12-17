@@ -35,5 +35,9 @@ pub mod ffi {
         fn mcrl2_data_expression_is_machine_number(input: &_aterm) -> bool;
         fn mcrl2_data_expression_is_untyped_identifier(input: &_aterm) -> bool;
         fn mcrl2_data_expression_is_data_expression(input: &_aterm) -> bool;
+
+        fn mcrl2_is_data_sort_expression(input: &_aterm) -> bool;
+
+        fn mcrl2_data_expression_to_string(input: &_aterm) -> String;
     }
 }

@@ -93,6 +93,18 @@ bool mcrl2_data_expression_is_data_expression(const atermpp::detail::_aterm& inp
   return data::is_data_expression(atermpp::down_cast<atermpp::aterm>(tmp));
 }
 
+bool mcrl2_is_data_sort_expression(const atermpp::detail::_aterm& input)
+{
+  atermpp::unprotected_aterm_core tmp(&input);
+  return data::is_sort_expression(atermpp::down_cast<atermpp::aterm>(tmp));
+}
+
+rust::String mcrl2_data_expression_to_string(const atermpp::detail::_aterm& input)
+{
+  atermpp::unprotected_aterm_core tmp(&input);
+  return data::pp(atermpp::down_cast<data::data_expression>(tmp));
+}
+
 } // namespace mcrl2::data
 
 #endif // MCRL2_SYS_CPP_DATA_H

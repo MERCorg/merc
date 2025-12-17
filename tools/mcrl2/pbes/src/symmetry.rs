@@ -7,6 +7,7 @@ use std::iter;
 use itertools::Itertools;
 use log::debug;
 use log::info;
+use log::trace;
 
 use mcrl2::ATermString;
 use mcrl2::ControlFlowGraph;
@@ -195,7 +196,7 @@ impl SymmetryAlgorithm {
             let mut clique = vec![i];
             for j in (i + 1)..self.state_graph.control_flow_graphs().len() {
                 if let Err(reason) = self.compatible(cfg, &self.state_graph.control_flow_graphs()[j]) {
-                    info!("Incompatible CFGs at indices {} and {}: {}", i, j, reason);
+                    info!("Incompatible CFGs at indices {} and {}: \n\t - {}", i, j, reason);
                 } else {
                     clique.push(j);
                 }
@@ -325,40 +326,25 @@ impl SymmetryAlgorithm {
     }
 
     /// Returns true iff the two control flow graphs are compatible.
-    fn compatible(&self, c: &ControlFlowGraph, c_prime: &ControlFlowGraph) -> Result<(), MercError> {
+    fn compatible(&self, c: &ControlFlowGraph, c1: &ControlFlowGraph) -> Result<(), MercError> {
         // First check whether the vertex sets are compatible.
-        if let Err(x) = self.vertex_sets_compatible(c, c_prime) {
+        if let Err(x) = self.vertex_sets_compatible(c, c1) {
             return Err(format!("Incompatible vertex sets.\n {x}").into());
         }
 
+        // Note that this algorithm is slightly different than the pseudocode, because the graphs in the implementation are
+        // over different (compatible) vertex sets.
         for s_c in c.vertices() {
             let mut s_matched = false;
-            for s_c_prime in c_prime.vertices() {
-                // Check whether there is a matching value in c' for every value in c.
-                if s_c.value() == s_c_prime.value() && s_c.name() == s_c_prime.name() {
-                    // There exist t such that s_c and s'_c' match according to the definitions in the paper.
-                    'outer: for s_prime_c in c.vertices() {
-                        for s_prime_c_prime in c_prime.vertices() {
-                            // Y(v) in c and Y(v) in c_prime.
-                            if s_prime_c.value() == s_prime_c_prime.value()
-                                && s_prime_c.name() == s_prime_c_prime.name() {
-                                s_matched = true;
+            // There exist s_c' such that s and s_c' match according to the definitions in the paper.
+            for s_c1 in c1.vertices() {
+                // X(v) in c and X(v) in c1.
+                if s_c.value() == s_c1.value() && s_c.name() == s_c1.name() {
+                    if let Err(value) = self.find_compatible(c, c1, s_c, s_c1) {
+                        return Err(value);
+                    } 
 
-                                if let Err(value) =
-                                    self.check_compatible(c, c_prime, s_c, s_c_prime, s_prime_c, s_prime_c_prime)
-                                {
-                                    return Err(format!(
-                                        "Incompatible edges between vertices {:?} and {:?}: {}",
-                                        s_c, s_c_prime, value
-                                    )
-                                    .into());
-                                } else {
-                                    // We found one matching edge so continue.
-                                    break 'outer;
-                                }
-                            }
-                        }
-                    }
+                    s_matched = true;
                 }
             }
 
@@ -370,32 +356,68 @@ impl SymmetryAlgorithm {
         Ok(())
     }
 
-    /// Checks whether two edges (s_c, s_c_prime) and (s_, s_c_prime) are compatible according to the definition in the paper.
+    // Find pairs of vertices (s_c, s'_c) and (s_c', s'_c') and checks whether they are compatible according to the definition in the paper.
+    fn find_compatible(&self, c: &ControlFlowGraph, c1: &ControlFlowGraph, s_c: &ControlFlowGraphVertex, s_c1: &ControlFlowGraphVertex) -> Result<(), MercError> {
+        // There exist s' such that s'_c and s'_c' match according to the definitions in the paper.
+        let mut matched = false;
+        for s1_c in c.vertices() {
+            for s1_c1 in c1.vertices() {
+                // Y(v) in c and Y(v) in c_prime.
+                if s1_c.value() == s1_c1.value()
+                    && s1_c.name() == s1_c1.name() {
+                    matched = true;
+                    trace!(
+                        "Checking edges between vertices {:?} and {:?} in c, and {:?} and {:?} in c'.",
+                        s_c,
+                        s_c1,
+                        s1_c,
+                        s1_c1
+                    );
+
+                    if let Err(value) =
+                        self.check_compatible(s_c, s1_c, s_c1, s1_c1)
+                    {
+                        return Err(format!(
+                            "Incompatible edges between vertices {:?} and {:?}: \n\t - {}",
+                            s_c, s1_c, value
+                        )
+                        .into());
+                    }
+                }
+            }
+        }
+
+        if !matched {
+            return Err("Could not find matching edges.".into());
+        }
+
+        Ok(())
+    }
+    
+    /// Checks whether edges (s_c, s'_c) and (s_c', s'_c') are compatible according to the definition in the paper.
     fn check_compatible(
         &self,
-        c: &ControlFlowGraph,
-        c_prime: &ControlFlowGraph,
         s_c: &ControlFlowGraphVertex,
-        s_prime_c: &ControlFlowGraphVertex,
-        s_c_prime: &ControlFlowGraphVertex,
-        s_prime_c_prime: &ControlFlowGraphVertex,
+        s1_c: &ControlFlowGraphVertex,
+        s_c1: &ControlFlowGraphVertex,
+        s1_c1: &ControlFlowGraphVertex,
     ) -> Result<(), MercError> {
-        let v_c = s_c
+        let edges_c = s_c
             .outgoing_edges()
             .iter()
-            .find(|(vertex, _)| *vertex == s_c_prime.get());
-        let v_c_prime = s_prime_c
+            .find(|(vertex, _)| *vertex == s1_c.get());
+        let edges_c1 = s_c1
             .outgoing_edges()
             .iter()
-            .find(|(vertex, _)| *vertex == s_prime_c_prime.get());
+            .find(|(vertex, _)| *vertex == s1_c1.get());
         
-        if v_c.is_none() != v_c_prime.is_none() {
+        if edges_c.is_none() != edges_c1.is_none() {
             return Err("Could not match outgoing edges.".into());
         }
 
-        if let Some((_, edges)) = v_c {
-            debug_assert!(v_c_prime.is_some(), "Both v_c and v_c' should be Some or None.");
-            if let Some((_, edges_prime)) = v_c_prime {
+        if let Some((_, edges)) = edges_c {
+            debug_assert!(edges_c1.is_some(), "Both v_c and v_c' should be Some or None.");
+            if let Some((_, edges_prime)) = edges_c1 {
                 if edges.len() != edges_prime.len() {
                     return Err(format!(
                         "Found different number of outgoing edges ({} != {}).",
@@ -405,7 +427,7 @@ impl SymmetryAlgorithm {
                     .into());
                 }                
 
-                if self.sizes(c, s_c, s_c_prime) != self.sizes(c_prime, s_prime_c, s_prime_c_prime) {
+                if self.sizes(s_c, s1_c) != self.sizes(s_c1, s1_c1) {
                     return Err("Different sizes of outgoing edges.".into());
                 }
             }
@@ -459,25 +481,25 @@ impl SymmetryAlgorithm {
     /// false depending on whether the detail::permutation complies with the control
     /// flow parameter.
     fn complies_cfg(&self, pi: &Permutation, c: &ControlFlowGraph) -> bool {
-        let c_prime = self
+        let c1 = self
             .state_graph
             .control_flow_graphs()
             .iter()
             .find(|cfg| variable_index(cfg) == pi.value(variable_index(c)))
             .expect("There should be a matching control flow graph.");
 
-        for s in c.vertices() {
-            for s_prime in c_prime.vertices() {
-                if s.value() == s_prime.value() && s.name() == s_prime.name() {
+        for s_c in c.vertices() {
+            for s_c1 in c1.vertices() {
+                if s_c.value() == s_c1.value() && s_c.name() == s_c1.name() {
                     // s == s'
-                    for (to, labels) in s.outgoing_edges() {
-                        for (to_prime, labels_prime) in s_prime.outgoing_edges() {
+                    for (to_c, labels) in s_c.outgoing_edges() {
+                        for (to_c1, labels_prime) in s_c1.outgoing_edges() {
                             // TODO: This is not optimal since we are not interested in the outgoing edges, which new() computes.
-                            let to = ControlFlowGraphVertex::new(*to);
-                            let to_prime = ControlFlowGraphVertex::new(*to_prime);
+                            let to = c.find_by_ptr(*to_c);
+                            let to_prime = c1.find_by_ptr(*to_c1);
 
                             if to.value() == to_prime.value() && to.name() == to_prime.name() {
-                                let equation = self.find_equation_by_name(&s.name()).expect("Equation should exist");
+                                let equation = self.find_equation_by_name(&s_c.name()).expect("Equation should exist");
 
                                 // Checks whether these edges can match
                                 if !self.matching_summand(equation, pi, labels, labels_prime) {
@@ -568,11 +590,10 @@ impl SymmetryAlgorithm {
     /// TODO: used is used_for and used_in in the theory (and should be split eventually)
     fn sizes(
         &self,
-        _c: &ControlFlowGraph,
         s: &mcrl2::ControlFlowGraphVertex,
-        s_prime: &mcrl2::ControlFlowGraphVertex,
+        s1: &mcrl2::ControlFlowGraphVertex,
     ) -> Vec<(usize, usize)> {
-        if let Some((_, edges)) = s.outgoing_edges().iter().find(|(vertex, _)| *vertex == s_prime.get()) {
+        if let Some((_, edges)) = s.outgoing_edges().iter().find(|(vertex, _)| *vertex == s1.get()) {
             let mut result = Vec::new();
 
             let equation = self.find_equation_by_name(&s.name()).expect("Equation should exist");
@@ -586,7 +607,7 @@ impl SymmetryAlgorithm {
             result.dedup();
             result
         } else {
-            panic!("No outgoing edges found from {:?} to {:?}.", s, s_prime);
+            panic!("No outgoing edges found from {:?} to {:?}.", s, s1);
         }
     }
 
