@@ -1,11 +1,11 @@
 use proc_macro2::TokenStream;
 
+use quote::ToTokens;
 use quote::format_ident;
 use quote::quote;
-use quote::ToTokens;
-use syn::parse_quote;
 use syn::Item;
 use syn::ItemMod;
+use syn::parse_quote;
 
 pub(crate) fn mcrl2_derive_terms_impl(_attributes: TokenStream, input: TokenStream) -> TokenStream {
     // Parse the input tokens into a syntax tree

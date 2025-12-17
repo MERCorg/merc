@@ -342,7 +342,7 @@ impl SymmetryAlgorithm {
                 if s_c.value() == s_c1.value() && s_c.name() == s_c1.name() {
                     if let Err(value) = self.find_compatible(c, c1, s_c, s_c1) {
                         return Err(value);
-                    } 
+                    }
 
                     s_matched = true;
                 }
@@ -357,26 +357,26 @@ impl SymmetryAlgorithm {
     }
 
     // Find pairs of vertices (s_c, s'_c) and (s_c', s'_c') and checks whether they are compatible according to the definition in the paper.
-    fn find_compatible(&self, c: &ControlFlowGraph, c1: &ControlFlowGraph, s_c: &ControlFlowGraphVertex, s_c1: &ControlFlowGraphVertex) -> Result<(), MercError> {
+    fn find_compatible(
+        &self,
+        c: &ControlFlowGraph,
+        c1: &ControlFlowGraph,
+        s_c: &ControlFlowGraphVertex,
+        s_c1: &ControlFlowGraphVertex,
+    ) -> Result<(), MercError> {
         // There exist s' such that s'_c and s'_c' match according to the definitions in the paper.
         let mut matched = false;
         for s1_c in c.vertices() {
             for s1_c1 in c1.vertices() {
                 // Y(v) in c and Y(v) in c_prime.
-                if s1_c.value() == s1_c1.value()
-                    && s1_c.name() == s1_c1.name() {
+                if s1_c.value() == s1_c1.value() && s1_c.name() == s1_c1.name() {
                     matched = true;
                     trace!(
                         "Checking edges between vertices {:?} and {:?} in c, and {:?} and {:?} in c'.",
-                        s_c,
-                        s_c1,
-                        s1_c,
-                        s1_c1
+                        s_c, s_c1, s1_c, s1_c1
                     );
 
-                    if let Err(value) =
-                        self.check_compatible(s_c, s1_c, s_c1, s1_c1)
-                    {
+                    if let Err(value) = self.check_compatible(s_c, s1_c, s_c1, s1_c1) {
                         return Err(format!(
                             "Incompatible edges between vertices {:?} and {:?}: \n\t - {}",
                             s_c, s1_c, value
@@ -393,7 +393,7 @@ impl SymmetryAlgorithm {
 
         Ok(())
     }
-    
+
     /// Checks whether edges (s_c, s'_c) and (s_c', s'_c') are compatible according to the definition in the paper.
     fn check_compatible(
         &self,
@@ -402,15 +402,9 @@ impl SymmetryAlgorithm {
         s_c1: &ControlFlowGraphVertex,
         s1_c1: &ControlFlowGraphVertex,
     ) -> Result<(), MercError> {
-        let edges_c = s_c
-            .outgoing_edges()
-            .iter()
-            .find(|(vertex, _)| *vertex == s1_c.get());
-        let edges_c1 = s_c1
-            .outgoing_edges()
-            .iter()
-            .find(|(vertex, _)| *vertex == s1_c1.get());
-        
+        let edges_c = s_c.outgoing_edges().iter().find(|(vertex, _)| *vertex == s1_c.get());
+        let edges_c1 = s_c1.outgoing_edges().iter().find(|(vertex, _)| *vertex == s1_c1.get());
+
         if edges_c.is_none() != edges_c1.is_none() {
             return Err("Could not match outgoing edges.".into());
         }
@@ -425,7 +419,7 @@ impl SymmetryAlgorithm {
                         edges_prime.len()
                     )
                     .into());
-                }                
+                }
 
                 if self.sizes(s_c, s1_c) != self.sizes(s_c1, s1_c1) {
                     return Err("Different sizes of outgoing edges.".into());
@@ -588,11 +582,7 @@ impl SymmetryAlgorithm {
     /// Computes the sizes(c, s, s')
     ///
     /// TODO: used is used_for and used_in in the theory (and should be split eventually)
-    fn sizes(
-        &self,
-        s: &mcrl2::ControlFlowGraphVertex,
-        s1: &mcrl2::ControlFlowGraphVertex,
-    ) -> Vec<(usize, usize)> {
+    fn sizes(&self, s: &mcrl2::ControlFlowGraphVertex, s1: &mcrl2::ControlFlowGraphVertex) -> Vec<(usize, usize)> {
         if let Some((_, edges)) = s.outgoing_edges().iter().find(|(vertex, _)| *vertex == s1.get()) {
             let mut result = Vec::new();
 
