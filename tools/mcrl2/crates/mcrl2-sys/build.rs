@@ -219,15 +219,15 @@ fn add_debug_defines(build: &mut Build) {
             build.define("_LIBCPP_DEBUG", "1");
             build.define("_LIBCPP_ENABLE_THREAD_SAFETY_ANNOTATIONS", "1");
             build.define("_LIBCPP_HARDENING_MODE", "_LIBCPP_HARDENING_MODE_DEBUG");
-            build.define("_LIBCPP_ABI_BOUNDED_ITERATORS", "1");
-            build.define("_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STRING", "1");
-            build.define("_LIBCPP_ABI_BOUNDED_ITERATORS_IN_VECTOR", "1");
-            build.define("_LIBCPP_ABI_BOUNDED_UNIQUE_PTR", "1");
-            build.define("_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STD_ARRAY", "1");
+            // build.define("_LIBCPP_ABI_BOUNDED_ITERATORS", "1");
+            // build.define("_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STRING", "1");
+            // build.define("_LIBCPP_ABI_BOUNDED_ITERATORS_IN_VECTOR", "1");
+            // build.define("_LIBCPP_ABI_BOUNDED_UNIQUE_PTR", "1");
+            // build.define("_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STD_ARRAY", "1");
 
             // // Debug mode for libstdc++ (the GNU standard library)
-            build.define("_GLIBCXX_DEBUG", "1");
-            build.define("_GLIBCXX_DEBUG_PEDANTIC", "1");
+            // build.define("_GLIBCXX_DEBUG", "1");
+            // build.define("_GLIBCXX_DEBUG_PEDANTIC", "1");
             build.define("_GLIBCXX_ASSERTIONS", "1");
         }
         "release" => {
