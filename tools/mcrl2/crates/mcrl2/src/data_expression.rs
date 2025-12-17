@@ -71,19 +71,23 @@ pub fn is_sort_expression(term: &ATermRef<'_>) -> bool {
 mod inner {
     use std::fmt;
 
-    use mcrl2_macros::{mcrl2_ignore, mcrl2_term};
+    use mcrl2_macros::mcrl2_ignore;
+    use mcrl2_macros::mcrl2_term;
     use mcrl2_sys::data::ffi::mcrl2_data_expression_to_string;
 
+    use crate::ATerm;
     use crate::ATermArgs;
     use crate::ATermRef;
+    use crate::ATermString;
     use crate::Markable;
     use crate::Todo;
+    use crate::is_abstraction;
+    use crate::is_application;
+    use crate::is_data_expression;
+    use crate::is_function_symbol;
     use crate::is_machine_number;
     use crate::is_sort_expression;
-    use crate::{
-        ATerm, ATermString, is_abstraction, is_application, is_data_expression, is_function_symbol,
-        is_variable,
-    };
+    use crate::is_variable;
 
     /// Represents a data::data_expression from the mCRL2 toolset.
     ///  A data expression can be any of:
@@ -234,7 +238,7 @@ mod inner {
         pub fn sort(&self) -> SortExpressionRef<'_> {
             // We only change the lifetime, but that is fine since it is derived from the current term.
             unsafe { std::mem::transmute(SortExpressionRef::from(self.term.arg(0))) }
-        }        
+        }
     }
 
     impl fmt::Display for DataApplication {
@@ -339,7 +343,7 @@ mod inner {
             write!(f, "{}", self.name())
         }
     }
-    
+
     /// Represents a data::machine_number from the mCRL2 toolset.
     #[mcrl2_term(is_machine_number)]
     struct MachineNumber {
@@ -358,7 +362,6 @@ mod inner {
             write!(f, "{}", self.value())
         }
     }
-
 }
 
 pub use inner::*;

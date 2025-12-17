@@ -144,7 +144,10 @@ impl ControlFlowGraph {
 
     /// Finds a vertex by its pointer.
     pub fn find_by_ptr(&self, ptr: *const local_control_flow_graph_vertex) -> &ControlFlowGraphVertex {
-        self.vertices.iter().find(|v| v.get() == ptr).expect("Vertex should exist")
+        self.vertices
+            .iter()
+            .find(|v| v.get() == ptr)
+            .expect("Vertex should exist")
     }
 
     pub(crate) fn new(algorithm: Rc<UniquePtr<stategraph_algorithm>>, index: usize) -> Self {
@@ -153,9 +156,7 @@ impl ControlFlowGraph {
             .map(|vertex_index| ControlFlowGraphVertex::new(algorithm.clone(), index, vertex_index))
             .collect::<Vec<_>>();
 
-        ControlFlowGraph {
-            vertices,
-        }
+        ControlFlowGraph { vertices }
     }
 }
 
@@ -220,12 +221,7 @@ impl ControlFlowGraphVertex {
 
 impl fmt::Debug for ControlFlowGraphVertex {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{:?}({})",
-            self.name(),
-            self.value().pretty_print()
-        )
+        write!(f, "{:?}({})", self.name(), self.value().pretty_print())
     }
 }
 
