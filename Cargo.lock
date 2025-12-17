@@ -881,6 +881,7 @@ dependencies = [
  "clap",
  "duct",
  "env_logger",
+ "itertools 0.14.0",
  "log",
  "merc_syntax",
  "merc_tools",

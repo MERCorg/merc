@@ -15,6 +15,7 @@ merc_vpg.workspace = true
 clap.workspace = true
 duct.workspace = true
 env_logger.workspace = true
+itertools.workspace = true
 log.workspace = true
 oxidd.workspace = true
 which.workspace = true

@@ -1,10 +1,12 @@
 use log::debug;
+use log::info;
 use log::trace;
 use oxidd::BooleanFunction;
 use oxidd::ManagerRef;
 use oxidd::bdd::BDDFunction;
 use oxidd::bdd::BDDManagerRef;
 
+use merc_io::TimeProgress;
 use merc_lts::LTS;
 use merc_lts::StateIndex;
 use merc_syntax::ActFrm;
@@ -121,6 +123,9 @@ struct Translation<'a> {
 
     /// The BDD representing the "true" feature configuration.
     true_bdd: BDDFunction,
+
+    /// Use to print progress information.
+    progress: TimeProgress<fn(usize), usize>,
 }
 
 impl<'a> Translation<'a> {
@@ -132,6 +137,10 @@ impl<'a> Translation<'a> {
         true_bdd: BDDFunction,
         make_total: bool,
     ) -> Self {
+        let progress: TimeProgress<fn(usize), usize> = TimeProgress::new(|num_of_vertices: usize| {
+            info!("Translated {} vertices...", num_of_vertices);
+        }, 1);
+
         Self {
             vertex_map: IndexedSet::new(),
             vertices: Vec::new(),
@@ -142,6 +151,7 @@ impl<'a> Translation<'a> {
             equation_system,
             make_total,
             true_bdd,
+            progress,
         }
     }
     
@@ -158,6 +168,7 @@ impl<'a> Translation<'a> {
         self.vertices.push((Player::Odd, Priority::new(0))); // Placeholder for the initial vertex
 
         while let Some((s, formula, vertex_index)) = self.queue.pop() {
+            self.progress.print(self.vertices.len());
             match formula {
                 Formula::StateFrm(f) => {
                     self.translate_vertex(s, f, vertex_index);
