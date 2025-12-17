@@ -95,7 +95,7 @@ inline void mcrl2_aterm_pool_collect_garbage()
 
 inline void mcrl2_aterm_pool_test_garbage_collection()
 {
-  // TODO: Is this function nnecessary?
+  // TODO: Is this function necessary?
   // detail::g_thread_term_pool().test_garbage_collection();
 }
 

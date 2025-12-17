@@ -42,28 +42,24 @@ pub mod ffi {
         #[namespace = "mcrl2::pbes_system::detail"]
         type local_control_flow_graph;
 
-        /// Get the control flow graphs identified by the state graph algorithm.
-        fn mcrl2_stategraph_local_algorithm_cfgs(
-            result: Pin<&mut CxxVector<local_control_flow_graph>>,
-            input: &stategraph_algorithm,
-        );
+        /// Get the number of control flow graphs identified by the state graph algorithm.
+        fn mcrl2_stategraph_local_algorithm_cfgs(input: &stategraph_algorithm) -> usize;
+
+        /// Returns the control flow graph at the given index.
+        fn mcrl2_stategraph_local_algorithm_cfg(input: &stategraph_algorithm, index: usize) -> &local_control_flow_graph;
 
         #[namespace = "mcrl2::pbes_system::detail"]
         type stategraph_equation;
 
-        fn mcrl2_stategraph_local_algorithm_equations(
-            result: Pin<&mut CxxVector<stategraph_equation>>,
-            input: &stategraph_algorithm,
-        );
+        fn mcrl2_stategraph_local_algorithm_equations(input: &stategraph_algorithm) -> usize;
+
+        fn mcrl2_stategraph_local_algorithm_equation(input: &stategraph_algorithm, index: usize) -> &stategraph_equation;
 
         #[namespace = "mcrl2::pbes_system::detail"]
         type predicate_variable;
 
         /// Returns the predicate variables of a stategraph equation.
-        fn mcrl2_stategraph_equation_predicate_variables(
-            result: Pin<&mut CxxVector<predicate_variable>>,
-            input: &stategraph_equation,
-        );
+        fn mcrl2_stategraph_equation_predicate_variables(input: &stategraph_equation) -> UniquePtr<CxxVector<predicate_variable>>;
 
         /// Returns the propositional variable of a pbes equation
         fn mcrl2_stategraph_equation_variable(equation: &stategraph_equation) -> *const _aterm;
@@ -78,10 +74,9 @@ pub mod ffi {
         type local_control_flow_graph_vertex;
 
         /// Obtain the vertices of a cfg.
-        fn mcrl2_local_control_flow_graph_vertices(
-            result: Pin<&mut CxxVector<local_control_flow_graph_vertex>>,
-            input: &local_control_flow_graph,
-        );
+        fn mcrl2_local_control_flow_graph_vertices(input: &local_control_flow_graph) -> usize;
+        
+        fn mcrl2_local_control_flow_graph_vertex(input: &local_control_flow_graph, index: usize) -> &local_control_flow_graph_vertex;
 
         #[namespace = "atermpp::detail"]
         type _aterm = crate::atermpp::ffi::_aterm;
@@ -96,10 +91,7 @@ pub mod ffi {
         fn mcrl2_local_control_flow_graph_vertex_value(vertex: &local_control_flow_graph_vertex) -> *const _aterm;
 
         /// Obtain the outgoing edges of the vertex.
-        fn mcrl2_local_control_flow_graph_vertex_outgoing_edges(
-            result: Pin<&mut CxxVector<vertex_outgoing_edge>>,
-            input: &local_control_flow_graph_vertex,
-        );
+        fn mcrl2_local_control_flow_graph_vertex_outgoing_edges(input: &local_control_flow_graph_vertex) -> UniquePtr<CxxVector<vertex_outgoing_edge>>;
 
         type srf_pbes;
 
