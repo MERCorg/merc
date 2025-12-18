@@ -1,7 +1,7 @@
 # Contributing
 
 Source code documentation can be found at Github
-[pages](https://mlaveaux.github.io/merc/index.html), and more detailed
+[pages](https://mercorg.github.io/merc/index.html), and more detailed
 documentation can be found in `doc`. See `doc/TESTING.md` for more information
 on how to run the tests.
 
