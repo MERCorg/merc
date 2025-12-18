@@ -75,8 +75,23 @@ pub fn solve_variability_product_zielonka(vpg: &VariabilityParityGame) -> impl I
     project_variability_parity_games_iter(&vpg)
         .map(|result| {
             let (cube, bdd, pg) = result.expect("Projection should not fail");
-            let (reachable_pg, _) = compute_reachable(&pg);
-            (cube, bdd, solve_zielonka(&reachable_pg))
+            let (reachable_pg, projection) = compute_reachable(&pg);
+
+            let pg_solution = solve_zielonka(&reachable_pg);
+            let mut new_solution = [bitvec![usize, Lsb0; 0; vpg.num_of_vertices()], bitvec![usize, Lsb0; 0; vpg.num_of_vertices()]];
+            for v in pg.iter_vertices() {
+                if let Some(proj_v) = projection[*v] {
+                    // Vertex is reachable in the projection, set its solution
+                    if pg_solution[0][proj_v] {
+                        new_solution[0].set(*v, true);
+                    }
+                    if pg_solution[1][proj_v] {
+                        new_solution[1].set(*v, true);
+                    }
+                }
+            }
+
+            (cube, bdd, new_solution)
         })
 }
 

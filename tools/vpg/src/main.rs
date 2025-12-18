@@ -198,8 +198,6 @@ fn handle_solve(args: SolveArgs, timing: &mut Timing) -> Result<(), MercError> {
             // Since we want to print W0, W1 separately, we need to store the results temporarily.
             let mut results = [Vec::new(), Vec::new()];
             for (cube, _bdd, solution) in solve_variability_product_zielonka(&game) {
-                println!("For product {} the following vertices are in:", FormatConfig(&cube));
-
                 for (index, w) in solution.iter().enumerate() {
                     results[index].push((cube.clone(), w.clone()));
                 }
