@@ -17,6 +17,7 @@ use mcrl2_sys::pbes::ffi::mcrl2_local_control_flow_graph_vertices;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_data_specification;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_expression_replace_propositional_variables;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_expression_replace_variables;
+use mcrl2_sys::pbes::ffi::mcrl2_pbes_expression_to_string;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_is_propositional_variable;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_to_srf_pbes;
 use mcrl2_sys::pbes::ffi::mcrl2_pbes_to_string;
@@ -411,7 +412,7 @@ impl fmt::Debug for SrfSummand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Summand(condition: {:?}, variable: {:?})",
+            "Summand(condition: {}, variable: {})",
             self.condition(),
             self.variable()
         )
@@ -461,6 +462,12 @@ impl PbesExpression {
     /// Creates a new pbes expression from the given term.
     fn new(term: ATerm) -> Self {
         PbesExpression { term }
+    }
+}
+
+impl fmt::Display for PbesExpression {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", mcrl2_pbes_expression_to_string(self.term.get()))
     }
 }
 

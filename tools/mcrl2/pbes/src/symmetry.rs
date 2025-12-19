@@ -32,13 +32,16 @@ use crate::permutation::permutation_group_size;
 
 /// Implements symmetry detection for PBESs.
 pub struct SymmetryAlgorithm {
-    state_graph: PbesStategraph, // Needs to be kept alive while the control flow graphs are used.
+    /// Needs to be kept alive while the control flow graphs are used.
+    state_graph: PbesStategraph,
 
-    parameters: Vec<DataVariable>, // The parameters of the unified SRF PBES.
+    /// The parameters of the unified SRF PBES.
+    parameters: Vec<DataVariable>, 
 
-    all_control_flow_parameters: Vec<usize>, // Keeps track of all parameters identified as control flow parameters.
+    all_control_flow_parameters: Vec<usize>,
 
-    srf: SrfPbes, // The SRF PBES after unifying parameters.
+    /// The SRF PBES after unifying parameters.
+    srf: SrfPbes, 
 
     /// Keep track of some progress messages.
     num_of_checked_candidates: Cell<usize>,
@@ -71,8 +74,8 @@ impl SymmetryAlgorithm {
         };
 
         info!(
-            "Unified parameters: {:?}",
-            parameters.iter().map(|p| (p.name(), p.sort())).format(", ")
+            "Unified parameters: {}",
+            parameters.iter().format(", ")
         );
 
         let state_graph = PbesStategraph::run(&srf.to_pbes())?;
@@ -145,6 +148,29 @@ impl SymmetryAlgorithm {
         );
 
         combined_candidates.map(|(alpha, beta)| alpha.concat(&beta))
+    }
+
+    /// Checks whether the given permutation is valid, meaning that control flow parameters are mapped to control flow parameters.
+    pub fn is_valid_permutation(&self, pi: &Permutation) -> Result<(), MercError> {
+        // Check that all control flow parameters are mapped to control flow parameters.
+        for index in pi.domain() {
+            let mapped_index = pi.value(index);
+            if self.all_control_flow_parameters.contains(&index) != self.all_control_flow_parameters.contains(&mapped_index) {
+                return Err(format!(
+                    "A parameter at index {} is mapped to parameter at index {}, but they are not both control flow parameters.",
+                    index, mapped_index
+                ).into());
+            }
+
+            if index >= self.parameters.len() || mapped_index >= self.parameters.len() {
+                return Err(format!(
+                    "A parameter at index {} is mapped to parameter at index {}, but the PBES only has {} parameters.",
+                    index, mapped_index, self.parameters.len()
+                ).into());
+            }
+        }
+
+        Ok(())
     }
 
     /// Performs the syntactic check defined as symcheck in the paper.
