@@ -5,7 +5,7 @@ use clap::Args;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const BUILD_HASH: &str = env!("BUILD_HASH");
 
-#[derive(Args, Debug)]
+#[derive(Args, Clone, Copy, Debug)]
 pub struct VersionFlag {
     #[arg(
         long,

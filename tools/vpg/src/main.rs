@@ -10,15 +10,6 @@ use duct::cmd;
 use itertools::Itertools;
 use log::debug;
 use log::info;
-
-use merc_vpg::compute_reachable;
-use merc_vpg::solve_variability_product_zielonka;
-use merc_vpg::write_pg;
-use merc_vpg::CubeIterAll;
-use merc_vpg::PgDot;
-use merc_vpg::Player;
-use merc_vpg::VpgDot;
-use merc_vpg::ZielonkaVariant;
 use oxidd::BooleanFunction;
 
 use merc_syntax::UntypedStateFrmSpec;
@@ -28,17 +19,25 @@ use merc_tools::VersionFlag;
 use merc_unsafety::print_allocator_metrics;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
+use merc_vpg::compute_reachable;
 use merc_vpg::guess_format_from_extension;
 use merc_vpg::read_fts;
 use merc_vpg::read_pg;
 use merc_vpg::read_vpg;
+use merc_vpg::solve_variability_product_zielonka;
 use merc_vpg::solve_variability_zielonka;
 use merc_vpg::solve_zielonka;
 use merc_vpg::translate;
+use merc_vpg::write_pg;
 use merc_vpg::write_vpg;
+use merc_vpg::CubeIterAll;
 use merc_vpg::FeatureDiagram;
 use merc_vpg::FormatConfig;
 use merc_vpg::ParityGameFormat;
+use merc_vpg::PgDot;
+use merc_vpg::Player;
+use merc_vpg::VpgDot;
+use merc_vpg::ZielonkaVariant;
 
 #[derive(clap::Parser, Debug)]
 #[command(
@@ -54,6 +53,15 @@ struct Cli {
 
     #[arg(long, global = true)]
     timings: bool,
+
+    #[arg(long, global = true, default_value_t = 1)]
+    oxidd_workers: u32,
+
+    #[arg(long, global = true, default_value_t = 1)]
+    oxidd_node_capacity: usize,
+
+    #[arg(long, global = true)]
+    oxidd_cache_capacity: Option<usize>,
 
     #[command(subcommand)]
     commands: Option<Commands>,
@@ -140,12 +148,12 @@ fn main() -> Result<ExitCode, MercError> {
         return Ok(ExitCode::SUCCESS);
     }
 
-    if let Some(command) = cli.commands {
+    if let Some(command) = &cli.commands {
         match command {
-            Commands::Solve(args) => handle_solve(args, &mut timing)?,
-            Commands::Reachable(args) => handle_reachable(args, &mut timing)?,
-            Commands::Translate(args) => handle_translate(args)?,
-            Commands::Display(args) => handle_display(args, &mut timing)?,
+            Commands::Solve(args) => handle_solve(&cli, args, &mut timing)?,
+            Commands::Reachable(args) => handle_reachable(&cli, args, &mut timing)?,
+            Commands::Translate(args) => handle_translate(&cli, args)?,
+            Commands::Display(args) => handle_display(&cli, args, &mut timing)?,
         }
     }
 
@@ -154,6 +162,9 @@ fn main() -> Result<ExitCode, MercError> {
     }
 
     print_allocator_metrics();
+    if cfg!(feature = "merc_metrics") {
+        oxidd::bdd::print_stats();
+    }
     Ok(ExitCode::SUCCESS)
 }
 
@@ -162,7 +173,7 @@ fn main() -> Result<ExitCode, MercError> {
 /// Reads either a standard parity game (PG) or a variability parity game (VPG)
 /// based on the provided format or filename extension, then solves it using
 /// Zielonka's algorithm.
-fn handle_solve(args: SolveArgs, timing: &mut Timing) -> Result<(), MercError> {
+fn handle_solve(cli: &Cli, args: &SolveArgs, timing: &mut Timing) -> Result<(), MercError> {
     let path = Path::new(&args.filename);
     let mut file = File::open(path)?;
     let format = guess_format_from_extension(path, args.format).ok_or("Unknown parity game file format.")?;
@@ -187,7 +198,11 @@ fn handle_solve(args: SolveArgs, timing: &mut Timing) -> Result<(), MercError> {
             .ok_or("For variability parity game solving a solving strategy should be selected")?;
 
         // Read and solve a variability parity game.
-        let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+        let manager_ref = oxidd::bdd::new_manager(
+            cli.oxidd_node_capacity,
+            cli.oxidd_cache_capacity.unwrap_or(cli.oxidd_node_capacity),
+            cli.oxidd_workers,
+        );
 
         let mut time_read = timing.start("read_vpg");
         let game = read_vpg(&manager_ref, &mut file)?;
@@ -212,11 +227,7 @@ fn handle_solve(args: SolveArgs, timing: &mut Timing) -> Result<(), MercError> {
                         FormatConfig(&cube),
                         vertices
                             .iter_ones()
-                            .filter(|v| if args.full_solution {
-                                true
-                            } else {
-                                *v == 0
-                            })
+                            .filter(|v| if args.full_solution { true } else { *v == 0 })
                             .format(", ")
                     );
                 }
@@ -251,7 +262,7 @@ fn handle_solve(args: SolveArgs, timing: &mut Timing) -> Result<(), MercError> {
 ///
 /// Reads a PG or VPG, computes its reachable part, and writes it to `output`.
 /// Also logs the vertex index mapping to aid inspection.
-fn handle_reachable(args: ReachableArgs, timing: &mut Timing) -> Result<(), MercError> {
+fn handle_reachable(cli: &Cli, args: &ReachableArgs, timing: &mut Timing) -> Result<(), MercError> {
     let path = Path::new(&args.filename);
     let mut file = File::open(&path)?;
 
@@ -275,7 +286,11 @@ fn handle_reachable(args: ReachableArgs, timing: &mut Timing) -> Result<(), Merc
             write_pg(&mut output_file, &reachable_game)?;
         }
         ParityGameFormat::VPG => {
-            let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+            let manager_ref = oxidd::bdd::new_manager(
+                cli.oxidd_node_capacity,
+                cli.oxidd_cache_capacity.unwrap_or(cli.oxidd_node_capacity),
+                cli.oxidd_workers,
+            );
 
             let mut time_read = timing.start("read_vpg");
             let game = read_vpg(&manager_ref, &mut file)?;
@@ -302,8 +317,12 @@ fn handle_reachable(args: ReachableArgs, timing: &mut Timing) -> Result<(), Merc
 ///
 /// Translates a feature diagram, a feature transition system (FTS), and a modal
 /// formula into a variability parity game.
-fn handle_translate(args: TranslateArgs) -> Result<(), MercError> {
-    let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+fn handle_translate(cli: &Cli, args: &TranslateArgs) -> Result<(), MercError> {
+    let manager_ref = oxidd::bdd::new_manager(
+        cli.oxidd_node_capacity,
+        cli.oxidd_cache_capacity.unwrap_or(cli.oxidd_node_capacity),
+        cli.oxidd_workers,
+    );
 
     // Read feature diagram
     let mut feature_diagram_file = File::open(&args.feature_diagram_filename).map_err(|e| {
@@ -354,7 +373,7 @@ fn handle_translate(args: TranslateArgs) -> Result<(), MercError> {
 ///
 /// Reads a PG or VPG and writes a Graphviz `.dot` representation to `output`.
 /// If the `dot` tool is available, also generates a PDF (`output.pdf`).
-fn handle_display(args: DisplayArgs, timing: &mut Timing) -> Result<(), MercError> {
+fn handle_display(cli: &Cli, args: &DisplayArgs, timing: &mut Timing) -> Result<(), MercError> {
     let path = Path::new(&args.filename);
     let mut file = File::open(path)?;
     let format = guess_format_from_extension(path, args.format).ok_or("Unknown parity game file format.")?;
@@ -369,7 +388,11 @@ fn handle_display(args: DisplayArgs, timing: &mut Timing) -> Result<(), MercErro
         write!(&mut output_file, "{}", PgDot::new(&game))?;
     } else {
         // Read and display a variability parity game.
-        let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+        let manager_ref = oxidd::bdd::new_manager(
+            cli.oxidd_node_capacity,
+            cli.oxidd_cache_capacity.unwrap_or(cli.oxidd_node_capacity),
+            cli.oxidd_workers,
+        );
 
         let mut time_read = timing.start("read_vpg");
         let game = read_vpg(&manager_ref, &mut file)?;
