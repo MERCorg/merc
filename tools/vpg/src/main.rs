@@ -212,7 +212,11 @@ fn handle_solve(args: SolveArgs, timing: &mut Timing) -> Result<(), MercError> {
                         FormatConfig(&cube),
                         vertices
                             .iter_ones()
-                            .take(if args.full_solution { usize::MAX } else { 1 }) // Take only first if we don't want full solution
+                            .filter(|v| if args.full_solution {
+                                true
+                            } else {
+                                *v == 0
+                            })
                             .format(", ")
                     );
                 }
