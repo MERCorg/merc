@@ -72,10 +72,11 @@ rust::String mcrl2_pbes_to_string(const pbes& pbesspec)
 }
 
 inline
-rust::String mcrl2_pbes_expression_to_string(const atermpp::aterm& expr)
+rust::String mcrl2_pbes_expression_to_string(const atermpp::detail::_aterm& expr)
 {
+  atermpp::unprotected_aterm_core tmp(&expr);
   std::stringstream ss;
-  ss << expr;
+  ss << atermpp::down_cast<pbes_system::pbes_expression>(tmp);
   return ss.str();
 }
 
@@ -309,7 +310,7 @@ const atermpp::detail::_aterm* mcrl2_srf_summand_variable(const srf_summand& sum
 inline
 const atermpp::detail::_aterm* mcrl2_srf_summand_condition(const srf_summand& summand)
 {
-  return atermpp::detail::address(summand.variable());
+  return atermpp::detail::address(summand.condition());
 }
 
 std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_variables(const atermpp::detail::_aterm& expr, const rust::Vec<assignment_pair>& sigma);
