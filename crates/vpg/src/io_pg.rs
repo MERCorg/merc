@@ -123,7 +123,7 @@ pub fn read_pg(reader: impl Read) -> Result<ParityGame, MercError> {
 pub fn write_pg(mut writer: impl Write, game: &ParityGame) -> Result<(), MercError> {
     info!("Writing parity game to .pg format...");
 
-    let mut progress = TimeProgress::new(
+    let progress = TimeProgress::new(
         |(index, total): (usize, usize)| info!("Wrote {} vertices ({}%)...", index, index * 100 / total),
         1,
     );

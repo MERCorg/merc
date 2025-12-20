@@ -226,7 +226,7 @@ pub fn write_vpg(writer: &mut impl Write, game: &VariabilityParityGame) -> Resul
     writeln!(writer, "confs {};", FormatConfigSet(game.configuration()))?;
     writeln!(writer, "parity {};", game.num_of_vertices())?;
 
-    let mut progress = TimeProgress::new(
+    let progress = TimeProgress::new(
         |(index, total): (usize, usize)| info!("Wrote vertices {} ({}%)...", index, index * 100 / total),
         1,
     );

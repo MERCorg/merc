@@ -29,7 +29,7 @@ pub fn project_variability_parity_game(
         vpg.initial_vertex(),
         vpg.owners().clone(),
         vpg.priorities().clone(),
-        true, // It can be that after removing edges the result is not a total partity game.
+        true, // It can be that after removing edges the result is not a total parity game.
         || edges.iter().cloned(),
     ))
 }

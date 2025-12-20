@@ -125,7 +125,7 @@ struct Translation<'a> {
     true_bdd: BDDFunction,
 
     /// Use to print progress information.
-    progress: TimeProgress<fn(usize), usize>,
+    progress: TimeProgress<usize>,
 }
 
 impl<'a> Translation<'a> {
@@ -137,7 +137,7 @@ impl<'a> Translation<'a> {
         true_bdd: BDDFunction,
         make_total: bool,
     ) -> Self {
-        let progress: TimeProgress<fn(usize), usize> = TimeProgress::new(|num_of_vertices: usize| {
+        let progress: TimeProgress<usize> = TimeProgress::new(|num_of_vertices: usize| {
             info!("Translated {} vertices...", num_of_vertices);
         }, 1);
 

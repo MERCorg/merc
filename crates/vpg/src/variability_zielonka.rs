@@ -320,8 +320,7 @@ impl<'a> VariabilityZielonkaSolver<'a> {
         let omega1_not_x = omega1_not_x.minus_function(&C1_restricted)?;
         let beta = self.attractor(not_x, &gamma, omega1_not_x.clone())?;
 
-        // Solve on (gamma | C') \ alpha'
-        // First restrict gamma to C'q
+        // Solve on (gamma | C') \ beta
         let gamma = gamma.minus_function(&C1)?;
 
         debug!("begin solve_optimised_left_rec((gamma | C') \\ alpha')");
