@@ -2,10 +2,11 @@ use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use merc_aterm::ATerm;
-use merc_aterm::THREAD_TERM_POOL;
-use merc_utilities::MercError;
 use pest::Parser;
+
+use merc_aterm::ATerm;
+use merc_aterm::storage::THREAD_TERM_POOL;
+use merc_utilities::MercError;
 use pest_consume::Error;
 use pest_consume::Node;
 use pest_consume::match_nodes;

@@ -9,7 +9,6 @@ mod cast_macro;
 mod arbitrary_utility;
 mod debug_trace;
 mod error;
-mod format;
 mod generational_index;
 mod helper;
 mod no_hasher;
@@ -22,7 +21,6 @@ mod timing;
 
 pub use arbitrary_utility::*;
 pub use error::*;
-pub use format::*;
 pub use generational_index::*;
 pub use helper::*;
 pub use no_hasher::*;
