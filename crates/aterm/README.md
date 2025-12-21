@@ -79,9 +79,6 @@ use merc_aterm::ATerm;
 use merc_aterm::Term;
 use merc_aterm::Symbol;
 
-
-
-
 #[merc_derive_terms]
 mod inner {
     // Normally this can be `use super::*`, but that does not seem to work in doctests.
@@ -134,6 +131,12 @@ use inner::DataExpressionRef;
 let expr = DataExpression::with_sort(ATerm::constant(&Symbol::new("42", 0)), ATerm::constant(&Symbol::new("42", 0)));
 let expr_ref: DataExpressionRef = expr.copy();
 ```
+
+## Changelog
+
+### Current
+
+Removed the `ahash`, `arbitrary`, `arbtest`, and `rayon` dependencies since their use was only minimal.
 
 ## Safety
 

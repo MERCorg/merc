@@ -29,6 +29,12 @@ let mcrl2_spec = UntypedProcessSpecification::parse("
 ").unwrap();
 ```
 
+## Changelog
+
+### Current
+
+Removed the `arbitrary` dependency since generating these expressions completely arbitrarily is not that useful.
+
 ## Safety
 
 This crate contains no unsafe code.

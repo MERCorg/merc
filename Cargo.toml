@@ -1,6 +1,6 @@
 [workspace.package]
 edition = "2024"
-homepage = "https://mercorg.github.io/merc/"
+homepage = "https://mercorg.github.io/merc-website/"
 license = "BSL-1.0"
 repository = "https://github.com/MERCorg/merc"
 rust-version = "1.85.0"
@@ -17,7 +17,7 @@ split-debuginfo= "packed"
 split-debuginfo= "packed"
 
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "3rd-party/pest_consume_macros",
     "3rd-party/pest_consume",
