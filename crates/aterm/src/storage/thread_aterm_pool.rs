@@ -10,13 +10,9 @@ use merc_sharedmutex::RecursiveLockReadGuard;
 use merc_unsafety::StablePointer;
 use pest_consume::Parser;
 
-use crate::AGRESSIVE_GC;
-use crate::GlobalTermPool;
 use crate::Markable;
 use crate::Return;
 use crate::Rule;
-use crate::SharedTerm;
-use crate::SharedTermProtection;
 use crate::Symb;
 use crate::Symbol;
 use crate::SymbolRef;
@@ -24,7 +20,11 @@ use crate::Term;
 use crate::TermParser;
 use crate::aterm::ATerm;
 use crate::aterm::ATermRef;
-use crate::global_aterm_pool::GLOBAL_TERM_POOL;
+use crate::storage::AGRESSIVE_GC;
+use crate::storage::GlobalTermPool;
+use crate::storage::SharedTerm;
+use crate::storage::SharedTermProtection;
+use crate::storage::global_aterm_pool::GLOBAL_TERM_POOL;
 
 use merc_collections::ProtectionIndex;
 use merc_sharedmutex::RecursiveLock;

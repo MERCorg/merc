@@ -13,8 +13,9 @@ use merc_unsafety::StablePointer;
 use merc_utilities::readable_string;
 
 use crate::Markable;
-use crate::SharedSymbol;
-use crate::THREAD_TERM_POOL;
+use crate::storage::Marker;
+use crate::storage::SharedSymbol;
+use crate::storage::THREAD_TERM_POOL;
 
 /// The public interface for a function symbol. Can be used to write generic
 /// functions that accept both `Symbol` and `SymbolRef`.
@@ -109,7 +110,7 @@ impl<'a> Symb<'a, '_> for SymbolRef<'a> {
 }
 
 impl Markable for SymbolRef<'_> {
-    fn mark(&self, marker: &mut crate::Marker) {
+    fn mark(&self, marker: &mut Marker) {
         marker.mark_symbol(self);
     }
 

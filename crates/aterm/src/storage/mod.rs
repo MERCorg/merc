@@ -16,30 +16,16 @@
 //! ATerm library, but every module that only uses safe Rust is marked with
 //! `#![forbid(unsafe_code)]`.
 
-mod aterm;
-mod aterm_binary_stream;
-mod aterm_builder;
-mod aterm_int;
-mod aterm_list;
-mod aterm_string;
-mod markable;
-mod parse_term;
-mod protected;
-mod random_term;
-mod symbol;
-mod transmutable;
+mod aterm_storage;
+mod gc_mutex;
+mod global_aterm_pool;
+mod shared_term;
+mod symbol_pool;
+mod thread_aterm_pool;
 
-pub(crate) mod storage;
-
-pub use aterm::*;
-pub use aterm_binary_stream::*;
-pub use aterm_builder::*;
-pub use aterm_int::*;
-pub use aterm_list::*;
-pub use aterm_string::*;
-pub use markable::*;
-pub use parse_term::*;
-pub use protected::*;
-pub use random_term::*;
-pub use symbol::*;
-pub use transmutable::*;
+pub use aterm_storage::*;
+pub use gc_mutex::*;
+pub use global_aterm_pool::*;
+pub use shared_term::*;
+pub use symbol_pool::*;
+pub use thread_aterm_pool::*;
