@@ -7,10 +7,16 @@
 //! inclusion. All algorithms come in a variant with and without internal steps. It is possible to generate a counter
 //! transition system in case the inclusion is answered by no.
 
+use log::trace;
 use merc_lts::LTS;
+use merc_lts::StateIndex;
+use merc_reduction::Partition;
+use merc_reduction::branching_bisim_sigref;
+use merc_reduction::quotient_lts_block;
 use merc_utilities::Timing;
+use merc_utilities::VecSet;
 
-use crate::{Equivalence, VecSet, reduce_lts};
+use crate::RefinementType;
 
 /// Sets the exploration strategy for the failures refinement algorithm.
 pub enum ExplorationStrategy {
@@ -18,16 +24,11 @@ pub enum ExplorationStrategy {
     DFS,
 }
 
-/// Specifies the type of refinement to be checked.
-pub enum RefinementType {
-    FailuresDivergence,
-}
-
 /// This function checks using algorithms in the paper mentioned above
 /// whether transition system l1 is included in transition system l2, in the
 /// sense of trace inclusions, failures inclusion and divergence failures
 /// inclusion.
-pub fn failures_refinement<L: LTS, const COUNTER_EXAMPLE: bool>(
+pub fn is_failures_refinement<L: LTS, const COUNTER_EXAMPLE: bool>(
     impl_lts: L,
     spec_lts: L,
     refinement: RefinementType,
@@ -50,10 +51,13 @@ pub fn failures_refinement<L: LTS, const COUNTER_EXAMPLE: bool>(
             let (merged_lts, initial_spec) = impl_lts.merge_disjoint(&spec_lts);
 
             // Reduce all states in the merged LTS.
-            // TODO: How to deal with the initial state of the spec LTS?
-            let reduced_lts = reduce_lts(merged_lts, Equivalence::BranchingBisim, timing);
-            unimplemented!("Adjust initial_spec after reduction");
-            // (reduced_lts, initial_spec)
+            let (preprocess_lts, partition) = branching_bisim_sigref(merged_lts, timing);
+
+            let initial_spec = partition.block_number(initial_spec);
+            let reduced_lts = quotient_lts_block::<true>(&preprocess_lts, &partition);
+            
+            // After partitioning the block becomes the state in the reduced_lts.
+            (reduced_lts, StateIndex::new(*initial_spec))
         }
     } else {
         impl_lts.merge_disjoint(&spec_lts)
@@ -62,6 +66,7 @@ pub fn failures_refinement<L: LTS, const COUNTER_EXAMPLE: bool>(
     let mut working = vec![(merged_lts.initial_state_index(), vec![initial_spec])];
 
     while let Some((impl_state, spec)) = working.pop() {
+        trace!("Checking ({:?}, {:?})", impl_state, spec);
         // pop (impl,spec) from working;
 
         for impl_transition in merged_lts.outgoing_transitions(impl_state) {
@@ -76,14 +81,42 @@ pub fn failures_refinement<L: LTS, const COUNTER_EXAMPLE: bool>(
                 }
             }
 
+            trace!("spec' = {:?}", spec_prime);
             if spec_prime.is_empty() { // if spec' = {} then
                 return false;  //    return false;
             }
         }
     }
 
-    false
+    true
 }
 
 /// Stores cached information about the LTSs to speed up refinement checks.
 struct LtsCache {}
+
+
+#[cfg(test)]
+mod tests {
+    use merc_lts::random_lts;
+    use merc_reduction::{Equivalence, reduce_lts};
+    use merc_utilities::{Timing, random_test};
+
+    use crate::{ExplorationStrategy, RefinementType, is_failures_refinement};
+
+
+    #[test]
+    fn test_random_trace_refinement() {
+        random_test(100, |rng| {
+            let spec_lts = random_lts(rng, 10, 20, 5);
+
+            
+            let mut timing = Timing::default();
+            let impl_lts = reduce_lts(spec_lts.clone(), Equivalence::StrongBisim, &mut timing);
+
+            println!("Impl lts = {:?}", impl_lts);
+            println!("Spec lts = {:?}", spec_lts);
+            
+            assert!(is_failures_refinement::<_, false>(impl_lts, spec_lts, RefinementType::Trace, ExplorationStrategy::BFS, true, &mut timing), "Strong bisimulation implies trace refinement.");
+        });
+    }
+}
