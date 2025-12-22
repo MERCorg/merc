@@ -226,18 +226,17 @@ impl<'a> VariabilityZielonkaSolver<'a> {
                 "{indent}return (omega'_0, omega'_1) |omega'_x| = {}",
                 omega1_x.number_of_non_empty()
             );
-            self.check_partition(&omega1_x, &omega1_not_x, &gamma_copy)?;
             return Ok(combine(omega1_x, omega1_not_x, x));
         }
 
         // 14. \beta := attr_notalpha(\omega'_notx)
         let beta = self.attractor(not_x, &gamma, omega1_not_x)?;
         // 15. (omega''_0, omega''_1) := solve(gamma \ beta)
-        debug!("{indent}solve_rec(gamma \\ beta)");
+        debug!("{indent}solve_rec(gamma \\ beta), |beta| = {}", beta.number_of_non_empty());
         let (mut omega2_0, mut omega2_1) = self.solve_recursive(gamma.minus(&beta)?, depth + 1)?;
 
         // 17. omega''_notx := omega''_notx \cup \beta
-        let (omega2_x, mut omega2_not_x) = x_and_not_x(omega2_0, omega2_1, not_x);
+        let (omega2_x, mut omega2_not_x) = x_and_not_x(omega2_0, omega2_1, x);
         omega2_not_x = omega2_not_x.or(&beta)?;
 
         // 20. return (omega_0, omega_1)

@@ -209,8 +209,6 @@ impl ZielonkaSolver<'_> {
             self.temp_queue.push(VertexIndex::new(v));
         }
 
-        let initial_size = A.count_ones();
-
         // 4. While Q is not empty do
         // 5. w := Q.pop()
         while let Some(w) = self.temp_queue.pop() {
