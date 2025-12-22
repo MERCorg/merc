@@ -1,9 +1,6 @@
 use std::fmt;
 
-use oxidd::bdd::BDDFunction;
-use oxidd::util::OptBool;
-
-use crate::CubeIter;
+use crate::FormatConfigSet;
 use crate::Player;
 use crate::VariabilityParityGame;
 use crate::PG;
@@ -71,7 +68,7 @@ impl<'a> fmt::Display for VpgDot<'a> {
                     "  v{} -> v{} [label=\"{}\"];",
                     v,
                     edge.to(),
-                    DisplayConfig(edge.configuration())
+                    FormatConfigSet(edge.configuration())
                 )?;
             }
         }
@@ -123,29 +120,4 @@ fn write_vertices<G: PG>(f: &mut fmt::Formatter<'_>, game: &G) -> fmt::Result {
         )?;
     }
     Ok(())
-}
-
-// TODO: With information from the feature diagram we could actually put the variable names.
-struct DisplayConfig<'a>(&'a BDDFunction);
-
-impl fmt::Display for DisplayConfig<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for cube in CubeIter::new(self.0) {
-            for bit in cube {
-                match bit {
-                    OptBool::True => {
-                        write!(f, "1")?;
-                    }
-                    OptBool::False => {
-                        write!(f, "0")?;
-                    }
-                    OptBool::None => {
-                        write!(f, "-")?;
-                    }
-                };
-            }
-        }
-
-        Ok(())
-    }
 }
