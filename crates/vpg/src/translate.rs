@@ -72,7 +72,7 @@ pub fn translate(
     );
 
     // Check that the result is a total VPG.
-    debug_assert!(result.is_total(), "Resulting VPG is not total after translation",);
+    debug_assert!(result.is_total(manager_ref)?, "Resulting VPG is not total after translation",);
     // Check that all vertices are reachable from the initial vertex.
     if cfg!(debug_assertions) {
         let (_, reachable_vertices) = compute_reachable(&result);

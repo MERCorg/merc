@@ -14,6 +14,7 @@ use log::debug;
 use oxidd::bdd::BDDFunction;
 use oxidd::util::OptBool;
 
+use crate::FormatConfig;
 use crate::PG;
 use crate::ParityGame;
 use crate::Player;
@@ -33,41 +34,18 @@ pub fn solve_zielonka(game: &ParityGame) -> [Set; 2] {
 
     let mut V = bitvec![usize, Lsb0; 0; game.num_of_vertices()];
     V.set_elements(usize::MAX);
+    let full_V = V.clone(); // Used for debugging.
 
     let mut zielonka = ZielonkaSolver::new(game);
 
     let W = zielonka.solve_recursive(V, 0);
 
     // Check that the result is a valid partition
-    debug_assert!(
-        {
-            let intersection = W[0].clone() & &W[1];
-            if intersection.any() {
-                let non_disjoint: Vec<_> = intersection.iter_ones().collect();
-                panic!(
-                    "The winning sets are not disjoint. Vertices in both sets: {:?}",
-                    non_disjoint
-                );
-            }
-            true
-        },
-        "The winning sets are not disjoint"
-    );
-    debug_assert!(
-        {
-            let both = W[0].clone() | &W[1];
-            if !both.all() {
-                let missing: Vec<_> = both.iter_zeros().take(game.num_of_vertices()).collect();
-                panic!(
-                    "The winning sets do not cover all vertices. Missing vertices: {:?}",
-                    missing
-                );
-            }
-            true
-        },
-        "The winning sets do not cover all vertices"
-    );
-
+    debug!("Performed {} recursive calls", zielonka.recursive_calls);
+    if cfg!(debug_assertions) {
+        zielonka
+            .check_partition(&W[0], &W[1], &full_V);
+    }
     W
 }
 
@@ -77,6 +55,8 @@ pub fn solve_variability_product_zielonka(vpg: &VariabilityParityGame) -> impl I
         .map(|result| {
             let (cube, bdd, pg) = result.expect("Projection should not fail");
             let (reachable_pg, projection) = compute_reachable(&pg);
+
+            debug!("Solving projection on {}...", FormatConfig(&cube));
 
             let pg_solution = solve_zielonka(&reachable_pg);
             let mut new_solution = [bitvec![usize, Lsb0; 0; vpg.num_of_vertices()], bitvec![usize, Lsb0; 0; vpg.num_of_vertices()]];
@@ -246,6 +226,26 @@ impl ZielonkaSolver<'_> {
         }
 
         (Priority::new(highest), Priority::new(lowest))
+    }
+
+    /// Checks that the given solutions are a valid partition of the vertices in V
+    fn check_partition(&self, W0: &Set, W1: &Set, V: &Set) {
+        let intersection = W0.clone() & W1;
+        if intersection.any() {
+            panic!(
+                "The winning sets are not disjoint. Vertices in both sets: {}",
+                intersection
+            );
+        }
+
+        let both = W0.clone() | W1;
+        if both != *V {
+            let missing = V.clone() & !both;
+            panic!(
+                "The winning sets do not cover all vertices. Missing vertices: {}",
+                missing
+            );
+        }
     }
 }
 

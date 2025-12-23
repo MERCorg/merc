@@ -65,7 +65,7 @@ pub fn solve_variability_zielonka(
     variant: ZielonkaVariant,
     alternative_solving: bool,
 ) -> Result<[Submap; 2], MercError> {
-    debug_assert!(game.is_total(), "Zielonka solver requires a total parity game");
+    debug_assert!(game.is_total(manager_ref)?, "Zielonka solver requires a total parity game");
 
     let mut zielonka = VariabilityZielonkaSolver::new(manager_ref, game, alternative_solving);
 

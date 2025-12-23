@@ -3,6 +3,7 @@
 use std::fmt;
 
 use delegate::delegate;
+use merc_utilities::MercError;
 use oxidd::BooleanFunction;
 use oxidd::ManagerRef;
 use oxidd::bdd::BDDFunction;
@@ -17,10 +18,10 @@ use crate::VertexIndex;
 
 /// A variability parity game is an extension of a parity game where each edge is
 /// associated with a BDD function representing the configurations in which the
-/// edge is enabled. 
-/// 
+/// edge is enabled.
+///
 /// # Details
-/// 
+///
 /// This is also a max-priority parity game. There is also a configuration set associated
 /// with the variability parity game, representing the overall configurations.
 pub struct VariabilityParityGame {
@@ -182,14 +183,27 @@ impl VariabilityParityGame {
     }
 
     /// Returns true iff the parity game is total, checks all vertices have at least one outgoing edge.
-    pub fn is_total(&self) -> bool {       
+    pub fn is_total(&self, manager_ref: &BDDManagerRef) -> Result<bool, MercError> {
+        // Check that every vertex has at least one outgoing edge.
         for v in self.iter_vertices() {
             if self.outgoing_edges(v).next().is_none() {
-                return false;
+                return Ok(false);
             }
         }
 
-        true
+        // Check that the configurations of the outgoing edges cover the overall configuration.
+        for v in self.iter_vertices() {
+            let covered = self.outgoing_conf_edges(v).try_fold(
+                manager_ref.with_manager_shared(|manager| BooleanFunction::f(manager)),
+                |acc: BDDFunction, edge| acc.or(edge.configuration()),
+            )?;
+
+            if covered != self.configuration {
+                return Ok(false);
+            }
+        }
+
+        Ok(true)
     }
 
     /// Returns the overall configuration BDD of the variability parity game.
@@ -246,12 +260,7 @@ impl fmt::Display for VariabilityParityGame {
                 if !first {
                     write!(f, ", ")?;
                 }
-                write!(
-                    f,
-                    "(v{}, {})",
-                    edge.to(),
-                    FormatConfigSet(edge.configuration())
-                )?;
+                write!(f, "(v{}, {})", edge.to(), FormatConfigSet(edge.configuration()))?;
                 first = false;
             }
 
