@@ -18,12 +18,15 @@ use oxidd::bdd::BDDFunction;
 use oxidd::bdd::BDDManagerRef;
 use oxidd::util::AllocResult;
 
+use crate::FormatConfigSet;
 use crate::PG;
 use crate::Player;
 use crate::Priority;
 use crate::VariabilityParityGame;
 use crate::VariabilityPredecessors;
 use crate::VertexIndex;
+use crate::combine;
+use crate::x_and_not_x;
 
 /// Utility to print a repeated static string a given number of times.
 pub struct Repeat {
@@ -473,21 +476,6 @@ pub fn minus(lhs: &BDDFunction, rhs: &BDDFunction) -> AllocResult<BDDFunction> {
     lhs.and(&rhs.not()?)
 }
 
-/// Returns the given submaps ordered by player, left is alpha and right is not_alpha.
-fn x_and_not_x(omega_0: Submap, omega_1: Submap, player: Player) -> (Submap, Submap) {
-    match player {
-        Player::Even => (omega_0, omega_1),
-        Player::Odd => (omega_1, omega_0),
-    }
-}
-
-fn combine(omega_x: Submap, omega_not_x: Submap, player: Player) -> (Submap, Submap) {
-    match player {
-        Player::Even => (omega_x, omega_not_x),
-        Player::Odd => (omega_not_x, omega_x),
-    }
-}
-
 /// A mapping from vertices to configurations.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Submap {
@@ -646,7 +634,7 @@ impl Index<VertexIndex> for Submap {
 impl fmt::Debug for Submap {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, func) in self.mapping.iter().enumerate() {
-            writeln!(f, "  {}", i)?;
+            writeln!(f, "  {}: {}", i, FormatConfigSet(func))?;
         }
         Ok(())
     }
@@ -673,6 +661,7 @@ mod tests {
     use crate::solve_variability_product_zielonka;
     use crate::solve_variability_zielonka;
     use crate::solve_zielonka;
+    use crate::verify_variability_product_zielonka_solution;
     use crate::write_vpg;
 
     #[merc_test]
@@ -706,28 +695,7 @@ mod tests {
             write_vpg(&mut std::io::stdout(), &vpg).unwrap();
 
             let solution = solve_variability_zielonka(&manager_ref, &vpg, ZielonkaVariant::Family, false).unwrap();
-
-            for (bits, cube, pg_solution) in solve_variability_product_zielonka(&vpg) {
-                for v in vpg.iter_vertices() {
-                    if pg_solution[0][*v] {
-                        // Won by Even
-                        debug_assert!(
-                            solution[0][v].and(&cube).unwrap().satisfiable(),
-                            "Projection {}, vertex {v} is won by even in the product, but not in the vpg",
-                            FormatConfig(&bits)
-                        );
-                    }
-
-                    if pg_solution[1][*v] {
-                        // Won by Odd
-                        debug_assert!(
-                            solution[1][v].and(&cube).unwrap().satisfiable(),
-                            "Projection {}, vertex {v} is won by odd in the product, but not in the vpg",
-                            FormatConfig(&bits)
-                        );
-                    }
-                }
-            }
+            verify_variability_product_zielonka_solution(&vpg, &solution).unwrap();
         })
     }
 

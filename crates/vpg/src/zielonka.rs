@@ -5,14 +5,21 @@
 //! Implements the standard Zielonka recursive solver for any parity game
 //! implementing the [`crate::PG`] trait.
 
+use core::fmt;
 use std::ops::BitAnd;
 
 use bitvec::bitvec;
 use bitvec::order::Lsb0;
 use bitvec::vec::BitVec;
+use itertools::Itertools;
 use log::debug;
+use log::info;
+use log::trace;
+use oxidd::BooleanFunction;
 use oxidd::bdd::BDDFunction;
 use oxidd::util::OptBool;
+
+use merc_utilities::MercError;
 
 use crate::FormatConfig;
 use crate::PG;
@@ -21,6 +28,7 @@ use crate::Player;
 use crate::Predecessors;
 use crate::Priority;
 use crate::Repeat;
+use crate::Submap;
 use crate::VariabilityParityGame;
 use crate::VertexIndex;
 use crate::compute_reachable;
@@ -38,15 +46,15 @@ pub fn solve_zielonka(game: &ParityGame) -> [Set; 2] {
 
     let mut zielonka = ZielonkaSolver::new(game);
 
-    let W = zielonka.solve_recursive(V, 0);
+    let (W0, W1) = zielonka.zielonka_rec(V, 0);
 
     // Check that the result is a valid partition
     debug!("Performed {} recursive calls", zielonka.recursive_calls);
     if cfg!(debug_assertions) {
         zielonka
-            .check_partition(&W[0], &W[1], &full_V);
+            .check_partition(&W0, &W1, &full_V);
     }
-    W
+    [W0, W1]
 }
 
 /// Solves the given variability parity game using the product-based Zielonka algorithm.
@@ -74,6 +82,35 @@ pub fn solve_variability_product_zielonka(vpg: &VariabilityParityGame) -> impl I
 
             (cube, bdd, new_solution)
         })
+}
+
+/// Verifies that the solution obtained from the variability product-based Zielonka solver
+/// is consistent with the solution of the variability parity game.
+pub fn verify_variability_product_zielonka_solution(vpg: &VariabilityParityGame, solution: &[Submap; 2]) -> Result<(), MercError> {
+    info!("Verifying variability product-based Zielonka solution...");
+    for (bits, cube, pg_solution) in solve_variability_product_zielonka(&vpg) {
+        for v in vpg.iter_vertices() {
+            if pg_solution[0][*v] {
+                // Won by Even
+                assert!(
+                    solution[0][v].and(&cube)?.satisfiable(),
+                    "Projection {}, vertex {v} is won by even in the product, but not in the vpg",
+                    FormatConfig(&bits)
+                );
+            }
+
+            if pg_solution[1][*v] {
+                // Won by Odd
+                assert!(
+                    solution[1][v].and(&cube)?.satisfiable(),
+                    "Projection {}, vertex {v} is won by odd in the product, but not in the vpg",
+                    FormatConfig(&bits)
+                );
+            }
+        }
+    }
+
+    Ok(())
 }
 
 struct ZielonkaSolver<'a> {
@@ -118,12 +155,13 @@ impl ZielonkaSolver<'_> {
     }
 
     /// Recursively solves the parity game for the given set of vertices V.
-    fn solve_recursive(&mut self, mut V: Set, depth: usize) -> [Set; 2] {
+    fn zielonka_rec(&mut self, mut V: Set, depth: usize) -> (Set, Set) {
         self.recursive_calls += 1;
+        let full_V = V.clone(); // Used for debugging
         let indent = Repeat::new(" ", depth);
 
         if !V.any() {
-            return [V.clone(), V];
+            return (V.clone(), V);
         }
 
         let (highest_prio, lowest_prio) = self.get_highest_lowest_prio(&V);
@@ -139,7 +177,7 @@ impl ZielonkaSolver<'_> {
         }
 
         debug!(
-            "{}solve_rec(V) |V| = {}, highest prio = {}, lowest prio = {}, player = {}, |U| = {}",
+            "{}|V| = {}, highest prio = {}, lowest prio = {}, player = {}, |U| = {}",
             indent,
             V.count_ones(),
             highest_prio,
@@ -147,25 +185,24 @@ impl ZielonkaSolver<'_> {
             alpha,
             U.count_ones()
         );
+        trace!("{}Vertices in U: {}", indent, DisplaySet(&U));
 
         let A = self.attractor(alpha, &V, U);
 
-        debug!("{}solve_rec(V \\ A) |A| = {}", indent, A.count_ones());
-        let mut W_prime = self.solve_recursive(
-            V.iter()
-                .enumerate()
-                .map(|(index, value)| value.bitand(!A[index]))
-                .collect(),
+        trace!("{}Vertices in A: {}", indent, DisplaySet(&A));
+        debug!("{}zielonka(V \\ A) |A| = {}", indent, A.count_ones());
+        let (W1_0, W1_1) = self.zielonka_rec(
+            V.clone().bitand(!A.clone()),
             depth + 1,
         );
 
-        if !W_prime[not_alpha.to_index()].any() {
-            W_prime[alpha.to_index()] |= A;
-            W_prime
+        let (mut W1_alpha, W1_not_alpha) = x_and_not_x(W1_0, W1_1, alpha);
+
+        if !W1_not_alpha.any() {
+            W1_alpha |= A;
+            combine(W1_alpha, W1_not_alpha, alpha)
         } else {
-            // Get ownershop of a single element in the array.
-            let W_prime_opponent = std::mem::take(&mut W_prime[not_alpha.to_index()]);
-            let B = self.attractor(not_alpha, &V, W_prime_opponent);
+            let B = self.attractor(not_alpha, &V, W1_not_alpha);
 
             // Computes V \ B in place
             for (index, value) in V.iter_mut().enumerate() {
@@ -173,12 +210,17 @@ impl ZielonkaSolver<'_> {
                 value.commit(tmp);
             }
 
-            debug!("{}solve_rec(V \\ B)", indent);
-            let mut W_double_prime = self.solve_recursive(V, depth + 1); // V has been updated to V \ B
+            trace!("{}Vertices in B: {}", indent, DisplaySet(&A));
+            debug!("{}zielonka(V \\ B)", indent);
+            let (W2_0, W2_1) = self.zielonka_rec(V.bitand(!B.clone()), depth + 1); 
 
-            W_double_prime[not_alpha.to_index()] |= B;
-            W_double_prime
+            let (W2_alpha, mut W2_not_alpha) = x_and_not_x(W2_0, W2_1, alpha);
+
+            W2_not_alpha |= B;
+            self.check_partition(&W2_alpha, &W2_not_alpha, &full_V);
+            combine(W2_alpha, W2_not_alpha, alpha)
         }
+
     }
 
     /// Computes the attractor for `alpha` to the set `U` within the vertices `V`.
@@ -246,6 +288,31 @@ impl ZielonkaSolver<'_> {
                 missing
             );
         }
+    }
+}
+
+/// Returns the given pair ordered by player, left is alpha and right is not_alpha.
+pub fn x_and_not_x<U>(omega_0: U, omega_1: U, player: Player) -> (U, U) {
+    match player {
+        Player::Even => (omega_0, omega_1),
+        Player::Odd => (omega_1, omega_0),
+    }
+}
+
+/// Combines a pair of submaps ordered by player into a pair even, odd.
+pub fn combine<U>(omega_x: U, omega_not_x: U, player: Player) -> (U, U) {
+    match player {
+        Player::Even => (omega_x, omega_not_x),
+        Player::Odd => (omega_not_x, omega_x),
+    }
+}
+
+/// Helper struct to display a set of vertices.
+struct DisplaySet<'a>(&'a Set);
+
+impl fmt::Display for DisplaySet<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{{}}}", self.0.iter_ones().format(", "))
     }
 }
 
