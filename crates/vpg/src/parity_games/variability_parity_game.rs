@@ -15,6 +15,7 @@ use crate::ParityGame;
 use crate::Player;
 use crate::Priority;
 use crate::VertexIndex;
+use crate::minus;
 
 /// A variability parity game is an extension of a parity game where each edge is
 /// associated with a BDD function representing the configurations in which the
@@ -193,12 +194,14 @@ impl VariabilityParityGame {
 
         // Check that the configurations of the outgoing edges cover the overall configuration.
         for v in self.iter_vertices() {
+            // Compute the disjunction of all outgoing edge configurations.
             let covered = self.outgoing_conf_edges(v).try_fold(
                 manager_ref.with_manager_shared(|manager| BooleanFunction::f(manager)),
                 |acc: BDDFunction, edge| acc.or(edge.configuration()),
             )?;
 
-            if covered != self.configuration {
+            // If there are configurations not covered by the outgoing edges, the game is not total.
+            if minus(&self.configuration, &covered)?.satisfiable() {
                 return Ok(false);
             }
         }

@@ -10,6 +10,7 @@ use crate::Priority;
 use crate::VariabilityParityGame;
 use crate::VertexIndex;
 use crate::create_variables;
+use crate::make_vpg_total;
 use crate::random_bdd;
 
 /// Creates a random parity game with the given number of vertices, priorities, and outdegree.
@@ -50,7 +51,9 @@ pub fn random_parity_game(
     // Ensure at least the initial vertex exists.
     let initial_vertex = VertexIndex::new(0);
 
-    ParityGame::from_edges(initial_vertex, owner, priority, make_total, || edge_list.iter().cloned())
+    ParityGame::from_edges(initial_vertex, owner, priority, make_total, || {
+        edge_list.iter().cloned()
+    })
 }
 
 /// Creates a random parity game with the given number of vertices, priorities, and outdegree.
@@ -68,22 +71,28 @@ pub fn random_variability_parity_game(
     // Create random feature variables.
     let variables: Vec<BDDFunction> = create_variables(manager_ref, number_of_variables)?;
 
+    // Overall configuration is the conjunction of all features (i.e., all features enabled).
+    let configuration = random_bdd(manager_ref, rng, &variables)?;
+    
     // Create random edge configurations.
     let mut edges_configuration: Vec<BDDFunction> = Vec::with_capacity(pg.num_of_edges());
     for _ in 0..pg.num_of_edges() {
         edges_configuration.push(random_bdd(manager_ref, rng, &variables)?);
     }
 
-    // Overall configuration is the conjunction of all features (i.e., all features enabled).
-    let configuration = random_bdd(manager_ref, rng, &variables)?;
+    let result = VariabilityParityGame::new(
+            pg,
+            configuration,
+            variables,
+            edges_configuration);
 
-    Ok(VariabilityParityGame::new(
-        pg,
-        configuration,
-        variables,
-        edges_configuration,
-    ))
+    if make_total {
+        make_vpg_total(manager_ref, &result)
+    } else {
+        Ok(result)        
+    }
 }
+
 
 #[cfg(test)]
 mod tests {

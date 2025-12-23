@@ -10,6 +10,8 @@ use duct::cmd;
 use itertools::Itertools;
 use log::debug;
 use log::info;
+use merc_vpg::make_vpg_total;
+use merc_vpg::verify_variability_product_zielonka_solution;
 use oxidd::BooleanFunction;
 
 use merc_syntax::UntypedStateFrmSpec;
@@ -93,6 +95,10 @@ struct SolveArgs {
     /// Whether to output the solution for every single vertex, not just in the initial vertex.
     #[arg(long, default_value_t = false)]
     full_solution: bool,
+
+    /// Whether to verify the solution after computing it
+    #[arg(long, default_value_t = false)]
+    verify_solution: bool,
 }
 
 /// Arguments for computing the reachable part of a parity game
@@ -232,6 +238,12 @@ fn handle_solve(cli: &Cli, args: &SolveArgs, timing: &mut Timing) -> Result<(), 
         let game = read_vpg(&manager_ref, &mut file)?;
         time_read.finish();
 
+        let game = if !game.is_total(&manager_ref)? {
+            make_vpg_total(&manager_ref, &game)?
+        } else {
+            game
+        };
+
         let mut time_solve = timing.start("solve_variability_zielonka");
         if solve_variant == ZielonkaVariant::Product {
             // Since we want to print W0, W1 separately, we need to store the results temporarily.
@@ -274,6 +286,10 @@ fn handle_solve(cli: &Cli, args: &SolveArgs, timing: &mut Timing) -> Result<(), 
                             .format(", ")
                     );
                 }
+            }
+
+            if args.verify_solution {
+                verify_variability_product_zielonka_solution(&game, &solutions)?;
             }
         }
         time_solve.finish();

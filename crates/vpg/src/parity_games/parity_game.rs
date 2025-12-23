@@ -70,7 +70,7 @@ impl ParityGame {
     ///
     /// The vertices are given by their owner and priority. The `edges` iterator
     /// should yield tuples of the form (from, to). If `make_total` is true,
-    /// self-loops are added to vertices with no outgoing edges.
+    /// self-loops are added on-the-fly to vertices with no outgoing edges.
     pub fn from_edges<F, I>(
         initial_vertex: VertexIndex,
         owner: Vec<Player>,
@@ -296,4 +296,19 @@ pub trait PG {
 
     /// Returns the priority of the given vertex.
     fn priority(&self, vertex: VertexIndex) -> Priority;
+}
+
+#[cfg(test)]
+mod tests {
+    use merc_utilities::random_test;
+
+    use crate::random_parity_game;
+
+    #[test]
+    fn test_random_parity_game_make_total() {
+        random_test(100, |rng| {
+            let game = random_parity_game(rng, true, 50, 10, 5);
+            assert!(game.is_total());
+        });
+    }
 }
