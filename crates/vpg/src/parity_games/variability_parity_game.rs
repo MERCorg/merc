@@ -3,13 +3,14 @@
 use std::fmt;
 
 use delegate::delegate;
-use merc_utilities::MercError;
 use oxidd::BooleanFunction;
 use oxidd::ManagerRef;
 use oxidd::bdd::BDDFunction;
 use oxidd::bdd::BDDManagerRef;
 
-use crate::FormatConfigSet;
+use merc_symbolic::FormatConfigSet;
+use merc_utilities::MercError;
+
 use crate::PG;
 use crate::ParityGame;
 use crate::Player;

@@ -11,14 +11,15 @@ use bitvec::vec::BitVec;
 use clap::ValueEnum;
 use log::debug;
 use log::trace;
-use merc_utilities::MercError;
 use oxidd::BooleanFunction;
 use oxidd::ManagerRef;
 use oxidd::bdd::BDDFunction;
 use oxidd::bdd::BDDManagerRef;
 use oxidd::util::AllocResult;
 
-use crate::FormatConfigSet;
+use merc_symbolic::FormatConfigSet;
+use merc_utilities::MercError;
+
 use crate::PG;
 use crate::Player;
 use crate::Priority;
@@ -663,7 +664,6 @@ mod tests {
 
     use merc_utilities::random_test;
 
-    use crate::FormatConfig;
     use crate::PG;
     use crate::Submap;
     use crate::VertexIndex;

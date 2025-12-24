@@ -1,6 +1,7 @@
 use std::fmt;
 
-use crate::FormatConfigSet;
+use merc_symbolic::FormatConfigSet;
+
 use crate::PG;
 use crate::Player;
 use crate::VariabilityParityGame;
