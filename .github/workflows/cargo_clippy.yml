@@ -7,7 +7,7 @@ permissions:
 on:
   push:
     branches: [ main ]
-  pull_request:
+  pull_requests:
     branches: [ main ]
     
 env:
