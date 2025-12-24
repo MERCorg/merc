@@ -1,0 +1,18 @@
+[package]
+name = "merc_collections"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+merc_io.workspace = true
+merc_utilities.workspace = true
+
+bitvec.workspace = true
+delegate.workspace = true
+hashbrown.workspace = true
+itertools.workspace = true
+log.workspace = true
+rand.workspace = true
+rustc-hash.workspace = true

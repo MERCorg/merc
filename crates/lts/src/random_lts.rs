@@ -4,44 +4,57 @@ use crate::LabelIndex;
 use crate::LabelledTransitionSystem;
 use crate::LtsBuilderFast;
 use crate::StateIndex;
+use crate::TransitionLabel;
 use crate::product_lts;
 
 /// Generates a random LTS with the desired number of states, labels and out
 /// degree by composing three smaller random LTSs using the synchronous product.
+/// This is often a more realistic structure than fully random LTSs, but
+/// otherwise see [`random_lts_monolithic`].
 pub fn random_lts(
     rng: &mut impl Rng,
     num_of_states: usize,
     num_of_labels: u32,
     outdegree: usize,
-) -> LabelledTransitionSystem {
-    let components: Vec<LabelledTransitionSystem> = (0..3)
+) -> LabelledTransitionSystem<String> {
+    let components: Vec<LabelledTransitionSystem<String>> = (0..3)
         .map(|_| random_lts_monolithic(rng, num_of_states, num_of_labels, outdegree))
+        .collect();
+
+    // Synchronize on some of the labels.
+    let synchronized_labels: Vec<String> = (1..num_of_labels.min(3))
+        .map(|i| {
+            char::from_digit(i, 36)
+                .expect("Radix is less than 37, so should not panic")
+                .to_string()
+        })
         .collect();
 
     components
         .into_iter()
-        .reduce(|acc, lts| product_lts(&acc, &lts))
+        .reduce(|acc, lts| product_lts(&acc, &lts, Some(synchronized_labels.clone())))
         .expect("At least one component should be present")
 }
 
 /// Generates a monolithic LTS with the desired number of states, labels, out
-/// degree and in degree for all the states.
-pub fn random_lts_monolithic(
+/// degree and in degree for all the states. Uses the given TransitionLabel type
+/// to generate the transition labels.
+pub fn random_lts_monolithic<L: TransitionLabel>(
     rng: &mut impl Rng,
     num_of_states: usize,
     num_of_labels: u32,
     outdegree: usize,
-) -> LabelledTransitionSystem {
+) -> LabelledTransitionSystem<L> {
     assert!(
         num_of_labels < 26,
         "Too many labels requested, we only support alphabetic labels."
     );
 
     // Introduce lower case letters for the labels.
-    let mut labels: Vec<String> = Vec::new();
-    labels.push("tau".to_string()); // The initial hidden label, assumed to be index 0.
+    let mut labels: Vec<L> = Vec::new();
+    labels.push(L::tau_label()); // The initial hidden label, assumed to be index 0.
     for i in 0..(num_of_labels - 1) {
-        labels.push(char::from_digit(i + 10, 36).unwrap().to_string());
+        labels.push(L::from_index(i as usize));
     }
 
     let mut builder = LtsBuilderFast::with_capacity(labels, Vec::new(), num_of_states);

@@ -17,8 +17,8 @@ use mcrl2_sys::atermpp::ffi::mcrl2_aterm_pool_test_garbage_collection;
 use mcrl2_sys::atermpp::ffi::mcrl2_function_symbol_create;
 use mcrl2_sys::cxx::Exception;
 use mcrl2_sys::cxx::UniquePtr;
-use merc_utilities::ProtectionIndex;
-use merc_utilities::ProtectionSet;
+use merc_collections::ProtectionIndex;
+use merc_collections::ProtectionSet;
 
 use crate::ATerm;
 use crate::ATermRef;

@@ -7,19 +7,18 @@ use delegate::delegate;
 use merc_aterm::ATerm;
 use merc_aterm::ATermArgs;
 use merc_aterm::ATermIndex;
-use merc_aterm::ATermInt;
 use merc_aterm::ATermRef;
 use merc_aterm::ATermString;
 use merc_aterm::Markable;
-use merc_aterm::Marker;
 use merc_aterm::Symb;
 use merc_aterm::SymbolRef;
-use merc_aterm::THREAD_TERM_POOL;
 use merc_aterm::Term;
 use merc_aterm::TermBuilder;
 use merc_aterm::TermIterator;
 use merc_aterm::Transmutable;
 use merc_aterm::Yield;
+use merc_aterm::storage::Marker;
+use merc_aterm::storage::THREAD_TERM_POOL;
 use merc_macros::merc_derive_terms;
 use merc_macros::merc_ignore;
 use merc_macros::merc_term;
@@ -212,11 +211,11 @@ mod inner {
         }
 
         /// Create a variable with the given sort and name.
-        pub fn with_sort(name: impl Into<ATermString>, sort: usize) -> DataVariable {
+        pub fn with_sort(name: impl Into<ATermString>, sort: SortExpressionRef<'_>) -> DataVariable {
             DATA_SYMBOLS.with_borrow(|ds| {
                 // TODO: Storing terms temporarily is not optimal.
                 let t = name.into();
-                let args: &[ATerm] = &[t.into(), ATermInt::new(sort).into()];
+                let args: &[ATermRef<'_>] = &[t.copy().into(), sort.into()];
 
                 DataVariable {
                     term: ATerm::with_args(ds.data_variable.deref(), args).protect(),

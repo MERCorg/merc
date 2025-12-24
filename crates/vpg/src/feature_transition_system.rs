@@ -176,7 +176,7 @@ impl fmt::Debug for FeatureDiagram {
 /// where each label is associated with a feature expression.
 pub struct FeatureTransitionSystem {
     /// The underlying labelled transition system.
-    lts: LabelledTransitionSystem,
+    lts: LabelledTransitionSystem<String>,
 
     /// The feature expression associated with each label.
     feature_labels: Vec<BDDFunction>,
@@ -188,7 +188,7 @@ pub struct FeatureTransitionSystem {
 impl FeatureTransitionSystem {
     /// Creates a new feature transition system.
     pub fn new(
-        lts: LabelledTransitionSystem,
+        lts: LabelledTransitionSystem<String>,
         feature_labels: Vec<BDDFunction>,
         features: HashMap<String, BDDFunction>,
     ) -> Self {
@@ -211,19 +211,10 @@ impl FeatureTransitionSystem {
 }
 
 impl LTS for FeatureTransitionSystem {
-    fn merge_disjoint(mut self, other: &Self) -> (Self, StateIndex) {
-        // Combine the underlying LTSs, and then extend the feature labels.
-        let (lts, initial_state) = self.lts.merge_disjoint(&other.lts);
-        self.lts = lts;
-        self.feature_labels.extend_from_slice(&other.feature_labels);
+    type Label = String;
 
-        // The features must be identical when merging disjoint FTSs. This is
-        // because the feature labels are defined with respect to the same set
-        // of features. Merging FTSs with different feature diagrams would
-        // result in an inconsistent or ill-defined system.
-        assert!(self.features == other.features);
-
-        (self, initial_state)
+    fn merge_disjoint<L>(self, _other: &L) -> (LabelledTransitionSystem<String>, StateIndex) {
+        unimplemented!("Merging feature transition systems is not yet implemented")
     }
 
     delegate::delegate! {

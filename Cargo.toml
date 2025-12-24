@@ -1,6 +1,7 @@
 [workspace.package]
 edition = "2024"
 license = "BSL-1.0"
+homepage = "https://mercorg.github.io/merc/"
 repository = "https://github.com/mlaveaux/merc.git"
 rust-version = "1.85.0"
 version = "1.0.0"
@@ -22,6 +23,7 @@ members = [
     "3rd-party/pest_consume",
     "crates/aterm",
     "crates/aterm/benchmarks",
+    "crates/collections",
     "crates/data",
     "crates/io",
     "crates/ldd",
@@ -31,6 +33,7 @@ members = [
     "crates/number",
     "crates/rec-tests",
     "crates/reduction",
+    "crates/preorder",
     "crates/sabre",
     "crates/sabre/benchmarks",
     "crates/sharedmutex",
@@ -109,12 +112,14 @@ criterion = "0.8"
 
 # The workspace crates.
 merc_aterm = { path = "crates/aterm" }
+merc_collections = { path = "crates/collections" }
 merc_data = { path = "crates/data" }
 merc_io = { path = "crates/io" }
 merc_ldd = { path = "crates/ldd" }
 merc_lts = { path = "crates/lts" }
 merc_macros = { path = "crates/macros" }
 merc_number = { path = "crates/number" }
+merc_preorder = { path = "crates/preorder" }
 merc_rec-tests = { path = "crates/rec-tests" }
 merc_reduction = { path = "crates/reduction" }
 merc_sabre = { path = "crates/sabre" }

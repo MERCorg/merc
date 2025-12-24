@@ -17,14 +17,11 @@ merc_debug-trace = []
 ahash.workspace = true
 arbitrary.workspace = true
 backtrace.workspace = true
-bitvec.workspace = true
 delegate.workspace = true
 env_logger.workspace = true
-hashbrown.workspace = true
 log.workspace = true
 pest.workspace = true
 rand.workspace = true
-rustc-hash.workspace = true
 
 [build-dependencies]
 toml.workspace = true

@@ -14,9 +14,9 @@ use crate::ATermArgs;
 use crate::ATermIndex;
 use crate::ATermRef;
 use crate::SymbolRef;
-use crate::THREAD_TERM_POOL;
 use crate::Term;
 use crate::TermIterator;
+use crate::storage::THREAD_TERM_POOL;
 
 /// Returns true iff the term is a list term.
 pub fn is_list_term<'a, 'b>(t: &'b impl Term<'a, 'b>) -> bool {
@@ -28,6 +28,14 @@ pub fn is_empty_list_term<'a, 'b>(t: &'b impl Term<'a, 'b>) -> bool {
     THREAD_TERM_POOL.with_borrow(|tp| *tp.empty_list_symbol() == t.get_head_symbol())
 }
 
+/// Represents a list of ATerms of type T.
+///
+/// # Details
+///
+/// Internally, uses two standard function symbols `cons` and `[]` to represent
+/// lists. The `cons` function symbol has arity 2, where the first argument is
+/// the head of the list and the second argument is the tail of the list. The
+/// `[]` function symbol has arity 0 and represents the empty list.
 pub struct ATermList<T> {
     term: ATerm,
     _marker: PhantomData<T>,

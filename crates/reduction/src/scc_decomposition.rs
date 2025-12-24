@@ -2,10 +2,10 @@ use std::fmt;
 
 use log::debug;
 use log::trace;
+use merc_io::LargeFormatter;
 use merc_lts::LTS;
 use merc_lts::LabelIndex;
 use merc_lts::StateIndex;
-use merc_utilities::LargeFormatter;
 
 use crate::BlockIndex;
 use crate::IndexedPartition;
@@ -191,7 +191,7 @@ mod tests {
 
     /// Returns the reachable states from the given state index.
     fn reachable_states(
-        lts: &LabelledTransitionSystem,
+        lts: &impl LTS,
         state_index: StateIndex,
         filter: &impl Fn(StateIndex, LabelIndex, StateIndex) -> bool,
     ) -> Vec<usize> {
@@ -261,7 +261,7 @@ mod tests {
             StateIndex::new(0),
             None,
             || transitions.iter().cloned(),
-            vec!["tau".into(), "a".into()],
+            vec!["tau".to_string(), "a".to_string()],
         );
 
         let _ = tau_scc_decomposition(&lts);

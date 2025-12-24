@@ -7,18 +7,18 @@ use std::ops::Deref;
 use std::ops::DerefMut;
 use std::sync::Arc;
 
+use merc_collections::ProtectionIndex;
 use merc_utilities::PhantomUnsend;
-use merc_utilities::ProtectionIndex;
 
 use crate::Markable;
 use crate::Symb;
 use crate::SymbolRef;
-use crate::THREAD_TERM_POOL;
 use crate::Term;
 use crate::Transmutable;
 use crate::aterm::ATermRef;
-use crate::gc_mutex::GcMutex;
-use crate::gc_mutex::GcMutexGuard;
+use crate::storage::GcMutex;
+use crate::storage::GcMutexGuard;
+use crate::storage::THREAD_TERM_POOL;
 
 /// A container of objects, typically either terms or objects containing terms,
 /// that are of trait Markable. These store ATermRef<'static> that are protected

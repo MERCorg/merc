@@ -11,25 +11,25 @@ use std::sync::Arc;
 
 use delegate::delegate;
 
+use merc_collections::ProtectionIndex;
 use merc_sharedmutex::RecursiveLockReadGuard;
 use merc_unsafety::StablePointer;
 use merc_utilities::MercError;
 use merc_utilities::PhantomUnsend;
-use merc_utilities::ProtectionIndex;
 
 use crate::ATermIntRef;
 use crate::ATermList;
-use crate::GlobalTermPool;
 use crate::Markable;
-use crate::Marker;
-use crate::SharedTerm;
-use crate::SharedTermProtection;
 use crate::Symb;
 use crate::SymbolRef;
-use crate::THREAD_TERM_POOL;
 use crate::is_empty_list_term;
 use crate::is_int_term;
 use crate::is_list_term;
+use crate::storage::GlobalTermPool;
+use crate::storage::Marker;
+use crate::storage::SharedTerm;
+use crate::storage::SharedTermProtection;
+use crate::storage::THREAD_TERM_POOL;
 
 /// The ATerm trait represents a first-order term in the ATerm library.
 /// It provides methods to manipulate and access the term's properties.
@@ -210,9 +210,18 @@ impl fmt::Debug for ATermRef<'_> {
 ///
 /// # Safety
 ///
-/// Note that terms use thread-local state for their protection mechanism, so [ATerm] is not [Send].
-/// Moreover, this means that terms cannot be stored in thread-local storage themselves, or at least must be destroyed before the thread exists, because the order in which thread-local destructors are called is undefined.
-/// We do not mark term access as unsafe, since that would make their use cumbersome. An alternative would be to required THREAD_TERM_POOL.with_borrow(|tp| ...) around every access, but that would be very verbose.
+/// Note that terms use thread-local state for their protection mechanism, so
+/// [ATerm] is not [Send]. Moreover, this means that terms cannot be stored in
+/// thread-local storage themselves, or at least must be destroyed before the
+/// thread exists, because the order in which thread-local destructors are
+/// called is undefined. For this purpose one can use `ManuallyDrop` to simply
+/// never drop thread local terms, since exiting the thread will clean up the
+/// protection sets anyway.
+///
+/// We do not mark term access as unsafe, since that would make their use
+/// cumbersome. An alternative would be to required
+/// THREAD_TERM_POOL.with_borrow(|tp| ...) around every access, but that would
+/// be very verbose.
 pub struct ATerm {
     term: ATermRef<'static>,
 
