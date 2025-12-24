@@ -1,9 +1,10 @@
 [package]
 name = "mcrl2-sys"
 links = "mcrl2"
-version.workspace = true
-rust-version.workspace = true
 edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
 merc_tools.workspace = true

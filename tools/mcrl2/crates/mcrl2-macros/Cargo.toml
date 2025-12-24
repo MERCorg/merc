@@ -1,8 +1,9 @@
 [package]
 name = "mcrl2-macros"
-version.workspace = true
 edition.workspace = true
+license.workspace = true
 rust-version.workspace = true
+version.workspace = true
 
 [lib]
 proc-macro = true
