@@ -103,12 +103,7 @@ impl ModalEquationSystem {
     }
 
     /// Recursive helper function to compute the alternation depth of equation `i`.
-    fn alternation_depth_rec(
-        &self,
-        i: usize,
-        formula: &StateFrm,
-        identifier: &String,
-    ) -> usize {
+    fn alternation_depth_rec(&self, i: usize, formula: &StateFrm, identifier: &String) -> usize {
         let equation = &self.equations[i];
 
         match formula {
@@ -120,8 +115,7 @@ impl ModalEquationSystem {
                         .find_equation_by_identifier(id)
                         .expect("Equation not found for identifier");
                     if j > i {
-                        let depth =
-                            self.alternation_depth_rec(j, &inner_equation.rhs, identifier);
+                        let depth = self.alternation_depth_rec(j, &inner_equation.rhs, identifier);
                         depth
                             + (if inner_equation.operator != equation.operator {
                                 1 // Alternation occurs.

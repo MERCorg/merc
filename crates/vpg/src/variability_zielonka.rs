@@ -68,7 +68,10 @@ pub fn solve_variability_zielonka(
     variant: ZielonkaVariant,
     alternative_solving: bool,
 ) -> Result<[Submap; 2], MercError> {
-    debug_assert!(game.is_total(manager_ref)?, "Zielonka solver requires a total parity game");
+    debug_assert!(
+        game.is_total(manager_ref)?,
+        "Zielonka solver requires a total parity game"
+    );
 
     let mut zielonka = VariabilityZielonkaSolver::new(manager_ref, game, alternative_solving);
 
@@ -231,7 +234,10 @@ impl<'a> VariabilityZielonkaSolver<'a> {
             // 14. \beta := attr_notalpha(\omega'_notx)
             let beta = self.attractor(not_x, &gamma, omega1_not_x)?;
             // 15. (omega''_0, omega''_1) := solve(gamma \ beta)
-            debug!("{indent}solve_rec(gamma \\ beta), |beta| = {}", beta.number_of_non_empty());
+            debug!(
+                "{indent}solve_rec(gamma \\ beta), |beta| = {}",
+                beta.number_of_non_empty()
+            );
             trace!("{indent}Vertices in beta: {:?}", beta);
 
             let (mut omega2_0, mut omega2_1) = self.solve_recursive(gamma.minus(&beta)?, depth + 1)?;
@@ -295,7 +301,10 @@ impl<'a> VariabilityZielonkaSolver<'a> {
         trace!("{indent}alpha: {:?}", alpha);
 
         // 10. (omega'_0, omega'_1) := solve(gamma \ alpha)
-        debug!("{indent}zielonka_family_opt(gamma \\ alpha) |alpha| = {}", alpha.number_of_non_empty());
+        debug!(
+            "{indent}zielonka_family_opt(gamma \\ alpha) |alpha| = {}",
+            alpha.number_of_non_empty()
+        );
         let (omega1_0, omega1_1) = self.zielonka_family_optimised(gamma.clone().minus(&alpha)?, depth + 1)?;
 
         // omega_prime[not_x] restricted to (gamma \ C)
@@ -707,7 +716,7 @@ mod tests {
         random_test(100, |rng| {
             let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
             let vpg = random_variability_parity_game(&manager_ref, rng, true, 20, 3, 3, 3).unwrap();
-            
+
             write_vpg(&mut std::io::stdout(), &vpg).unwrap();
 
             let solution =

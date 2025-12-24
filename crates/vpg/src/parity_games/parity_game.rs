@@ -151,22 +151,14 @@ impl ParityGame {
         if make_total {
             for vertex_idx in 0..num_of_vertices {
                 let start = vertices[vertex_idx];
-                let previous = if vertex_idx > 0 {
-                    vertices[vertex_idx - 1]
-                } else {
-                    0
-                };
+                let previous = if vertex_idx > 0 { vertices[vertex_idx - 1] } else { 0 };
                 if start == previous {
                     // No outgoing edges, add self-loop
                     edges_to[start] = VertexIndex::new(vertex_idx);
                     vertices[vertex_idx] += 1; // Increment end offset
 
                     // Change the priority of the vertex such that the self-loop is winning for the opponent.
-                    priority[vertex_idx] = Priority::new(
-                        owner[vertex_idx]
-                            .opponent()
-                            .to_index(),
-                    );
+                    priority[vertex_idx] = Priority::new(owner[vertex_idx].opponent().to_index());
                 }
             }
         }
@@ -190,7 +182,7 @@ impl ParityGame {
     }
 
     /// Returns true iff the parity game is total, checks all vertices have at least one outgoing edge.
-    pub fn is_total(&self) -> bool {       
+    pub fn is_total(&self) -> bool {
         for v in self.iter_vertices() {
             if self.outgoing_edges(v).next().is_none() {
                 return false;
@@ -264,7 +256,13 @@ impl fmt::Debug for ParityGame {
         for v in self.iter_vertices() {
             let owner = self.owner(v);
             let prio = self.priority(v);
-            write!(f, "    {}: ({:?}, priority: {}, outgoing: [", *v, owner.to_index(), *prio)?;
+            write!(
+                f,
+                "    {}: ({:?}, priority: {}, outgoing: [",
+                *v,
+                owner.to_index(),
+                *prio
+            )?;
 
             write!(f, "{}", self.outgoing_edges(v).format(", "))?;
             writeln!(f, "]),")?;

@@ -380,14 +380,16 @@ fn handle_project(cli: &Cli, args: &ProjectArgs, timing: &mut Timing) -> Result<
         let (cube, _bdd, pg) = result?;
 
         let extension = output_path.extension().ok_or("Missing extension on output file")?;
-        let new_path = output_path.with_file_name(format!(
-            "{}_{}",
-            output_path
-                .file_stem()
-                .ok_or("Missing filename on output")?
-                .to_string_lossy(),
-            FormatConfig(&cube)
-        )).with_extension(extension);
+        let new_path = output_path
+            .with_file_name(format!(
+                "{}_{}",
+                output_path
+                    .file_stem()
+                    .ok_or("Missing filename on output")?
+                    .to_string_lossy(),
+                FormatConfig(&cube)
+            ))
+            .with_extension(extension);
 
         let mut output_file = File::create(new_path)?;
 

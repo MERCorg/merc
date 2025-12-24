@@ -85,7 +85,7 @@ pub fn translate(
     let total_result = if !result.is_total(manager_ref)? {
         make_vpg_total(manager_ref, &result)?
     } else {
-        result        
+        result
     };
 
     Ok(total_result)
@@ -139,9 +139,12 @@ impl<'a> Translation<'a> {
         equation_system: &'a ModalEquationSystem,
         true_bdd: BDDFunction,
     ) -> Self {
-        let progress: TimeProgress<usize> = TimeProgress::new(|num_of_vertices: usize| {
-            info!("Translated {} vertices...", num_of_vertices);
-        }, 1);
+        let progress: TimeProgress<usize> = TimeProgress::new(
+            |num_of_vertices: usize| {
+                info!("Translated {} vertices...", num_of_vertices);
+            },
+            1,
+        );
 
         Self {
             vertex_map: IndexedSet::new(),
@@ -155,17 +158,16 @@ impl<'a> Translation<'a> {
             progress,
         }
     }
-    
-    /// Perform the actual translation.
-    fn translate(
-        &mut self,
-        initial_state: StateIndex,
-        initial_equation_index: usize,
-    ) -> Result<(), MercError> {
 
+    /// Perform the actual translation.
+    fn translate(&mut self, initial_state: StateIndex, initial_equation_index: usize) -> Result<(), MercError> {
         // We store (state, formula, N) into the queue, where N is the vertex number assigned to this pair. This means
         // that during the traversal we can assume this N to exist.
-        self.queue = vec![(initial_state, Formula::Equation(initial_equation_index), VertexIndex::new(0))];
+        self.queue = vec![(
+            initial_state,
+            Formula::Equation(initial_equation_index),
+            VertexIndex::new(0),
+        )];
         self.vertices.push((Player::Odd, Priority::new(0))); // Placeholder for the initial vertex
 
         while let Some((s, formula, vertex_index)) = self.queue.pop() {

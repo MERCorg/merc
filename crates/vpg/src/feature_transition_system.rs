@@ -82,7 +82,8 @@ fn data_expr_to_bdd(
                         let then_branch = data_expr_to_bdd(manager_ref, variables, &arguments[1])?;
                         let else_branch = data_expr_to_bdd(manager_ref, variables, &arguments[2])?;
                         Ok(variables
-                            .get(&variable).ok_or(format!("Variable \"{}\" not found in feature diagram", variable))?
+                            .get(&variable)
+                            .ok_or(format!("Variable \"{}\" not found in feature diagram", variable))?
                             .ite(&then_branch, &else_branch)?)
                     } else {
                         unimplemented!("Conversion of data expression to BDD not implemented for this function");

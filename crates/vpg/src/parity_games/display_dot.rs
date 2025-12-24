@@ -1,9 +1,9 @@
 use std::fmt;
 
 use crate::FormatConfigSet;
+use crate::PG;
 use crate::Player;
 use crate::VariabilityParityGame;
-use crate::PG;
 
 /// Display implementation output a parity game in Graphviz DOT format.
 pub struct PgDot<'a, G: PG> {

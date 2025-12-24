@@ -7,12 +7,12 @@ use std::io::Write;
 
 use itertools::Itertools;
 use log::info;
-use oxidd::bdd::BDDFunction;
-use oxidd::bdd::BDDManagerRef;
-use oxidd::util::OptBool;
 use oxidd::BooleanFunction;
 use oxidd::Manager;
 use oxidd::ManagerRef;
+use oxidd::bdd::BDDFunction;
+use oxidd::bdd::BDDManagerRef;
+use oxidd::util::OptBool;
 use regex::Regex;
 use streaming_iterator::StreamingIterator;
 
@@ -20,15 +20,15 @@ use merc_io::LineIterator;
 use merc_io::TimeProgress;
 use merc_utilities::MercError;
 
-use crate::minus;
 use crate::CubeIter;
 use crate::IOError;
+use crate::PG;
 use crate::ParityGame;
 use crate::Player;
 use crate::Priority;
 use crate::VariabilityParityGame;
 use crate::VertexIndex;
-use crate::PG;
+use crate::minus;
 
 /// Reads a variability parity game from the given reader.
 /// Note that the reader is buffered internally using a `BufReader`.
@@ -286,7 +286,11 @@ mod tests {
     fn test_read_vpg() {
         let manager = oxidd::bdd::new_manager(2048, 1024, 8);
 
-        let parity_game = read_vpg(&manager, include_bytes!("../../../../examples/vpg/example.vpg") as &[u8]).unwrap();
+        let parity_game = read_vpg(
+            &manager,
+            include_bytes!("../../../../examples/vpg/example.vpg") as &[u8],
+        )
+        .unwrap();
 
         assert_eq!(parity_game.num_of_vertices(), 61014);
     }

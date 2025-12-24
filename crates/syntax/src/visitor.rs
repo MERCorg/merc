@@ -21,7 +21,10 @@ pub fn apply_statefrm(
 /// formula. If it returns `Some(new_formula)`, the substitution is applied and
 /// the new formula is returned. If it returns `None`, the substitution is not
 /// applied and the function continues to traverse the formula tree.
-pub fn visit_statefrm(formula: &StateFrm, mut visitor: impl FnMut(&StateFrm) -> Result<(), MercError>) -> Result<(), MercError> {
+pub fn visit_statefrm(
+    formula: &StateFrm,
+    mut visitor: impl FnMut(&StateFrm) -> Result<(), MercError>,
+) -> Result<(), MercError> {
     visit_statefrm_rec(formula, &mut visitor)
 }
 

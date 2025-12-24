@@ -12,7 +12,10 @@ use crate::VertexIndex;
 use crate::variability_zielonka::minus;
 
 /// Makes the given variability parity game total by adding edges to true/false nodes as needed.
-pub fn make_vpg_total(manager_ref: &BDDManagerRef, vpg: &VariabilityParityGame) -> Result<VariabilityParityGame, MercError> {
+pub fn make_vpg_total(
+    manager_ref: &BDDManagerRef,
+    vpg: &VariabilityParityGame,
+) -> Result<VariabilityParityGame, MercError> {
     // The universe for totality is the game's overall configuration, not global true.
     let universe = manager_ref.with_manager_shared(|manager| BDDFunction::t(manager));
 

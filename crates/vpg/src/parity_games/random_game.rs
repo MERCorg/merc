@@ -72,26 +72,21 @@ pub fn random_variability_parity_game(
 
     // Overall configuration is the conjunction of all features (i.e., all features enabled).
     let configuration = random_bdd(manager_ref, rng, &variables)?;
-    
+
     // Create random edge configurations.
     let mut edges_configuration: Vec<BDDFunction> = Vec::with_capacity(pg.num_of_edges());
     for _ in 0..pg.num_of_edges() {
         edges_configuration.push(random_bdd(manager_ref, rng, &variables)?);
     }
 
-    let result = VariabilityParityGame::new(
-            pg,
-            configuration,
-            variables,
-            edges_configuration);
+    let result = VariabilityParityGame::new(pg, configuration, variables, edges_configuration);
 
     if make_total {
         make_vpg_total(manager_ref, &result)
     } else {
-        Ok(result)        
+        Ok(result)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

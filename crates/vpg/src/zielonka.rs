@@ -51,42 +51,48 @@ pub fn solve_zielonka(game: &ParityGame) -> [Set; 2] {
     // Check that the result is a valid partition
     debug!("Performed {} recursive calls", zielonka.recursive_calls);
     if cfg!(debug_assertions) {
-        zielonka
-            .check_partition(&W0, &W1, &full_V);
+        zielonka.check_partition(&W0, &W1, &full_V);
     }
     [W0, W1]
 }
 
 /// Solves the given variability parity game using the product-based Zielonka algorithm.
-pub fn solve_variability_product_zielonka(vpg: &VariabilityParityGame) -> impl Iterator<Item = (Vec<OptBool>, BDDFunction, [Set;2])> {
-    project_variability_parity_games_iter(vpg)
-        .map(|result| {
-            let (cube, bdd, pg) = result.expect("Projection should not fail");
-            let (reachable_pg, projection) = compute_reachable(&pg);
+pub fn solve_variability_product_zielonka(
+    vpg: &VariabilityParityGame,
+) -> impl Iterator<Item = (Vec<OptBool>, BDDFunction, [Set; 2])> {
+    project_variability_parity_games_iter(vpg).map(|result| {
+        let (cube, bdd, pg) = result.expect("Projection should not fail");
+        let (reachable_pg, projection) = compute_reachable(&pg);
 
-            debug!("Solving projection on {}...", FormatConfig(&cube));
+        debug!("Solving projection on {}...", FormatConfig(&cube));
 
-            let pg_solution = solve_zielonka(&reachable_pg);
-            let mut new_solution = [bitvec![usize, Lsb0; 0; vpg.num_of_vertices()], bitvec![usize, Lsb0; 0; vpg.num_of_vertices()]];
-            for v in pg.iter_vertices() {
-                if let Some(proj_v) = projection[*v] {
-                    // Vertex is reachable in the projection, set its solution
-                    if pg_solution[0][proj_v] {
-                        new_solution[0].set(*v, true);
-                    }
-                    if pg_solution[1][proj_v] {
-                        new_solution[1].set(*v, true);
-                    }
+        let pg_solution = solve_zielonka(&reachable_pg);
+        let mut new_solution = [
+            bitvec![usize, Lsb0; 0; vpg.num_of_vertices()],
+            bitvec![usize, Lsb0; 0; vpg.num_of_vertices()],
+        ];
+        for v in pg.iter_vertices() {
+            if let Some(proj_v) = projection[*v] {
+                // Vertex is reachable in the projection, set its solution
+                if pg_solution[0][proj_v] {
+                    new_solution[0].set(*v, true);
+                }
+                if pg_solution[1][proj_v] {
+                    new_solution[1].set(*v, true);
                 }
             }
+        }
 
-            (cube, bdd, new_solution)
-        })
+        (cube, bdd, new_solution)
+    })
 }
 
 /// Verifies that the solution obtained from the variability product-based Zielonka solver
 /// is consistent with the solution of the variability parity game.
-pub fn verify_variability_product_zielonka_solution(vpg: &VariabilityParityGame, solution: &[Submap; 2]) -> Result<(), MercError> {
+pub fn verify_variability_product_zielonka_solution(
+    vpg: &VariabilityParityGame,
+    solution: &[Submap; 2],
+) -> Result<(), MercError> {
     info!("Verifying variability product-based Zielonka solution...");
     for (bits, cube, pg_solution) in solve_variability_product_zielonka(vpg) {
         for v in vpg.iter_vertices() {
@@ -191,10 +197,7 @@ impl ZielonkaSolver<'_> {
 
         trace!("{}Vertices in A: {}", indent, DisplaySet(&A));
         debug!("{}zielonka(V \\ A) |A| = {}", indent, A.count_ones());
-        let (W1_0, W1_1) = self.zielonka_rec(
-            V.clone().bitand(!A.clone()),
-            depth + 1,
-        );
+        let (W1_0, W1_1) = self.zielonka_rec(V.clone().bitand(!A.clone()), depth + 1);
 
         let (mut W1_alpha, W1_not_alpha) = x_and_not_x(W1_0, W1_1, alpha);
 
@@ -206,7 +209,7 @@ impl ZielonkaSolver<'_> {
 
             trace!("{}Vertices in B: {}", indent, DisplaySet(&A));
             debug!("{}zielonka(V \\ B)", indent);
-            let (W2_0, W2_1) = self.zielonka_rec(V.bitand(!B.clone()), depth + 1); 
+            let (W2_0, W2_1) = self.zielonka_rec(V.bitand(!B.clone()), depth + 1);
 
             let (W2_alpha, mut W2_not_alpha) = x_and_not_x(W2_0, W2_1, alpha);
 
@@ -214,7 +217,6 @@ impl ZielonkaSolver<'_> {
             self.check_partition(&W2_alpha, &W2_not_alpha, &full_V);
             combine(W2_alpha, W2_not_alpha, alpha)
         }
-
     }
 
     /// Computes the attractor for `alpha` to the set `U` within the vertices `V`.

@@ -35,7 +35,9 @@ pub fn project_variability_parity_game(
 }
 
 /// Projects all configurations of a variability parity game into standard parity games.
-pub fn project_variability_parity_games_iter(vpg: &VariabilityParityGame) -> impl Iterator<Item = Result<(Vec<OptBool>, BDDFunction, ParityGame), MercError>> {
+pub fn project_variability_parity_games_iter(
+    vpg: &VariabilityParityGame,
+) -> impl Iterator<Item = Result<(Vec<OptBool>, BDDFunction, ParityGame), MercError>> {
     CubeIterAll::new(vpg.variables(), vpg.configuration()).map(|cube| {
         let (cube, bdd) = cube?;
         let pg = project_variability_parity_game(vpg, &bdd)?;

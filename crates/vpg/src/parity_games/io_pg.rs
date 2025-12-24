@@ -100,7 +100,7 @@ pub fn read_pg(reader: impl Read) -> Result<ParityGame, MercError> {
             }
         }
 
-        progress.print(vertex_count  * 100 / num_of_vertices);
+        progress.print(vertex_count * 100 / num_of_vertices);
         vertex_count += 1;
     }
 

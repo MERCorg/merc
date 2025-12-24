@@ -58,7 +58,12 @@ impl<'a> CubeIterAll<'a> {
     /// Creates a new cube iterator that iterates over the single cube
     pub fn new(variables: &'a Vec<BDDFunction>, bdd: &'a BDDFunction) -> CubeIterAll<'a> {
         let cube = Vec::from_iter((0..variables.len()).map(|_| OptBool::False));
-        Self { bdd, cube, variables, done: false }
+        Self {
+            bdd,
+            cube,
+            variables,
+            done: false,
+        }
     }
 }
 
@@ -155,13 +160,18 @@ mod tests {
             let bdd = from_iter(&manager_ref, &variables, set.iter()).unwrap();
 
             // Check that the cube iterator yields all the expected cubes
-            let result: Result<Vec<(Vec<OptBool>, BDDFunction)>, MercError> = CubeIterAll::new(&variables, &bdd).collect();
+            let result: Result<Vec<(Vec<OptBool>, BDDFunction)>, MercError> =
+                CubeIterAll::new(&variables, &bdd).collect();
             let cubes: Vec<(Vec<OptBool>, BDDFunction)> = result.unwrap();
             let mut seen = HashSet::new();
             for (bits, _) in &cubes {
                 println!("Cube: {}", FormatConfig(&bits));
                 assert!(set.contains(&bits), "Cube {} not in expected set", FormatConfig(&bits));
-                assert!(seen.insert(bits.clone()), "Duplicate cube found: {}", FormatConfig(&bits));
+                assert!(
+                    seen.insert(bits.clone()),
+                    "Duplicate cube found: {}",
+                    FormatConfig(&bits)
+                );
             }
 
             for cube in &set {
@@ -187,7 +197,11 @@ mod tests {
             let mut seen = HashSet::new();
             for cube in CubeIter::new(&bdd) {
                 println!("Cube: {}", FormatConfig(&cube));
-                assert!(seen.insert(cube.clone()), "Duplicate cube found: {}", FormatConfig(&cube));
+                assert!(
+                    seen.insert(cube.clone()),
+                    "Duplicate cube found: {}",
+                    FormatConfig(&cube)
+                );
             }
         })
     }
