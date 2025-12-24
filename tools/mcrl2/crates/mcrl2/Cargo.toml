@@ -6,6 +6,7 @@ rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
+merc_collections.workspace = true
 mcrl2-macros.workspace = true
 mcrl2-sys.workspace = true
 merc_tools.workspace = true

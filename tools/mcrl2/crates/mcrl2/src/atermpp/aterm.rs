@@ -20,7 +20,7 @@ use mcrl2_sys::atermpp::ffi::mcrl2_aterm_print;
 use mcrl2_sys::cxx::Exception;
 use mcrl2_sys::cxx::UniquePtr;
 use merc_utilities::PhantomUnsend;
-use merc_utilities::ProtectionIndex;
+use merc_collections::ProtectionIndex;
 
 use crate::atermpp::SymbolRef;
 use crate::atermpp::THREAD_TERM_POOL;

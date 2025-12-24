@@ -12,7 +12,7 @@ use mcrl2_sys::atermpp::ffi::mcrl2_aterm_pool_size;
 use parking_lot::Mutex;
 
 use mcrl2_sys::atermpp::ffi;
-use merc_utilities::ProtectionSet;
+use merc_collections::ProtectionSet;
 
 use crate::atermpp::BfTermPool;
 
