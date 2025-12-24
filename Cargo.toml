@@ -2,7 +2,8 @@
 edition = "2024"
 homepage = "https://mercorg.github.io/merc-website/"
 license = "BSL-1.0"
-repository = "https://github.com/MERCorg/merc"
+homepage = "https://mercorg.github.io/merc/"
+repository = "https://github.com/mlaveaux/merc.git"
 rust-version = "1.85.0"
 version = "1.0.0"
 
@@ -59,7 +60,6 @@ bumpalo = "3.19"
 clap = { version = "4.5", features = ["derive"] }
 dashmap = { version = "7.0.0-rc2", features = ["inline-more"] }
 delegate = "0.13"
-enum_dispatch = "0.3"
 env_logger = "0.11"
 equivalent = "1.0"
 hashbrown = "0.16"
