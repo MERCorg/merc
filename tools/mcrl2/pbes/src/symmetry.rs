@@ -22,7 +22,7 @@ use mcrl2::StategraphEquation;
 use mcrl2::replace_propositional_variables;
 use mcrl2::replace_variables;
 use merc_io::TimeProgress;
-use merc_utilities::LargeFormatter;
+use merc_io::LargeFormatter;
 use merc_utilities::MercError;
 
 use crate::clone_iterator::CloneIterator;

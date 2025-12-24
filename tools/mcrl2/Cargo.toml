@@ -47,6 +47,7 @@ duct = "1.1"
 mcrl2 = { path = "crates/mcrl2" }
 mcrl2-macros = { path = "crates/mcrl2-macros" }
 mcrl2-sys = { path = "crates/mcrl2-sys" }
+merc_collections = { path = "../../crates/collections" }
 merc_io = { path = "../../crates/io" }
 merc_tools = { path = "../../crates/tools" }
 merc_utilities = { path = "../../crates/utilities" }

@@ -540,6 +540,7 @@ dependencies = [
  "log",
  "mcrl2-macros",
  "mcrl2-sys",
+ "merc_collections",
  "merc_tools",
  "merc_utilities",
  "parking_lot",
@@ -589,6 +590,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "merc_collections"
+version = "1.0.0"
+dependencies = [
+ "bitvec",
+ "delegate",
+ "hashbrown",
+ "itertools",
+ "log",
+ "merc_io",
+ "merc_utilities",
+ "rand",
+ "rustc-hash",
+]
+
+[[package]]
 name = "merc_io"
 version = "1.0.0"
 dependencies = [
@@ -630,14 +646,11 @@ dependencies = [
  "ahash",
  "arbitrary",
  "backtrace",
- "bitvec",
  "delegate",
  "env_logger",
- "hashbrown",
  "log",
  "pest",
  "rand",
- "rustc-hash",
  "toml",
 ]
 
