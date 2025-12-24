@@ -906,6 +906,7 @@ dependencies = [
  "equivalent",
  "itertools 0.14.0",
  "log",
+ "merc_collections",
  "merc_io",
  "merc_macros",
  "merc_number",
@@ -921,6 +922,20 @@ dependencies = [
  "rustc-hash 2.1.1",
  "thiserror",
  "trybuild",
+]
+
+[[package]]
+name = "merc_collections"
+version = "1.0.0"
+dependencies = [
+ "bitvec",
+ "delegate",
+ "hashbrown 0.16.1",
+ "itertools 0.14.0",
+ "log",
+ "merc_utilities",
+ "rand",
+ "rustc-hash 2.1.1",
 ]
 
 [[package]]
@@ -960,6 +975,7 @@ dependencies = [
  "delegate",
  "log",
  "merc_aterm",
+ "merc_collections",
  "merc_io",
  "merc_number",
  "merc_utilities",
@@ -976,6 +992,7 @@ dependencies = [
  "itertools 0.14.0",
  "log",
  "merc_aterm",
+ "merc_collections",
  "merc_data",
  "merc_io",
  "merc_utilities",
@@ -1016,6 +1033,7 @@ dependencies = [
  "clap",
  "itertools 0.14.0",
  "log",
+ "merc_collections",
  "merc_io",
  "merc_lts",
  "merc_reduction",
@@ -1123,6 +1141,7 @@ dependencies = [
  "equivalent",
  "itertools 0.14.0",
  "log",
+ "merc_collections",
  "merc_utilities",
  "mimalloc",
  "rand",
@@ -1137,15 +1156,11 @@ dependencies = [
  "ahash",
  "arbitrary",
  "backtrace",
- "bitvec",
  "delegate",
  "env_logger",
- "hashbrown 0.16.1",
- "itertools 0.14.0",
  "log",
  "pest",
  "rand",
- "rustc-hash 2.1.1",
  "toml",
 ]
 
@@ -1158,6 +1173,7 @@ dependencies = [
  "delegate",
  "itertools 0.14.0",
  "log",
+ "merc_collections",
  "merc_io",
  "merc_lts",
  "merc_macros",

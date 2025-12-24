@@ -8,8 +8,8 @@ use std::ops::Deref;
 
 use arbitrary::Arbitrary;
 use delegate::delegate;
+use merc_collections::ProtectionIndex;
 use merc_unsafety::StablePointer;
-use merc_utilities::ProtectionIndex;
 use merc_utilities::readable_string;
 
 use crate::Markable;

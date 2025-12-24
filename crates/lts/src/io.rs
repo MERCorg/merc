@@ -44,17 +44,6 @@ pub enum GenericLts {
     Lts(LabelledTransitionSystem<MultiAction>),
 }
 
-impl GenericLts {
-
-    pub fn apply<L: LTS>(self, f: impl FnOnce(L) -> L) -> L {
-        match self {
-            GenericLts::Aut(lts) => f(lts),
-            GenericLts::Lts(lts) => f(lts),
-        }
-    }
-}
-
-
 /// Reads an explicit labelled transition system from the given path and format.
 pub fn read_explicit_lts(
     path: &Path,

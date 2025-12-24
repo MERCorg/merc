@@ -72,10 +72,10 @@ impl<L: TransitionLabel> LtsBuilderFast<L> {
     }
 
     /// Adds a transition to the builder.
-    pub fn add_transition<Q>(&mut self, from: StateIndex, label: Q, to: StateIndex) 
-        where 
-            L: Borrow<Q>,
-            Q: ToOwned<Owned = L> + Eq + Hash,
+    pub fn add_transition<Q>(&mut self, from: StateIndex, label: Q, to: StateIndex)
+    where
+        L: Borrow<Q>,
+        Q: ToOwned<Owned = L> + Eq + Hash,
     {
         let label_index = if let Some(&index) = self.labels_index.get(&label) {
             index

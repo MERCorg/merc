@@ -147,8 +147,8 @@ fn handle_info(args: &InfoArgs, timing: &mut Timing) -> Result<(), MercError> {
         let lts = read_explicit_lts(path, format, Vec::new(), timing)?;
         println!(
             "LTS has {} states and {} transitions.",
-            LargeFormatter(lts.num_of_states()),
-            LargeFormatter(lts.num_of_transitions())
+            LargeFormatter(lts.apply(|lts| lts.num_of_states())),
+            LargeFormatter(lts.apply(|lts| lts.num_of_transitions()))
         );
         
         println!("Labels:");
@@ -163,7 +163,7 @@ fn handle_info(args: &InfoArgs, timing: &mut Timing) -> Result<(), MercError> {
 }
 
 /// Reduce the given LTS into another LTS modulo any of the supported equivalences.
-fn handle_reduce(args: &ReduceArgs, timing: &mut Timing) -> Result<(), MercError> {    
+fn handle_reduce(args: &ReduceArgs, timing: &mut Timing) -> Result<(), MercError> {
     let path = Path::new(&args.filename);
     let format = guess_format_from_extension(path, args.filetype).ok_or("Unknown LTS file format.")?;
 
@@ -205,8 +205,7 @@ fn handle_compare(args: &CompareArgs, timing: &mut Timing) -> Result<(), MercErr
     info!("Assuming format {:?} for both LTSs.", format);
 
     if format != LtsFormat::Sym {
-        let left_lts =
-            read_explicit_lts(left_path, format, args.tau.clone().unwrap_or_default(), timing)?;
+        let left_lts = read_explicit_lts(left_path, format, args.tau.clone().unwrap_or_default(), timing)?;
         let right_lts = read_explicit_lts(right_path, format, args.tau.clone().unwrap_or_default(), timing)?;
 
         info!(

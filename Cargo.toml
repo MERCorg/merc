@@ -22,6 +22,7 @@ members = [
     "3rd-party/pest_consume",
     "crates/aterm",
     "crates/aterm/benchmarks",
+    "crates/collections",
     "crates/data",
     "crates/io",
     "crates/ldd",
@@ -55,6 +56,7 @@ bumpalo = "3.19"
 clap = { version = "4.5", features = ["derive"] }
 dashmap = { version = "7.0.0-rc2", features = ["inline-more"] }
 delegate = "0.13"
+enum_dispatch = "0.3"
 env_logger = "0.11"
 equivalent = "1.0"
 hashbrown = "0.16"
@@ -110,6 +112,7 @@ criterion = "0.8"
 
 # The workspace crates.
 merc_aterm = { path = "crates/aterm" }
+merc_collections = { path = "crates/collections" }
 merc_data = { path = "crates/data" }
 merc_io = { path = "crates/io" }
 merc_ldd = { path = "crates/ldd" }

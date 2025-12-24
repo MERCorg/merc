@@ -26,9 +26,9 @@ use crate::aterm::ATerm;
 use crate::aterm::ATermRef;
 use crate::global_aterm_pool::GLOBAL_TERM_POOL;
 
+use merc_collections::ProtectionIndex;
 use merc_sharedmutex::RecursiveLock;
 use merc_utilities::MercError;
-use merc_utilities::ProtectionIndex;
 use merc_utilities::debug_trace;
 
 thread_local! {
