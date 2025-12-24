@@ -32,13 +32,16 @@ impl Permutation {
         // Sort by domain for deterministic representation.
         mapping.sort_unstable_by_key(|(d, _)| *d);
         // debug_assert!(mapping.iter().all(|(from, to)| from != to), "Mapping should not contain identity mappings.");
-        debug_assert!(mapping.iter().duplicates().count() == 0, "Mapping should not contain duplicate domain entries.");
+        debug_assert!(
+            mapping.iter().duplicates().count() == 0,
+            "Mapping should not contain duplicate domain entries."
+        );
 
         Permutation { mapping }
     }
 
     /// Parse a permutation from a string input of the form "[0->2, 1->0, 2->1]".
-    pub fn from_input(line: &str) -> Result<Self, MercError> {
+    pub fn from_mapping_notation(line: &str) -> Result<Self, MercError> {
         // Remove the surrounding brackets if present.
         let trimmed_input = line.trim();
         let input_no_brackets =
@@ -83,6 +86,47 @@ impl Permutation {
         Ok(Permutation::from_mapping(pairs))
     }
 
+    /// Parse a permutation in cycle notation, e.g., (0 2 1)(3 4).
+    pub fn from_cycle_notation(cycle_notation: &str) -> Result<Self, MercError> {
+        let mut mapping: Vec<(usize, usize)> = Vec::new();
+
+        // Split the input into cycles by finding all '(...)' groups
+        for cycle_str in cycle_notation.split('(').skip(1) {
+            // Find the closing parenthesis
+            let cycle_content = cycle_str
+                .split(')')
+                .next()
+                .ok_or_else(|| MercError::from("Invalid cycle notation: missing closing ')'"))?;
+
+            // Skip empty cycles
+            if cycle_content.trim().is_empty() {
+                continue;
+            }
+
+            // Parse all numbers in this cycle
+            let cycle_elements: Result<Vec<usize>, MercError> = cycle_content
+                .split_whitespace()
+                .map(|num_str| {
+                    num_str
+                        .parse::<usize>()
+                        .map_err(|_| MercError::from(format!("Invalid number in cycle notation: {}", num_str)))
+                })
+                .collect();
+
+            let cycle_elements = cycle_elements?;
+
+            // Create mappings for the current cycle (each element maps to the next)
+            let len = cycle_elements.len();
+            for i in 0..len {
+                let from = cycle_elements[i];
+                let to = cycle_elements[(i + 1) % len];
+                mapping.push((from, to));
+            }
+        }
+
+        Ok(Permutation::from_mapping(mapping))
+    }
+
     /// Construct a new permutation by concatenating two (disjoint) permutations.
     pub fn concat(self, other: &Permutation) -> Permutation {
         debug_assert!(
@@ -107,6 +151,11 @@ impl Permutation {
         }
 
         key // It is the identity on unspecified elements.
+    }
+
+    /// Returns an iterator over the domain of this permutation.
+    pub fn domain(&self) -> impl Iterator<Item = usize> + '_ {
+        self.mapping.iter().map(|(d, _)| *d)
     }
 
     /// Check whether this permutation is the identity permutation.
@@ -211,17 +260,25 @@ mod tests {
 
     #[test]
     fn test_permutation_from_input() {
-        let permutation = Permutation::from_input("[0->   2, 1   ->0, 2->1]").unwrap();
+        let permutation = Permutation::from_mapping_notation("[0->   2, 1   ->0, 2->1]").unwrap();
 
         assert!(permutation.mapping == vec![(0, 2), (1, 0), (2, 1)]);
     }
 
     #[test]
     fn test_cycle_notation() {
-        let permutation = Permutation::from_input("[0->2, 1->0, 2->1, 3->4, 4->3]").unwrap();
+        let permutation = Permutation::from_mapping_notation("[0->2, 1->0, 2->1, 3->4, 4->3]").unwrap();
         println!("{:?}", permutation.mapping);
 
         assert_eq!(permutation.to_string(), "(0 2 1)(3 4)");
+    }
+
+    #[test]
+    fn test_cycle_notation_parsing() {
+        let permutation = Permutation::from_cycle_notation("(0 2 1)(3 4)").unwrap();
+        println!("{:?}", permutation.mapping);
+
+        assert_eq!(permutation.mapping, vec![(0, 2), (1, 0), (2, 1), (3, 4), (4, 3)]);
     }
 
     #[test]
