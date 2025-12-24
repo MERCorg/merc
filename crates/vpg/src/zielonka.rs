@@ -20,8 +20,8 @@ use oxidd::bdd::BDDFunction;
 use oxidd::util::OptBool;
 
 use merc_utilities::MercError;
+use merc_symbolic::FormatConfig;
 
-use crate::FormatConfig;
 use crate::PG;
 use crate::ParityGame;
 use crate::Player;

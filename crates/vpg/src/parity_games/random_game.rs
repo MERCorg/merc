@@ -1,7 +1,11 @@
-use merc_utilities::MercError;
+
 use oxidd::bdd::BDDFunction;
 use oxidd::bdd::BDDManagerRef;
 use rand::Rng;
+
+use merc_symbolic::create_variables;
+use merc_symbolic::random_bdd;
+use merc_utilities::MercError;
 
 use crate::PG;
 use crate::ParityGame;
@@ -9,9 +13,7 @@ use crate::Player;
 use crate::Priority;
 use crate::VariabilityParityGame;
 use crate::VertexIndex;
-use crate::create_variables;
 use crate::make_vpg_total;
-use crate::random_bdd;
 
 /// Creates a random parity game with the given number of vertices, priorities, and outdegree.
 pub fn random_parity_game(

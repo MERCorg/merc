@@ -1,6 +1,5 @@
 //! Authors: Maurice Laveaux and Sjef van Loo
 
-use std::fmt;
 use std::io::BufWriter;
 use std::io::Read;
 use std::io::Write;
@@ -12,12 +11,13 @@ use oxidd::Manager;
 use oxidd::ManagerRef;
 use oxidd::bdd::BDDFunction;
 use oxidd::bdd::BDDManagerRef;
-use oxidd::util::OptBool;
 use regex::Regex;
 use streaming_iterator::StreamingIterator;
 
 use merc_io::LineIterator;
 use merc_io::TimeProgress;
+use merc_symbolic::CubeIter;
+use merc_symbolic::FormatConfigSet;
 use merc_utilities::MercError;
 
 use crate::CubeIter;
@@ -245,36 +245,6 @@ pub fn write_vpg(writer: &mut impl Write, game: &VariabilityParityGame) -> Resul
     }
 
     Ok(())
-}
-
-/// A helper structure to format configuration sets for output.
-pub struct FormatConfigSet<'a>(pub &'a BDDFunction);
-
-impl fmt::Display for FormatConfigSet<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            CubeIter::new(self.0).format_with("+", |cube, fmt| { fmt(&format_args!("{}", FormatConfig(&cube))) })
-        )
-    }
-}
-
-/// A helper structure to format a configuration for output.
-pub struct FormatConfig<'a>(pub &'a Vec<OptBool>);
-
-impl fmt::Display for FormatConfig<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for value in self.0 {
-            match value {
-                OptBool::True => write!(f, "1")?,
-                OptBool::False => write!(f, "0")?,
-                OptBool::None => write!(f, "-")?,
-            }
-        }
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]
