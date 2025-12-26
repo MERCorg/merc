@@ -33,6 +33,7 @@ members = [
     "crates/reduction",
     "crates/sabre",
     "crates/sabre/benchmarks",
+    "crates/symbolic",
     "crates/sharedmutex",
     "crates/sharedmutex/benchmarks",
     "crates/syntax",
@@ -43,6 +44,7 @@ members = [
     "crates/xtask",
     "tools/lts",
     "tools/rewrite",
+    "tools/sym",
     "tools/vpg",
 ]
 
@@ -119,6 +121,7 @@ merc_rec-tests = { path = "crates/rec-tests" }
 merc_reduction = { path = "crates/reduction" }
 merc_sabre = { path = "crates/sabre" }
 merc_sharedmutex = { path = "crates/sharedmutex" }
+merc_symbolic = { path = "crates/symbolic" }
 merc_syntax = { path = "crates/syntax" }
 merc_tools = { path = "crates/tools" }
 merc_unsafety = { path = "crates/unsafety" }

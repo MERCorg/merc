@@ -19,9 +19,9 @@ use oxidd::BooleanFunction;
 use oxidd::bdd::BDDFunction;
 use oxidd::util::OptBool;
 
+use merc_symbolic::FormatConfig;
 use merc_utilities::MercError;
 
-use crate::FormatConfig;
 use crate::PG;
 use crate::ParityGame;
 use crate::Player;
