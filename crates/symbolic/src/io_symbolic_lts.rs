@@ -54,19 +54,10 @@ pub fn read_symbolic_lts<R: Read>(reader: R, storage: &mut Storage) -> Result<Sy
 
         let relation = stream.read_ldd(storage)?;
 
-        summand_groups.push(SummandGroup::new(
-            read_parameters,
-            write_parameters,
-            relation,
-        ));
+        summand_groups.push(SummandGroup::new(read_parameters, write_parameters, relation));
     }
 
-    Ok(SymbolicLts::new(
-        _data_spec,
-        states,
-        initial_state,
-        summand_groups,
-    ))
+    Ok(SymbolicLts::new(_data_spec, states, initial_state, summand_groups))
 }
 
 /// Returns the ATerm mark for symbolic labelled transition systems.
