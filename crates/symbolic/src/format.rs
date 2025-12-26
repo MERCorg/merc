@@ -14,7 +14,7 @@ impl fmt::Display for FormatConfigSet<'_> {
         write!(
             f,
             "{}",
-            CubeIter::new(&self.0).format_with("+", |cube, fmt| { fmt(&format_args!("{}", FormatConfig(&cube))) })
+            CubeIter::new(self.0).format_with("+", |cube, fmt| { fmt(&format_args!("{}", FormatConfig(&cube))) })
         )
     }
 }
