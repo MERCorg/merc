@@ -45,6 +45,7 @@ members = [
     "crates/xtask",
     "tools/lts",
     "tools/rewrite",
+    "tools/sym",
     "tools/vpg",
 ]
 
