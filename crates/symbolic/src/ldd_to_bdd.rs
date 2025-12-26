@@ -1,18 +1,38 @@
 use oxidd::BooleanFunction;
-use oxidd::Manager;
 use oxidd::ManagerRef;
 use oxidd::bdd::BDDFunction;
 use oxidd::bdd::BDDManagerRef;
 
 use merc_ldd::DataRef;
-use merc_ldd::Ldd;
 use merc_ldd::LddRef;
 use merc_ldd::Storage;
 use merc_ldd::height;
 use merc_utilities::MercError;
 
-/// Converts an LDD representing a set of vectors into a BDD representing the same set by bitblasting the vector elements.
-fn ldd_to_bdd(
+pub fn ldd_to_bdd_simple(
+    storage: &mut Storage,
+    manager_ref: &BDDManagerRef,
+    ldd: &LddRef<'_>,
+) -> Result<BDDFunction, MercError> {
+    let highest = compute_highest(storage, ldd);
+    let bits = compute_bits(&highest);
+    let bits_dd = merc_ldd::singleton(storage, &bits);
+
+    ldd_to_bdd(storage, manager_ref, ldd, &bits_dd, 0)
+}
+
+/// Converts an LDD representing a set of vectors into a BDD representing the
+/// same set by bitblasting the vector elements.
+/// 
+/// # Details
+/// 
+/// The bits should be a singleton LDD containing the result of
+/// [`compute_bits`]. The conversion works recursively by processing the LDD
+/// node by node, and introducing bits number of BDD variables for each layer in
+/// the LDD. Note that `first_variable` indicates the level of the first
+/// variable, and the next bits are placed at consecutive BDD layers. These
+/// variables *must* already exist in the given BDD manager.
+pub fn ldd_to_bdd(
     storage: &mut Storage,
     manager_ref: &BDDManagerRef,
     ldd: &LddRef<'_>,
@@ -31,7 +51,7 @@ fn ldd_to_bdd(
     let DataRef(value, down, right) = storage.get_ref(ldd);
     let DataRef(bits_value, bits_down, _bits_right) = storage.get_ref(bits); // Is singleton so right is ignored.
 
-    let mut right = ldd_to_bdd(storage, manager_ref, &right, &bits, first_variable)?;
+    let right = ldd_to_bdd(storage, manager_ref, &right, bits, first_variable)?;
     let mut down = ldd_to_bdd(storage, manager_ref, &down, &bits_down, first_variable + 2 * bits_value)?;
 
     // Encode current value
@@ -55,14 +75,14 @@ fn ldd_to_bdd(
 }
 
 /// Computes the highest value for every layer in the LDD
-fn compute_highest(storage: &mut Storage, ldd: &Ldd) -> Vec<u32> {
+fn compute_highest(storage: &mut Storage, ldd: &LddRef<'_>) -> Vec<u32> {
     let mut result = vec![0; height(storage, ldd)];
     compute_highest_rec(storage, &mut result, ldd, 0);
     result
 }
 
 /// Helper function for compute_highest
-fn compute_highest_rec(storage: &mut Storage, result: &mut Vec<u32>, set: &LddRef<'_>, depth: usize) {
+fn compute_highest_rec(storage: &mut Storage, result: &mut [u32], set: &LddRef<'_>, depth: usize) {
     if set == storage.empty_set() || set == storage.empty_vector() {
         return;
     }
@@ -74,12 +94,9 @@ fn compute_highest_rec(storage: &mut Storage, result: &mut Vec<u32>, set: &LddRe
     result[depth] = result[depth].max(value);
 }
 
-/// Computes the number of bits required to represent each element in the vector
-fn compute_bits(highest: &Vec<u32>) -> Vec<u32> {
-    highest
-        .iter()
-        .map(|&h| (u32::BITS - h.leading_zeros()) as u32)
-        .collect()
+/// Computes the number of bits required to represent the highest value at each layer.
+fn compute_bits(highest: &[u32]) -> Vec<u32> {
+    highest.iter().map(|&h| u32::BITS - h.leading_zeros()).collect()
 }
 
 #[cfg(test)]
@@ -89,6 +106,8 @@ mod tests {
     use merc_ldd::random_vector_set;
     use merc_ldd::singleton;
     use merc_utilities::random_test;
+
+    use crate::create_variables;
 
     use super::*;
 
@@ -122,7 +141,7 @@ mod tests {
                 let expected_bits = if highest[i] == 0 {
                     0
                 } else {
-                    (u32::BITS - highest[i].leading_zeros())
+                    u32::BITS - highest[i].leading_zeros()
                 };
                 assert_eq!(
                     *b, expected_bits,
@@ -144,9 +163,15 @@ mod tests {
             println!("LDD: {}", fmt_node(&storage, &ldd));
 
             let highest = compute_highest(&mut storage, &ldd);
-            let bits_dd = singleton(&mut storage, &compute_bits(&highest));
+            let bits = compute_bits(&highest);
+            let bits_dd = singleton(&mut storage, &bits);
 
             let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+
+            let total_bits: u32 = bits.iter().sum();
+            println!("Total bits: {}", total_bits);
+            let variables = create_variables(&manager_ref, total_bits).unwrap();
+
             let _bdd = ldd_to_bdd(&mut storage, &manager_ref, &ldd, &bits_dd, 0).unwrap();
         });
     }

@@ -30,6 +30,11 @@ impl SymbolicLts {
         }
     }
 
+    /// Returns the data specification of the LTS.
+    pub fn data_specification(&self) -> &DataSpecification {
+        &self.data_specification
+    }
+
     /// Returns the LDD representing the set of states.
     pub fn states(&self) -> &Ldd {
         &self.states
@@ -47,6 +52,15 @@ impl SymbolicLts {
 }
 
 /// Represents a short vector transition relation for a group of summands.
+///
+/// # Details
+///
+/// A short transition vector is part of a transition relation T -> U, where we
+/// store T' -> U' with T' being the projection of T on the read parameters and
+/// U' the projection of U on the write parameters, as a LDD. Formally,
+///
+/// (t, u) in (T -> U)  iff  (t', u') in (T' -> U') where t' and u' are the projections
+///     of t and u on the read and write parameters respectively.
 pub struct SummandGroup {
     read_parameters: Vec<ATerm>,
     write_parameters: Vec<ATerm>,
@@ -57,11 +71,7 @@ pub struct SummandGroup {
 
 impl SummandGroup {
     /// Creates a new summand group.
-    pub fn new(
-        read_parameters: Vec<ATerm>,
-        write_parameters: Vec<ATerm>,
-        relation: Ldd,
-    ) -> Self {
+    pub fn new(read_parameters: Vec<ATerm>, write_parameters: Vec<ATerm>, relation: Ldd) -> Self {
         Self {
             read_parameters,
             write_parameters,
@@ -72,5 +82,15 @@ impl SummandGroup {
     /// Returns the transition relation LDD for this summand group.
     pub fn relation(&self) -> &Ldd {
         &self.relation
+    }
+
+    /// Returns the read parameters for this summand group.
+    pub fn read_parameters(&self) -> &[ATerm] {
+        &self.read_parameters
+    }
+
+    /// Returns the write parameters for this summand group.
+    pub fn write_parameters(&self) -> &[ATerm] {
+        &self.write_parameters
     }
 }
