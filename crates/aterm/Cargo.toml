@@ -2,7 +2,7 @@
 name = "merc_aterm"
 description = "A thread-safe library to manipulate and store first-order terms."
 keywords = ["concurrency", "term"]
-categories = ["concurrency", "data structures"]
+categories = ["concurrency", "data-structures"]
 readme = "README.md"
 edition.workspace = true
 homepage.workspace = true
