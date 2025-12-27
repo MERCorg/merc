@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn test_int_term() {
-        let _ = test_logger();
+        test_logger();
 
         let int_term = ATermInt::new(42);
         assert_eq!(int_term.value(), 42);
