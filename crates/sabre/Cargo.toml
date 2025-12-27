@@ -1,7 +1,10 @@
 [package]
 name = "merc_sabre"
-description = "Implements a term rewrite engine based on a set automaton based rewriter."
+description = "Implements various term rewrite engines based on a set automaton matching construction."
+keywords = ["rewriting", "term"]
+categories = ["algorithms", "data-structures", "science"]
 readme = "README.md"
+
 edition.workspace = true
 homepage.workspace = true
 license.workspace = true

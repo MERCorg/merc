@@ -1,8 +1,4 @@
-//!
-//! A crate containing labelled transition systems related functionality.
-//!
-//! This crate does not use unsafe code.
-
+#![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 
 mod incoming_transitions;

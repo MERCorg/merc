@@ -1,9 +1,16 @@
 [package]
 name = "merc_lts"
-version.workspace = true
+description = "Implements labelled transition systems for various I/O formats using a general LTS trait."
+keywords = ["automata", "labelled-transition-systems"]
+categories = ["data-structures", "science"]
+readme = "README.md"
+
 edition.workspace = true
+homepage.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
 merc_aterm.workspace = true
