@@ -60,6 +60,6 @@ jobs:
         RUSTC_WRAPPER: sccache
 
     - name: Run xtask benchmarks
-      run: cargo xtask benchmark
+      run: cargo xtask benchmark innermost
       env:
         RUSTC_WRAPPER: sccache
