@@ -1,6 +1,4 @@
-//!
-//! A utility crate that contains unsafe utility functions.
-//!
+#![doc = include_str!("../README.md")]
 
 mod block_allocator;
 mod counting_allocator;

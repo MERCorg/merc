@@ -1,6 +1,6 @@
 [package]
 name = "merc_unsafety"
-description = "Internal MERC toolset package containing various utility functions that use unsafe code blocks"
+description = "Internal MERC toolset package containing various utility functions that use unsafe code blocks."
 readme = "README.md"
 edition.workspace = true
 homepage.workspace = true

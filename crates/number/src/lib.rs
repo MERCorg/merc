@@ -1,5 +1,4 @@
-//! Number-related utilities including mathematical functions and arbitrary precision numbers.
-
+#![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 
 mod bits_for_value;

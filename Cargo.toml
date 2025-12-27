@@ -122,7 +122,7 @@ merc_sabre = { path = "crates/sabre" }
 merc_sharedmutex = { path = "crates/sharedmutex" }
 merc_syntax = { path = "crates/syntax" }
 merc_tools = { path = "crates/tools" }
-merc_unsafety = { path = "crates/unsafety" }
+merc_unsafety = { version = "1.0", path = "crates/unsafety" }
 merc_utilities = { version = "1.0", path = "crates/utilities" }
 merc_vpg = { path = "crates/vpg" }
 pest_consume  = { path = "3rd-party/pest_consume" }

@@ -1,9 +1,13 @@
 [package]
 name = "merc_number"
-version.workspace = true
+description = "Internal MERC toolset package containing various number related utility functions."
+readme = "README.md"
 edition.workspace = true
+homepage.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
 merc_utilities.workspace = true
