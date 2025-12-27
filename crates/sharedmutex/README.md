@@ -11,3 +11,11 @@ Compared to other readers-writer locks this implementation requires local data f
 # Authors
 
 This crate was developed by Maurice Laveaux, Flip van Spaendonck and Jan Friso Groote.
+
+# Minimum Supported Rust Version
+
+We do not maintain an official minimum supported rust version (MSRV), and it may be upgraded at any time when necessary.
+
+# License
+
+All MERC crates are licensed under the BSL-1.0 license. See the [LICENSE](https://raw.githubusercontent.com/MERCorg/merc/refs/heads/main/LICENSE) file in the repository root for more information.

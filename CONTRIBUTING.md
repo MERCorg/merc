@@ -3,7 +3,9 @@
 Source code documentation can be found at the Github
 [pages](https://mercorg.github.io/merc/index.html), and more general
 documentation can be found in the `doc` directory. See `doc/TESTING.md` for more
-information on how to run the tests.
+information on how to run the tests. Unless you explicitly state otherwise, any
+contribution you make to this project will be licensed under the same license as
+the project.
 
 ## Formatting
 
