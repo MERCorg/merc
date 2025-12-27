@@ -111,15 +111,15 @@ criterion = "0.8"
 # The workspace crates.
 merc_aterm = { path = "crates/aterm" }
 merc_data = { path = "crates/data" }
-merc_io = { path = "crates/io" }
+merc_io = { version = "1.0", path = "crates/io" }
 merc_ldd = { path = "crates/ldd" }
 merc_lts = { path = "crates/lts" }
-merc_macros = { path = "crates/macros" }
+merc_macros = { version = "1.0", path = "crates/macros" }
 merc_number = { version = "1.0", path = "crates/number" }
 merc_rec-tests = { path = "crates/rec-tests" }
 merc_reduction = { path = "crates/reduction" }
 merc_sabre = { path = "crates/sabre" }
-merc_sharedmutex = { path = "crates/sharedmutex" }
+merc_sharedmutex = { version = "1.0", path = "crates/sharedmutex" }
 merc_syntax = { path = "crates/syntax" }
 merc_tools = { path = "crates/tools" }
 merc_unsafety = { version = "1.0", path = "crates/unsafety" }
