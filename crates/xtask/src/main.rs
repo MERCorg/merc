@@ -18,7 +18,7 @@ mod discover_tests;
 mod package;
 mod publish;
 mod sanitizer;
-mod test_tools;
+mod tool_testing;
 
 #[derive(Parser)]
 #[command(name = "xtask")]
@@ -81,7 +81,7 @@ fn main() -> Result<ExitCode, Box<dyn Error>> {
         Commands::DiscoverTests => discover_tests::discover_tests()?,
         Commands::Package => package::package()?,
         Commands::Publish => publish::publish_crates(),
-        Commands::TestTools { directory } => test_tools::test_tools(directory.as_path())?,
+        Commands::TestTools { directory } => tool_testing::test_tools(directory.as_path())?,
     }
 
     Ok(ExitCode::SUCCESS)
