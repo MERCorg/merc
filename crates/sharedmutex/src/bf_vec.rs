@@ -1,3 +1,5 @@
+//! Authors: Maurice Laveaux, Flip van Spaendonck and Jan Friso Groote
+
 use std::alloc;
 use std::alloc::Layout;
 use std::cmp::max;
@@ -9,17 +11,18 @@ use std::sync::atomic::Ordering;
 
 use crate::BfSharedMutex;
 
-pub struct BfVecShared<T> {
-    buffer: Option<NonNull<T>>,
-    capacity: usize,
-    len: AtomicUsize,
-}
-
 /// An implementation of [Vec<T, A>] based on the [BfSharedMutex] implementation
 /// that can be safely send between threads. Elements in the vector can be written
 /// concurrently iff type T is [Sync].
 pub struct BfVec<T> {
     shared: BfSharedMutex<BfVecShared<T>>,
+}
+
+/// The internal shared data of the [BfVec].
+pub struct BfVecShared<T> {
+    buffer: Option<NonNull<T>>,
+    capacity: usize,
+    len: AtomicUsize,
 }
 
 impl<T> BfVec<T> {
@@ -34,6 +37,7 @@ impl<T> BfVec<T> {
         }
     }
 
+    /// Append a new element to the vector.
     pub fn push(&self, value: T) {
         let mut read = self.shared.read().unwrap();
 
@@ -74,6 +78,7 @@ impl<T> BfVec<T> {
         self.shared.read().unwrap().len.load(Ordering::Relaxed)
     }
 
+    /// Returns true iff the vector is empty.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -144,6 +149,7 @@ impl<T> Index<usize> for BfVec<T> {
 }
 
 impl<T> BfVecShared<T> {
+    /// Clears the vector by dropping all elements.
     pub fn clear(&mut self) {
         // Only drop items within the 0..len range since the other values are not initialised.
         for i in 0..self.len.load(Ordering::Relaxed) {

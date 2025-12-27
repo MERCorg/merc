@@ -1,3 +1,5 @@
+//! Authors: Maurice Laveaux, Flip van Spaendonck and Jan Friso Groote
+
 use std::cell::Cell;
 use std::error::Error;
 use std::mem;
@@ -8,7 +10,7 @@ use crate::BfSharedMutex;
 use crate::BfSharedMutexReadGuard;
 use crate::BfSharedMutexWriteGuard;
 
-/// An extension of the `SharedMutex` that allows recursive read locking without deadlocks.
+/// An extension of the [BfSharedMutex] that allows recursive read locking without deadlocks.
 pub struct RecursiveLock<T> {
     inner: BfSharedMutex<T>,
 

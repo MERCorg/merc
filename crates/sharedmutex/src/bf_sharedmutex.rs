@@ -1,3 +1,5 @@
+//! Authors: Maurice Laveaux, Flip van Spaendonck and Jan Friso Groote
+
 use std::cell::UnsafeCell;
 use std::error::Error;
 use std::fmt::Debug;
@@ -11,47 +13,20 @@ use std::sync::atomic::Ordering;
 
 use crossbeam_utils::CachePadded;
 
-/// A global shared mutex that can be used to protect global data.
-///
-/// # Details
-///
-/// This is a wrapper around `BfSharedMutex` that provides a global instance
-/// that can be used to protect global data. Must be cloned to obtain mutable
-/// access.
-pub struct GlobalBfSharedMutex<T> {
-    /// The shared mutex that is used to protect the global data.
-    pub shared_mutex: BfSharedMutex<T>,
-}
-
-impl<T> GlobalBfSharedMutex<T> {
-    /// Constructs a new global shared mutex for protecting access to the given object.
-    pub fn new(object: T) -> Self {
-        Self {
-            shared_mutex: BfSharedMutex::new(object),
-        }
-    }
-
-    /// Returns a clone of the global shared mutex, which allows writing and reading.
-    pub fn share(&self) -> BfSharedMutex<T> {
-        self.shared_mutex.clone()
-    }
-}
-
-// Can be Send and Sync, because it cannot be mutated anyway.
-unsafe impl<T: Send> Send for GlobalBfSharedMutex<T> {}
-unsafe impl<T: Send> Sync for GlobalBfSharedMutex<T> {}
-
 /// A shared mutex (readers-writer lock) implementation based on the so-called
 /// busy-forbidden protocol.
 ///
 /// # Details
 ///
-/// Compared to a regular Mutex this class is Send and not Sync, every thread
-/// must acquire a clone of the shared mutex and the cloned instances of the
-/// same shared mutex guarantee shared access through the `read` operation and
-/// exclusive access for the `write` operation of the given object.
+/// Compared to a regular [std::sync::Mutex] this struct is Send but not Sync.
+/// This means that every thread must acquire a clone of the shared mutex and
+/// the cloned instances of the same shared mutex guarantee shared access
+/// through the `read` operation and exclusive access for the `write` operation
+/// of the given object.
 pub struct BfSharedMutex<T> {
-    /// The local control bits of each instance. TODO: Maybe use pin to share the control bits among shared mutexes.
+    /// The local control bits of each instance. 
+    /// 
+    /// TODO: Maybe use pin to share the control bits among shared mutexes.
     control: Arc<CachePadded<SharedMutexControl>>,
 
     /// Index into the `other` table.
@@ -71,6 +46,7 @@ struct SharedMutexControl {
     forbidden: AtomicBool,
 }
 
+/// The shared data between all instances of the shared mutex.
 struct SharedData<T> {
     /// The object that is being protected.
     object: UnsafeCell<T>,
@@ -314,6 +290,37 @@ impl<T: Debug> Debug for BfSharedMutex<T> {
         writeln!(f, "]")
     }
 }
+
+/// A global shared mutex that can be used to protect global data.
+///
+/// # Details
+///
+/// This is a wrapper around `BfSharedMutex` that provides a global instance
+/// that can be used to protect global data. Must be cloned to obtain mutable
+/// access.
+pub struct GlobalBfSharedMutex<T> {
+    /// The shared mutex that is used to protect the global data.
+    pub shared_mutex: BfSharedMutex<T>,
+}
+
+impl<T> GlobalBfSharedMutex<T> {
+    /// Constructs a new global shared mutex for protecting access to the given object.
+    pub fn new(object: T) -> Self {
+        Self {
+            shared_mutex: BfSharedMutex::new(object),
+        }
+    }
+
+    /// Returns a clone of the global shared mutex, which allows writing and reading.
+    pub fn share(&self) -> BfSharedMutex<T> {
+        self.shared_mutex.clone()
+    }
+}
+
+// Can be Send and Sync, because it cannot be mutated anyway.
+unsafe impl<T: Send> Send for GlobalBfSharedMutex<T> {}
+unsafe impl<T: Send> Sync for GlobalBfSharedMutex<T> {}
+
 
 #[cfg(test)]
 mod tests {
