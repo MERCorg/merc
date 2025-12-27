@@ -1,0 +1,29 @@
+use std::env;
+use std::error::Error;
+use std::fs::File;
+use std::path::Path;
+
+use duct::cmd;
+use which::which_in;
+
+/// Runs various tools for testing purposes. This can be used to test a release
+/// package to ensure that basic functionality works fine.
+pub fn test_tools(directory: &Path) -> Result<(), Box<dyn Error>> {
+    // Create a temporary directory to perform the tests in.
+    let tmp_path = Path::new("tmp/");
+    let _temp_dir = File::create(tmp_path)?;
+
+    // Find the binaries
+    let cwd = env::current_dir()?;
+    let merc_lts = which_in("merc-lts", Some(directory), cwd)?;
+
+    // Copy some test files to the temporary directory.
+    std::fs::copy(
+        directory.join("../examples/lts/abp.aut"),
+        tmp_path.join("abp.aut")
+    )?;
+
+    cmd!(merc_lts, "reduce", "strong-bisim", "abp.aut", "abp.bisim.aut").dir(tmp_path).run()?;
+
+    Ok(())
+}
