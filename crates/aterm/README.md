@@ -22,12 +22,29 @@ Terms are immutable, but can be accessed concurrently in different threads. They
 are periodically garbage collected when they are no longer reachable. This is ensured
 by thread-local protection sets that keep track of reachable terms.
 
+## Usage
+
 The main trait of the library is the `Term` trait, which is implemented by every
 struct that behaves as a first-order term, and can be used to generically deal
 with terms. The main implementations of this trait are the `ATerm` and
 `ATermRef` structs, which represent owned and borrowed terms respectively. The
 `ATermRef` struct carries a lifetime to ensure that borrowed terms are not used
 after they are no longer protected, and as such avoid use-after-free errors.
+
+In general terms can simply be created by using their constructors
+
+```rust
+use merc_aterm::{ATerm, Symbol};
+
+let a = ATerm::constant(&Symbol::new("a", 0));
+let f = ATerm::with_args(&Symbol::new("f", 2), &[a.clone(), a]); // Creates f(a, a)
+
+let g = ATerm::from_string("f(a, g(b))").unwrap(); // Parses the term from a string
+
+assert!(g(0).get_head_symbol().name() == "a"); // Access first argument of g
+```
+
+## Details
 
 The crate is heavily optimised for performance, avoiding unnecessary allocations
 for looking up terms that already exist, and avoiding protections when possible,

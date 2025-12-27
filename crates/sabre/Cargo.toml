@@ -1,10 +1,13 @@
 [package]
 name = "merc_sabre"
-authors = ["Maurice Laveaux", "Mark Bouwman"]
-version.workspace = true
+description = "Implements a term rewrite engine based on a set automaton based rewriter."
+readme = "README.md"
 edition.workspace = true
+homepage.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
 merc_aterm.workspace = true

@@ -43,7 +43,7 @@ impl RewriteSpecificationSyntax {
             });
         }
 
-        RewriteSpecification { rewrite_rules }
+        RewriteSpecification::new(rewrite_rules)
     }
 
     /// Merges the current specification with another one.

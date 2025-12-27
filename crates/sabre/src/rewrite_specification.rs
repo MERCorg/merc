@@ -5,13 +5,29 @@ use std::fmt;
 use itertools::Itertools;
 use merc_data::DataExpression;
 
-/// A rewrite specification contains the rewrite rules.
+/// A rewrite specification is a set of rewrite rules, given by [Rule].
 #[derive(Debug, Default, Clone)]
 pub struct RewriteSpecification {
-    pub rewrite_rules: Vec<Rule>,
+    rewrite_rules: Vec<Rule>,
 }
 
-/// Either lhs == rhs or lhs != rhs depending on equality being true.
+impl RewriteSpecification {
+    /// Create a new, empty rewrite specification.
+    pub fn new(rewrite_rules: Vec<Rule>) -> RewriteSpecification {
+        RewriteSpecification {
+            rewrite_rules,
+        }
+    }
+
+    /// Returns the rewrite rules of this specification.
+    pub fn rewrite_rules(&self) -> &[Rule] {
+        &self.rewrite_rules
+    }   
+}
+
+/// A condition of a conditional rewrite rule.
+/// 
+/// Either `lhs == rhs` or `lhs != rhs` depending on equality being true.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Ord, PartialOrd)]
 pub struct Condition {
     pub lhs: DataExpression,
@@ -19,6 +35,7 @@ pub struct Condition {
     pub equality: bool,
 }
 
+/// A rewrite rule.
 #[derive(Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct Rule {
     /// A conjunction of clauses

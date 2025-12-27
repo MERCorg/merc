@@ -83,7 +83,7 @@ impl fmt::Display for TrsFormatter<'_> {
         let variables = {
             let mut variables = HashSet::default();
 
-            for rule in &self.spec.rewrite_rules {
+            for rule in self.spec.rewrite_rules().iter() {
                 find_variables(&rule.lhs.copy(), &mut variables);
                 find_variables(&rule.rhs.copy(), &mut variables);
 
@@ -105,7 +105,7 @@ impl fmt::Display for TrsFormatter<'_> {
 
         // Print the list of rules.
         writeln!(f, "(RULES ")?;
-        for rule in &self.spec.rewrite_rules {
+        for rule in self.spec.rewrite_rules().iter() {
             if is_supported_rule(rule) {
                 let mut output = format!(
                     "\t {} -> {}",

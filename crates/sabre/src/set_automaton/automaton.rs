@@ -26,15 +26,7 @@ use crate::utilities::DataPosition;
 use super::DotFormatter;
 use super::MatchGoal;
 
-/// The Set Automaton used to find all matching patterns in a term. Based on the
-/// following article. Implemented by Mark Bouwman, and adapted by Maurice
-/// Laveaux.
-//
-/// > Erkens, R., Groote, J.F. (2021). A Set Automaton to Locate All Pattern
-/// > Matches in a Term. In: Cerone, A., Ölveczky, P.C. (eds) Theoretical
-/// > Aspects of Computing – ICTAC 2021. ICTAC 2021. Lecture Notes in Computer
-/// > Science(), vol 12819. Springer, Cham.
-/// > [DOI](https://doi.org/10.1007/978-3-030-85315-0_5)
+/// The Set Automaton used to find all matching patterns in a term.
 pub struct SetAutomaton<T> {
     states: Vec<State>,
     transitions: HashMap<(usize, usize), Transition<T>>,
@@ -87,6 +79,13 @@ enum GoalsOrInitial {
 }
 
 impl<M> SetAutomaton<M> {
+    /// Creates a new SetAutomaton from the given rewrite specification. If
+    /// `apma` is true an Adaptive Pattern Matching Automaton is created,
+    /// meaning that it only finds matches at the root position.
+    /// 
+    /// The `annotate` function is used to create the annotation for each match
+    /// announcement. This is used to accomondate different types of annotations
+    /// for the different rewrite engines.
     pub fn new(spec: &RewriteSpecification, annotate: impl Fn(&Rule) -> M, apma: bool) -> SetAutomaton<M> {
         let start = Instant::now();
 
@@ -95,7 +94,7 @@ impl<M> SetAutomaton<M> {
 
         // Remove rules that we cannot deal with
         let supported_rules: Vec<Rule> = spec
-            .rewrite_rules
+            .rewrite_rules()
             .iter()
             .filter(|rule| is_supported_rule(rule))
             .map(Rule::clone)
