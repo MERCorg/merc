@@ -1,6 +1,6 @@
 [package]
 name = "merc_unsafety"
-description = "Internal MERC toolset package containing various utility functions that use unsafe code blocks."
+description = "Internal MERC crate containing various utility functions that use unsafe code blocks."
 readme = "README.md"
 edition.workspace = true
 homepage.workspace = true
@@ -8,7 +8,6 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
-
 
 [features]
 # Enables an allocator that counts additional metrics (but is slower), this disables `merc_jemalloc` and `merc_mimalloc`.
