@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn test_arbitrary_bitstream() {
-        let _ = test_logger();
+        test_logger();
 
         arbtest::arbtest(|u| {
             let instructions: Vec<Instruction> = u.arbitrary()?;
