@@ -931,7 +931,6 @@ dependencies = [
  "indoc",
  "merc_aterm",
  "merc_macros",
- "merc_syntax",
  "merc_utilities",
  "thiserror",
 ]

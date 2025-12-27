@@ -40,12 +40,8 @@ use crate::is_list_term;
 /// to support both the [ATerm], which has no lifetimes, and [ATermRef<'a>]
 /// whose lifetime is bound by `'a`. Because now we can be require that `'b: 'a`
 /// for the implementation of [Term<'a, 'b>] for [ATerm], we can safely return
-/// [ATermRef<'a>] from methods of [Term<'a, 'b>].
-///
-/// Without the 'b: 'a` constraint, we would implement Term<'a> for ATerm, for
-/// all lifetimes 'a, including the 'static lifetime, and this would be unsound.
-/// Alternatively, we could have implemented Term<'a> for &'a ATerm, but then ATerm
-/// cannot be used directly as a Term in many places.
+/// [ATermRef<'a>] from methods of [Term<'a, 'b>]. Further explanation can be
+/// found on the website.
 pub trait Term<'a, 'b> {
     /// Protects the term from garbage collection
     fn protect(&self) -> ATerm;

@@ -1,7 +1,4 @@
-//! Data terms implementation for the Merc toolset.
-//!
-//! This crate provides data expressions and related functionality.
-
+#![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 
 mod data_expression;

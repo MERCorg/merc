@@ -6,7 +6,7 @@ We aim to demonstrate efficient and correct implementations using (safe) Rust. T
 
 ## Contributing
 
-The toolset is still in quite early stages, but contributions and ideas are more than welcome so feel free to contact the authors or open discussion. Compilation requires at least rustc version 1.85.0 and we use 2024 edition rust. The toolset can be build using `cargo build`. By default this will build in `dev` or debug mode, and a release build can be obtained by passing the `--release` flag. Several tools will be build that can be found in the `target/debug` (or `release`) directory. See `CONTRIBUTING.md` for more information on the testing and formatting of code. Copilot is used for reviewing and occasionally boiler plate code can be written by AI, but slop is strictly forbidden. Extensive (random) testing under various [sanitizers](https://github.com/google/sanitizers/wiki/addresssanitizer) and [miri](https://github.com/rust-lang/miri) is used to gain confidence in the `unsafe` parts of the implementation.
+The toolset is still in quite early stages, but contributions and ideas are more than welcome so feel free to contact the authors or open discussion. Compilation requires at least rustc version 1.85.0 and we use 2024 edition rust. The toolset can be build using `cargo build`. By default this will build in `dev` or debug mode, and a release build can be obtained by passing the `--release` flag. Several tools will be build that can be found in the `target/debug` (or `release`) directory. See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for more information on the testing and formatting of code. Copilot is used for reviewing and occasionally boiler plate code can be written by AI, but slop is strictly forbidden. Extensive (random) testing under various [sanitizers](https://github.com/google/sanitizers/wiki/addresssanitizer) and [miri](https://github.com/rust-lang/miri) is used to gain confidence in the `unsafe` parts of the implementation.
 
 Bugs and issues can be reported in the [issue tracker](https://github.com/MERCorg/merc/issues).
 
@@ -19,9 +19,11 @@ Various tools have been implemented so far:
  - `merc-pbes` can identify symmetries in paramerised boolean equation systems [PBES](https://doi.org/10.1016%2Fj.tcs.2005.06.016), located in the `tools/mcrl2` workspace.
  - `merc-ltsgraph` is a GUI tool to visualize LTSs, located in the `tools/GUI` workspace.
 
+Various crates are also published on [crates.io](https://crates.io/), see the [crates](./crates) directory for an overview.
+
 ## License
 
-The work is licensed under the Boost Software License, see the `LICENSE` for details. Third party dependencies have additional license terms, which are included in the `3rd-party` directory. Furthermore, a `deny.toml` file is included to ensure that no `crates.io` dependencies with incompatible licenses are added.
+The work is licensed under the Boost Software License, see the [`LICENSE`](./LICENSE) for details. Third party dependencies have additional license terms, which are included in the `3rd-party` directory. Furthermore, a `deny.toml` file is included to ensure that no `crates.io` dependencies with incompatible licenses are added.
 
 ## Related Work
 

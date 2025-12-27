@@ -1,13 +1,18 @@
 [package]
 name = "merc_data"
-version.workspace = true
+description = "Defines data expressions on top of terms that are compatible with the mCRL2 toolset."
+keywords = ["term"]
+categories = []
+readme = "README.md"
 edition.workspace = true
+homepage.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
 merc_aterm.workspace = true
-merc_syntax.workspace = true
 merc_macros.workspace = true
 merc_utilities.workspace = true
 

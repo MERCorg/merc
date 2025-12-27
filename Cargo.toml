@@ -109,7 +109,7 @@ arbtest = "0.3"
 criterion = "0.8"
 
 # The workspace crates.
-merc_aterm = { path = "crates/aterm" }
+merc_aterm = { version = "1.0", path = "crates/aterm" }
 merc_data = { path = "crates/data" }
 merc_io = { version = "1.0", path = "crates/io" }
 merc_ldd = { path = "crates/ldd" }
