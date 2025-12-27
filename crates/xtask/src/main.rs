@@ -4,70 +4,76 @@
 
 #![forbid(unsafe_code)]
 
-use std::env;
 use std::error::Error;
 use std::process::ExitCode;
 
 use benchmark::Rewriter;
+use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 mod benchmark;
 mod coverage;
 mod discover_tests;
 mod package;
+mod publish;
 mod sanitizer;
+mod test_tools;
+
+#[derive(Parser)]
+#[command(name = "xtask")]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    Benchmark {
+        rewriter: String,
+        output: PathBuf,
+    },
+    CreateTable {
+        input: PathBuf,
+    },
+    Coverage {
+        #[clap(trailing_var_arg = true)]
+        args: Vec<String>,
+    },
+    AddressSanitizer {
+        #[clap(trailing_var_arg = true)]
+        args: Vec<String>,
+    },
+    ThreadSanitizer {
+        #[clap(trailing_var_arg = true)]
+        args: Vec<String>,
+    },
+    DiscoverTests,
+    Package,
+    Publish,
+    TestTools {
+        directory: PathBuf,
+    },
+}
 
 fn main() -> Result<ExitCode, Box<dyn Error>> {
-    let mut args = env::args();
+    let cli = Cli::parse();
 
-    // Ignore the first argument (which should be xtask)
-    args.next();
-
-    // The name of the task
-    let task = args.next();
-
-    match task.as_deref() {
-        Some("benchmark") => {
-            if let Some(rewriter) = args.next() {
-                // Use the upstream mcrl2
-                if let Some(output_path) = args.next() {
-                    benchmark::benchmark(output_path, Rewriter::from_str(&rewriter)?)?
-                } else {
-                    println!("Missing argument for output file");
-                    return Ok(ExitCode::FAILURE);
-                }
-            } else {
-                println!("Missing argument for rewriter");
-                return Ok(ExitCode::FAILURE);
-            }
+    match cli.command {
+        Commands::Benchmark { rewriter, output } => {
+            let rewriter = rewriter.parse::<Rewriter>()?;
+            benchmark::benchmark(output.to_string_lossy().into_owned(), rewriter)?;
         }
-        Some("create-table") => {
-            if let Some(input_path) = args.next() {
-                benchmark::create_table(input_path)?;
-            } else {
-                println!("Missing argument for input file");
-                return Ok(ExitCode::FAILURE);
-            }
+        Commands::CreateTable { input } => {
+            benchmark::create_table(input.to_string_lossy().into_owned())?;
         }
-        Some("coverage") => coverage::coverage(args.collect())?,
-        Some("address-sanitizer") => sanitizer::address_sanitizer(args.collect())?,
-        Some("thread-sanitizer") => sanitizer::thread_sanitizer(args.collect())?,
-        Some("discover-tests") => discover_tests::discover_tests()?,
-        Some("package") => package::package()?,
-        Some(x) => {
-            println!("Unknown task {x}");
-            println!();
-            print_help();
-            return Ok(ExitCode::FAILURE);
-        }
-        _ => print_help(),
+        Commands::Coverage { args } => coverage::coverage(args)?,
+        Commands::AddressSanitizer { args } => sanitizer::address_sanitizer(args)?,
+        Commands::ThreadSanitizer { args } => sanitizer::thread_sanitizer(args)?,
+        Commands::DiscoverTests => discover_tests::discover_tests()?,
+        Commands::Package => package::package()?,
+        Commands::Publish => publish::publish_crates(),
+        Commands::TestTools { directory } => test_tools::test_tools(directory.as_path())?,
     }
 
     Ok(ExitCode::SUCCESS)
-}
-
-/// Print the help message.
-fn print_help() {
-    println!(
-        "Available tasks: benchmark, discover-tests, coverage <cargo_args>, address-sanitizer <cargo_args>, thread-sanitizer <cargo_args>, package"
-    );
 }

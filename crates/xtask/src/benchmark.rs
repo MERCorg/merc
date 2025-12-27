@@ -8,6 +8,7 @@ use std::fs::{self};
 use std::io::BufRead;
 use std::io::Write;
 use std::path::Path;
+use std::str::FromStr;
 
 use duct::cmd;
 use regex::Regex;
@@ -27,8 +28,10 @@ pub enum Rewriter {
     Sabre,
 }
 
-impl Rewriter {
-    pub fn from_str(s: &str) -> Result<Self, &'static str> {
+impl FromStr for Rewriter {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "innermost" => Ok(Rewriter::Innermost),
             "sabre" => Ok(Rewriter::Sabre),
