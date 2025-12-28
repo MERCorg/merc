@@ -12,7 +12,9 @@ pub fn publish_crates() {
         "merc_macros",
         "merc_data",
         "merc_sabre", 
-        "merc_lts"];
+        "merc_lts",
+        "merc_reduction",
+        "merc_vpg"];
 
     for library in &crates {
 

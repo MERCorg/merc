@@ -1,10 +1,6 @@
 # v1.0
 
-The initial release of the MERC toolset. Although no where near feature complete
-we opted to produce a 1.0 release to mark the initial milestone of the toolset
-instead of staying in zero version forever. We generally expect to release a
-single major version per year, without focusing too much on avoiding breaking
-changes to libraries for forseable future.
+The initial release of the MERC toolset. Although no where near feature complete we opted to produce a 1.0 release to mark the initial milestone of the toolset instead of staying in zero version forever. We generally expect to release a single major version per year, without focusing too much on avoiding breaking changes to libraries for foreseeable future.
 
 This release comes with a set of five tools:
   - `merc-lts` implement branching, strong and weak (signature-based) bisimulation reduction and comparison for labelled transition systems in the mCRL2 binary [`.lts`](https://www.mcrl2.org/web/user_manual/tools/lts.html) format and the AUTomaton (or ALDEBARAN) [`.aut`](https://cadp.inria.fr/man/aut.html) format.
@@ -13,14 +9,12 @@ This release comes with a set of five tools:
   - `merc-pbes` can identify symmetries in paramerised boolean equation systems [PBES](https://doi.org/10.1016%2Fj.tcs.2005.06.016).
   - `merc-ltsgraph` is a GUI tool to visualize LTSs.
 
-This release also comes with various crates that can be used, these are also published on [crates.io](https://crates.io/):
+This release also comes with various crates that can be used, these are also published on [crates.io](https://crates.io/users/mlaveaux):
   - `merc-aterm`: A feature complete thread-safe re-implementation of the mCRL2 aterm library in Rust. Can read and write aterms in (streamable) binary and text formats.
   - `merc-data`: Defines data expressions mimicking the mCRL2 data expressions, demonstrates the use of Rust macros (defined in `merc-macros`) to generate the required boiler plate code.    
   - `merc-lts`: library for manipulating labelled transition systems, including I/O for mCRL2's `.lts` files and Aldebaran `.aut` files. Can also generated random LTSs and (synchronous) products for testing purposes.
-  - `merc-ldd` demonstrates a single-threaded list decision diagram implementation, similar to [Sylvan](https://github.com/utwente-fmt/sylvan). This functionaliy will be merged into the Rust decision diagram library[`oxidd`](https://oxidd.net/) in due time.    
   - `merc-sharedmutex` is a crate implementing the busy-forbidden protocol, a read-efficient readers-writer lock described in the [preprint](https://arxiv.org/pdf/2111.02706).
-  - `merc-syntax` defines a (Pest)[https://pest.rs/] grammar for the mCRL2 specification, modal formula and PBES languages, and defines an AST for these languages.
+  - `merc-syntax` defines a [Pest](https://pest.rs/) grammar for the mCRL2 specification, modal formula and PBES languages, and defines an AST for these languages.
   - `merc-vpg` defines functionality for manipulating (variability) parity games, including I/O for the PGSolver `.pg` format and a slightly extended variability parity game `.vpg` format.
-  - `merc-io`, `merc-number`, `merc-unsafety`, `merc-tools` and `merc-utilities` provide various utilities used throughout the toolset.
 
-
+**Full Changelog**: https://github.com/MERCorg/merc/commits/v1.0

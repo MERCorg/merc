@@ -36,7 +36,6 @@ pub fn package() -> Result<(), Box<dyn Error>> {
     ];
 
     // Build all workspaces in release mode
-    // Using release profile for optimized performance in distribution
     for (workspace_path, binaries) in &workspace_binaries {
         cmd!("cargo", "build", "--release").dir(workspace_path).run()?;
 
@@ -75,7 +74,7 @@ pub fn package() -> Result<(), Box<dyn Error>> {
         .flat_map(|(_, bins)| bins.iter().copied())
         .collect();
 
-    debug_assert!(
+    assert!(
         all_binaries.iter().all(|name| {
             let expected_path = if cfg!(windows) {
                 package_dir.join(format!("{name}.exe"))
@@ -86,6 +85,9 @@ pub fn package() -> Result<(), Box<dyn Error>> {
         }),
         "All binaries should be copied to package directory"
     );
+
+    // Add the LICENSE to the package
+
 
     Ok(())
 }
