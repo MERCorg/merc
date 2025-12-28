@@ -3,7 +3,7 @@ authors = ["Maurice Laveaux"]
 edition = "2024"
 license = "BSL-1.0"
 repository = "https://github.com/mlaveaux/merc.git"
-rust-version = "1.85.0"
+rust-version = "1.88.0"
 version = "1.0.0"
 
 # Add debug information to the release binaries.
@@ -36,15 +36,17 @@ slint = { version = "1.14", features = ["compat-1-2", "std", "accessibility", "b
 slint-build = "1.14"
 tiny-skia = "0.11"
 tokio = { version = "1.48", features = ["rt", "macros"] }
-wgpu = "28.0"
+# This version must be kept in sync with femtovg
+wgpu = "27.0"
 rand = "0.9"
 
 # Used for benchmarks
 criterion = "0.8"
 
 # The workspace libraries.
-merc_ltsgraph-lib = { path = "ltsgraph-lib" }
+merc_io = { path = "../../crates/io" }
 merc_lts = { path = "../../crates/lts" }
+merc_ltsgraph-lib = { path = "ltsgraph-lib" }
 merc_tools = { path = "../../crates/tools" }
 merc_unsafety = { path = "../../crates/unsafety" }
 merc_utilities = { path = "../../crates/utilities" }
