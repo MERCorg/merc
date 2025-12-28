@@ -30,7 +30,7 @@ use crate::VariabilityParityGame;
 use crate::VertexIndex;
 use crate::minus;
 
-/// Reads a variability parity game from the given reader.
+/// Reads a variability parity game in an extended PGSolver `.vpg` format from the given reader.
 /// Note that the reader is buffered internally using a `BufReader`.
 ///
 /// # Details

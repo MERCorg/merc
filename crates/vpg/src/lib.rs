@@ -1,9 +1,4 @@
-//!
-//! This crate provides functionality for working with variability parity games.
-//!
-//! Authors: Maurice Ter Beek, Maurice Laveaux, Sjef van Loo, Erik de Vink and Tim A.C. Willemse,
-//!
-
+#![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 
 mod cube_iter;

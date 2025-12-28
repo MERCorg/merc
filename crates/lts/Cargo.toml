@@ -4,13 +4,13 @@ description = "Implements labelled transition systems for various I/O formats us
 keywords = ["automata", "transition-systems"]
 categories = ["data-structures", "science"]
 readme = "README.md"
+version = "1.1.0"
 
 edition.workspace = true
 homepage.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-version.workspace = true
 
 [dependencies]
 merc_aterm.workspace = true

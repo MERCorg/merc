@@ -19,51 +19,19 @@ representation, as well as implementing common traits such as `Clone`, `Debug`,
 it implements the `Ref<'_>` variant, similarly to `ATermRef`, which allows for
 references without taking ownership (and as such incurring a protection) of the
 underlying data. This avoids the need for `UB` casts as done in the original ATerm
-library.
+library. See the `merc_aterm` crate for documentation of this macro since it uses
+types from that crate and these cannot be circularly referenced.
 
 There is also a small utility macro called `merc_test` that can be used in place
 of `#[test]` to define unit tests that automatically enable the logging
 infrastructure used throughout MERC.
 
-# Details
+## Debugging
 
-The proc macro must be added to a module that contains the definitions for the underlying
-data types for which the boilerplate code should be generated, this is typically done
-as followed:
-
-```rust
-use merc_macros::merc_derive_terms;
-use merc_aterm::ATerm;
-
-#[merc_derive_terms]
-mod inner {
-
-    #[merc_aterm(is_data_expression)] // is_data_expression is used to generate assertions that the term matches the expected value.
-    struct DataExpression {
-        aterm: ATerm, // Must contain exactly one ATerm field
-    }
-
-    impl DataExpression {
-        #[merc_ignore] // Ignore this method for code generation
-        pub fn with_sort(expr: ATerm, sort: DataSort) -> Self {
-            Self {
-                aterm: ATerm::with_args(&Symbol::new("DataExpr", 2), &[expr, sort.into()]),
-            }
-        }
-
-        // Custom methods can be added here
-    }
-}
-use inner::*;
-
-// Here we can now use the generated code:
-let expr = DataExpression::with_sort(ATerm::constant(42), DataSort::int());
-let expr_ref: DataExpressionRef = expr.copy();
-```
-
-## Testing
-
-Working with procedural macros is typically difficult, but there are unit and integration tests to showcase common patterns. Alternatively, install `cargo-expand` using `cargo install cargo-expand` and run the command `cargo expand` in for example `merc-macros` to print the Rust code with the macros expanded for debugging purposes.
+Working with procedural macros is typically difficult, but `cargo-expand` can be
+installed using `cargo install cargo-expand` to make it easier. Running the
+command `cargo expand` in `merc_aterm` crate can be used to print the Rust code
+with the macros expanded for debugging purposes.
 
 ## Safety
 

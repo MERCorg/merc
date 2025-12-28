@@ -35,6 +35,14 @@ assert_eq!(lts.num_of_transitions(), 2);
 The central `LTS` trait allows one to implement various algorithms on LTSs in a
 generic way.
 
+## Changelog
+
+### v1.1.0
+
+Removed `add_transition_index` from `LtsBuilder` and `LtsBuilderFast` since it
+is not correct. These builders change the indices of labels internally to
+accomodate for the internal actions.
+
 ## Safety
 
 This crate contains no unsafe code.

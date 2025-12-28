@@ -21,19 +21,24 @@ address. This allows for very efficient equality checking and compact memory
 usage.
 
 Terms are immutable, but can be accessed concurrently in different threads. They
-are periodically garbage collected when they are no longer reachable. This is ensured
-by thread-local protection sets that keep track of reachable terms.
+are periodically garbage collected when they are no longer reachable. This is
+ensured by thread-local protection sets that keep track of reachable terms. Note
+that the name stands for **A**nnotated terms, but this is only a left over from
+the history, as of today terms can no longer be annotated with additional
+information.
 
 ## Usage
 
 The main trait of the library is the `Term` trait, which is implemented by every
 struct that behaves as a first-order term, and can be used to generically deal
-with terms. The main implementations of this trait are the `ATerm` and
-`ATermRef` structs, which represent owned and borrowed terms respectively. The
-`ATermRef` struct carries a lifetime to ensure that borrowed terms are not used
-after they are no longer protected, and as such avoid use-after-free errors.
+with terms. The `Symb` trait does the same for function symbols.
 
-In general terms can simply be created by using their constructors
+The main implementations of this trait are the `ATerm` and `ATermRef` structs,
+which represent owned and borrowed terms respectively. The `ATermRef` struct
+carries a lifetime to ensure that borrowed terms are not used after they are no
+longer protected, and as such avoid use-after-free errors. 
+
+In general terms can simply be created by using their constructors:
 
 ```rust
 use merc_aterm::{ATerm, Term, Symbol, Symb};
@@ -58,6 +63,77 @@ cheaply store many terms in a single protection, for example by using
 The crate also provides serialization of terms to the same binary format that is
 used in the mCRL2 toolset (implemented in the `aterm_binary_stream` module),
 allowing compact storage of terms.
+
+## Macros
+
+The `merc_derive_terms` proc macro can be used to generate the necessary boiler
+plate code for structs to behave as aterms with additional structure. This is
+heavily used in the `merc_data` crate, but also in the term library to define
+lists and integers. The macro must be added to a module that contains the
+definitions for the underlying data types for which the boilerplate code should
+be generated, as shown in the example below:
+
+```rust
+use merc_macros::merc_derive_terms;
+use merc_aterm::ATerm;
+use merc_aterm::Term;
+use merc_aterm::Symbol;
+
+
+
+
+#[merc_derive_terms]
+mod inner {
+    // Normally this can be `use super::*`, but that does not seem to work in doctests.
+    use merc_aterm::ATerm;
+    use merc_aterm::Term;
+
+    use merc_macros::merc_term;
+    use merc_macros::merc_ignore;
+    use delegate::delegate;
+
+    // These imports are used by the macro, but we cannot use the $crate trick since the macro is used
+    // within the crate that defines these types.
+    use merc_aterm::ATermRef;
+    use merc_aterm::ATermArgs;
+    use merc_aterm::ATermIndex;
+    use merc_aterm::TermIterator;
+    use merc_aterm::Symbol;
+    use merc_aterm::SymbolRef;
+    use merc_aterm::Markable;
+    use merc_aterm::Marker;
+    use merc_aterm::Transmutable;
+
+    // Uses the Term trait to specify a predicate for terms that are data expressions
+    #[merc_ignore]
+    fn is_data_expression<'a, 'b>(term: &'b impl Term<'a, 'b>) -> bool {
+      true
+    }
+
+    #[merc_term(is_data_expression)]
+    pub struct DataExpression {
+        term: ATerm, // Must contain exactly one ATerm field
+    }
+
+    impl DataExpression {
+        #[merc_ignore] // Ignore this method for code generation
+        pub fn with_sort(expr: ATerm, sort: ATerm) -> Self {
+            Self {
+                term: ATerm::with_args(&Symbol::new("DataExpr", 2), &[expr, sort.into()]).protect(),
+            }
+        }
+
+        // Custom methods can be added here
+    }
+}
+
+use inner::DataExpression;
+use inner::DataExpressionRef;
+
+// Here we can now use the generated code:
+let expr = DataExpression::with_sort(ATerm::constant(&Symbol::new("42", 0)), ATerm::constant(&Symbol::new("42", 0)));
+let expr_ref: DataExpressionRef = expr.copy();
+```
 
 ## Safety
 

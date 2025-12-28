@@ -28,7 +28,7 @@ pub enum IOError {
     InvalidLine(&'static str),
 }
 
-/// Reads a parity game in textual `.pg` format from the given reader.
+/// Reads a parity game in textual PGSolver `.pg` format from the given reader.
 ///
 /// # Details
 ///
