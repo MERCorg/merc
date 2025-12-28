@@ -226,7 +226,7 @@ impl LTS for FeatureTransitionSystem {
             fn is_hidden_label(&self, label_index: LabelIndex) -> bool;
             fn labels(&self) -> &[String];
             fn outgoing_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = Transition>;
-            fn iter_states(&self) -> impl Iterator<Item = StateIndex> + use<>;
+            fn iter_states(&self) -> impl Iterator<Item = StateIndex> + '_;
         }
     }
 }

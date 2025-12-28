@@ -266,7 +266,7 @@ impl<L: TransitionLabel> LTS for LabelledTransitionSystem<L> {
         })
     }
 
-    fn iter_states(&self) -> impl Iterator<Item = StateIndex> + use<L> {
+    fn iter_states(&self) -> impl Iterator<Item = StateIndex> + '_ {
         (0..self.num_of_states()).map(StateIndex::new)
     }
 
