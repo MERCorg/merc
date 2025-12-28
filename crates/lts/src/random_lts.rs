@@ -1,6 +1,5 @@
 use rand::Rng;
 
-use crate::LabelIndex;
 use crate::LabelledTransitionSystem;
 use crate::LtsBuilderFast;
 use crate::StateIndex;
@@ -44,7 +43,7 @@ pub fn random_lts_monolithic(
         labels.push(char::from_digit(i + 10, 36).unwrap().to_string());
     }
 
-    let mut builder = LtsBuilderFast::with_capacity(labels, Vec::new(), num_of_states);
+    let mut builder = LtsBuilderFast::with_capacity(labels.clone(), Vec::new(), num_of_states);
 
     for state_index in 0..num_of_states {
         // Introduce outgoing transitions for this state based on the desired out degree.
@@ -53,9 +52,9 @@ pub fn random_lts_monolithic(
             let label = rng.random_range(0..num_of_labels);
             let to = rng.random_range(0..num_of_states);
 
-            builder.add_transition_index(
+            builder.add_transition(
                 StateIndex::new(state_index),
-                LabelIndex::new(label as usize),
+                &labels[label as usize],
                 StateIndex::new(to),
             );
         }

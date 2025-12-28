@@ -62,9 +62,9 @@ pub fn quotient_lts_naive(
                     "Quotienting assumes that the block numbers do not exceed the number of blocks"
                 );
 
-                builder.add_transition_index(
+                builder.add_transition(
                     StateIndex::new(block.value()),
-                    transition.label,
+                    &lts.labels()[transition.label],
                     StateIndex::new(to_block.value()),
                 );
             }
@@ -112,20 +112,20 @@ pub fn quotient_lts_block<const BRANCHING: bool>(
         }
 
         // Add all transitions from the representative state.
-        for trans in lts.outgoing_transitions(candidate) {
+        for transition in lts.outgoing_transitions(candidate) {
             if BRANCHING {
                 // Candidate is a bottom state, so add all transitions.
                 debug_assert!(
-                    !(lts.is_hidden_label(trans.label) && partition.block_number(trans.to) == block),
+                    !(lts.is_hidden_label(transition.label) && partition.block_number(transition.to) == block),
                     "This state is not bottom {}",
                     block
                 );
             }
 
-            builder.add_transition_index(
+            builder.add_transition(
                 StateIndex::new(*block),
-                trans.label,
-                StateIndex::new(*partition.block_number(trans.to)),
+                &lts.labels()[transition.label],
+                StateIndex::new(*partition.block_number(transition.to)),
             );
         }
     }

@@ -73,21 +73,6 @@ impl LtsBuilderFast {
         self.num_of_states = self.num_of_states.max(from.value() + 1).max(to.value() + 1);
     }
 
-    /// Adds a transition to the builder.
-    pub fn add_transition_index(&mut self, from: StateIndex, label: LabelIndex, to: StateIndex) {
-        debug_assert!(
-            (label.value() < self.labels.len()),
-            "Label index {:?} out of bounds (num labels: {})",
-            label,
-            self.labels.len()
-        );
-
-        self.transitions.push((from, label, to));
-
-        // Update the number of states.
-        self.num_of_states = self.num_of_states.max(from.value() + 1).max(to.value() + 1);
-    }
-
     /// Finalizes the builder and returns the constructed labelled transition system.
     pub fn finish(&mut self, initial_state: StateIndex, remove_duplicates: bool) -> LabelledTransitionSystem {
         if remove_duplicates {
@@ -154,13 +139,14 @@ mod tests {
     #[test]
     fn test_random_remove_duplicates() {
         random_test(100, |rng| {
-            let mut builder = LtsBuilderFast::new(vec!["a".to_string(), "b".to_string(), "c".to_string()], Vec::new());
+            let labels = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+            let mut builder = LtsBuilderFast::new(labels.clone(), Vec::new());
 
             for _ in 0..rng.random_range(0..10) {
                 let from = StateIndex::new(rng.random_range(0..10));
                 let label = LabelIndex::new(rng.random_range(0..2));
                 let to = StateIndex::new(rng.random_range(0..10));
-                builder.add_transition_index(from, label, to);
+                builder.add_transition(from, &labels[label], to);
             }
 
             builder.remove_duplicates();

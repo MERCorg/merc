@@ -2,7 +2,6 @@ use log::trace;
 use merc_utilities::IndexedSet;
 
 use crate::LTS;
-use crate::LabelIndex;
 use crate::LabelledTransitionSystem;
 use crate::LtsBuilderFast;
 use crate::StateIndex;
@@ -56,14 +55,9 @@ pub fn product_lts(left: &impl LTS, right: &impl LTS) -> LabelledTransitionSyste
                         let (product_state, inserted) =
                             discovered_states.insert((left_transition.to, right_transition.to));
 
-                        let label_index = LabelIndex::new(
-                            *all_labels
-                                .index(&left.labels()[*left_transition.label])
-                                .expect("Label was already inserted"),
-                        );
-                        lts_builder.add_transition_index(
+                        lts_builder.add_transition(
                             StateIndex::new(*product_index),
-                            label_index,
+                            &left.labels()[*left_transition.label],
                             StateIndex::new(*product_state),
                         );
 
@@ -77,14 +71,9 @@ pub fn product_lts(left: &impl LTS, right: &impl LTS) -> LabelledTransitionSyste
                 let (left_index, inserted) = discovered_states.insert((left_transition.to, right_state));
 
                 // (left, right) -[a]-> (left', right) iff left -[a]-> left' and a is not a synchronous action.
-                let label_index = LabelIndex::new(
-                    *all_labels
-                        .index(&left.labels()[*left_transition.label])
-                        .expect("Label was already inserted"),
-                );
-                lts_builder.add_transition_index(
+                lts_builder.add_transition(
                     StateIndex::new(*product_index),
-                    label_index,
+                    &left.labels()[*left_transition.label],
                     StateIndex::new(*left_index),
                 );
 
@@ -103,15 +92,9 @@ pub fn product_lts(left: &impl LTS, right: &impl LTS) -> LabelledTransitionSyste
 
             // (left, right) -[a]-> (left, right') iff right -[a]-> right' and a is not a synchronous action.
             let (right_index, inserted) = discovered_states.insert((left_state, right_transition.to));
-
-            let label_index = LabelIndex::new(
-                *all_labels
-                    .index(&right.labels()[*right_transition.label])
-                    .expect("Label was already inserted"),
-            );
-            lts_builder.add_transition_index(
+            lts_builder.add_transition(
                 StateIndex::new(*product_index),
-                label_index,
+                &right.labels()[*right_transition.label],
                 StateIndex::new(*right_index),
             );
 

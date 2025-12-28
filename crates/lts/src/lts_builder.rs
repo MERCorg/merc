@@ -92,23 +92,6 @@ impl LtsBuilder {
         self.num_of_states = self.num_of_states.max(from.value() + 1).max(to.value() + 1);
     }
 
-    /// Adds a transition to the builder.
-    pub fn add_transition_index(&mut self, from: StateIndex, label: LabelIndex, to: StateIndex) {
-        debug_assert!(
-            (label.value() < self.labels.len()),
-            "Label index {:?} out of bounds (num labels: {})",
-            label,
-            self.labels.len()
-        );
-
-        self.transition_from.push(from);
-        self.transition_labels.push(label);
-        self.transition_to.push(to);
-
-        // Update the number of states.
-        self.num_of_states = self.num_of_states.max(from.value() + 1).max(to.value() + 1);
-    }
-
     /// Finalizes the builder and returns the constructed labelled transition system.
     pub fn finish(&mut self, initial_state: StateIndex) -> LabelledTransitionSystem {
         LabelledTransitionSystem::new(
