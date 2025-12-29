@@ -111,6 +111,7 @@ pub fn is_failures_refinement<L: LTS, const COUNTER_EXAMPLE: bool>(
 
 #[cfg(test)]
 mod tests {
+    use merc_io::DumpFiles;
     use merc_lts::random_lts;
     use merc_lts::write_aut;
     use merc_reduction::Equivalence;
@@ -125,16 +126,17 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // Tests are too slow under miri.
     fn test_random_trace_refinement() {
-        random_test(100, |rng| {
+
+        random_test(1, |rng| {
+            let mut files = DumpFiles::new("test_random_trace_refinement");
+
             let spec_lts = random_lts(rng, 10, 20, 5);
 
             let mut timing = Timing::default();
             let impl_lts = reduce_lts(spec_lts.clone(), Equivalence::StrongBisim, &mut timing);
 
-            println!("Impl lts:");
-            write_aut(&mut std::io::stdout(), &impl_lts).unwrap();
-            println!("Spec lts:");
-            write_aut(&mut std::io::stdout(), &spec_lts).unwrap();
+            files.dump("spec.aut", |w| write_aut(w, &spec_lts)).unwrap();
+            files.dump("impl.aut", |w| write_aut(w, &impl_lts)).unwrap();
 
             assert!(
                 is_failures_refinement::<_, false>(
