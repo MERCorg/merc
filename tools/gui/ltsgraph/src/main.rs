@@ -3,13 +3,14 @@
 
 slint::include_modules!();
 
+use std::fs::File;
 use std::ops::Deref;
 use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
+use std::sync::Mutex;
 use std::time::Instant;
 
 use clap::Parser;
@@ -21,8 +22,7 @@ use log::info;
 use log::warn;
 use merc_lts::LtsFormat;
 use merc_lts::guess_lts_format_from_extension;
-use merc_lts::read_explicit_lts;
-use merc_utilities::Timing;
+use merc_lts::read_aut;
 use slint::Image;
 use slint::Rgba8Pixel;
 use slint::SharedPixelBuffer;
@@ -486,9 +486,16 @@ async fn main() -> Result<ExitCode, MercError> {
         move |path: &Path, format: Option<LtsFormat>| -> Result<(), MercError> {
             debug!("Loading LTS {} ...", path.to_string_lossy());
 
-            let mut timing = Timing::new();
             let format = guess_lts_format_from_extension(path, format).ok_or("Unknown LTS file format.")?;
-            match read_explicit_lts(&path, format, vec![], &mut timing) {
+            if format != LtsFormat::Aut {
+                return Err(MercError::from(format!(
+                    "Unsupported LTS format {:?}, only .aut is supported in the GUI for the time being.",
+                    format
+                )));
+            }
+
+            let file = File::open(path)?;
+            match read_aut(file, vec![]) {
                 Ok(lts) => {
                     let lts = Arc::new(lts);
                     info!(

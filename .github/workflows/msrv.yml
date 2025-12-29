@@ -56,7 +56,7 @@ jobs:
       working-directory: tools/mcrl2
 
     - name: Test GUI MSRV
-      run: cargo msrv verify --rust-version 1.92.0
+      run: cargo msrv verify --rust-version 1.90.0
       env:        
         RUSTC_WRAPPER: sccache        
       working-directory: tools/gui
