@@ -11,6 +11,17 @@ use merc_utilities::TagIndex;
 use merc_utilities::debug_trace;
 use merc_utilities::is_valid_permutation;
 
+/// A copy of `vec![]` that can be used for the [`crate::ByteCompressedVec`].
+#[macro_export]
+macro_rules! bytevec {
+    () => {
+        $crate::ByteCompressedVec::new()
+    };
+    ($elem:expr; $n:expr) => {
+        $crate::ByteCompressedVec::from_elem($elem, $n)
+    };
+}
+
 /// A vector data structure that stores objects in a byte compressed format. The basic idea is that elements of type `T` impplement the `CompressedEntry` trait which allows them to be converted to and from a byte representation. The vector dynamically adjusts the number of bytes used per entry based on the maximum size of the entries added so far.
 ///
 /// For numbers this means that we only store the number of bytes required to represent the largest number added so far. Note that the number of bytes used per entry is only increased over time as larger entries are added.

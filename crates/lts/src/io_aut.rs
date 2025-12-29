@@ -157,7 +157,7 @@ impl TransitionLabel for String {
         "tau".to_string()
     }
 
-    fn matches_label(&self, label: &String) -> bool {
+    fn matches_label(&self, label: &str) -> bool {
         self == label
     }
 

@@ -69,7 +69,7 @@ impl<L: TransitionLabel> LtsBuilderFast<L> {
         L: Borrow<Q>,
         Q: ToOwned<Owned = L> + Eq + Hash,
     {
-        let label_index = if let Some(&index) = self.labels_index.get(&label) {
+        let label_index = if let Some(&index) = self.labels_index.get(label) {
             index
         } else {
             let index = LabelIndex::new(self.labels.len());

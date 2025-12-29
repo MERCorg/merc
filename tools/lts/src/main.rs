@@ -137,7 +137,7 @@ fn main() -> Result<ExitCode, MercError> {
     if let Some(command) = &cli.commands {
         match command {
             Commands::Info(args) => {
-                handle_info(&args, &mut timing)?;
+                handle_info(args, &mut timing)?;
             }
             Commands::Reduce(args) => {
                 handle_reduce(args, &mut timing)?;

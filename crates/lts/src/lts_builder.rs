@@ -86,10 +86,10 @@ impl<L: TransitionLabel> LtsBuilder<L> {
 
     /// Adds a transition to the builder. For efficiently reasons, we can use
     /// another type `Q` for the label.
-    pub fn add_transition<Q: ?Sized>(&mut self, from: StateIndex, label: &Q, to: StateIndex)
+    pub fn add_transition<Q>(&mut self, from: StateIndex, label: &Q, to: StateIndex)
     where
         L: Borrow<Q>,
-        Q: ToOwned<Owned = L> + Eq + Hash,
+        Q: ?Sized + ToOwned<Owned = L> + Eq + Hash,
     {
         let label_index = if let Some(&index) = self.labels_index.get(label) {
             index

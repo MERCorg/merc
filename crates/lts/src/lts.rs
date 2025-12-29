@@ -79,7 +79,7 @@ pub trait TransitionLabel: Ord + Hash + Eq + Clone + fmt::Display + fmt::Debug {
     }
 
     /// Returns true iff this label matches the given string label.
-    fn matches_label(&self, label: &String) -> bool;
+    fn matches_label(&self, label: &str) -> bool;
 
     /// Used for generating labels for the random LTSs
     fn from_index(i: usize) -> Self;

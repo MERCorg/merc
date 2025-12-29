@@ -127,6 +127,12 @@ impl<T: Ord> VecSet<T> {
     }
 }
 
+impl<T: Ord> Default for VecSet<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a, T> IntoIterator for &'a VecSet<T> {
     type Item = &'a T;
     type IntoIter = Iter<'a, T>;

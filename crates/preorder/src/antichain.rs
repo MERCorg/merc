@@ -70,6 +70,12 @@ impl<K: Eq + Hash, V: Clone + Ord> Antichain<K, V> {
     }
 }
 
+impl<K: Eq + Hash, V: Clone + Ord> Default for Antichain<K, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<K, V: fmt::Debug + Ord> Antichain<K, V> {
     /// Checks the internal consistency of the antichain invariant.
     #[cfg(test)]

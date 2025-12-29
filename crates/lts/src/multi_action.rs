@@ -114,7 +114,7 @@ impl MultiAction {
 
             Ok(MultiAction { actions })
         } else {
-            return Err(format!("Expected TimedMultAction symbol, got {}.", term).into());
+            Err(format!("Expected TimedMultAction symbol, got {}.", term).into())
         }
     }
 }
@@ -256,9 +256,9 @@ impl TransitionLabel for MultiAction {
         MultiAction { actions: VecSet::new() }
     }
 
-    fn matches_label(&self, label: &String) -> bool {
+    fn matches_label(&self, label: &str) -> bool {
         // TODO: Is this correct, now a|b matches a?
-        self.actions.iter().any(|action| &action.label == label)
+        self.actions.iter().any(|action| action.label == label)
     }
 
     fn from_index(i: usize) -> Self {

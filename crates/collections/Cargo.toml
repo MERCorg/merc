@@ -1,9 +1,13 @@
 [package]
 name = "merc_collections"
-version.workspace = true
+description = "Internal MERC crate containing various collections."
+readme = "README.md"
 edition.workspace = true
+homepage.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
+version.workspace = true
 
 [dependencies]
 merc_io.workspace = true
