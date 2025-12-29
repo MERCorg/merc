@@ -11,7 +11,7 @@ panic = "abort"
 debug = "line-tables-only"
 
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "crates/mcrl2-sys",
     "crates/mcrl2",

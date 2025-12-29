@@ -3,7 +3,7 @@ authors = ["Maurice Laveaux"]
 edition = "2024"
 license = "BSL-1.0"
 repository = "https://github.com/mlaveaux/merc.git"
-rust-version = "1.88.0"
+rust-version = "1.90.0"
 version = "1.0.0"
 
 # Add debug information to the release binaries.
@@ -17,7 +17,7 @@ split-debuginfo= "packed"
 split-debuginfo= "packed"
 
 [workspace]
-resolver = "2"
+resolver = "3"
 members = [
     "ltsgraph",
     "ltsgraph-lib",
