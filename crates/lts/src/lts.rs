@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! The labelled transition system (LTS) trait and associated types.
 
 use std::fmt;

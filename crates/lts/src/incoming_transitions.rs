@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use merc_collections::ByteCompressedVec;
 use merc_collections::bytevec;
 

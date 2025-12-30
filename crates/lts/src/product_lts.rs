@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use log::trace;
 
 use merc_collections::IndexedSet;

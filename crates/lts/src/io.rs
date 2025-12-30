@@ -1,7 +1,8 @@
+#![forbid(unsafe_code)]
+
 use std::ffi::OsStr;
 use std::path::Path;
 
-use clap::ValueEnum;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
 
@@ -10,38 +11,6 @@ use crate::LabelledTransitionSystem;
 use crate::MultiAction;
 use crate::read_aut;
 use crate::read_lts;
-
-/// Explicitly specify the LTS file format.
-#[derive(Clone, Copy, Debug, ValueEnum, PartialEq, Eq)]
-pub enum LtsFormat {
-    Aut,
-    Lts,
-}
-
-/// Guesses the LTS file format from the file extension.
-pub fn guess_lts_format_from_extension(path: &Path, format: Option<LtsFormat>) -> Option<LtsFormat> {
-    if let Some(format) = format {
-        return Some(format);
-    }
-
-    if path.extension() == Some(OsStr::new("aut")) {
-        Some(LtsFormat::Aut)
-    } else if path.extension() == Some(OsStr::new("lts")) {
-        Some(LtsFormat::Lts)
-    } else {
-        None
-    }
-}
-
-/// A general struct to deal with the polymorphic LTS types. The `apply_lts`
-/// macro can be then used to conveniently apply functions which are generic on
-/// the LTS trait to all variants.
-pub enum GenericLts {
-    /// The LTS in the Aldebaran format.
-    Aut(LabelledTransitionSystem<String>),
-    /// The LTS in the mCRL2 .lts format.
-    Lts(LabelledTransitionSystem<MultiAction>),
-}
 
 /// Convenience macro to call `GenericLts::apply` with the same function for both variants.
 /// Useful with generic functions that can be monomorphized for both label types.
@@ -73,6 +42,38 @@ macro_rules! apply_lts_pair {
     ($lhs:expr, $rhs:expr, $arguments:expr, $f:expr) => {
         $lhs.apply_pair($rhs, $arguments, $f, $f)
     };
+}
+
+/// Explicitly specify the LTS file format.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LtsFormat {
+    Aut,
+    Lts,
+}
+
+/// Guesses the LTS file format from the file extension.
+pub fn guess_lts_format_from_extension(path: &Path, format: Option<LtsFormat>) -> Option<LtsFormat> {
+    if let Some(format) = format {
+        return Some(format);
+    }
+
+    if path.extension() == Some(OsStr::new("aut")) {
+        Some(LtsFormat::Aut)
+    } else if path.extension() == Some(OsStr::new("lts")) {
+        Some(LtsFormat::Lts)
+    } else {
+        None
+    }
+}
+
+/// A general struct to deal with the polymorphic LTS types. The `apply_lts`
+/// macro can be then used to conveniently apply functions which are generic on
+/// the LTS trait to all variants.
+pub enum GenericLts {
+    /// The LTS in the Aldebaran format.
+    Aut(LabelledTransitionSystem<String>),
+    /// The LTS in the mCRL2 .lts format.
+    Lts(LabelledTransitionSystem<MultiAction>),
 }
 
 impl GenericLts {
