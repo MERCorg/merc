@@ -52,7 +52,7 @@ Added support for reading and writing LTSs in the BCG format from the
 installed on the system and the `CADP` environment variable to be set, and it is
 enabled via the `cadp` feature flag.
 
-Added `clap` feature to conditionally enable the `clap` dependency to derive
+Added the `clap` feature to conditionally enable the `clap` dependency to derive
 some convenience traits.
 
 Made the AUT format compliant with the actual specification. In particular,

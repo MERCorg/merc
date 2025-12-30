@@ -34,6 +34,13 @@ let parity_game = read_pg(b"parity 3;
 let solution = solve_zielonka(&parity_game);
 ```
 
+## Changelog
+
+### Current
+
+Added the `clap` feature to conditionally enable the `clap` dependency to derive
+some convenience traits.
+
 ## Authors
 
 The implementation of this crate was developed by Sjef van Loo and Maurice
