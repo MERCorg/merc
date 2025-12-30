@@ -5,6 +5,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use clap::Subcommand;
+use clap::ValueEnum;
 use log::info;
 
 use merc_io::LargeFormatter;
@@ -54,11 +55,34 @@ enum Commands {
     Refines(RefinesArgs),
 }
 
+/// Newtype wrapper to implement `ValueEnum` for `LtsFormat`.
+#[derive(Clone, Debug)]
+struct ClapLtsFormat(LtsFormat);
+
+impl ValueEnum for ClapLtsFormat {
+    fn value_variants<'a>() -> &'a [Self] {
+        &[ClapLtsFormat(LtsFormat::Aut), ClapLtsFormat(LtsFormat::Lts)]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        match self {
+            ClapLtsFormat(LtsFormat::Aut) => Some(clap::builder::PossibleValue::new("aut").help("AUTomaton format")),
+            ClapLtsFormat(LtsFormat::Lts) => Some(clap::builder::PossibleValue::new("lts").help("mCRL2 binary LTS format")),
+        }
+    }
+}
+
+impl Into<LtsFormat> for ClapLtsFormat {
+    fn into(self) -> LtsFormat {
+        self.0
+    }
+}
+
 #[derive(clap::Args, Debug)]
 #[command(about = "Prints information related to the given LTS")]
 struct InfoArgs {
     filename: String,
-    filetype: Option<LtsFormat>,
+    filetype: Option<ClapLtsFormat>,
 }
 
 #[derive(clap::Args, Debug)]
@@ -70,7 +94,7 @@ struct ReduceArgs {
     filename: String,
 
     #[arg(long, help = "Explicitly specify the LTS file format")]
-    filetype: Option<LtsFormat>,
+    filetype: Option<ClapLtsFormat>,
 
     output: Option<String>,
 
@@ -95,7 +119,7 @@ struct CompareArgs {
     right_filename: String,
 
     #[arg(long, help = "Explicitly specify the LTS file format")]
-    filetype: Option<LtsFormat>,
+    filetype: Option<ClapLtsFormat>,
 
     #[arg(
         short,
@@ -163,7 +187,7 @@ fn main() -> Result<ExitCode, MercError> {
 fn handle_info(args: &InfoArgs, timing: &mut Timing) -> Result<(), MercError> {
     let path = Path::new(&args.filename);
 
-    let format = guess_lts_format_from_extension(path, args.filetype).ok_or("Unknown LTS file format.")?;
+    let format = guess_lts_format_from_extension(path, args.filetype.into()).ok_or("Unknown LTS file format.")?;
     let lts = read_explicit_lts(path, format, Vec::new(), timing)?;
     println!(
         "LTS has {} states and {} transitions.",

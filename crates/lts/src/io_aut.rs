@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use std::io::BufWriter;
 use std::io::Read;
 use std::io::Write;
