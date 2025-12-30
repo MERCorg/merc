@@ -28,7 +28,9 @@ use crate::branching_bisim_signature_sorted;
 use crate::is_tau_hat;
 use crate::preprocess_branching;
 use crate::strong_bisim_signature;
+use crate::weak_bisim_presignature_sorted;
 use crate::weak_bisim_signature_sorted;
+use crate::weak_bisim_signature_sorted_full;
 use crate::weak_bisim_signature_sorted_taus;
 
 /// Computes a strong bisimulation partitioning using signature refinement
@@ -173,10 +175,25 @@ pub fn branching_bisim_sigref_naive<L: LTS>(
 }
 
 /// Computes a branching bisimulation partitioning using signature refinement without dirty blocks.
-pub fn weak_bisim_sigref_naive<L: LTS>(
+pub fn weak_bisim_sigref_inductive_naive<L: LTS>(
     lts: L,
     timing: &mut Timing,
 ) -> (LabelledTransitionSystem<L::Label>, IndexedPartition) {
+    let mut timepre = timing.start("preprocess");
+    let preprocessed_lts = preprocess_branching(lts);
+    timepre.finish();
+
+    let mut time = timing.start("reduction");
+
+    let partition = signature_refinement_weak(
+        &preprocessed_lts);
+    time.finish();
+
+    (preprocessed_lts, partition)
+}
+
+/// Computes a branching bisimulation partitioning using signature refinement without dirty blocks.
+pub fn weak_bisim_sigref_naive<L: LTS>(lts: L, timing: &mut Timing) -> (LabelledTransitionSystem<L::Label>, IndexedPartition) {
     let mut timepre = timing.start("preprocess");
     let preprocessed_lts = preprocess_branching(lts);
     timepre.finish();
@@ -342,6 +359,164 @@ where
     trace!("Refinement partition {partition}");
     partition
 }
+
+
+/// Weak signature refinement algorithm, doing inductive signatures naively.
+///
+/// The signature function is called for each state and should fill the
+/// signature builder with the pre_signature of the state. 
+fn signature_refinement_weak<L: LTS>(lts: &L) -> IndexedPartition
+where {
+    // Avoids reallocations when computing the signature.
+    let mut arena = Bump::new();
+    let mut arena2 = Bump::new();
+
+    let mut builder = SignatureBuilder::default();
+
+    // Put all the states in the initial partition { S }.
+    let mut id: FxHashMap<Signature<'_>, BlockIndex> = FxHashMap::default();
+
+    // Assigns the signature to each state.
+    let mut partition = IndexedPartition::new(lts.num_of_states());
+    let mut next_partition = IndexedPartition::new(lts.num_of_states());
+    let mut state_to_signature: Vec<Option<usize>> = Vec::new();
+    let mut key_to_signature: Vec<Signature> = Vec::new();
+    let mut key_to_taus: Vec<Signature> = Vec::new();
+    state_to_signature.resize_with(lts.num_of_states(), || None);
+    let dummy_signature = [(LabelIndex::new(0), BlockIndex::new(0))];
+    key_to_taus.push(Signature::new(&dummy_signature)); // Dummy tau signature
+    // Refine partitions until stable.
+    let mut old_count = 1;
+    let mut iteration = 0;
+
+    let progress = TimeProgress::new(
+        |(iteration, blocks)| {
+            debug!("Iteration {iteration}, found {blocks} blocks...",);
+        },
+        5,
+    );
+
+    // This is a workaround for a data race in bumpalo for zero-sized slices.
+    let empty_slice: &[(LabelIndex, BlockIndex)] = &[];
+
+    while old_count != id.len() {
+        old_count = id.len();
+        progress.print((iteration, old_count));
+        swap(&mut partition, &mut next_partition);
+
+        // Clear the current partition to start the next blocks.
+        id.clear();
+
+        state_to_signature.clear();
+        key_to_signature.clear();
+
+        state_to_signature.resize_with(lts.num_of_states(), || None);
+        // Safety: The current signatures have been removed, so it safe to reuse the memory.
+        let state_to_signature: &'_ mut Vec<Option<usize>> = unsafe { std::mem::transmute(&mut state_to_signature) };
+        let id: &'_ mut FxHashMap<Signature<'_>, BlockIndex> = unsafe { std::mem::transmute(&mut id) };
+        let key_to_signature: &'_ mut Vec<Signature<'_>> = unsafe { std::mem::transmute(&mut key_to_signature) };
+        // let state_to_taus: &'_ mut Vec<Signature<'_>> = unsafe { std::mem::transmute(&mut state_to_taus) };
+        // Remove the current signatures.
+        arena.reset();
+
+        for state_index in lts.iter_states() {
+            // Compute the Presignature of a single state
+            weak_bisim_presignature_sorted(state_index, lts, &partition, &state_to_signature, &mut builder);
+
+            // Inductive step see if presig is a subset of a tau reachable state.
+            let mut inductive_key = None;
+            for transition in lts.outgoing_transitions(state_index) {
+                if lts.is_hidden_label(transition.label) {
+                    if let Some(silent_candidate) = state_to_signature[transition.to] {
+                        let tau_sig = &key_to_signature[silent_candidate];
+                        let presig = Signature::new(&builder);
+                        
+                        if tau_sig.is_subset_of(presig.as_slice(), (transition.label, BlockIndex::new(silent_candidate))) {
+                            // If it is: use that signature.
+                            inductive_key = Some(silent_candidate);
+                            break;
+                        }
+                    }
+                }
+            }
+            if let Some(inductive_key) = inductive_key {
+                trace!("State {state_index} uses inductive key {inductive_key} signature {:?}", key_to_signature[inductive_key].as_slice());
+                state_to_signature[state_index] = Some(inductive_key);
+                next_partition.set_block(state_index, BlockIndex::new(inductive_key));
+            } else {
+                // If not: expand the signature completely. 
+                weak_bisim_signature_sorted_full(state_index, lts, &partition, &key_to_taus, &state_to_signature, &key_to_signature, &mut builder);
+                trace!("State {state_index} final signature {:?}", builder.as_slice());
+
+                // Keep track of the index for every state
+                let mut new_id = BlockIndex::new(key_to_signature.len());
+                if let Some((signature, index)) = id.get_key_value(&Signature::new(&builder)) {
+                    // SAFETY: We know that the signature lives as long as the arena
+                    state_to_signature[state_index] = Some(index.value());
+                    new_id = *index;
+                } else {
+                    let slice = if builder.is_empty() {
+                        empty_slice
+                    } else {
+                        arena.alloc_slice_copy(&builder)
+                    };
+                    id.insert(Signature::new(slice), new_id);
+                    key_to_signature.push(Signature::new(slice));
+
+                    // (branching) Keep track of the signature for every block in the next partition.
+                    state_to_signature[state_index] = Some(new_id.value());
+                }
+
+                next_partition.set_block(state_index, new_id);
+                };
+
+        }
+
+        iteration += 1;
+
+        key_to_taus.clear();
+        let key_to_taus: &'_ mut Vec<Signature<'_>> = unsafe { std::mem::transmute(&mut key_to_taus) };
+        arena2.reset();
+
+        key_to_taus.resize_with(next_partition.num_of_blocks(), || Signature::default());
+        // Set the new Taus
+        for key in 0..key_to_signature.len() {
+            let filtered: Vec<_> = key_to_signature[key]
+                .as_slice()
+                .iter()
+                .filter(|&&(label, _state)| label == LabelIndex::new(0))
+                .copied()
+                .collect();
+            
+            let slice = if filtered.is_empty() {
+                empty_slice
+            } else {
+                arena2.alloc_slice_copy(&filtered)
+            };
+            key_to_taus[key] = Signature::new(slice);
+        }
+
+        debug_assert!(
+            iteration <= lts.num_of_states().max(2),
+            "There can never be more splits than number of states, but at least two iterations for stability"
+        );
+    }
+
+    trace!("Refinement partition {partition}");
+    // debug_assert!(
+    //     is_valid_refinement(lts, &partition, |state_index, partition, builder| signature(
+    //         state_index,
+    //         partition,
+    //         &state_to_signature,
+    //         builder
+    //     )),
+    //     "The resulting partition is not a valid partition."
+    // );
+    partition
+}
+
+
+
 
 /// General signature refinement algorithm that accepts an arbitrary signature
 ///
@@ -596,6 +771,20 @@ mod tests {
         });
     }
 
+    #[test]
+    fn test_random_weak_bisim_sigref() {
+        random_test(100, |rng| {
+            let lts = random_lts(rng, 10, 3, 3);
+            let mut timing = Timing::new();
+
+            let (_result_lts, result_partition) = weak_bisim_sigref_naive(lts.clone(), &mut timing);
+            let (_expected_lts, expected_partition) = weak_bisim_sigref_inductive_naive(lts, &mut timing);
+
+            // There is no preprocessing so this works.
+            assert!(equal_partitions(&result_partition, &expected_partition));
+        });
+    }
+
     /// Checks that the branching bisimulation partition is a refinement of the strong bisimulation partition.
     fn is_refinement(lts: &impl LTS, strong_partition: &impl Partition, branching_partition: &impl Partition) {
         for state_index in lts.iter_states() {
@@ -634,8 +823,8 @@ mod tests {
             let mut timing = Timing::new();
 
             let (preprocessed_lts, weak_partition) = weak_bisim_sigref_naive(lts, &mut timing);
-            let strong_partition = strong_bisim_sigref_naive(preprocessed_lts.clone(), &mut timing).1;
-            is_refinement(&preprocessed_lts, &strong_partition, &weak_partition);
+            let branching_partition = branching_bisim_sigref_naive(preprocessed_lts.clone(), &mut timing).1;
+            is_refinement(&preprocessed_lts, &branching_partition, &weak_partition);
         });
     }
 }
