@@ -482,8 +482,6 @@ mod tests {
 
     use merc_utilities::random_test;
 
-    use crate::bytevec;
-
     #[test]
     fn test_index_bytevector() {
         let mut vec = ByteCompressedVec::new();
