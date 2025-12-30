@@ -36,6 +36,13 @@ let reduced = reduce_lts(lts, Equivalence::StrongBisim, &mut timings);
 assert_eq!(reduced.num_of_states(), 3);
 ```
 
+## Changelog
+
+### Current
+
+Added the `clap` feature to conditionally enable the `clap` dependency to derive
+some convenience traits.
+
 ## Authors
 
 This crate was developed by Maurice Laveaux and Jan J. Martens. The main

@@ -33,6 +33,13 @@ let result = refines(impl_lts, spec_lts, RefinementType::Trace, &mut Timing::new
 assert!(!result);
 ```
 
+## Changelog
+
+### Current
+
+Added the `clap` feature to conditionally enable the `clap` dependency to derive
+some convenience traits.
+
 ## Related Work
 
 The original implementation as part of the mCRL2 toolset was done by Jan Friso
