@@ -150,11 +150,11 @@ fn read_transition(input: &str) -> Option<(&str, &str, &str)> {
 /// A trait for labels that can be used in transitions.
 impl TransitionLabel for String {
     fn is_tau_label(&self) -> bool {
-        self == "tau"
+        self == "i"
     }
 
     fn tau_label() -> Self {
-        "tau".to_string()
+        "i".to_string()
     }
 
     fn matches_label(&self, label: &str) -> bool {

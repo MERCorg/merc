@@ -41,6 +41,9 @@ assert_eq!(lts.num_of_transitions(), 2);
 
 ### Current
 
+Made the AUT format compliant with the original specification. In particular,
+the internal action is now represented by `i` instead of `tau`.
+
 Introduce a proper `MultiAction` type to represent multi-actions as they are
 present in mCRL2. A multi-action is a multi-set of action labels that are
 executed simultaneously, i.e., an action `a|b` is a multi-action consisting of
