@@ -335,6 +335,7 @@ mod tests {
     use crate::{random_lts, write_aut};
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Miri is too slow
     fn test_labelled_transition_system_merge() {
         random_test(100, |rng| {
             let mut files = DumpFiles::new("test_labelled_transition_system_merge");

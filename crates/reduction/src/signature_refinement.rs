@@ -569,6 +569,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Miri is too slow
     fn test_random_strong_bisim_sigref() {
         random_test(100, |rng| {
             let lts = random_lts(rng, 10, 3, 3);
@@ -583,6 +584,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Miri is too slow
     fn test_random_branching_bisim_sigref() {
         random_test(100, |rng| {
             let lts = random_lts(rng, 10, 3, 3);
@@ -614,7 +616,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore)]
+    #[cfg_attr(miri, ignore)] // Miri is too slow
     fn test_random_branching_bisim_sigref_naive() {
         random_test(100, |rng| {
             let lts = random_lts(rng, 10, 3, 3);
@@ -627,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore)]
+    #[cfg_attr(miri, ignore)] // Miri is too slow
     fn test_random_weak_bisim_sigref_naive() {
         random_test(100, |rng| {
             let lts = random_lts(rng, 10, 3, 3);
