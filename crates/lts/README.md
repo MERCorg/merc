@@ -40,16 +40,17 @@ assert_eq!(lts.num_of_transitions(), 2);
 ## Features
 
 The `merc_bcg_format` feature flag enables support for reading and writing LTSs in the
-BCG format from the [CADP](https://cadp.inria.fr/man/bcg.html) toolset.
+BCG format from the [CADP](https://cadp.inria.fr/man/bcg.html) toolset. The `CADP` environment
+variable must be set to the installation path of CADP at compilation and run time for this to work.
 
 ## Changelog
 
 ### Current
 
 Added support for reading and writing LTSs in the BCG format from the
-[CADP](https://cadp.inria.fr/man/bcg.html) toolset. This requires CADP
-to be installed on the system since we use its FFI to read and write BCG
-files, and is enabled via the `merc_bcg_format` feature flag.
+[CADP](https://cadp.inria.fr/man/bcg.html) toolset. This requires CADP to be
+installed on the system and the `CADP` environment variable to be set, and it is
+enabled via the `merc_bcg_format` feature flag.
 
 Removed the `clap` dependency, this means that parsing of the `LtsFormat` enum
 must be handled separately.
