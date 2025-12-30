@@ -1,0 +1,1 @@
+The `cwi_1_2.aut` and `vasy_18_73.bcg` files in this directory are taken from the [VLTS](https://cadp.inria.fr/resources/vlts/) benchmark set, and are merely included for testing purposes. They are copyrighted by INRIA and the CADP team.
