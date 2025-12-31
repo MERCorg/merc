@@ -76,7 +76,7 @@ mod inner {
         // SAFETY: The function will not modify the string.
         unsafe {
             BCG_OT_READ_BCG_BEGIN(
-                file.as_ref() as *mut i8,
+                filename.as_ptr() as *mut i8,
                 &mut bcg_object,
                 0, // No special flags
             );
@@ -160,6 +160,10 @@ mod inner {
             }
         }
 
+        unsafe {
+            BCG_OT_STOP(&mut iterator);
+        }
+
         let lts = builder.finish(StateIndex::new(initial_state as usize));
 
         // Clean up
@@ -196,10 +200,10 @@ mod inner {
             // given to the state1 argument of BCG_IO_WRITE_BCG_EDGE() will
             // increase monotonically
             BCG_IO_WRITE_BCG_BEGIN(
-                filename.as_ref() as *mut i8,
+                filename.as_ptr() as *mut i8,
                 lts.initial_state_index().value() as u64,
                 2,
-                comment.as_ref() as *mut i8,
+                comment.as_ptr() as *mut i8,
                 false,
             );
         }
@@ -285,9 +289,9 @@ mod inner {
             // Test reading a BCG file.
             let lts = read_bcg(Path::new("../../examples/lts/vasy_18_73.bcg"), Vec::new()).unwrap();
 
-            assert_eq!(lts.num_of_states(), 2966);
-            assert_eq!(lts.num_of_transitions(), 7393);
-            assert_eq!(lts.num_of_labels(), 6);
+            assert_eq!(lts.num_of_states(), 18746);
+            assert_eq!(lts.num_of_transitions(), 73043);
+            assert_eq!(lts.num_of_labels(), 17);
         }
     }
 }
