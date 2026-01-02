@@ -35,6 +35,7 @@ mod inner {
 
     use core::num;
     use std::cell::Cell;
+    use std::collections::HashMap;
     use std::env;
     use std::ffi::CStr;
     use std::ffi::CString;
@@ -47,6 +48,7 @@ mod inner {
     use crate::LabelIndex;
     use crate::LtsBuilder;
     use crate::StateIndex;
+    use crate::TransitionLabel;
 
     /// Initialize the BCG library exactly once.
     static BCG_INITIALIZED: Once = Once::new();
@@ -99,10 +101,23 @@ mod inner {
         let num_of_labels = unsafe { BCG_OT_NB_LABELS(bcg_object) };
 
         let mut labels = Vec::with_capacity(num_of_labels as usize);
+        labels.push(String::tau_label());
+
+        let mut label_index = HashMap::new();
         for i in 0..num_of_labels {
             let label = unsafe { BCG_OT_LABEL_STRING(bcg_object, i) };
 
-            labels.push(unsafe { CStr::from_ptr(label).to_string_lossy().into_owned() });
+            let is_visible = unsafe {
+                BCG_OT_LABEL_VISIBLE(bcg_object, i)
+            };
+
+            let label  = unsafe { CStr::from_ptr(label).to_string_lossy().into_owned() };
+            if is_visible {
+                label_index.insert(i as usize, labels.len()); // Map to new index.
+                labels.push(label.clone());
+            } else {
+                label_index.insert(i as usize, 0); // Map to the internal action.
+            }
         }
 
         // Read the initial state.
@@ -134,7 +149,7 @@ mod inner {
                 .map(|edge| {
                     num_of_transitions.set(num_of_transitions.get() + 1);
                     progress.print(num_of_transitions.get());
-                    (LabelIndex::new(edge.label), StateIndex::new(edge.target))
+                    (LabelIndex::new(label_index[&edge.label]), StateIndex::new(edge.target))
                 })
             },
         );
@@ -166,16 +181,21 @@ mod inner {
         let filename = CString::new(path.to_string_lossy().as_ref())?;
         let comment = CString::new("created by merc_lts")?;
 
-        // SAFETY: The C call will not modify the string.
-        unsafe {
-            // Equal to 2 if, in the forthcoming successive invocations of
+        #[repr(u32)]
+        enum WriteMode {
+            // In the forthcoming successive invocations of
             // function BCG_IO_WRITE_BCG_EDGE(), the sequence of actual values
             // given to the state1 argument of BCG_IO_WRITE_BCG_EDGE() will
             // increase monotonically
+            MonotonicStates = 2,
+        }
+
+        // SAFETY: The C call will not modify the string.
+        unsafe {
             BCG_IO_WRITE_BCG_BEGIN(
                 filename.as_ptr() as *mut i8,
                 lts.initial_state_index().value() as u64,
-                2,
+                WriteMode::MonotonicStates as u32,
                 comment.as_ptr() as *mut i8,
                 false,
             );
@@ -258,7 +278,7 @@ mod inner {
         target: usize,
     }
 
-    // Iterator over all edges in the BCG file (BCG_OT_START)
+    // Iterator over all edges in the BCG fil, `BCG_OT_ITERATE_PLN`.
     struct EdgeIter {
         inner: BcgOtIterator,
     }
@@ -293,7 +313,7 @@ mod inner {
         }
     }
 
-    /// Iterator for the successors of a specific state (BCG_OT_START_P)
+    /// Iterator for the successors of a specific state, `BCG_OT_ITERATE_P_LN`.
     struct SuccessorIter {
         inner: BcgOtIterator,
         state: u64,
@@ -308,19 +328,19 @@ mod inner {
             Self { inner, state }
         }
     }
-
+    
     impl Iterator for SuccessorIter {
         type Item = BcgEdge;
 
         fn next(&mut self) -> Option<Self::Item> {
             // If we've reached the end, or the state has changed, signal iteration end.
             if self.inner.end()
-                || self.inner.inner.bcg_edge_buffer.bcg_p as u64 != self.state
+                || self.inner.p() != self.state
             {
                 return None;
             }
 
-            println!("SuccessorIter next state: {}", self.inner.inner.bcg_edge_buffer.bcg_p);
+            println!("Current state: {}", self.inner.p());
 
             let edge = self.inner.edge();
 
@@ -338,7 +358,7 @@ mod inner {
     }
 
     impl BcgOtIterator {
-        /// Constructs a new BCG OT iterator for a speific state
+        /// Constructs a new BCG OT iterator
         pub unsafe fn new() -> Self {
             Self {
                 inner: BCG_TYPE_OT_ITERATOR {
@@ -369,12 +389,17 @@ mod inner {
             }
         }
 
-        /// Returns true if the iterator has reached the end.
+        /// Returns true if the iterator has reached the end, `BCG_OT_END`.
         fn end(&self) -> bool {
             self.inner.bcg_edge_buffer.bcg_end
         }
 
-        /// Returns the current edge.
+        /// Returns the current source state, `BCG_OT_P`.
+        fn p(&self) -> u64 {
+            self.inner.bcg_edge_buffer.bcg_p as u64
+        }
+
+        /// Returns the current edge. 
         fn edge(&self) -> BcgEdge {
             BcgEdge {
                 source: self.inner.bcg_edge_buffer.bcg_p as usize,
@@ -383,7 +408,7 @@ mod inner {
             }
         }
 
-        /// Advance the underlying C iterator for the next call.
+        /// Advance the underlying C iterator for the next call, `BCG_OT_NEXT`.
         unsafe fn next(&mut self) {
             unsafe {
                 BCG_OT_NEXT(&mut self.inner);
@@ -394,6 +419,7 @@ mod inner {
     impl Drop for BcgOtIterator {
         fn drop(&mut self) {
             unsafe {
+                // The same as BCG_OT_END_ITERATE.
                 BCG_OT_STOP(&mut self.inner);
             }
         }
