@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+clap = ["dep:clap"]
+
 [dependencies]
 merc_aterm.workspace = true
 merc_data.workspace = true
@@ -12,6 +15,7 @@ merc_io.workspace = true
 merc_ldd.workspace = true
 merc_utilities.workspace = true
 
+clap = { workspace = true, optional = true }
 oxidd.workspace = true
 rand.workspace = true
 itertools.workspace = true
