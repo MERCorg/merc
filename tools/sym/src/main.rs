@@ -7,6 +7,8 @@ use clap::Subcommand;
 
 use merc_io::LargeFormatter;
 use merc_ldd::Storage;
+use merc_symbolic::guess_format_from_extension;
+use merc_symbolic::read_sylvan;
 use merc_symbolic::read_symbolic_lts;
 use merc_tools::verbosity::VerbosityFlag;
 use merc_tools::Version;
@@ -38,6 +40,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     Info(InfoArgs),
+    Explore(ExploreArgs),
 }
 
 #[derive(clap::Args, Debug)]
@@ -45,6 +48,14 @@ enum Commands {
 struct InfoArgs {
     filename: String,
 }
+
+
+#[derive(clap::Args, Debug)]
+#[command(about = "Explores the given symbolic LTS")]
+struct ExploreArgs {
+    
+}
+
 
 fn main() -> Result<ExitCode, MercError> {
     let cli = Cli::parse();
@@ -64,6 +75,7 @@ fn main() -> Result<ExitCode, MercError> {
     if let Some(command) = cli.commands {
         match command {
             Commands::Info(args) => handle_info(args, &mut timing)?,
+            Commands::Explore(args) => handle_explore(args, &mut timing)?,
         }
     }
 
@@ -88,5 +100,26 @@ fn handle_info(args: InfoArgs, timing: &mut Timing) -> Result<(), MercError> {
     println!("  Number of states: {}", LargeFormatter(merc_ldd::len(&mut storage, lts.states())));
     println!("  Number of summand groups: {}", lts.summand_groups().len());
 
+    Ok(())
+}
+
+/// Explores the given symbolic LTS.
+fn handle_explore(args: ExploreArgs, _timing: &mut Timing) -> Result<(), MercError> {
+    let path = Path::new(&args.filename);
+    let mut storage = Storage::new();
+
+    let format = guess_format_from_extension(path, args.format).ok_or("Cannot determine input format")?;
+
+    let mut file = File::open(filename)?;
+
+    match format {
+        SymFormat::Sylvan => {
+            let input = read_sylvan(&mut storage, &mut file)?;
+        }
+        SymFormat::Sym => {
+            panic!("LTS format Sym not yet supported in explore");
+        }
+    }
+    
     Ok(())
 }
