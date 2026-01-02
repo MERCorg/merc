@@ -320,19 +320,11 @@ fn handle_convert(args: &ConvertArgs, timing: &mut Timing) -> Result<(), MercErr
     let format = guess_lts_format_from_extension(&args.filename, args.input_filetype).ok_or("Unknown LTS file format.")?;
     let input_lts = read_explicit_lts(&args.filename, format, args.tau.clone().unwrap_or_default(), timing)?;
 
+    let output_format = args.output_filetype.ok_or("Output LTS format must be specified.")?;
+
     match input_lts {
         GenericLts::Aut(lts) => {
-            let output_format = args.output_filetype.unwrap_or(LtsFormat::Aut);
-
             match output_format {
-                LtsFormat::Aut => {
-                    if let Some(path) = &args.output {
-                        let mut output_file = File::create(path)?;
-                        write_aut(&mut output_file, &lts)?;
-                    } else {
-                        write_aut(&mut stdout(), &lts)?;
-                    }
-                }
                 LtsFormat::Bcg => {                    
                     if let Some(path) = &args.output {
                         write_bcg(&lts, path)?;
@@ -340,13 +332,49 @@ fn handle_convert(args: &ConvertArgs, timing: &mut Timing) -> Result<(), MercErr
                         return Err("Output path must be specified when writing BCG files.".into());
                     }
                 }
+                LtsFormat::Aut => {
+                    return Err("Conversion from AUT to AUT is not useful.".into());
+                }
                 _ => {
-                    unimplemented!("Conversion to this LTS format is not yet implemented.");
+                    return Err(format!("Conversion to {output_format:?}LTS format is not yet implemented.").into());
                 }
             }
         }
-        _ => {
-            unimplemented!("Conversion for this LTS type is not yet implemented.");
+        GenericLts::Lts(lts) => {
+            match output_format {
+                LtsFormat::Aut => {
+                    if let Some(path) = &args.output {
+                        write_aut(&mut File::create(path)?, &lts.relabel(|label| label.to_string()))?;
+                    } else {
+                        write_aut(&mut stdout(), &lts.relabel(|label| label.to_string()))?;
+                    }
+                },
+                LtsFormat::Bcg => {
+                    if let Some(path) = &args.output {
+                        write_bcg(&lts.relabel(|label| label.to_string()), path)?;
+                    } else {
+                        return Err("Output path must be specified when writing BCG files.".into());
+                    }
+                }
+                LtsFormat::Lts => {
+                    return Err("Conversion from LTS to LTS is not useful.".into());
+                }
+            }
+
+        },
+        GenericLts::Bcg(lts) => {
+            match output_format {
+                LtsFormat::Aut => {
+                    if let Some(path) = &args.output {
+                        write_aut(&mut File::create(path)?, &lts)?;
+                    } else {
+                        write_aut(&mut stdout(), &lts)?;
+                    }
+                }
+                _ => {
+                    return Err(format!("Conversion to {output_format:?}LTS format is not yet implemented.").into());
+                }
+            }
         }
     }
 
