@@ -320,7 +320,13 @@ fn handle_convert(args: &ConvertArgs, timing: &mut Timing) -> Result<(), MercErr
     let format = guess_lts_format_from_extension(&args.filename, args.input_filetype).ok_or("Unknown LTS file format.")?;
     let input_lts = read_explicit_lts(&args.filename, format, args.tau.clone().unwrap_or_default(), timing)?;
 
-    let output_format = args.output_filetype.ok_or("Output LTS format must be specified.")?;
+    let output_format = if let Some(output) = &args.output {
+        guess_lts_format_from_extension(output, args.output_filetype).ok_or("Unknown LTS file format.")?
+    } else if let Some(format) = args.output_filetype {
+        format
+    } else {
+        return Err("Either output path or output file format must be specified.".into());
+    };
 
     match input_lts {
         GenericLts::Aut(lts) => {
