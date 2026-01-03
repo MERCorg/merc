@@ -8,9 +8,9 @@ use clap::Subcommand;
 use merc_io::LargeFormatter;
 use merc_ldd::Storage;
 use merc_symbolic::read_symbolic_lts;
-use merc_tools::verbosity::VerbosityFlag;
 use merc_tools::Version;
 use merc_tools::VersionFlag;
+use merc_tools::verbosity::VerbosityFlag;
 use merc_unsafety::print_allocator_metrics;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
@@ -85,7 +85,10 @@ fn handle_info(args: InfoArgs, timing: &mut Timing) -> Result<(), MercError> {
     time_read.finish();
 
     println!("Symbolic LTS information:");
-    println!("  Number of states: {}", LargeFormatter(merc_ldd::len(&mut storage, lts.states())));
+    println!(
+        "  Number of states: {}",
+        LargeFormatter(merc_ldd::len(&mut storage, lts.states()))
+    );
     println!("  Number of summand groups: {}", lts.summand_groups().len());
 
     Ok(())

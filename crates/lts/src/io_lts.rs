@@ -118,7 +118,7 @@ pub fn read_lts(
 ///     parameters: ATermList
 ///     action_labels: ATermList
 /// ```
-/// 
+///
 /// Afterwards we can write the following elements in any order:
 ///
 /// ```plain

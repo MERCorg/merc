@@ -153,12 +153,14 @@ mod test {
     #[test]
     fn test_load_anderson_4() {
         let mut storage = Storage::new();
-        let (_, _) = load_model(&mut storage, "../../examples/ldd/anderson.4.ldd").expect("Loading should work correctly");
+        let (_, _) =
+            load_model(&mut storage, "../../examples/ldd/anderson.4.ldd").expect("Loading should work correctly");
     }
 
     #[test]
     fn test_load_collision_4() {
         let mut storage = Storage::new();
-        let (_, _) = load_model(&mut storage, "../../examples/ldd/collision.4.ldd").expect("Loading should work correctly");
+        let (_, _) =
+            load_model(&mut storage, "../../examples/ldd/collision.4.ldd").expect("Loading should work correctly");
     }
 }

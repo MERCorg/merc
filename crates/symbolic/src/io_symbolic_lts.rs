@@ -16,32 +16,32 @@ use crate::SummandGroup;
 use crate::SymbolicLts;
 
 /// Reads a symbolic LTS from a binary stream in the mCRL2 `.sym` format.
-/// 
+///
 /// # Details
-/// 
+///
 /// The stream contains
 /// <marker>: ATerm
 /// <data specification>
 /// <process parameters>: ATermList<ATerm>
-/// 
+///
 /// <initial state>: LDD
 /// <states>: LDD
-/// 
+///
 /// For each process parameter:
 ///   <number of entries>: u64
 ///   For each entry:
 ///     <value>: ATerm
-/// 
+///
 /// <number of action labels>: u64
 /// For each action label:
 ///   <action label>: ATerm
-/// 
+///
 /// <number of summand groups>: u64
 /// For each summand group:
 ///  <number of read parameters>: u64
 ///  For each read parameter:
 ///    <read parameter>: ATerm
-/// 
+///
 /// <number of write parameters>: u64
 /// For each write parameter:
 ///  <write parameter>: ATerm
@@ -78,7 +78,6 @@ pub fn read_symbolic_lts<R: Read>(reader: R, storage: &mut Storage) -> Result<Sy
     let mut summand_groups = Vec::new();
     let num_of_groups = stream.read_integer()?;
     for _ in 0..num_of_groups {
-
         // Note: this is not an ATermInt, as expected by `read_aterm_iter`, but a variable integer.
         let num_of_reads = stream.read_integer()?;
         let mut read_parameters: Vec<ATerm> = Vec::with_capacity(num_of_reads as usize);

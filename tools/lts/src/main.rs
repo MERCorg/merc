@@ -107,7 +107,9 @@ struct CompareArgs {
 }
 
 #[derive(clap::Args, Debug)]
-#[command(about = "Checks whether the given implementation LTS refines the given specification LTS modulo various preorders.")]
+#[command(
+    about = "Checks whether the given implementation LTS refines the given specification LTS modulo various preorders."
+)]
 struct RefinesArgs {
     /// Selects the preorder to check for refinement.
     refinement: RefinementType,
@@ -234,7 +236,7 @@ fn handle_refinement(args: &RefinesArgs, timing: &mut Timing) -> Result<(), Merc
         LargeFormatter(spec_lts.num_of_states()),
         LargeFormatter(spec_lts.num_of_transitions())
     );
-    
+
     let refines = apply_lts_pair!(impl_lts, spec_lts, timing, |left, right, timing| {
         refines(left, right, args.refinement, timing)
     });
