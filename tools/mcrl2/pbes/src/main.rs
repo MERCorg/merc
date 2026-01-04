@@ -58,16 +58,16 @@ struct SymmetryArgs {
     #[arg(long, short('i'), value_enum)]
     format: Option<PbesFormat>,
 
-    /// Pass a single permutation in cycles notation to check for begin a (syntactic) symmetry
+    /// Pass a single permutation in cycles notation to check whether it is a symmetry.
     #[arg(long)]
     permutation: Option<String>,
 
-    /// Partition data parameters into their sorts before considering their permutation groups
+    /// Partition data parameters into their sorts before considering their permutation groups.
     #[arg(
         long,
         default_value_t = false
     )]
-    partition_data_sorts: bool,
+    partition_data_sorts: bool,    
 }
 
 fn main() -> Result<ExitCode, MercError> {

@@ -256,30 +256,14 @@ impl SymmetryAlgorithm {
 
         // Groups the data parameters by their sort.
         let (mut number_of_permutations, all_data_groups) = if partition_data_sorts {
-            let same_sort_parameters = {
-                let mut result: Vec<Vec<DataVariable>> = Vec::new();
-
-                for (index, param) in self.parameters.iter().enumerate() {
-                    if self.all_control_flow_parameters.contains(&index) {
-                        // Skip control flow parameters.
-                        continue;
-                    }
-
-                    let sort = param.sort();
-                    if let Some(group) = result.iter_mut().find(|g: &&mut Vec<_>| {
-                        if let Some(first) = g.first() {
-                            first.sort() == sort
-                        } else {
-                            false
-                        }
-                    }) {
-                        group.push(param.clone());
-                    } else {
-                        result.push(vec![param.clone()]);
-                    }
+            let same_sort_parameters = partition(self.parameters.iter().enumerate().filter_map(|(index, param)| {
+                if self.all_control_flow_parameters.contains(&index) {
+                    // Skip control flow parameters.
+                    None
+                } else {
+                    Some(param)
                 }
-                result
-            };
+            }), |lhs, rhs| lhs.sort() == rhs.sort());
 
             let mut number_of_permutations = 1usize;
             let mut all_data_groups: Box<dyn CloneIterator<Item = Permutation>> = Box::new(iter::empty()); // Default value is overwritten in first iteration.
@@ -638,6 +622,32 @@ impl SymmetryAlgorithm {
             .find(|&equation| equation.variable().name() == *name)
             .map(|v| v as _)
     }
+}
+
+/// Partition a vector into a number of sets based on a predicate.
+fn partition<T, I, P>(elements: I, predicate: P) -> Vec<Vec<T>>
+where
+    I: Iterator<Item = T>,
+    P: Fn(&T, &T) -> bool,
+    T: Clone,
+{    
+    let mut result: Vec<Vec<T>> = Vec::new();
+
+    for element in elements {
+
+        if let Some(group) = result.iter_mut().find(|g: &&mut Vec<_>| {
+            if let Some(first) = g.first() {
+                predicate(first, &element)
+            } else {
+                false
+            }
+        }) {
+            group.push(element.clone());
+        } else {
+            result.push(vec![element.clone()]);
+        }
+    }
+    result
 }
 
 /// Returns the index of the variable that the control flow graph considers
