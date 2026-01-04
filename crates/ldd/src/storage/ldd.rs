@@ -24,7 +24,7 @@ pub type SharedProtectionSet = Rc<RefCell<ProtectionSet<LddIndex>>>;
 ///
 /// # Details
 ///
-/// Note that the Ldd actually has a interior mutable reference to the protection set.
+/// Note that the Ldd actually has an interior mutable reference to the protection set.
 /// However, this has no influence on the PartialEq and Hash implementations. As such
 /// we can use the Ldd as a key in hash maps and sets. Use the following clippy lint
 /// to disable the warning about mutable key types:

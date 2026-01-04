@@ -16,6 +16,7 @@ use merc_symbolic::read_symbolic_lts;
 use merc_tools::Version;
 use merc_tools::VersionFlag;
 use merc_tools::verbosity::VerbosityFlag;
+use merc_tools::verbosity::VerbosityFlag;
 use merc_unsafety::print_allocator_metrics;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
