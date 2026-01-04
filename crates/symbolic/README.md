@@ -1,6 +1,19 @@
 # Overview
 
-This crate provides algorithms for working with symbolic data structures, including List Decision Diagrams and Binary Decision Diagrams.
+This crate provides algorithms for working with symbolic data structures. This includes List Decision Diagrams using the `merc_ldd` crate and Binary Decision Diagrams using the [OxiDD](https://oxidd.net) crate. 
+
+
+
+```rust
+
+
+let lts = read_sylvan(&File::open("../../examples/ldd/anderson.4.ldd"));
+
+
+
+
+
+```
 
 ## Safety
 

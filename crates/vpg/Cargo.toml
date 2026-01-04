@@ -12,6 +12,9 @@ repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[features]
+clap = ["dep:clap"]
+
 [dependencies]
 merc_collections.workspace = true
 merc_io.workspace = true
@@ -22,7 +25,6 @@ merc_syntax.workspace = true
 merc_utilities.workspace = true
 
 bitvec.workspace = true
-clap.workspace = true
 delegate.workspace = true
 itertools.workspace = true
 log.workspace = true
@@ -31,3 +33,5 @@ rand.workspace = true
 regex.workspace = true
 streaming-iterator.workspace = true
 thiserror.workspace = true
+
+clap = { workspace = true, optional = true }

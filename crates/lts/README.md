@@ -37,9 +37,26 @@ assert_eq!(lts.num_of_states(), 2);
 assert_eq!(lts.num_of_transitions(), 2);
 ```
 
+## Features
+
+The `cadp` feature flag enables support for reading and writing LTSs in the
+BCG format from the [CADP](https://cadp.inria.fr/man/bcg.html) toolset. The `CADP` environment
+variable must be set to the installation path of CADP at compilation and run time for this to work.
+
 ## Changelog
 
 ### Current
+
+Added support for reading and writing LTSs in the BCG format from the
+[CADP](https://cadp.inria.fr/man/bcg.html) toolset. This requires CADP to be
+installed on the system and the `CADP` environment variable to be set, and it is
+enabled via the `cadp` feature flag.
+
+Added the `clap` feature to conditionally enable the `clap` dependency to derive
+some convenience traits.
+
+Made the AUT format compliant with the actual specification. In particular,
+the internal action is now represented by `i` instead of `tau`.
 
 Introduce a proper `MultiAction` type to represent multi-actions as they are
 present in mCRL2. A multi-action is a multi-set of action labels that are
@@ -51,11 +68,12 @@ formalism, and `τ` simply denotes the empty set.
 
 Removed `add_transition_index` from `LtsBuilder` and `LtsBuilderFast` since it
 is not correct. These builders change the indices of labels internally to
-accomodate for the internal actions.
+accommodate for the internal actions.
 
 ## Safety
 
-This crate contains no unsafe code.
+This crate contains minimal `unsafe` code for FFI with CADP, but every other module
+forbids `unsafe` code.
 
 ## Minimum Supported Rust Version
 

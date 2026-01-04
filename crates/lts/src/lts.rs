@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 //! The labelled transition system (LTS) trait and associated types.
 
 use std::fmt;
@@ -38,7 +40,7 @@ where
     fn outgoing_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = Transition> + '_;
 
     /// Iterate over all state_index in the labelled transition system
-    fn iter_states(&self) -> impl Iterator<Item = StateIndex> + '_ ;
+    fn iter_states(&self) -> impl Iterator<Item = StateIndex> + '_;
 
     /// Returns the number of states.
     fn num_of_states(&self) -> usize;

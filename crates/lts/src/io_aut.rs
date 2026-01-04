@@ -1,8 +1,11 @@
+#![forbid(unsafe_code)]
+
 use std::io::BufWriter;
 use std::io::Read;
 use std::io::Write;
 
 use log::info;
+use merc_io::LargeFormatter;
 use regex::Regex;
 use streaming_iterator::StreamingIterator;
 use thiserror::Error;
@@ -63,7 +66,16 @@ pub fn read_aut(reader: impl Read, hidden_labels: Vec<String>) -> Result<Labelle
     let num_of_states: usize = num_of_states_txt.parse()?;
 
     let mut builder = LtsBuilder::with_capacity(Vec::new(), hidden_labels, num_of_states, 16, num_of_transitions);
-    let progress = TimeProgress::new(|percentage: usize| info!("Reading transitions {}%...", percentage), 1);
+    let progress = TimeProgress::new(
+        move |read: usize| {
+            info!(
+                "Read {} transitions {}%...",
+                LargeFormatter(read),
+                read * 100 / num_of_transitions
+            )
+        },
+        1,
+    );
 
     while let Some(line) = lines.next() {
         let (from_txt, label_txt, to_txt) =
@@ -77,7 +89,7 @@ pub fn read_aut(reader: impl Read, hidden_labels: Vec<String>) -> Result<Labelle
 
         builder.add_transition(from, label_txt, to);
 
-        progress.print(builder.num_of_transitions() * 100 / num_of_transitions);
+        progress.print(builder.num_of_transitions());
     }
 
     info!("Finished reading LTS");
@@ -90,6 +102,8 @@ pub fn read_aut(reader: impl Read, hidden_labels: Vec<String>) -> Result<Labelle
 ///
 /// Note that the writer is buffered internally using a `BufWriter`.
 pub fn write_aut(writer: &mut impl Write, lts: &impl LTS) -> Result<(), MercError> {
+    info!("Writing LTS in .aut format...");
+
     let mut writer = BufWriter::new(writer);
     writeln!(
         writer,
@@ -99,7 +113,17 @@ pub fn write_aut(writer: &mut impl Write, lts: &impl LTS) -> Result<(), MercErro
         lts.num_of_states()
     )?;
 
-    let progress = TimeProgress::new(|percentage: usize| info!("Writing transitions {}%...", percentage), 1);
+    let num_of_transitions = lts.num_of_transitions();
+    let progress = TimeProgress::new(
+        move |written: usize| {
+            info!(
+                "Wrote {} transitions {}%...",
+                LargeFormatter(written),
+                written * 100 / num_of_transitions
+            )
+        },
+        1,
+    );
     let mut transitions_written = 0usize;
     for state_index in lts.iter_states() {
         for transition in lts.outgoing_transitions(state_index) {
@@ -111,11 +135,12 @@ pub fn write_aut(writer: &mut impl Write, lts: &impl LTS) -> Result<(), MercErro
                 transition.to
             )?;
 
-            progress.print(transitions_written * 100 / lts.num_of_transitions());
+            progress.print(transitions_written);
             transitions_written += 1;
         }
     }
 
+    info!("Finished writing LTS.");
     Ok(())
 }
 
@@ -150,11 +175,11 @@ fn read_transition(input: &str) -> Option<(&str, &str, &str)> {
 /// A trait for labels that can be used in transitions.
 impl TransitionLabel for String {
     fn is_tau_label(&self) -> bool {
-        self == "tau"
+        self == "i"
     }
 
     fn tau_label() -> Self {
-        "tau".to_string()
+        "i".to_string()
     }
 
     fn matches_label(&self, label: &str) -> bool {

@@ -22,9 +22,15 @@ macro_rules! bytevec {
     };
 }
 
-/// A vector data structure that stores objects in a byte compressed format. The basic idea is that elements of type `T` impplement the `CompressedEntry` trait which allows them to be converted to and from a byte representation. The vector dynamically adjusts the number of bytes used per entry based on the maximum size of the entries added so far.
+/// A vector data structure that stores objects in a byte compressed format. The
+/// basic idea is that elements of type `T` implement the `CompressedEntry`
+/// trait which allows them to be converted to and from a byte representation.
+/// The vector dynamically adjusts the number of bytes used per entry based on
+/// the maximum size of the entries added so far.
 ///
-/// For numbers this means that we only store the number of bytes required to represent the largest number added so far. Note that the number of bytes used per entry is only increased over time as larger entries are added.
+/// For numbers this means that we only store the number of bytes required to
+/// represent the largest number added so far. Note that the number of bytes
+/// used per entry is only increased over time as larger entries are added.
 ///
 /// TODO: The `drop()` function of `T` is never called.
 #[derive(Default, PartialEq, Eq, Clone)]
@@ -282,8 +288,8 @@ impl<T: CompressedEntry> ByteCompressedVec<T> {
         P: Fn(usize) -> usize,
     {
         let mut result = ByteCompressedVec::with_capacity(self.data.capacity(), self.bytes_per_entry);
-        for entry in self.iter().enumerate() {
-            result.push(self.index(indices(entry.0)));
+        for index in 0..self.len() {
+            result.push(self.index(indices(index)));
         }
         *self = result;
     }

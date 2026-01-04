@@ -8,6 +8,7 @@ use std::marker::PhantomData;
 
 use delegate::delegate;
 use itertools::Itertools;
+use merc_utilities::MercError;
 
 use crate::ATerm;
 use crate::ATermArgs;
@@ -47,6 +48,11 @@ impl<T: From<ATerm>> ATermList<T> {
     pub fn head(&self) -> T {
         self.term.arg(0).protect().into()
     }
+
+    /// Converts the list into a vector.
+    pub fn to_vec(&self) -> Vec<T> {
+        self.iter().collect()
+    }
 }
 
 impl<T> ATermList<T> {
@@ -60,6 +66,18 @@ impl<T> ATermList<T> {
             list = list.cons(item);
         }
         list
+    }
+
+    /// Constructs a new list from an iterator that is consumed.
+    pub fn try_from_double_iter(iter: impl DoubleEndedIterator<Item = Result<T, MercError>>) -> Result<Self, MercError>
+    where
+        T: Into<ATerm>,
+    {
+        let mut list = Self::empty();
+        for item in iter.rev() {
+            list = list.cons(item?);
+        }
+        Ok(list)
     }
 
     /// Constructs a new list with the given item as the head and the current list as the tail.
@@ -151,7 +169,7 @@ impl<T> From<ATerm> for ATermList<T> {
     fn from(value: ATerm) -> Self {
         debug_assert!(
             is_list_term(&value) || is_empty_list_term(&value),
-            "Can only convert a aterm_list"
+            "Can only convert an aterm_list"
         );
         ATermList::<T> {
             term: value,
@@ -164,7 +182,7 @@ impl<'a, T> From<ATermRef<'a>> for ATermList<T> {
     fn from(value: ATermRef<'a>) -> Self {
         debug_assert!(
             is_list_term(&value) || is_empty_list_term(&value),
-            "Can only convert a aterm_list"
+            "Can only convert an aterm_list"
         );
         ATermList::<T> {
             term: value.protect(),

@@ -573,6 +573,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Miri is too slow
     fn test_random_binary_stream() {
         random_test(100, |rng| {
             let input: Vec<_> = (0..20)
@@ -601,6 +602,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Miri is too slow
     fn test_random_binary_stream_iter() {
         random_test(100, |rng| {
             let input: Vec<_> = (0..20)

@@ -1,9 +1,17 @@
 [package]
 name = "merc_symbolic"
-version.workspace = true
+description = "Implements various utility and I/O functionality for symbolic data structures, i.e., decision diagrams."
+readme = "README.md"
+
 edition.workspace = true
+homepage.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
+version.workspace = true
+
+[features]
+clap = ["dep:clap"]
 
 [dependencies]
 merc_aterm.workspace = true
@@ -12,6 +20,8 @@ merc_io.workspace = true
 merc_ldd.workspace = true
 merc_utilities.workspace = true
 
+clap = { workspace = true, optional = true }
+itertools.workspace = true
+log.workspace = true
 oxidd.workspace = true
 rand.workspace = true
-itertools.workspace = true

@@ -162,7 +162,7 @@ impl ATermRef<'_> {
         mcrl2_aterm_is_empty_list(self.get())
     }
 
-    /// Returns true iff this is a aterm_int
+    /// Returns true iff this is an aterm_int
     pub fn is_int(&self) -> bool {
         mcrl2_aterm_is_int(self.get())
     }

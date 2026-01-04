@@ -1,6 +1,5 @@
 #![forbid(unsafe_code)]
 
-use clap::ValueEnum;
 use merc_lts::LTS;
 use merc_lts::LabelledTransitionSystem;
 use merc_utilities::Timing;
@@ -14,7 +13,8 @@ use crate::strong_bisim_sigref_naive;
 use crate::weak_bisim_sigref_naive;
 use crate::weak_bisimulation;
 
-#[derive(Copy, Clone, Debug, ValueEnum)]
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum Equivalence {
     /// Partition based refinement algorithms.
     WeakBisim,

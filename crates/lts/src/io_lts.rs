@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use std::collections::HashMap;
 use std::io::BufReader;
 use std::io::BufWriter;
@@ -16,6 +18,7 @@ use merc_aterm::BinaryATermWriter;
 use merc_aterm::Symbol;
 use merc_aterm::is_list_term;
 use merc_data::DataSpecification;
+use merc_io::LargeFormatter;
 use merc_io::TimeProgress;
 use merc_utilities::MercError;
 
@@ -90,15 +93,23 @@ pub fn read_lts(
                 } else if is_list_term(&t) {
                     // State labels can be ignored for the reduction algorithm.
                 } else if t == initial_state_marker() {
+                    let length = ATermInt::from(reader.read_aterm()?.ok_or("Missing initial state length")?).value();
+                    if length != 1 {
+                        return Err("Initial state length greater than 1 is not supported.".into());
+                    }
+
                     initial_state = Some(StateIndex::new(
-                        ATermInt::from(reader.read_aterm()?.ok_or("Missing initial state")?).value(),
+                        ATermInt::from(reader.read_aterm()?.ok_or("Missing initial state index")?).value(),
                     ));
+                    println!("Initial state: {:?}", initial_state);
+                } else {
+                    return Err(format!("Unexpected term in LTS stream: {}", t).into());
                 }
             }
             None => break, // The default constructed term indicates the end of the stream.
         }
     }
-    info!("Finished reading LTS");
+    info!("Finished reading LTS.");
 
     Ok(builder.finish(initial_state.ok_or("Missing initial state")?))
 }
@@ -118,7 +129,7 @@ pub fn read_lts(
 ///     parameters: ATermList
 ///     action_labels: ATermList
 /// ```
-/// 
+///
 /// Afterwards we can write the following elements in any order:
 ///
 /// ```plain
@@ -159,17 +170,35 @@ where
 
     // Write the initial state.
     writer.write_aterm(&initial_state_marker())?;
+    writer.write_aterm(&ATermInt::new(1))?; // Length of initial state is 1.
     writer.write_aterm(&ATermInt::new(*lts.initial_state_index()))?;
 
+    let num_of_transitions = lts.num_of_transitions();
+    let progress = TimeProgress::new(
+        move |written: usize| {
+            info!(
+                "Wrote {} transitions ({}%)...",
+                LargeFormatter(written),
+                written * 100 / num_of_transitions
+            );
+        },
+        1,
+    );
+
+    let mut written = 0;
     for state in lts.iter_states() {
         for transition in lts.outgoing_transitions(state) {
             writer.write_aterm(&transition_marker())?;
             writer.write_aterm(&ATermInt::new(*state))?;
             writer.write_aterm(&label_terms[transition.label.value()])?;
             writer.write_aterm(&ATermInt::new(*transition.to))?;
+
+            progress.print(written);
+            written += 1;
         }
     }
 
+    info!("Finished writing LTS.");
     Ok(())
 }
 
@@ -209,6 +238,7 @@ mod tests {
 
         assert_eq!(lts.num_of_states(), 74);
         assert_eq!(lts.num_of_transitions(), 92);
+        assert_eq!(*lts.initial_state_index(), 0);
     }
 
     #[test]

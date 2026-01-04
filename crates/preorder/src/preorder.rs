@@ -1,11 +1,11 @@
-use clap::ValueEnum;
 use merc_lts::LTS;
 use merc_utilities::Timing;
 
 use crate::ExplorationStrategy;
 use crate::is_failures_refinement;
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum RefinementType {
     Trace,
 }
