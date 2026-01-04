@@ -8,7 +8,7 @@ This release introduces the `merc_preorder` crate, which can be used to check wh
 
 See the `README.md` of the individual crates for their own changelogs.
 
-# v1.0
+# v1.0 (December 2025)
 
 The initial release of the MERC toolset. Although no where near feature complete we opted to produce a 1.0 release to mark the initial milestone of the toolset instead of staying in zero version forever. We generally expect to release a single major version per year, without focusing too much on avoiding breaking changes to libraries for foreseeable future.
 

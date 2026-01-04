@@ -315,7 +315,7 @@ mod inner {
     }
 
     impl SuccessorIter {
-        /// Constructs a new BCG OT iterator for a speific `state`.
+        /// Constructs a new BCG OT iterator for a specific `state`.
         pub unsafe fn new(bcg_object: BCG_TYPE_OBJECT_TRANSITION, state: u64) -> Self {
             let mut inner = unsafe { BcgOtIterator::new() };
 
