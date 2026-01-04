@@ -166,12 +166,12 @@ mod tests {
             files.dump("input.aut", |f| write_aut(f, &lts)).unwrap();
 
             let result = reduce_lts(lts.clone(), Equivalence::WeakBisim, &mut timing);
-            let expected = reduce_lts(lts, Equivalence::WeakBisimSigref, &mut timing);
+            let expected = reduce_lts(lts, Equivalence::WeakBisimSigrefNaive, &mut timing);
 
             assert_eq!(result.num_of_states(), expected.num_of_states());
             assert_eq!(result.num_of_transitions(), expected.num_of_transitions());
 
-            files.dump("reduced.aut", |f| write_aut(f, &result)).unwrap();
+            files.dump("result.aut", |f| write_aut(f, &result)).unwrap();
             files.dump("expected.aut", |f| write_aut(f, &expected)).unwrap();
 
             assert!(compare_lts(Equivalence::StrongBisim, result, expected, &mut timing));
