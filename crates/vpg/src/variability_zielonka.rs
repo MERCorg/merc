@@ -11,28 +11,29 @@ use bitvec::vec::BitVec;
 use clap::ValueEnum;
 use log::debug;
 use log::trace;
-use merc_symbolic::FormatConfigSet;
 use merc_symbolic::minus;
+use merc_symbolic::minus_edge;
+use merc_symbolic::FormatConfigSet;
+use oxidd::bdd::BDDFunction;
+use oxidd::bdd::BDDManagerRef;
+use oxidd::util::AllocResult;
 use oxidd::BooleanFunction;
 use oxidd::Edge;
 use oxidd::Function;
 use oxidd::Manager;
 use oxidd::ManagerRef;
-use oxidd::bdd::BDDFunction;
-use oxidd::bdd::BDDManagerRef;
-use oxidd::util::AllocResult;
 use oxidd_core::util::EdgeDropGuard;
 
 use merc_utilities::MercError;
 
-use crate::PG;
+use crate::combine;
+use crate::x_and_not_x;
 use crate::Player;
 use crate::Priority;
 use crate::VariabilityParityGame;
 use crate::VariabilityPredecessors;
 use crate::VertexIndex;
-use crate::combine;
-use crate::x_and_not_x;
+use crate::PG;
 
 /// Utility to print a repeated static string a given number of times.
 pub struct Repeat {
@@ -325,13 +326,15 @@ impl<'a> VariabilityZielonkaSolver<'a> {
         )?;
 
         let (mut omega1_x, omega1_not_x) = x_and_not_x(omega1_0, omega1_1, x);
-        let omega1_not_x_restricted = omega1_not_x.clone().minus_function(&C_restricted)?;
+        let omega1_not_x_restricted = omega1_not_x.clone().minus_function(self.manager_ref, &C_restricted)?;
 
         // 10.
         if omega1_not_x_restricted.is_empty() {
             // 11. omega'_x := omega'_x \cup A
             omega1_x = omega1_x.or(self.manager_ref, &alpha)?;
-            self.check_partition(&omega1_x, &omega1_not_x, &gamma_copy)?;
+            if cfg!(debug_assertions) {
+                self.check_partition(&omega1_x, &omega1_not_x, &gamma_copy)?;
+            }
 
             // 22. return (omega_0, omega_1)
             Ok(combine(omega1_x, omega1_not_x, x))
@@ -353,13 +356,13 @@ impl<'a> VariabilityZielonkaSolver<'a> {
                 &C1,
             )?;
 
-            let omega1_not_x_restricted1 = omega1_not_x.clone().minus_function(&C1_restricted)?;
+            let omega1_not_x_restricted1 = omega1_not_x.clone().minus_function(self.manager_ref, &C1_restricted)?;
             trace!("{indent}omega'_notx_restricted: {:?}", omega1_not_x_restricted1);
             let alpha1 = self.attractor(not_x, &gamma, omega1_not_x_restricted1)?;
             trace!("{indent}alpha': {:?}", alpha1);
 
             // Solve on (gamma | C') \ alpha'
-            let gamma_restricted = gamma.minus_function(&C1_restricted)?;
+            let gamma_restricted = gamma.minus_function(self.manager_ref, &C1_restricted)?;
 
             debug!("{indent}zielonka_family_opt((gamma | C') \\ alpha')");
             let (omega2_0, omega2_1) =
@@ -368,10 +371,10 @@ impl<'a> VariabilityZielonkaSolver<'a> {
             // 18. omega'_x := omega'_x\C' cup alpha\C' cup omega''_x
             // 19. omega_not_x := omega'_not_x\C' cup omega''_x cup beta
             let (omega2_x, omega2_not_x) = x_and_not_x(omega2_0, omega2_1, x);
-            let omega1_x_restricted = omega1_x.minus_function(&C1)?;
-            let omega1_not_x_restricted = omega1_not_x.minus_function(&C1)?;
+            let omega1_x_restricted = omega1_x.minus_function(self.manager_ref, &C1)?;
+            let omega1_not_x_restricted = omega1_not_x.minus_function(self.manager_ref, &C1)?;
 
-            let alpha_restricted = alpha.minus_function(&C1)?;
+            let alpha_restricted = alpha.minus_function(self.manager_ref, &C1)?;
             let omega2_x_result = omega2_x.or(
                 self.manager_ref,
                 &omega1_x_restricted.or(self.manager_ref, &alpha_restricted)?,
@@ -553,12 +556,12 @@ impl<'a> VariabilityZielonkaSolver<'a> {
             let tmp = W0[v].or(&W1[v])?;
 
             // The union of both solutions should be the entire set of vertices.
-            debug_assert!(
+            assert!(
                 tmp == V[v],
                 "The union of both solutions should be the entire set of vertices, but vertex {v} is missing."
             );
 
-            debug_assert!(
+            assert!(
                 !W0[v].and(&W1[v])?.satisfiable(),
                 "The intersection of both solutions should be empty, but vertex {v} has non-empty intersection."
             );
@@ -629,7 +632,7 @@ impl Submap {
         }
     }
 
-    /// A variant of `set` that assumes the caller already knows whether the previous and new functions are empty.    
+    /// A variant of `set` that assumes the caller already knows whether the previous and new functions are empty.
     fn set_internal(&mut self, index: VertexIndex, func: BDDFunction, was_empty: bool, is_empty: bool) {
         self.mapping[*index] = func;
 
@@ -743,16 +746,27 @@ impl Submap {
     }
 
     /// Computes the difference between this submap and another function.
-    fn minus_function(mut self, configuration: &BDDFunction) -> Result<Submap, MercError> {
-        for (i, func) in self.mapping.iter_mut().enumerate() {
-            let was_satisfiable = func.satisfiable();
-            *func = minus(func, configuration)?;
-            let is_satisfiable = func.satisfiable();
+    fn minus_function(mut self, manager_ref: &BDDManagerRef, configuration: &BDDFunction) -> Result<Submap, MercError> {
+        manager_ref.with_manager_shared(|manager| -> Result<(), MercError> {
+            let f_edge = EdgeDropGuard::new(manager, BDDFunction::f_edge(manager));
+            let conf_edge = configuration.as_edge(manager);
 
-            if was_satisfiable && !is_satisfiable {
-                self.non_empty_count -= 1;
+            for (i, func) in self.mapping.iter_mut().enumerate() {
+                let func_edge = func.as_edge(manager);
+
+                let was_satisfiable = *func_edge != *f_edge;
+                let new_func = minus_edge(manager, func_edge, conf_edge)?;
+                let is_satisfiable = new_func != *f_edge;
+
+                *func = BDDFunction::from_edge(manager, new_func);
+
+                if was_satisfiable && !is_satisfiable {
+                    self.non_empty_count -= 1;
+                }
             }
-        }
+
+            Ok(())
+        })?;
 
         Ok(self)
     }
@@ -787,19 +801,16 @@ impl fmt::Debug for Submap {
 
 #[cfg(test)]
 mod tests {
+    use merc_io::DumpFiles;
     use merc_macros::merc_test;
+    use oxidd::bdd::BDDFunction;
+    use oxidd::util::AllocResult;
     use oxidd::BooleanFunction;
     use oxidd::Manager;
     use oxidd::ManagerRef;
-    use oxidd::bdd::BDDFunction;
-    use oxidd::util::AllocResult;
 
     use merc_utilities::random_test;
 
-    use crate::PG;
-    use crate::Submap;
-    use crate::VertexIndex;
-    use crate::ZielonkaVariant;
     use crate::project_variability_parity_games_iter;
     use crate::random_variability_parity_game;
     use crate::solve_variability_product_zielonka;
@@ -807,6 +818,10 @@ mod tests {
     use crate::solve_zielonka;
     use crate::verify_variability_product_zielonka_solution;
     use crate::write_vpg;
+    use crate::Submap;
+    use crate::VertexIndex;
+    use crate::ZielonkaVariant;
+    use crate::PG;
 
     #[merc_test]
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
@@ -832,10 +847,12 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_variability_parity_game_solve() {
         random_test(100, |rng| {
+            let mut files = DumpFiles::new("test_random_variability_parity_game_solve");
+
             let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
             let vpg = random_variability_parity_game(&manager_ref, rng, true, 20, 3, 3, 3).unwrap();
 
-            // write_vpg(&mut std::io::stdout(), &vpg).unwrap();
+            files.dump("input.vpg", |w| write_vpg(w, &vpg)).unwrap();
 
             let solution = solve_variability_zielonka(&manager_ref, &vpg, ZielonkaVariant::Family, false).unwrap();
             verify_variability_product_zielonka_solution(&vpg, &solution).unwrap();
@@ -846,10 +863,12 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_variability_parity_game_solve_optimised_left() {
         random_test(100, |rng| {
+            let mut files = DumpFiles::new("test_random_variability_parity_game_solve_optimised_left");
+
             let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
             let vpg = random_variability_parity_game(&manager_ref, rng, true, 20, 3, 3, 3).unwrap();
 
-            // write_vpg(&mut std::io::stdout(), &vpg).unwrap();
+            files.dump("input.vpg", |w| write_vpg(w, &vpg)).unwrap();
 
             let solution =
                 solve_variability_zielonka(&manager_ref, &vpg, ZielonkaVariant::FamilyOptimisedLeft, false).unwrap();

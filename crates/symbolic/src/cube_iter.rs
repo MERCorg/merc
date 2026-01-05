@@ -5,6 +5,8 @@ use std::marker::PhantomData;
 use merc_utilities::MercError;
 
 use oxidd::BooleanFunction;
+use oxidd::Function;
+use oxidd::Manager;
 use oxidd::bdd::BDDFunction;
 use oxidd::util::AllocResult;
 use oxidd::util::OptBool;
@@ -13,6 +15,14 @@ use oxidd::util::OptBool;
 /// Implemented as lhs AND (NOT rhs).
 pub fn minus(lhs: &BDDFunction, rhs: &BDDFunction) -> AllocResult<BDDFunction> {
     rhs.imp_strict(lhs)
+}
+
+/// Variant of [minus] that works on edges.
+pub fn minus_edge<'id>(manager: &<BDDFunction as Function>::Manager<'id>, 
+    lhs: &<<BDDFunction as Function>::Manager<'id> as Manager>::Edge, 
+    rhs: &<<BDDFunction as Function>::Manager<'id> as Manager>::Edge) -> AllocResult<<<BDDFunction as Function>::Manager<'id> as Manager>::Edge> 
+{
+    BDDFunction::imp_strict_edge(manager, lhs, rhs)
 }
 
 /// Iterator over all cubes (satisfying assignments) in a BDD.
