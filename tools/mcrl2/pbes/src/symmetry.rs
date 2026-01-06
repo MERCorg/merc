@@ -21,8 +21,8 @@ use mcrl2::SrfPbes;
 use mcrl2::StategraphEquation;
 use mcrl2::replace_propositional_variables;
 use mcrl2::replace_variables;
-use merc_io::TimeProgress;
 use merc_io::LargeFormatter;
+use merc_io::TimeProgress;
 use merc_utilities::MercError;
 
 use crate::clone_iterator::CloneIterator;
@@ -36,13 +36,13 @@ pub struct SymmetryAlgorithm {
     state_graph: PbesStategraph,
 
     /// The parameters of the unified SRF PBES.
-    parameters: Vec<DataVariable>, 
+    parameters: Vec<DataVariable>,
 
     /// The indices of all control flow parameters in the PBES.
     all_control_flow_parameters: Vec<usize>,
 
     /// The SRF PBES after unifying parameters.
-    srf: SrfPbes, 
+    srf: SrfPbes,
 
     /// Keep track of some progress messages.
     num_of_checked_candidates: Cell<usize>,
@@ -74,10 +74,7 @@ impl SymmetryAlgorithm {
             Vec::new()
         };
 
-        info!(
-            "Unified parameters: {}",
-            parameters.iter().format(", ")
-        );
+        info!("Unified parameters: {}", parameters.iter().format(", "));
 
         let state_graph = PbesStategraph::run(&srf.to_pbes())?;
         let all_control_flow_parameters = state_graph
@@ -104,7 +101,9 @@ impl SymmetryAlgorithm {
     }
 
     /// Returns compliant permutations.
-    pub fn candidates(&self, partition_data_sorts: bool) -> impl Iterator<Item = Permutation> + '_ {
+    /// 
+    /// See [clique_candidates] for the parameters.
+    pub fn candidates(&self, partition_data_sorts: bool, partition_data_updates: bool) -> impl Iterator<Item = Permutation> + '_ {
         let cliques = self.cliques();
 
         for clique in &cliques {
@@ -122,7 +121,7 @@ impl SymmetryAlgorithm {
         let mut number_of_candidates = 1usize;
 
         for clique in &cliques {
-            let (number_of_permutations, candidates) = self.clique_candidates(clique.clone(), partition_data_sorts);
+            let (number_of_permutations, candidates) = self.clique_candidates(clique.clone(), partition_data_sorts, partition_data_updates);
             info!(
                 "Maximum number of permutations for clique {:?}: {}",
                 clique,
@@ -156,7 +155,9 @@ impl SymmetryAlgorithm {
         // Check that all control flow parameters are mapped to control flow parameters.
         for index in pi.domain() {
             let mapped_index = pi.value(index);
-            if self.all_control_flow_parameters.contains(&index) != self.all_control_flow_parameters.contains(&mapped_index) {
+            if self.all_control_flow_parameters.contains(&index)
+                != self.all_control_flow_parameters.contains(&mapped_index)
+            {
                 return Err(format!(
                     "A parameter at index {} is mapped to parameter at index {}, but they are not both control flow parameters.",
                     index, mapped_index
@@ -166,8 +167,11 @@ impl SymmetryAlgorithm {
             if index >= self.parameters.len() || mapped_index >= self.parameters.len() {
                 return Err(format!(
                     "A parameter at index {} is mapped to parameter at index {}, but the PBES only has {} parameters.",
-                    index, mapped_index, self.parameters.len()
-                ).into());
+                    index,
+                    mapped_index,
+                    self.parameters.len()
+                )
+                .into());
             }
         }
 
@@ -242,6 +246,7 @@ impl SymmetryAlgorithm {
         &self,
         I: Vec<usize>,
         partition_data_sorts: bool,
+        partition_data_updates: bool,
     ) -> (usize, Box<dyn CloneIterator<Item = (Permutation, Permutation)> + '_>) {
         // Determine the parameter indices involved in the clique
         let control_flow_parameter_indices: Vec<usize> = I
@@ -256,14 +261,17 @@ impl SymmetryAlgorithm {
 
         // Groups the data parameters by their sort.
         let (mut number_of_permutations, all_data_groups) = if partition_data_sorts {
-            let same_sort_parameters = partition(self.parameters.iter().enumerate().filter_map(|(index, param)| {
-                if self.all_control_flow_parameters.contains(&index) {
-                    // Skip control flow parameters.
-                    None
-                } else {
-                    Some(param)
-                }
-            }), |lhs, rhs| lhs.sort() == rhs.sort());
+            let same_sort_parameters = partition(
+                self.parameters.iter().enumerate().filter_map(|(index, param)| {
+                    if self.all_control_flow_parameters.contains(&index) {
+                        // Skip control flow parameters.
+                        None
+                    } else {
+                        Some(param)
+                    }
+                }),
+                |lhs, rhs| lhs.sort() == rhs.sort(),
+            );
 
             let mut number_of_permutations = 1usize;
             let mut all_data_groups: Box<dyn CloneIterator<Item = Permutation>> = Box::new(iter::empty()); // Default value is overwritten in first iteration.
@@ -282,8 +290,8 @@ impl SymmetryAlgorithm {
                 // Compute the product of the current data group with the already concatenated ones.
                 let number_of_parametes = parameter_indices.len();
                 if number_of_permutations == 1 {
-                    all_data_groups = Box::new(permutation_group(parameter_indices))
-                        as Box<dyn CloneIterator<Item = Permutation>>;
+                    all_data_groups =
+                        Box::new(permutation_group(parameter_indices)) as Box<dyn CloneIterator<Item = Permutation>>;
                 } else {
                     all_data_groups = Box::new(
                         all_data_groups
@@ -630,11 +638,10 @@ where
     I: Iterator<Item = T>,
     P: Fn(&T, &T) -> bool,
     T: Clone,
-{    
+{
     let mut result: Vec<Vec<T>> = Vec::new();
 
     for element in elements {
-
         if let Some(group) = result.iter_mut().find(|g: &&mut Vec<_>| {
             if let Some(first) = g.first() {
                 predicate(first, &element)
@@ -726,18 +733,25 @@ mod tests {
         let _ = test_logger();
         let pbes = Pbes::from_text(include_str!("../../../../examples/pbes/c.text.pbes")).unwrap();
 
-
         let algorithm = SymmetryAlgorithm::new(&pbes, false).unwrap();
         let cliques = algorithm.cliques();
 
-        assert_eq!(cliques.len(), 1, "There should be exactly one clique in example c.text.pbes.");
+        assert_eq!(
+            cliques.len(),
+            1,
+            "There should be exactly one clique in example c.text.pbes."
+        );
 
         let mut symmetries: Vec<Permutation> = algorithm
             .candidates(false)
             .filter(|pi| algorithm.check_symmetry(pi))
             .collect();
 
-        assert_eq!(symmetries.len(), 2, "There should be exactly two symmetries in example c.text.pbes.");
+        assert_eq!(
+            symmetries.len(),
+            2,
+            "There should be exactly two symmetries in example c.text.pbes."
+        );
 
         // Sort symmetries for consistent comparison
         symmetries.sort_by_key(|pi| pi.to_string());
@@ -750,9 +764,9 @@ mod tests {
 
         // Check that we have the (1 3)(2 4) permutation
         assert!(
-            symmetries.iter().any(|pi| {
-                pi.value(0) == 2 && pi.value(2) == 0 && pi.value(1) == 3 && pi.value(3) == 1
-            }),
+            symmetries
+                .iter()
+                .any(|pi| { pi.value(0) == 2 && pi.value(2) == 0 && pi.value(1) == 3 && pi.value(3) == 1 }),
             "Expected to find the (0 2)(1 3) permutation"
         );
     }

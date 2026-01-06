@@ -63,11 +63,12 @@ struct SymmetryArgs {
     permutation: Option<String>,
 
     /// Partition data parameters into their sorts before considering their permutation groups.
-    #[arg(
-        long,
-        default_value_t = false
-    )]
-    partition_data_sorts: bool,    
+    #[arg(long, default_value_t = false)]
+    partition_data_sorts: bool,
+    
+    /// Partition data parameters based on their updates.
+    #[arg(long, default_value_t = false)]
+    partition_data_updates: bool,
 }
 
 fn main() -> Result<ExitCode, MercError> {
@@ -116,7 +117,7 @@ fn main() -> Result<ExitCode, MercError> {
                 println!("false");
             }
         } else {
-            for candidate in algorithm.candidates(args.partition_data_sorts) {
+            for candidate in algorithm.candidates(args.partition_data_sorts, args.partition_data_updates) {
                 info!("Found candidate: {}", candidate);
 
                 if algorithm.check_symmetry(&candidate) {

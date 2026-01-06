@@ -10,10 +10,12 @@ use crate::DataWhereClauseRef;
 use crate::PbesAndRef;
 use crate::PbesExistsRef;
 use crate::PbesExpression;
+use crate::PbesExpressionRef;
 use crate::PbesForallRef;
 use crate::PbesImpRef;
 use crate::PbesNotRef;
 use crate::PbesOrRef;
+use crate::PbesPropositionalVariableInstantiation;
 use crate::PbesPropositionalVariableInstantiationRef;
 use crate::is_abstraction;
 use crate::is_application;
@@ -31,11 +33,13 @@ use crate::is_variable;
 use crate::is_where_clause;
 
 pub trait DataExpressionVisitor {
-    fn visit_variable(&mut self, var: &DataVariableRef<'_>) -> DataExpression {
-        DataExpression::from(var.protect())
+    fn visit_variable(&mut self, var: &DataVariableRef<'_>) -> Option<DataExpression> {
+        None
     }
 
-    fn visit_application(&mut self, appl: &DataApplicationRef<'_>) -> DataExpression {
+    fn visit_application(&mut self, appl: &DataApplicationRef<'_>) -> Option<DataExpression {
+        let head = self.visit(&appl.data_function_symbol().into());
+
         DataExpression::from(appl.protect())
     }
 
@@ -88,31 +92,40 @@ pub trait PbesExpressionVisitor {
         PbesExpression::from(inst.protect())
     }
 
-    fn visit_not(&mut self, or: &PbesNotRef<'_>) -> PbesExpression {
-        PbesExpression::from(or.protect())
+    fn visit_not(&mut self, not: &PbesNotRef<'_>) -> PbesExpression {
+        self.visit(&not.body());
+        PbesExpression::from(not.protect())
     }
 
     fn visit_and(&mut self, and: &PbesAndRef<'_>) -> PbesExpression {
+        self.visit(&and.lhs());
+        self.visit(&and.rhs());
         PbesExpression::from(and.protect())
     }
 
     fn visit_or(&mut self, or: &PbesOrRef<'_>) -> PbesExpression {
+        self.visit(&or.lhs());
+        self.visit(&or.rhs());
         PbesExpression::from(or.protect())
     }
 
     fn visit_imp(&mut self, imp: &PbesImpRef<'_>) -> PbesExpression {
+        self.visit(&imp.lhs());
+        self.visit(&imp.rhs());
         PbesExpression::from(imp.protect())
     }
 
     fn visit_forall(&mut self, forall: &PbesForallRef<'_>) -> PbesExpression {
+        self.visit(&forall.body());
         PbesExpression::from(forall.protect())
     }
 
     fn visit_exists(&mut self, exists: &PbesExistsRef<'_>) -> PbesExpression {
+        self.visit(&exists.body());
         PbesExpression::from(exists.protect())
     }
 
-    fn visit(&mut self, expr: &PbesExpression) -> PbesExpression {
+    fn visit(&mut self, expr: &PbesExpressionRef<'_>) -> PbesExpression {
         if is_pbes_propositional_variable_instantiation(&expr.copy()) {
             self.visit_propositional_variable_instantiation(&PbesPropositionalVariableInstantiationRef::from(
                 expr.copy(),
@@ -158,21 +171,29 @@ where
     builder.visit(expr)
 }
 
+/// Returns all the PVIs occurring in the given PBES expression.
+pub fn pbes_expression_pvi(expr: &PbesExpressionRef<'_>) -> Vec<PbesPropositionalVariableInstantiation> {
+    let mut result = Vec::new();
 
-pub fn pbes_expression_pvi(expr: &PbesExpression) -> Vec<PbesPropositionalVariableInstantiation> {
-    struct PviChecker;
+    struct PviChecker<'a> {
+        result: &'a mut Vec<PbesPropositionalVariableInstantiation>,
+    }
 
-    impl PbesExpressionVisitor for PviChecker {
+    impl PbesExpressionVisitor for PviChecker<'_> {
         fn visit_propositional_variable_instantiation(
             &mut self,
-            _inst: &PbesPropositionalVariableInstantiationRef<'_>,
+            inst: &PbesPropositionalVariableInstantiationRef<'_>,
         ) -> PbesExpression {
             // Found a propositional variable instantiation, return true.
-            PbesExpression::from(_inst.protect())
+            self.result.push(PbesPropositionalVariableInstantiation::from(inst.protect()));
+            PbesExpression::from(inst.protect())
         }
     }
 
-    let mut checker = PviChecker;
-    let result = checker.visit(expr);
-    is_pbes_propositional_variable_instantiation(&result.copy())
+    let mut checker = PviChecker {
+        result: &mut result,
+    };
+
+    checker.visit(expr);
+    result
 }

@@ -79,6 +79,7 @@ mod inner {
     use crate::ATermArgs;
     use crate::ATermRef;
     use crate::ATermString;
+    use crate::ATermStringRef;
     use crate::Markable;
     use crate::Todo;
 
@@ -132,9 +133,9 @@ mod inner {
         /// Returns the arguments of a data expression
         ///     - function symbol                  f -> []
         ///     - application       f(t_0, ..., t_n) -> [t_0, ..., t_n]
-        pub fn data_sort(&self) -> SortExpression {
+        pub fn data_sort(&self) -> SortExpressionRef<'_> {
             if is_function_symbol(&self.term) {
-                DataFunctionSymbolRef::from(self.term.copy()).sort().protect()
+                self.data
             } else if is_variable(&self.term) {
                 DataVariableRef::from(self.term.copy()).sort()
             } else {
@@ -172,13 +173,13 @@ mod inner {
 
     impl DataVariable {
         /// Returns the name of the variable.
-        pub fn name(&self) -> ATermString {
-            ATermString::new(self.term.arg(0).protect())
+        pub fn name(&self) -> ATermStringRef<'_> {
+           self.term.arg(0).into()
         }
 
         /// Returns the sort of the variable.
-        pub fn sort(&self) -> SortExpression {
-            SortExpression::new(self.term.arg(1).protect())
+        pub fn sort(&self) -> SortExpressionRef<'_> {
+            self.term.arg(1).into()
         }
     }
 

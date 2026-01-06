@@ -6,7 +6,7 @@ use mcrl2_sys::pbes::ffi::mcrl2_pbes_is_propositional_variable_instantiation;
 
 use crate::ATermRef;
 
-/// Checks if this term is a data variable.
+/// Returns true iff the given term is a PBES expression.
 pub fn is_pbes_expression(term: &ATermRef<'_>) -> bool {
     mcrl2_pbes_is_pbes_expression(term.get())
 }
@@ -49,7 +49,10 @@ mod inner {
     use mcrl2_macros::mcrl2_term;
 
     use crate::ATerm;
+    use crate::ATermListRef;
     use crate::ATermRef;
+    use crate::ATermStringRef;
+    use crate::DataExpressionRef;
     use crate::Markable;
     use crate::Todo;
     use crate::is_pbes_expression;
@@ -72,10 +75,29 @@ mod inner {
         term: ATerm,
     }
 
+    impl PbesPropositionalVariableInstantiation {
+        /// Returns the name of the PVI.
+        pub fn name(&self) -> ATermStringRef<'_> {
+            self.arg(0).into()
+        }
+
+        /// Returns the arguments of the PVI.
+        pub fn arguments(&self) -> ATermListRef<'_, DataExpressionRef<'_>> {
+            self.arg(1).into()
+        }
+    }
+
     /// Represents a mcrl2::pbes_system::not
     #[mcrl2_term(is_pbes_not)]
     pub struct PbesNot {
         term: ATerm,
+    }
+
+    impl PbesNot {        
+        /// Returns the body of the not expression.
+        pub fn body(&self) -> PbesExpressionRef<'_> {
+            self.arg(0).into()
+        }
     }
 
     /// Represents a mcrl2::pbes_system::and_
@@ -84,10 +106,34 @@ mod inner {
         term: ATerm,
     }
 
+    impl PbesAnd {        
+        /// Returns the lhs of the and expression.
+        pub fn lhs(&self) -> PbesExpressionRef<'_> {
+            self.arg(0).into()
+        } 
+
+        /// Returns the rhs of the and expression.
+        pub fn rhs(&self) -> PbesExpressionRef<'_> {
+            self.arg(1).into()
+        }
+    }
+
     /// Represents a mcrl2::pbes_system::or_
     #[mcrl2_term(is_pbes_or)]
     pub struct PbesOr {
         term: ATerm,
+    }
+
+    impl PbesOr {        
+        /// Returns the lhs of the or expression.
+        pub fn lhs(&self) -> PbesExpressionRef<'_> {
+            self.arg(0).into()
+        } 
+
+        /// Returns the rhs of the or expression.
+        pub fn rhs(&self) -> PbesExpressionRef<'_> {
+            self.arg(1).into()
+        }
     }
 
     /// Represents a mcrl2::pbes_system::imp
@@ -96,16 +142,42 @@ mod inner {
         term: ATerm,
     }
 
+    impl PbesImp {        
+        /// Returns the lhs of the imp expression.
+        pub fn lhs(&self) -> PbesExpressionRef<'_> {
+            self.arg(0).into()
+        } 
+
+        /// Returns the rhs of the imp expression.
+        pub fn rhs(&self) -> PbesExpressionRef<'_> {
+            self.arg(1).into()
+        }
+    }
+
     /// Represents a mcrl2::pbes_system::forall
     #[mcrl2_term(is_pbes_forall)]
     pub struct PbesForall {
         term: ATerm,
     }
 
+    impl PbesForall {        
+        /// Returns the body of the not expression.
+        pub fn body(&self) -> PbesExpressionRef<'_> {
+            self.arg(1).into()
+        }
+    }
+
     /// Represents a mcrl2::pbes_system::exists
     #[mcrl2_term(is_pbes_exists)]
     pub struct PbesExists {
         term: ATerm,
+    }
+
+    impl PbesExists {        
+        /// Returns the body of the not expression.
+        pub fn body(&self) -> PbesExpressionRef<'_> {
+            self.arg(1).into()
+        }
     }
 }
 
