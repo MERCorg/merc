@@ -317,6 +317,64 @@ std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_variables(const at
 
 std::unique_ptr<atermpp::aterm> mcrl2_pbes_expression_replace_propositional_variables(const atermpp::detail::_aterm& expr, const rust::Vec<std::size_t>& pi);
 
+/// mcrl2::pbes_system::pbes_expression
+
+inline
+bool mcrl2_pbes_is_pbes_expression(const atermpp::detail::_aterm& variable)
+{
+  atermpp::unprotected_aterm_core tmp(&variable);
+  return pbes_system::is_pbes_expression(atermpp::down_cast<atermpp::aterm>(tmp));
+}
+
+inline
+bool mcrl2_pbes_is_propositional_variable_instantiation(const atermpp::detail::_aterm& variable)
+{
+  atermpp::unprotected_aterm_core tmp(&variable);
+  return pbes_system::is_propositional_variable_instantiation(atermpp::down_cast<atermpp::aterm>(tmp));
+}
+
+inline
+bool mcrl2_pbes_is_not(const atermpp::detail::_aterm& variable)
+{
+  atermpp::unprotected_aterm_core tmp(&variable);
+  return pbes_system::is_not(atermpp::down_cast<atermpp::aterm>(tmp));
+}
+
+inline
+bool mcrl2_pbes_is_and(const atermpp::detail::_aterm& variable)
+{
+  atermpp::unprotected_aterm_core tmp(&variable);
+  return pbes_system::is_and(atermpp::down_cast<atermpp::aterm>(tmp));
+}
+
+inline
+bool mcrl2_pbes_is_or(const atermpp::detail::_aterm& variable)
+{
+  atermpp::unprotected_aterm_core tmp(&variable);
+  return pbes_system::is_or(atermpp::down_cast<atermpp::aterm>(tmp));
+}
+
+inline
+bool mcrl2_pbes_is_imp(const atermpp::detail::_aterm& variable)
+{
+  atermpp::unprotected_aterm_core tmp(&variable);
+  return pbes_system::is_imp(atermpp::down_cast<atermpp::aterm>(tmp));
+}
+
+inline
+bool mcrl2_pbes_is_forall(const atermpp::detail::_aterm& variable)
+{
+  atermpp::unprotected_aterm_core tmp(&variable);
+  return pbes_system::is_forall(atermpp::down_cast<atermpp::aterm>(tmp));
+}
+
+inline
+bool mcrl2_pbes_is_exists(const atermpp::detail::_aterm& variable)
+{
+  atermpp::unprotected_aterm_core tmp(&variable);
+  return pbes_system::is_exists(atermpp::down_cast<atermpp::aterm>(tmp));
+}
+
 } // namespace mcrl2::pbes_system
 
 #endif // MCRL2_SYS_CPP_PBES_H
