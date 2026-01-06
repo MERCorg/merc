@@ -1,10 +1,9 @@
 use std::ffi::OsStr;
 use std::path::Path;
 
-use clap::ValueEnum;
-
 /// Specify the parity game file format.
-#[derive(Clone, Copy, Debug, ValueEnum, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum ParityGameFormat {
     PG,
     VPG,

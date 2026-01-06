@@ -38,7 +38,8 @@ use crate::solve_zielonka;
 use crate::x_and_not_x;
 
 /// Variant of the Zielonka algorithm to use.
-#[derive(ValueEnum, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum ZielonkaVariant {
     /// Product-based Zielonka variant.
     Product,
