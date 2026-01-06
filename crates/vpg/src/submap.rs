@@ -7,6 +7,7 @@ use oxidd::bdd::BDDFunction;
 use oxidd::bdd::BDDManagerRef;
 use oxidd::BooleanFunction;
 use oxidd::Function;
+use oxidd::Manager;
 use oxidd::ManagerRef;
 use oxidd_core::util::EdgeDropGuard;
 
@@ -22,7 +23,7 @@ use crate::VertexIndex;
 /// directly for efficiency reasons. Every BDDFunction typically calls
 /// `with_manager_shared` internally, which induces significant overhead for
 /// many vertices/operations.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub struct Submap {
     /// The mapping from vertex indices to BDD functions.
     mapping: Vec<BDDFunction>,
@@ -220,6 +221,21 @@ impl Submap {
             .iter()
             .enumerate()
             .map(|(i, func)| (VertexIndex::new(i), func))
+    }
+
+    pub fn clone_with_manager(&self, manager_ref: &BDDManagerRef) -> Submap {
+        manager_ref.with_manager_shared(|manager| {
+            let mapping = self
+                .mapping
+                .iter()
+                .map(|func| BDDFunction::from_edge(manager, manager.clone_edge(func.as_edge(manager))))
+                .collect();
+
+            Submap {
+                mapping,
+                non_empty_count: self.non_empty_count,
+            }
+        })
     }
 }
 
