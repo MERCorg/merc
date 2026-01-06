@@ -553,7 +553,7 @@ impl<'a> VariabilityZielonkaSolver<'a> {
                                                     edge_w1.configuration().as_edge(manager),
                                                 )?,
                                             ),
-                                            &gamma[edge_w1.to()].as_edge(manager),
+                                            gamma[edge_w1.to()].as_edge(manager),
                                         )?,
                                     );
 
@@ -564,7 +564,7 @@ impl<'a> VariabilityZielonkaSolver<'a> {
                                             BDDFunction::and_edge(
                                                 manager,
                                                 edge_w1.configuration().as_edge(manager),
-                                                &gamma[edge_w1.to()].as_edge(manager),
+                                                gamma[edge_w1.to()].as_edge(manager),
                                             )?,
                                         );
 

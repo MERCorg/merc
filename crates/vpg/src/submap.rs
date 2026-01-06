@@ -121,7 +121,7 @@ impl Submap {
                         manager,
                         BDDFunction::imp_strict_edge(
                             manager,
-                            &other.mapping[i].as_edge(manager),
+                            other.mapping[i].as_edge(manager),
                             func.as_edge(manager),
                         )?,
                     );

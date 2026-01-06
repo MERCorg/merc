@@ -76,9 +76,7 @@ impl Timing {
         }
 
         // Compute the averages and sort by name.
-        let mut out: Vec<Aggregate> = map
-            .into_iter()
-            .map(|(_, mut ag)| {
+        let mut out: Vec<Aggregate> = map.into_values().map(|mut ag| {
                 ag.avg = if ag.count > 0 { ag.total / (ag.count as f32) } else { 0.0 };
                 ag
             })
