@@ -77,6 +77,7 @@ mod inner {
 
     use crate::ATerm;
     use crate::ATermArgs;
+    use crate::ATermIntRef;
     use crate::ATermRef;
     use crate::ATermString;
     use crate::ATermStringRef;
@@ -133,11 +134,11 @@ mod inner {
         /// Returns the arguments of a data expression
         ///     - function symbol                  f -> []
         ///     - application       f(t_0, ..., t_n) -> [t_0, ..., t_n]
-        pub fn data_sort(&self) -> SortExpressionRef<'_> {
+        pub fn data_sort(&self) -> SortExpression {
             if is_function_symbol(&self.term) {
-                self.data
+                DataFunctionSymbolRef::from(self.term.copy()).sort().protect()        
             } else if is_variable(&self.term) {
-                DataVariableRef::from(self.term.copy()).sort()
+                DataVariableRef::from(self.term.copy()).sort().protect()
             } else {
                 panic!("data_sort not implemented for {}", self);
             }
@@ -246,6 +247,13 @@ mod inner {
         term: ATerm,
     }
 
+    impl DataAbstraction {
+        /// Returns the body of the abstraction.
+        pub fn body(&self) -> DataExpressionRef<'_> {
+            self.term.arg(1).into()
+        }
+    }
+
     /// Represents a data::function_symbol from the mCRL2 toolset.
     #[mcrl2_term(is_function_symbol)]
     pub struct DataFunctionSymbol {
@@ -304,7 +312,7 @@ mod inner {
     impl DataMachineNumber {
         /// Obtain the underlying value of a machine number.
         pub fn value(&self) -> u64 {
-            0
+            ATermIntRef::from(self.term.copy()).value()
         }
     }
 
@@ -318,6 +326,13 @@ mod inner {
     #[mcrl2_term(is_where_clause)]
     pub struct DataWhereClause {
         pub term: ATerm,
+    }
+
+    impl DataWhereClause {
+        /// Returns the body of the where clause.
+        pub fn body(&self) -> DataExpressionRef<'_> {
+            self.term.arg(0).into()
+        }
     }
 
     /// Represents a data::untyped_identifier from the mCRL2 toolset.
