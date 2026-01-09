@@ -47,6 +47,7 @@ use crate::ATermString;
 use crate::DataExpression;
 use crate::DataSpecification;
 use crate::DataVariable;
+use crate::PbesExpression;
 use crate::lock_global;
 
 /// mcrl2::pbes_system::pbes
@@ -411,7 +412,7 @@ impl fmt::Debug for SrfSummand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Summand(condition: {:?}, variable: {:?})",
+            "Summand(condition: {}, variable: {})",
             self.condition(),
             self.variable()
         )
@@ -446,25 +447,6 @@ impl PropositionalVariable {
 }
 
 impl fmt::Debug for PropositionalVariable {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.term)
-    }
-}
-
-/// mcrl2::pbes_system::pbes_expression
-#[derive(Clone, Eq, PartialEq)]
-pub struct PbesExpression {
-    term: ATerm,
-}
-
-impl PbesExpression {
-    /// Creates a new pbes expression from the given term.
-    fn new(term: ATerm) -> Self {
-        PbesExpression { term }
-    }
-}
-
-impl fmt::Debug for PbesExpression {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.term)
     }

@@ -58,15 +58,21 @@ struct SymmetryArgs {
     #[arg(long, short('i'), value_enum)]
     format: Option<PbesFormat>,
 
-    /// Pass a single permutation in cycles notation to check for begin a (syntactic) symmetry
+    /// Pass a single permutation in cycles notation to check whether it is a symmetry.
+    #[arg(long)]
     permutation: Option<String>,
 
-    #[arg(
-        long,
-        default_value_t = false,
-        help = "Partition data parameters into their sorts before considering their permutation groups"
-    )]
+    /// Search for all symmetries instead of only the first one.    
+    #[arg(long, default_value_t = false)]
+    all_symmetries: bool,
+
+    /// Partition data parameters into their sorts before considering their permutation groups.
+    #[arg(long, default_value_t = false)]
     partition_data_sorts: bool,
+    
+    /// Partition data parameters based on their updates.
+    #[arg(long, default_value_t = false)]
+    partition_data_updates: bool,
 }
 
 fn main() -> Result<ExitCode, MercError> {
@@ -97,18 +103,35 @@ fn main() -> Result<ExitCode, MercError> {
 
         let algorithm = SymmetryAlgorithm::new(&pbes, false)?;
         if let Some(permutation) = &args.permutation {
-            let pi = Permutation::from_input(permutation)?;
+            let pi = if permutation.trim_start().starts_with("[") {
+                Permutation::from_mapping_notation(permutation)?
+            } else {
+                Permutation::from_cycle_notation(permutation)?
+            };
+
+            if let Err(x) = algorithm.is_valid_permutation(&pi) {
+                info!("The given permutation is not valid: {x}");
+                return Ok(ExitCode::FAILURE);
+            }
+
+            info!("Checking permutation: {}", pi);
             if algorithm.check_symmetry(&pi) {
                 println!("true");
             } else {
                 println!("false");
             }
         } else {
-            for candidate in algorithm.candidates(args.partition_data_sorts) {
+            for candidate in algorithm.candidates(args.partition_data_sorts, args.partition_data_updates) {
                 info!("Found candidate: {}", candidate);
 
                 if algorithm.check_symmetry(&candidate) {
                     info!("Found symmetry: {}", candidate);
+
+                    if !args.all_symmetries && !candidate.is_identity() {
+                        // Only search for the first symmetry
+                        info!("Stopping search after first non-trivial symmetry.");
+                        break;
+                    }
                 }
             }
         }

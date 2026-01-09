@@ -4,8 +4,8 @@ use mcrl2_macros::mcrl2_derive_terms;
 
 use crate::ATermRef;
 
-pub fn is_aterm_string(term: &ATermRef<'_>) -> bool {
-    term.get_head_symbol().arity() == 0
+pub fn is_aterm_int(term: &ATermRef<'_>) -> bool {
+    false
 }
 
 #[mcrl2_derive_terms]
@@ -16,34 +16,34 @@ mod inner {
     use crate::ATermRef;
     use crate::Markable;
     use crate::Todo;
-    use crate::is_aterm_string;
+    use crate::is_aterm_int;
 
     /// Represents an atermpp::aterm_string from the mCRL2 toolset.
-    #[mcrl2_term(is_aterm_string)]
-    pub struct ATermString {
+    #[mcrl2_term(is_aterm_int)]
+    pub struct ATermInt {
         term: ATerm,
     }
 
-    impl ATermString {
+    impl ATermInt {
         /// Returns the string value.
-        pub fn str(&self) -> String {
+        pub fn value(&self) -> u64 {
             // The Rust::Str should ensure that this is a valid string.
-            self.term.get_head_symbol().name().to_string()
+            0
         }
     }
 }
 
 pub use inner::*;
 
-impl fmt::Display for ATermString {
+impl fmt::Display for ATermInt {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.str())
+        write!(f, "{}", self.value())
     }
 }
 
-impl fmt::Display for ATermStringRef<'_> {
+impl fmt::Display for ATermIntRef<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.str())
+        write!(f, "{}", self.value())
     }
 }
 
