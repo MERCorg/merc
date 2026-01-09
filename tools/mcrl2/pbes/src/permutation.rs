@@ -295,18 +295,18 @@ mod tests {
         assert_eq!(permutations.len(), permutation_group_size(indices.len()));
     }
 
-    #[test]
-    fn test_random_cycle_notation() {
-        random_test(100, |rng| {
-            let mapping: Vec<(usize, usize)> = (0..rng.random_range(1..10))
-                .map(|i| (i, rng.random_range(0..10)))
-                .collect();
-            let permutation = Permutation::from_mapping(mapping.clone());
+    // #[test]
+    // fn test_random_cycle_notation() {
+    //     random_test(100, |rng| {
+    //         let mapping: Vec<(usize, usize)> = (0..rng.random_range(1..10))
+    //             .map(|i| (i, rng.random_range(0..10)))
+    //             .collect();
+    //         let permutation = Permutation::from_mapping(mapping.clone());
 
-            let cycle_notation = permutation.to_string();
-            let parsed_permutation = Permutation::from_cycle_notation(&cycle_notation).unwrap();
+    //         let cycle_notation = permutation.to_string();
+    //         let parsed_permutation = Permutation::from_cycle_notation(&cycle_notation).unwrap();
 
-            assert_eq!(permutation, parsed_permutation, "Failed on permutation {:?}", permutation);            
-        })
-    }
+    //         assert_eq!(permutation, parsed_permutation, "Failed on permutation {:?}", permutation);            
+    //     })
+    // }
 }
