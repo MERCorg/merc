@@ -488,6 +488,7 @@ mod tests {
     use merc_explore::StateEffect;
     use merc_utilities::Timing;
 
+    use crate::ExplorationStrategy;
     use crate::ReachabilityOptions;
     use crate::reachability_with_options;
 
@@ -587,8 +588,11 @@ mod tests {
         }
     }
 
-    /// Explores the grid over `bounds` with the given encoding and returns the reachable state count.
-    fn explored_count(bounds: &[usize], options: &SymbolicLpsOptions) -> usize {
+    /// Explores the grid over `bounds` with the given encoding and strategy, and returns the
+    /// reachable state count. `GridLps` learns its transition relations on the fly (via
+    /// [`LPS::prepare`]/[`Summand::enumerate`]), so this exercises the [`ExplorationStrategy::NodeSaturation`]
+    /// outer learn/saturate loop, not just the pregenerated-relation path the Sylvan fixtures cover.
+    fn explored_count(bounds: &[usize], options: &SymbolicLpsOptions, strategy: ExplorationStrategy) -> usize {
         let storage = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
         let mut symbolic =
             SymbolicLps::with_options(&storage, GridLps::new(bounds), options).expect("the encoding is valid");
@@ -598,7 +602,10 @@ mod tests {
             &storage,
             &mut symbolic,
             &mut context,
-            &ReachabilityOptions::default(),
+            &ReachabilityOptions {
+                strategy,
+                ..ReachabilityOptions::default()
+            },
             &Timing::new(),
         )
         .expect("reachability succeeds")
@@ -613,7 +620,22 @@ mod tests {
 
         // Every combination of coordinates below its bound is reachable.
         let expected = bounds.iter().map(|bound| bound + 1).product::<usize>();
-        assert_eq!(explored_count(&bounds, &SymbolicLpsOptions::default()), expected);
+
+        let strategies = [
+            ExplorationStrategy::BreadthFirst,
+            ExplorationStrategy::Chaining,
+            ExplorationStrategy::Saturation,
+            ExplorationStrategy::SaturationChaining,
+            ExplorationStrategy::NodeSaturation,
+        ];
+
+        for strategy in strategies {
+            assert_eq!(
+                explored_count(&bounds, &SymbolicLpsOptions::default(), strategy),
+                expected,
+                "strategy {strategy:?} changed the reachable states"
+            );
+        }
 
         // The order only decides how the state vector is stored, never which states are reachable.
         for order in [vec![0, 1, 2], vec![2, 1, 0], vec![1, 2, 0], vec![0, 2, 1]] {
@@ -622,11 +644,13 @@ mod tests {
                     grouping,
                     order: VariableOrder::Explicit(order.clone()),
                 };
-                assert_eq!(
-                    explored_count(&bounds, &options),
-                    expected,
-                    "variable order {order:?} changed the reachable states"
-                );
+                for strategy in strategies {
+                    assert_eq!(
+                        explored_count(&bounds, &options, strategy),
+                        expected,
+                        "variable order {order:?}, strategy {strategy:?} changed the reachable states"
+                    );
+                }
             }
         }
     }
