@@ -624,9 +624,9 @@ mod tests {
         let strategies = [
             ExplorationStrategy::BreadthFirst,
             ExplorationStrategy::Chaining,
+            ExplorationStrategy::Fixpoint,
+            ExplorationStrategy::FixpointChaining,
             ExplorationStrategy::Saturation,
-            ExplorationStrategy::SaturationChaining,
-            ExplorationStrategy::NodeSaturation,
         ];
 
         for strategy in strategies {

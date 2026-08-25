@@ -35,15 +35,6 @@ pub trait SymbolicLTS: SymbolicLPS {
 }
 
 /// The order in which transition groups are applied during reachability.
-///
-/// [`BreadthFirst`][Self::BreadthFirst], [`Chaining`][Self::Chaining], [`Saturation`][Self::Saturation]
-/// and [`SaturationChaining`][Self::SaturationChaining] mirror the `saturation` × `chaining` matrix of
-/// the mCRL2 `lpsreach` tool: they are all *group-level* fixpoint schedules over the whole frontier —
-/// "saturation" here means "apply one group to a fixpoint before moving to the next", which is *not*
-/// the node-wise algorithm of Ciardo, Marmorstein and Siminiceanu, *The saturation algorithm for
-/// symbolic state-space exploration*, STTT 2006. [`NodeSaturation`][Self::NodeSaturation] is that
-/// algorithm. None of these strategies change the resulting reachable set, only how quickly — and via
-/// how much peak memory — the symbolic representation converges.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "clap", derive(clap::ValueEnum))]
 pub enum ExplorationStrategy {
@@ -52,22 +43,13 @@ pub enum ExplorationStrategy {
     BreadthFirst,
     /// Successors found by earlier groups feed into later groups within the same iteration.
     Chaining,
-    /// Each group is applied to a fixpoint before moving on to the next one (a *group-level* fixpoint
-    /// schedule — see [`NodeSaturation`][Self::NodeSaturation] for Ciardo-style node-wise saturation).
+    /// Each group is applied to a fixpoint before moving on to the next on.
+    Fixpoint,
+    /// Like [Self::Fixpoint], but after each group all earlier groups are re-applied to a fixpoint.
+    FixpointChaining,
+    /// Ciardo-style node-wise saturation. Every LDD node is brought to a fixed point under the events
+    /// confined to its level and below, bottom-up, before it is used as anyone's child.
     Saturation,
-    /// Like [Self::Saturation], but after each group all earlier groups are re-applied to a fixpoint.
-    SaturationChaining,
-    /// Ciardo-style node-wise saturation: every LDD node is brought to a fixed point under the events
-    /// confined to its level and below, bottom-up, before it is used as anyone's child, via
-    /// [`LDDFunction::saturate`] calls rather than repeated whole-set image computations. This keeps
-    /// the peak node count close to the final reachable set instead of the intermediate frontiers the
-    /// other strategies build up.
-    ///
-    /// Relations are learned on the fly, in an outer learn/saturate loop — see
-    /// [`node_saturation_reachability`]. For relations that need no on-the-fly learning (e.g. the
-    /// pregenerated Sylvan fixtures) that loop still runs twice: once to discover there is nothing to
-    /// learn and saturate to the full reachable set, once more to confirm it is a fixed point.
-    NodeSaturation,
 }
 
 /// Options controlling [reachability_with_options].
@@ -83,17 +65,10 @@ pub struct ReachabilityOptions {
     /// learns the successors of read projections it has not seen before.
     pub cached: bool,
 
-    /// Whether to track the peak number of live inner nodes in the manager over the run, reported as
-    /// [ReachabilityResult::peak_nodes]. Off by default: sampling costs an atomic load at every outer
-    /// iteration (all strategies) or every `N`th [`LDDFunction::saturate`] cache miss
-    /// ([`ExplorationStrategy::NodeSaturation`] only), which is cheap but pointless to pay for callers
-    /// who only want `states`.
-    ///
-    /// The reported figure counts every live node in the manager — relations and metas included, not
-    /// just `states` — so it is only meaningful compared across strategies run on the same fixture,
-    /// same manager configuration, with no intervening garbage collection. See `docs/`
-    /// `saturation-implementation-plan.md`, Phase 3.
-    pub track_peak_nodes: bool,
+    /// Whether to `println!` `manager.num_inner_nodes()` — the manager's whole live-node count, an
+    /// approximation of table/diagram size — once per outer iteration (all strategies) or once per
+    /// learn/saturate round ([`ExplorationStrategy::NodeSaturation`] only). Off by default.
+    pub print_node_counts: bool,
 }
 
 /// The result of a reachability run.
@@ -104,10 +79,6 @@ pub struct ReachabilityResult {
     /// The deadlock states (reachable states with no outgoing transition), or `None` when
     /// [ReachabilityOptions::detect_deadlocks] was not requested.
     pub deadlocks: Option<LDDFunction>,
-
-    /// The peak number of live inner nodes sampled in the manager over the run, or `None` when
-    /// [ReachabilityOptions::track_peak_nodes] was not requested. See that field for sampling caveats.
-    pub peak_nodes: Option<usize>,
 }
 
 /// Performs reachability analysis using the given initial state and transitions.
@@ -135,7 +106,7 @@ pub fn reachability_with_options<L: SymbolicLPS>(
     options: &ReachabilityOptions,
     timing: &Timing,
 ) -> Result<ReachabilityResult, MercError> {
-    if options.strategy == ExplorationStrategy::NodeSaturation {
+    if options.strategy == ExplorationStrategy::Saturation {
         return node_saturation_reachability(storage, lts, context, options, timing);
     }
 
@@ -173,8 +144,6 @@ pub fn reachability_with_options<L: SymbolicLPS>(
         10,
     );
 
-    let mut peak_nodes: Option<usize> = if options.track_peak_nodes { Some(0) } else { None };
-
     timing.measure("reachability", || {
         while !todo.is_empty() {
             debug!("Iteration {}: todo size = {}", iteration, todo.len());
@@ -190,9 +159,15 @@ pub fn reachability_with_options<L: SymbolicLPS>(
                 *accumulated = accumulated.union(&step_deadlocks)?;
             }
 
-            if let Some(peak) = &mut peak_nodes {
+            if options.print_node_counts {
+                // Plain `println!`, not `log`: this is a benchmarking aid meant to be visible under
+                // `cargo test -- --nocapture` without requiring a logger to be configured, unlike the
+                // `info!`/`trace!` progress reporting elsewhere in this function.
                 let nodes = storage.with_manager_shared(|m| m.num_inner_nodes());
-                *peak = (*peak).max(nodes);
+                println!(
+                    "iteration {iteration}: manager has {} inner node(s)",
+                    LargeFormatter(nodes)
+                );
             }
 
             if progress.is_due() {
@@ -202,11 +177,7 @@ pub fn reachability_with_options<L: SymbolicLPS>(
             iteration += 1;
         }
 
-        Ok(ReachabilityResult {
-            states,
-            deadlocks,
-            peak_nodes,
-        })
+        Ok(ReachabilityResult { states, deadlocks })
     })
 }
 
@@ -265,10 +236,7 @@ fn node_saturation_reachability<L: SymbolicLPS>(
     timing.measure("reachability", || {
         let mut states = lts.initial_state().clone();
         let mut epoch: u32 = 0;
-
-        if options.track_peak_nodes {
-            oxidd::ldd::reset_peak_node_count();
-        }
+        let mut round = 0;
 
         loop {
             for group in lts.transition_groups_mut() {
@@ -282,13 +250,21 @@ fn node_saturation_reachability<L: SymbolicLPS>(
             epoch += 1;
 
             progress.print((epoch, states.len()));
+
+            if options.print_node_counts {
+                // See the matching comment in `reachability_with_options`: plain `println!` so this
+                // is visible under `--nocapture` without a logger.
+                let nodes = storage.with_manager_shared(|m| m.num_inner_nodes());
+                println!("round {round}: manager has {} inner node(s)", LargeFormatter(nodes));
+            }
+            round += 1;
+
             let fixpoint = next == states;
             states = next;
             if fixpoint {
                 break;
             }
         }
-
 
         let deadlocks = if options.detect_deadlocks {
             let mut candidates = states.clone();
@@ -300,17 +276,7 @@ fn node_saturation_reachability<L: SymbolicLPS>(
             None
         };
 
-        let peak_nodes = if options.track_peak_nodes {
-            Some(oxidd::ldd::peak_node_count())
-        } else {
-            None
-        };
-
-        Ok(ReachabilityResult {
-            states,
-            deadlocks,
-            peak_nodes,
-        })
+        Ok(ReachabilityResult { states, deadlocks })
     })
 }
 
@@ -382,11 +348,11 @@ fn step<L: SymbolicLPS>(
 
     let chaining = matches!(
         options.strategy,
-        ExplorationStrategy::Chaining | ExplorationStrategy::SaturationChaining
+        ExplorationStrategy::Chaining | ExplorationStrategy::FixpointChaining
     );
-    let saturation = matches!(
+    let fixpoint = matches!(
         options.strategy,
-        ExplorationStrategy::Saturation | ExplorationStrategy::SaturationChaining
+        ExplorationStrategy::Fixpoint | ExplorationStrategy::FixpointChaining
     );
     let detect_deadlocks = options.detect_deadlocks;
 
@@ -400,7 +366,7 @@ fn step<L: SymbolicLPS>(
         storage.with_manager_shared(|m| LDDFunction::empty_set(m))?
     };
 
-    if !saturation {
+    if !fixpoint {
         // Regular breadth-first, or chaining where successors found by earlier groups feed later groups.
         let mut todo1 = if chaining {
             todo.clone()
@@ -431,7 +397,7 @@ fn step<L: SymbolicLPS>(
 
         Ok((todo1, deadlocks))
     } else {
-        // Saturation: apply each group to a fixpoint before the next, optionally re-saturating earlier
+        // Fixpoint: apply each group to a fixpoint before the next, optionally re-applying earlier
         // groups (chaining) after every group.
         let mut todo1 = todo.clone();
 
@@ -536,9 +502,9 @@ mod test {
         // All strategies must compute the same reachable set, only the convergence speed differs.
         let expected = explored_count(ExplorationStrategy::BreadthFirst);
         assert_eq!(expected, explored_count(ExplorationStrategy::Chaining));
+        assert_eq!(expected, explored_count(ExplorationStrategy::Fixpoint));
+        assert_eq!(expected, explored_count(ExplorationStrategy::FixpointChaining));
         assert_eq!(expected, explored_count(ExplorationStrategy::Saturation));
-        assert_eq!(expected, explored_count(ExplorationStrategy::SaturationChaining));
-        assert_eq!(expected, explored_count(ExplorationStrategy::NodeSaturation));
     }
 
     /// Minimal hand-built LTS over a single parameter with transitions `0 -> 1 -> 2`, so the only
@@ -598,9 +564,9 @@ mod test {
         for strategy in [
             ExplorationStrategy::BreadthFirst,
             ExplorationStrategy::Chaining,
+            ExplorationStrategy::Fixpoint,
+            ExplorationStrategy::FixpointChaining,
             ExplorationStrategy::Saturation,
-            ExplorationStrategy::SaturationChaining,
-            ExplorationStrategy::NodeSaturation,
         ] {
             let manager = oxidd::ldd::new_manager(2048, 1024, 1);
             let mut lts = line_lts(&manager);
