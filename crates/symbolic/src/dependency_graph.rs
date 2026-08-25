@@ -114,18 +114,29 @@ impl Relation {
         self.write_vars.iter().copied()
     }
 
+    /// Returns the topmost (lowest-index) variable this relation reads or writes, or `None` if it
+    /// reads and writes nothing.
+    pub fn top(&self) -> Option<usize> {
+        let read = self.read_vars.iter().min().copied();
+        let write = self.write_vars.iter().min().copied();
+        read.into_iter().chain(write).min()
+    }
+
+    /// Returns the bottommost (highest-index) variable this relation reads or writes, or `None` if
+    /// it reads and writes nothing.
+    pub fn bot(&self) -> Option<usize> {
+        let read = self.read_vars.iter().max().copied();
+        let write = self.write_vars.iter().max().copied();
+        read.into_iter().chain(write).max()
+    }
+
     /// Returns the span of the relation, i.e., the range between the minimum and maximum
-    /// variable indices used by this relation.
+    /// variable indices used by this relation. Zero for a relation that reads and writes nothing.
     pub fn span(&self) -> usize {
-        let min_read = self.read_vars.iter().min().copied().unwrap_or(usize::MAX);
-        let max_read = self.read_vars.iter().max().copied().unwrap_or(0);
-        let min_write = self.write_vars.iter().min().copied().unwrap_or(usize::MAX);
-        let max_write = self.write_vars.iter().max().copied().unwrap_or(0);
-
-        let min_var = min_read.min(min_write);
-        let max_var = max_read.max(max_write);
-
-        if max_var >= min_var { max_var - min_var + 1 } else { 0 }
+        match (self.top(), self.bot()) {
+            (Some(top), Some(bot)) => bot - top + 1,
+            _ => 0,
+        }
     }
 }
 
@@ -186,6 +197,7 @@ fn parse_pattern_line(line: &str) -> Option<Relation> {
 
 #[cfg(test)]
 mod tests {
+    use crate::Relation;
     use crate::parse_compacted_dependency_graph;
 
     #[test]
@@ -204,5 +216,48 @@ mod tests {
         let graph = parse_compacted_dependency_graph(input);
 
         assert_eq!(graph.relations.len(), 10);
+    }
+
+    #[test]
+    fn test_relation_top_bot_read_only() {
+        let relation = Relation::new(vec![2, 5], vec![]);
+        assert_eq!(relation.top(), Some(2));
+        assert_eq!(relation.bot(), Some(5));
+        assert_eq!(relation.span(), 4);
+    }
+
+    #[test]
+    fn test_relation_top_bot_write_only() {
+        let relation = Relation::new(vec![], vec![1, 4]);
+        assert_eq!(relation.top(), Some(1));
+        assert_eq!(relation.bot(), Some(4));
+        assert_eq!(relation.span(), 4);
+    }
+
+    #[test]
+    fn test_relation_top_bot_mixed() {
+        // Read and write ranges overlap: top/bot must consider both.
+        let relation = Relation::new(vec![1, 3], vec![2, 3]);
+        assert_eq!(relation.top(), Some(1));
+        assert_eq!(relation.bot(), Some(3));
+        assert_eq!(relation.span(), 3);
+    }
+
+    #[test]
+    fn test_relation_top_bot_disjoint() {
+        // Reads and writes at opposite ends of the vector: span covers everything in between.
+        let relation = Relation::new(vec![0], vec![9]);
+        assert_eq!(relation.top(), Some(0));
+        assert_eq!(relation.bot(), Some(9));
+        assert_eq!(relation.span(), 10);
+    }
+
+    #[test]
+    fn test_relation_top_bot_empty() {
+        // A degenerate group with no reads or writes has no well-defined top/bot.
+        let relation = Relation::new(vec![], vec![]);
+        assert_eq!(relation.top(), None);
+        assert_eq!(relation.bot(), None);
+        assert_eq!(relation.span(), 0);
     }
 }
