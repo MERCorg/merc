@@ -7,8 +7,8 @@ rust-version.workspace = true
 version.workspace = true
 
 [features]
-# Tracks per-summand cache and control-flow pruning counters during exploration.
-metrics = ["merc_explore/metrics"]
+# Enabled additional metrics.
+metrics = ["merc_explore/metrics", "merc_symbolic/metrics"]
 
 # Derive the `clap::ValueEnum` trait.
 clap = ["dep:clap"]

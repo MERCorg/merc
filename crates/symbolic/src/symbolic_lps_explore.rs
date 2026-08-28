@@ -588,10 +588,8 @@ mod tests {
         }
     }
 
-    /// Explores the grid over `bounds` with the given encoding and strategy, and returns the
-    /// reachable state count. `GridLps` learns its transition relations on the fly (via
-    /// [`LPS::prepare`]/[`Summand::enumerate`]), so this exercises the [`ExplorationStrategy::NodeSaturation`]
-    /// outer learn/saturate loop, not just the pregenerated-relation path the Sylvan fixtures cover.
+    /// Explores the grid over `bounds` with the given encoding and strategy,
+    /// and returns the reachable state count.
     fn explored_count(bounds: &[usize], options: &SymbolicLpsOptions, strategy: ExplorationStrategy) -> usize {
         let storage = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
         let mut symbolic =
