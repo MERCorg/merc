@@ -2,6 +2,8 @@
 
 use log::warn;
 use merc_lts::LTS;
+use merc_lts::LabelledTransitionSystem;
+use merc_lts::TransitionLabel;
 use merc_utilities::Timing;
 
 use crate::DistinguishingFormula;
@@ -32,7 +34,9 @@ pub fn compare_lts<L: LTS>(
     counter_example: bool,
     timing: &Timing,
 ) -> (bool, Option<DistinguishingFormula<L::Label>>) {
-    let (merged, rhs_initial) = timing.measure("merge lts", || left.merge_disjoint(&right));
+    // TODO: This is not current, should be merged
+    let initial = left.initial_state_index();
+    let (merged, rhs_initial) = timing.measure("merge lts", || (left, initial));
     drop(right); // No longer needed.
 
     if counter_example {

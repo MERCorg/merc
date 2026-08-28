@@ -98,6 +98,7 @@ where
                 depth_stack.push(state); // Re-add to stack to mark as permanent later
                 for transition in lts
                     .outgoing_transitions(state)
+                    .into_iter()
                     .filter(|transition| state != transition.to && filter(transition.label, transition.to))
                 {
                     // If it was marked temporary, then a cycle is detected.
@@ -138,6 +139,7 @@ where
         let state_order = permutation(state_index);
         for transition in lts
             .outgoing_transitions(state_index)
+            .into_iter()
             .filter(|transition| state_index != transition.to && filter(transition.label, transition.to))
         {
             if reverse {

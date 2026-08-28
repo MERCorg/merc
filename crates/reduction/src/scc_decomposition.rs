@@ -88,6 +88,7 @@ mod tests {
 
                 for other_state_index in lts
                     .iter_states()
+                    .into_iter()
                     .filter(|index| state_index != *index && partitioning.block_number(*index) == block)
                 {
                     assert!(

@@ -466,18 +466,18 @@ impl<L: TransitionLabel> LTS for LabelledTransitionSystem<L> {
         self.initial_state
     }
 
-    fn outgoing_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = Transition> + '_ {
+    fn outgoing_transitions(&self, state_index: StateIndex) -> Vec<Transition> {
         let start = self.states.index(*state_index);
         let end = self.states.index(*state_index + 1);
 
         (start..end).map(move |i| Transition {
             label: self.transition_labels.index(i),
             to: self.transition_to.index(i),
-        })
+        }).collect()
     }
 
-    fn iter_states(&self) -> impl Iterator<Item = StateIndex> + '_ {
-        (0..self.num_of_states()).map(StateIndex::new)
+    fn iter_states(&self) -> Vec<StateIndex> {
+        (0..self.num_of_states()).map(StateIndex::new).collect()
     }
 
     fn num_of_states(&self) -> usize {
@@ -500,8 +500,13 @@ impl<L: TransitionLabel> LTS for LabelledTransitionSystem<L> {
     fn is_hidden_label(&self, label_index: LabelIndex) -> bool {
         label_index.value() == 0
     }
+}
 
-    fn merge_disjoint<T: LTS<Label = Self::Label>>(self, other: &T) -> (Self, StateIndex) {
+impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
+    /// Consumes the current LTS and merges it with another one, returning the
+    /// disjoint merged LTS and the initial state of the other LTS in the merged
+    /// LTS.
+    pub fn merge_disjoint<T: LTS<Label = Label>>(self, other: &T) -> (Self, StateIndex) {
         self.merge_disjoint_impl(other)
     }
 }

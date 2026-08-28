@@ -19,6 +19,7 @@ pub(crate) fn longest_tau_path<L: LTS>(lts: &L) -> Vec<StateIndex> {
         for state in lts.iter_states() {
             for transition in lts
                 .outgoing_transitions(state)
+                .into_iter()
                 .filter(|transition| lts.is_hidden_label(transition.label))
             {
                 let new_length = length[transition.to] + 1;

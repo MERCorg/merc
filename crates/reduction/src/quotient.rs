@@ -230,7 +230,7 @@ pub fn quotient_lts_block<L: LTS, const BRANCHING: bool>(
                 visited[candidate] = true;
                 touched.push(candidate);
 
-                if let Some(trans) = lts.outgoing_transitions(candidate).find(|trans| {
+                if let Some(trans) = lts.outgoing_transitions(candidate).into_iter().find(|trans| {
                     lts.is_hidden_label(trans.label)
                         && candidate != trans.to // Ignore self loops for the bottom state search.
                         && partition.block_number(trans.to) == block

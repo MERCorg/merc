@@ -46,8 +46,8 @@ impl<'a, L: LTS> DivergencePreservingLts<'a, L> {
 impl<L: LTS> LTS for DivergencePreservingLts<'_, L> {
     type Label = L::Label;
 
-    fn outgoing_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = Transition> + '_ {
-        self.lts.outgoing_transitions(state_index).map(move |transition| {
+    fn outgoing_transitions(&self, state_index: StateIndex) -> Vec<Transition> {
+        self.lts.outgoing_transitions(state_index).into_iter().map(move |transition| {
             // A self-loop with tau should be renamed to the special label.
             if self.lts.is_hidden_label(transition.label) && state_index == transition.to {
                 Transition {
@@ -57,7 +57,7 @@ impl<L: LTS> LTS for DivergencePreservingLts<'_, L> {
             } else {
                 transition
             }
-        })
+        }).collect()
     }
 
     fn num_of_labels(&self) -> usize {
@@ -68,21 +68,12 @@ impl<L: LTS> LTS for DivergencePreservingLts<'_, L> {
         &self.labels
     }
 
-    fn merge_disjoint<U: LTS<Label = Self::Label>>(
-        self,
-        _other: &U,
-    ) -> (LabelledTransitionSystem<Self::Label>, StateIndex) {
-        unimplemented!(
-            "merge_disjoint is not implemented for DivergencePreservingLts, because this should only be used as a view on the original LTS."
-        );
-    }
-
     delegate! {
         to self.lts {
             fn initial_state_index(&self) -> StateIndex;
             fn num_of_states(&self) -> usize;
             fn num_of_transitions(&self) -> usize;
-            fn iter_states(&self) -> impl Iterator<Item = StateIndex> + '_;
+            fn iter_states(&self) -> Vec<StateIndex>;
             fn is_hidden_label(&self, label_index: LabelIndex) -> bool;
         }
     }

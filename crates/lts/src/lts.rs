@@ -8,8 +8,6 @@ use std::hash::Hash;
 use merc_collections::Graph;
 use merc_utilities::TagIndex;
 
-use crate::LabelledTransitionSystem;
-
 /// A unique type for the labels.
 pub struct LabelTag;
 
@@ -42,10 +40,10 @@ where
     /// # Panics
     ///
     /// Implementations may panic if `state_index` is not less than [`LTS::num_of_states`].
-    fn outgoing_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = Transition> + '_;
+    fn outgoing_transitions(&self, state_index: StateIndex) -> Vec<Transition>;
 
     /// Iterate over all state_index in the labelled transition system
-    fn iter_states(&self) -> impl Iterator<Item = StateIndex> + '_;
+    fn iter_states(&self) -> Vec<StateIndex>;
 
     /// Returns the number of states.
     fn num_of_states(&self) -> usize;
@@ -61,14 +59,6 @@ where
 
     /// Returns true iff the given label index is a hidden label.
     fn is_hidden_label(&self, label_index: LabelIndex) -> bool;
-
-    /// Consumes the current LTS and merges it with another one, returning the
-    /// disjoint merged LTS and the initial state of the other LTS in the merged
-    /// LTS.
-    fn merge_disjoint<L: LTS<Label = Self::Label>>(
-        self,
-        other: &L,
-    ) -> (LabelledTransitionSystem<Self::Label>, StateIndex);
 }
 
 /// A wrapper struct to treat an LTS as a graph.
@@ -84,11 +74,11 @@ impl<L: LTS> Graph for AsGraph<'_, L> {
     }
 
     fn iter_vertices(&self) -> impl Iterator<Item = Self::VertexIndex> {
-        self.0.iter_states()
+        self.0.iter_states().into_iter()
     }
 
     fn outgoing_edges(&self, vertex: Self::VertexIndex) -> impl Iterator<Item = (Self::LabelIndex, Self::VertexIndex)> {
-        self.0.outgoing_transitions(vertex).map(|t| (t.label, t.to))
+        self.0.outgoing_transitions(vertex).into_iter().map(|t| (t.label, t.to))
     }
 }
 
