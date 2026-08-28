@@ -2,6 +2,7 @@ use log::debug;
 use log::info;
 use log::trace;
 use merc_io::LargeFormatter;
+#[cfg(feature = "metrics")]
 use oxidd::Manager;
 use oxidd::ManagerRef;
 use oxidd::ldd::LDDFunction;
@@ -53,6 +54,10 @@ pub enum ExplorationStrategy {
 }
 
 /// Options controlling [reachability_with_options].
+///
+/// Build with the `metrics` cargo feature to also log manager node counts and oxidd's own per-op
+/// apply-cache counters (calls/queries/hits) at `info` level once per outer iteration/round,
+/// unconditionally — there is no separate runtime flag for this.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ReachabilityOptions {
     /// The strategy used to apply the transition groups.
@@ -64,11 +69,6 @@ pub struct ReachabilityOptions {
     /// Whether every transition group caches the domain of its learned relation, so that it only
     /// learns the successors of read projections it has not seen before.
     pub cached: bool,
-
-    /// Whether to `println!` `manager.num_inner_nodes()` — the manager's whole live-node count, an
-    /// approximation of table/diagram size — once per outer iteration (all strategies) or once per
-    /// learn/saturate round ([`ExplorationStrategy::NodeSaturation`] only). Off by default.
-    pub print_node_counts: bool,
 }
 
 /// The result of a reachability run.
@@ -107,7 +107,7 @@ pub fn reachability_with_options<L: SymbolicLPS>(
     timing: &Timing,
 ) -> Result<ReachabilityResult, MercError> {
     if options.strategy == ExplorationStrategy::Saturation {
-        return node_saturation_reachability(storage, lts, context, options, timing);
+        return saturation_reachability(storage, lts, context, options, timing);
     }
 
     let mut todo = lts.initial_state().clone();
@@ -159,15 +159,11 @@ pub fn reachability_with_options<L: SymbolicLPS>(
                 *accumulated = accumulated.union(&step_deadlocks)?;
             }
 
-            if options.print_node_counts {
-                // Plain `println!`, not `log`: this is a benchmarking aid meant to be visible under
-                // `cargo test -- --nocapture` without requiring a logger to be configured, unlike the
-                // `info!`/`trace!` progress reporting elsewhere in this function.
+            #[cfg(feature = "metrics")]
+            {
                 let nodes = storage.with_manager_shared(|m| m.num_inner_nodes());
-                println!(
-                    "iteration {iteration}: manager has {} inner node(s)",
-                    LargeFormatter(nodes)
-                );
+                info!("iteration {iteration}: manager has {} inner node(s)", LargeFormatter(nodes));
+                oxidd::ldd::print_stats();
             }
 
             if progress.is_due() {
@@ -181,41 +177,39 @@ pub fn reachability_with_options<L: SymbolicLPS>(
     })
 }
 
-/// Performs reachability via [`ExplorationStrategy::NodeSaturation`]: repeated
-/// [`LDDFunction::saturate`] calls over the growing state set, rather than the whole-set fixpoint
-/// schedules the other strategies use (see [`step`]).
+/// Performs reachability via repeated [`LDDFunction::saturate`] calls over the
+/// growing state set, rather than the whole-set fixpoint schedules the other
+/// strategies use.
 ///
-/// **On-the-fly relation learning.** Inside a single `saturate` call no new local value can appear:
-/// firing only ever installs values already present on the write side of an already-learned relation
-/// (they were interned when learned), and new values can only appear *between* rounds, once
-/// `learn_successors` has seen a state that exposes them. So `learn_successors` and `saturate`
-/// alternate in an outer loop, learning from the states found so far and then saturating under the
-/// resulting (possibly larger) relations, until a round finds no new states:
+/// **On-the-fly relation learning.** 
+/// 
+/// Inside a single `saturate` call no new local value can appear: firing only
+/// ever installs values already present on the write side of an already-learned
+/// relation:
 ///
 /// ```text
 /// states = initial; epoch = 0
 /// loop:
-///   for each group: group.learn_successors(context, storage, &states, options.cached)
+///   changed = for each group: group.learn_successors(context, storage, &states, options.cached)
 ///   next = states.saturate(&events, num_levels, epoch)   // epoch: see below
-///   epoch += 1
+///   if changed: epoch += 1
 ///   if next == states: break
 ///   states = next
 /// ```
 ///
-/// This is a coarse-grained version of the paper's per-local-state `Confirm` (§4): learning is
-/// triggered per whole state set per group rather than per single newly-touched local value, so it
-/// does strictly more (but still finitely much, since both `states` and every relation grow
-/// monotonically in a finite lattice) enumeration work than necessary. It is correct and terminating
-/// regardless.
+/// This is a coarse-grained version of the paper's per-local-state `Confirm`
+/// (§4): learning is triggered per whole state set per group rather than per
+/// single newly-touched local value, so it does strictly more enumeration work
+/// than necessary. It is correct and terminating regardless.
 ///
-/// **`epoch`.** `saturate`'s `Saturate`/`SatRecFire` cache entries are keyed on node identity, which
-/// does not change when a group's relation grows — a node cached as saturated under an earlier,
-/// smaller relation would otherwise be silently (and wrongly) reused as if it still were. Bumping
-/// `epoch` every round, unconditionally, sidesteps that: it is simpler and always safe, at the cost
-/// of not reusing cache entries across rounds even when nothing actually changed (e.g. every round
-/// for the pregenerated Sylvan fixtures, whose `learn_successors` is a no-op). Skip the bump, or use
-/// [`LDDFunction::clear_apply_cache`] instead, only if that reuse is measured to matter.
-fn node_saturation_reachability<L: SymbolicLPS>(
+/// **`epoch`.** 
+/// 
+/// `saturate`'s `Saturate`/`SatRecFire` cache entries are keyed on node
+/// identity, which does not change when a group's relation grows — a node
+/// cached as saturated under an earlier, smaller relation would otherwise be
+/// silently (and wrongly) reused as if it still were, so `epoch` must be bumped
+/// whenever any group's relation actually grew since the last round.
+fn saturation_reachability<L: SymbolicLPS>(
     storage: &LDDManagerRef,
     lts: &mut L,
     context: &mut <L::Group as TransitionGroup>::Context,
@@ -236,28 +230,32 @@ fn node_saturation_reachability<L: SymbolicLPS>(
     timing.measure("reachability", || {
         let mut states = lts.initial_state().clone();
         let mut epoch: u32 = 0;
-        let mut round = 0;
+        let mut round: u32 = 0;
 
         loop {
+            // Only bump `epoch` when a group's relation actually grew this round.
+            let mut relation_changed = false;
             for group in lts.transition_groups_mut() {
+                let before = group.relation().clone();
                 group.learn_successors(context, storage, &states, options.cached)?;
+                if *group.relation() != before {
+                    relation_changed = true;
+                }
             }
 
             let events = saturation_events(lts);
             let num_levels = vector_length(&states);
 
             let next = states.saturate(&events, num_levels, epoch)?;
-            epoch += 1;
-
-            progress.print((epoch, states.len()));
-
-            if options.print_node_counts {
-                // See the matching comment in `reachability_with_options`: plain `println!` so this
-                // is visible under `--nocapture` without a logger.
-                let nodes = storage.with_manager_shared(|m| m.num_inner_nodes());
-                println!("round {round}: manager has {} inner node(s)", LargeFormatter(nodes));
+            if relation_changed {
+                epoch += 1;
             }
             round += 1;
+
+            progress.print((round, states.len()));
+
+            #[cfg(feature = "metrics")]
+            oxidd::ldd::print_stats();
 
             let fixpoint = next == states;
             states = next;
