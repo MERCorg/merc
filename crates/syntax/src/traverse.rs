@@ -328,7 +328,10 @@ define_traversal! {
         SortExpressionKind::Complex(_complex_sort, sort) => {
             recurse(sort)?;
         }
-        SortExpressionKind::Reference(_) | SortExpressionKind::Simple(_) | SortExpressionKind::Resolved(_, _) => {}
+        SortExpressionKind::Reference(_)
+        | SortExpressionKind::TypeVar(_)
+        | SortExpressionKind::Simple(_)
+        | SortExpressionKind::Resolved(_, _) => {}
     },
 }
 
