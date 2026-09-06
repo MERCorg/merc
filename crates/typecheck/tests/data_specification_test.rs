@@ -585,7 +585,7 @@ fn collect_resolved_names(sort: &SortExpression, out: &mut Vec<String>) {
                 }
             }
         }
-        SortExpressionKind::Simple(_) | SortExpressionKind::Reference(_) => {}
+        SortExpressionKind::Simple(_) | SortExpressionKind::Reference(_) | SortExpressionKind::TypeVar(_) => {}
     }
 }
 

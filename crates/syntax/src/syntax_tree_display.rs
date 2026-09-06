@@ -371,6 +371,7 @@ impl fmt::Display for SortExpression {
             SortExpressionKind::Product { lhs, rhs } => write!(f, "({lhs} # {rhs})"),
             SortExpressionKind::Function { domain, range } => write!(f, "({domain} -> {range})"),
             SortExpressionKind::Reference(name) => write!(f, "{name}"),
+            SortExpressionKind::TypeVar(id) => write!(f, "'{id}"),
             SortExpressionKind::Simple(sort) => write!(f, "{sort}"),
             SortExpressionKind::Complex(complex, inner) => write!(f, "{complex}({inner})"),
             SortExpressionKind::Struct { inner } => {

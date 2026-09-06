@@ -45,6 +45,20 @@ pub struct EqnVarTag;
 /// [EqnSpec]. Assigned during declaration-id resolution.
 pub type EqnVarId = TagIndex<usize, EqnVarTag>;
 
+/// A unique type for a bound sort (type) variable.
+pub struct TypeVarTag;
+
+/// The index type for a bound sort variable, local to whatever declaration
+/// (or group of declarations) introduces it. Unlike [DefId], a `TypeVarId`
+/// never indexes a `sort_declarations` table: it names a position in a
+/// *scheme*, not a concrete sort. It exists so a template parameter (as used
+/// internally by the system-defined specification's `List`/`Set`/`Bag`/…
+/// templates) can be told apart, structurally, from an ordinary unresolved
+/// [SortExpressionKind::Reference] — see
+/// `merc_typecheck::signature::standard_sorts` for where these are
+/// introduced and substituted.
+pub type TypeVarId = TagIndex<usize, TypeVarTag>;
+
 /// A complete mCRL2 process specification.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub struct UntypedProcessSpecification {
@@ -214,6 +228,13 @@ pub enum SortExpressionKind {
     },
     /// Reference to a named sort
     Reference(String),
+    /// A bound sort (type) variable, such as the `S` in a container
+    /// template's `in: S # List(S) -> Bool`. Distinct from [Reference]: a
+    /// `Reference` is a name still waiting to be looked up against
+    /// `sort_declarations`, while a `TypeVar` is already bound by an
+    /// enclosing declaration's type-parameter scope and never resolves that
+    /// way. See [TypeVarId] for why the two are not the same node.
+    TypeVar(TypeVarId),
     /// Built-in simple sort
     Simple(Sort),
     /// Parameterized complex sort

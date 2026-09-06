@@ -386,6 +386,11 @@ pub(crate) fn resolve_system_sort(
                 )),
             }
         }
+        SortExpressionKind::TypeVar(_) => unreachable!(
+            "a template's own sort variable is still a Reference, substituted for a concrete sort \
+             by replace_sort before resolve_system_sort ever sees it; no template is parsed with a \
+             bound TypeVar node yet (see the unifying-polymorphism design)"
+        ),
         SortExpressionKind::Struct { .. } => unreachable!("the system-defined specification has no structured sorts"),
         SortExpressionKind::Product { .. } => {
             unreachable!("product sorts cannot occur outside a function domain")

@@ -94,6 +94,7 @@ pub use syntax_tree::StateFrmOp;
 pub use syntax_tree::StateFrmUnaryOp;
 pub use syntax_tree::StateVarAssignment;
 pub use syntax_tree::StateVarDecl;
+pub use syntax_tree::TypeVarId;
 pub use syntax_tree::UntypedDataSpecification;
 pub use syntax_tree::UntypedPbes;
 pub use syntax_tree::UntypedPres;
