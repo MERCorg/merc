@@ -1520,6 +1520,7 @@ impl Mcrl2Parser {
                     identifier: identifier.node,
                     arguments,
                     span: span.into(),
+                    id: None,
                 })
             },
             [Id(identifier)] => {
@@ -1527,6 +1528,7 @@ impl Mcrl2Parser {
                     identifier: identifier.node,
                     arguments: Vec::new(),
                     span: span.into(),
+                    id: None,
                 })
             }
         )

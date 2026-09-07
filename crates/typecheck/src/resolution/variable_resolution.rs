@@ -12,7 +12,6 @@ use merc_syntax::ProcessExprKind;
 use merc_syntax::PropVarInst;
 use merc_syntax::RegFrm;
 use merc_syntax::RegFrmKind;
-use merc_syntax::Span;
 use merc_syntax::StateFrm;
 use merc_syntax::StateFrmKind;
 use merc_syntax::StateVarId;
@@ -109,10 +108,12 @@ pub(crate) fn resolve_pres_variables(pres: &mut UntypedPres) {
 /// action-formula `forall`/`exists` binder nested inside a `<...>`/`[...]` modality, and — in a
 /// second, separate namespace threaded alongside the first — a fixpoint-variable *name* itself
 /// (`StateFrmKind::Id`'s reference to an enclosing `mu X(...)`/`nu X(...)`), rewritten to
-/// [`StateFrmKind::Resolved`] much like [`DataExprKind::Id`] resolves to [`DataExprKind::Resolved`]
-/// — but still keyed by that binder's own `Span`, not a [`VarId`]: a fixpoint variable is a
-/// propositional variable, not a data variable, and this pass doesn't unify the two namespaces. A
-/// state formula specification has no `glob` block, so both scopes start empty — unlike
+/// [`StateFrmKind::Resolved`] much like [`DataExprKind::Id`] resolves to [`DataExprKind::Resolved`],
+/// keyed by that binder's own [`StateVarId`] rather than [`VarId`]: a fixpoint variable is a
+/// propositional variable, not a data variable, so it gets its own id namespace and its own
+/// [`StateVarIdAllocator`] rather than sharing `VarId`'s counter (mirroring why `VarId` and `DefId`
+/// don't share a counter either). A state formula specification has no `glob` block, so both
+/// scopes start empty — unlike
 /// [`resolve_process_variables`]/[`resolve_pbes_variables`]/[`resolve_pres_variables`], there is no
 /// outer scope to seed.
 ///
@@ -120,9 +121,10 @@ pub(crate) fn resolve_pres_variables(pres: &mut UntypedPres) {
 /// *parameter sorts* still aren't known here.
 pub(crate) fn resolve_modal_variables(spec: &mut UntypedStateFrmSpec) {
     let mut ids = VarIdAllocator::default();
+    let mut state_var_ids = StateVarIdAllocator::default();
     let mut scope = Scope::default();
     let mut state_vars = FixpointScope::default();
-    resolve_in_state_frm(&mut spec.formula, &mut scope, &mut state_vars, &mut ids);
+    resolve_in_state_frm(&mut spec.formula, &mut scope, &mut state_vars, &mut ids, &mut state_var_ids);
 }
 
 fn resolve_in_state_frm(
@@ -130,6 +132,7 @@ fn resolve_in_state_frm(
     scope: &mut Scope,
     state_vars: &mut FixpointScope,
     ids: &mut VarIdAllocator,
+    state_var_ids: &mut StateVarIdAllocator,
 ) {
     match &mut formula.node {
         StateFrmKind::True | StateFrmKind::False => {}
@@ -143,7 +146,7 @@ fn resolve_in_state_frm(
                 resolve_in_data_expr(argument, scope, ids);
             }
             if let Some(declaration) = state_vars.resolve(name) {
-                formula.node = StateFrmKind::Resolved(name.clone(), std::mem::take(arguments), declaration.clone());
+                formula.node = StateFrmKind::Resolved(name.clone(), std::mem::take(arguments), declaration);
             }
         }
         // Already resolved (this pass never runs twice on the same tree, but treating it as a
@@ -156,24 +159,24 @@ fn resolve_in_state_frm(
         StateFrmKind::DataValExpr(data_expr) => resolve_in_data_expr(data_expr, scope, ids),
         StateFrmKind::DataValExprLeftMult(constant, expr) => {
             resolve_in_data_expr(constant, scope, ids);
-            resolve_in_state_frm(expr, scope, state_vars, ids);
+            resolve_in_state_frm(expr, scope, state_vars, ids, state_var_ids);
         }
         StateFrmKind::DataValExprRightMult(expr, constant) => {
-            resolve_in_state_frm(expr, scope, state_vars, ids);
+            resolve_in_state_frm(expr, scope, state_vars, ids, state_var_ids);
             resolve_in_data_expr(constant, scope, ids);
         }
         StateFrmKind::Modality { formula, expr, .. } => {
             resolve_in_reg_frm(formula, scope, ids);
-            resolve_in_state_frm(expr, scope, state_vars, ids);
+            resolve_in_state_frm(expr, scope, state_vars, ids, state_var_ids);
         }
-        StateFrmKind::Unary { expr, .. } => resolve_in_state_frm(expr, scope, state_vars, ids),
+        StateFrmKind::Unary { expr, .. } => resolve_in_state_frm(expr, scope, state_vars, ids, state_var_ids),
         StateFrmKind::Binary { lhs, rhs, .. } => {
-            resolve_in_state_frm(lhs, scope, state_vars, ids);
-            resolve_in_state_frm(rhs, scope, state_vars, ids);
+            resolve_in_state_frm(lhs, scope, state_vars, ids, state_var_ids);
+            resolve_in_state_frm(rhs, scope, state_vars, ids, state_var_ids);
         }
         StateFrmKind::Quantifier { variables, body, .. } | StateFrmKind::Bound { variables, body, .. } => {
             let pushed = scope.push_declarations(variables, ids);
-            resolve_in_state_frm(body, scope, state_vars, ids);
+            resolve_in_state_frm(body, scope, state_vars, ids, state_var_ids);
             scope.pop(pushed);
         }
         StateFrmKind::FixedPoint { variable, body, .. } => {
@@ -191,8 +194,10 @@ fn resolve_in_state_frm(
             }
             // The fixpoint variable's own name is in scope for its body only (it may itself
             // shadow an outer variable of the same name, `mu X. nu X. ...`).
-            state_vars.push(variable.identifier.clone(), variable.span.clone());
-            resolve_in_state_frm(body, scope, state_vars, ids);
+            let state_var_id = state_var_ids.alloc();
+            variable.id = Some(state_var_id);
+            state_vars.push(variable.identifier.clone(), state_var_id);
+            resolve_in_state_frm(body, scope, state_vars, ids, state_var_ids);
             state_vars.pop(1);
             scope.pop(pushed);
         }
@@ -284,27 +289,27 @@ impl Scope {
     }
 }
 
-/// The fixpoint-variable names currently in scope, in the second, `Span`-keyed namespace
+/// The fixpoint-variable names currently in scope, in the second, [`StateVarId`]-keyed namespace
 /// [`resolve_modal_variables`] documents — kept as a distinct type from [Scope] so the two
 /// namespaces can't be mixed up by accident.
 #[derive(Default)]
-struct FixpointScope(Vec<(String, Span)>);
+struct FixpointScope(Vec<(String, StateVarId)>);
 
 impl FixpointScope {
-    fn push(&mut self, name: String, span: Span) {
-        self.0.push((name, span));
+    fn push(&mut self, name: String, id: StateVarId) {
+        self.0.push((name, id));
     }
 
     fn pop(&mut self, count: usize) {
         self.0.truncate(self.0.len() - count);
     }
 
-    fn resolve(&self, name: &str) -> Option<&Span> {
+    fn resolve(&self, name: &str) -> Option<StateVarId> {
         self.0
             .iter()
             .rev()
             .find(|(bound, _)| bound == name)
-            .map(|(_, span)| span)
+            .map(|&(_, id)| id)
     }
 }
 
@@ -491,12 +496,15 @@ mod tests {
     use merc_syntax::PbesExprKind;
     use merc_syntax::PresExprKind;
     use merc_syntax::ProcessExprKind;
+    use merc_syntax::StateFrmKind;
     use merc_syntax::UntypedDataSpecification;
     use merc_syntax::UntypedPbes;
     use merc_syntax::UntypedPres;
     use merc_syntax::UntypedProcessSpecification;
+    use merc_syntax::UntypedStateFrmSpec;
 
     use super::resolve_data_specification_variables;
+    use super::resolve_modal_variables;
     use super::resolve_pbes_variables;
     use super::resolve_pres_variables;
     use super::resolve_process_variables;
@@ -809,6 +817,51 @@ mod tests {
         assert!(matches!(
             &second.rhs.node,
             DataExprKind::Resolved(name, var_id) if name == "y" && *var_id == y_declared
+        ));
+    }
+
+    #[test]
+    fn test_fixed_point_variable_resolves_to_its_own_binder() {
+        let text = "mu X(n: Nat = 0) . val(n) || X(n)";
+        let mut spec = UntypedStateFrmSpec::parse(text).unwrap();
+        resolve_modal_variables(&mut spec);
+
+        let StateFrmKind::FixedPoint { variable, body, .. } = &spec.formula.node else {
+            panic!("expected a FixedPoint formula");
+        };
+        let declared = variable.id.expect("the fixpoint variable was assigned a StateVarId");
+        let StateFrmKind::Binary { rhs, .. } = &body.node else {
+            panic!("expected a Binary (||) body");
+        };
+        assert!(matches!(
+            &rhs.node,
+            StateFrmKind::Resolved(name, _, id) if name == "X" && *id == declared
+        ));
+    }
+
+    #[test]
+    fn test_nested_fixed_point_variables_of_the_same_name_do_not_share_an_id() {
+        // The inner, parameter-less `X` refers to the *inner* `nu X`, shadowing the outer `mu X`
+        // of the same name — the two binders must never share a StateVarId.
+        let text = "mu X(n: Nat = 0) . [true](nu X. X)";
+        let mut spec = UntypedStateFrmSpec::parse(text).unwrap();
+        resolve_modal_variables(&mut spec);
+
+        let StateFrmKind::FixedPoint { variable: outer, body, .. } = &spec.formula.node else {
+            panic!("expected an outer FixedPoint formula");
+        };
+        let outer_declared = outer.id.expect("the outer fixpoint variable was assigned a StateVarId");
+        let StateFrmKind::Modality { expr, .. } = &body.node else {
+            panic!("expected a Modality body");
+        };
+        let StateFrmKind::FixedPoint { variable: inner, body: inner_body, .. } = &expr.node else {
+            panic!("expected a nested FixedPoint formula");
+        };
+        let inner_declared = inner.id.expect("the inner fixpoint variable was assigned a StateVarId");
+        assert_ne!(outer_declared, inner_declared);
+        assert!(matches!(
+            &inner_body.node,
+            StateFrmKind::Resolved(name, _, id) if name == "X" && *id == inner_declared
         ));
     }
 }

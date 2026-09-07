@@ -48,6 +48,16 @@ pub type VarId = TagIndex<usize, VarTag>;
 /// Hands out fresh, spec-wide [VarId]s during variable resolution.
 pub type VarIdAllocator = IdAllocator<VarTag>;
 
+/// A unique type for a state-formula fixpoint-variable (`mu X`/`nu X`) binder.
+pub struct StateVarTag;
+
+/// The index type assigned to every fixpoint-variable binder during variable resolution,
+/// spec-wide, mirroring [VarId] for the propositional namespace.
+pub type StateVarId = TagIndex<usize, StateVarTag>;
+
+/// Hands out fresh, spec-wide [StateVarId]s during variable resolution.
+pub type StateVarIdAllocator = IdAllocator<StateVarTag>;
+
 /// A unique type for a bound sort (type) variable.
 pub struct TypeVarTag;
 
@@ -649,6 +659,8 @@ pub struct StateVarDecl {
     pub identifier: String,
     pub arguments: Vec<StateVarAssignment>,
     pub span: Span,
+    /// Assigned during variable resolution; see [StateVarId].
+    pub id: Option<StateVarId>,
 }
 
 impl StateVarDecl {
@@ -658,6 +670,7 @@ impl StateVarDecl {
             identifier,
             arguments,
             span: Span::default(),
+            id: None,
         }
     }
 }
@@ -690,8 +703,8 @@ pub enum StateFrmKind {
     /// `yaled` or `yaled@t`; the optional time is `None` for a bare `yaled`.
     Yaled(Option<DataExpr>),
     Id(String, Vec<DataExpr>),
-    /// A fixpoint-variable reference resolved to its declaring `mu`/`nu`.
-    Resolved(String, Vec<DataExpr>, Span),
+    /// A fixpoint-variable reference resolved to its declaring `mu`/`nu`'s own [StateVarId].
+    Resolved(String, Vec<DataExpr>, StateVarId),
     DataValExprLeftMult(DataExpr, Box<StateFrm>),
     DataValExprRightMult(Box<StateFrm>, DataExpr),
     DataValExpr(DataExpr),
