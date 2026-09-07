@@ -12,7 +12,6 @@ use merc_syntax::ConstructorId;
 use merc_syntax::DataExpr;
 use merc_syntax::DefId;
 use merc_syntax::EqnSpecId;
-use merc_syntax::EqnVarId;
 use merc_syntax::EquationId;
 use merc_syntax::MapId;
 use merc_syntax::SortExpression;
@@ -20,6 +19,7 @@ use merc_syntax::SortExpressionKind;
 use merc_syntax::Span;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedDataSpecification;
+use merc_syntax::VarId;
 
 use crate::AliasError;
 use crate::EquationTyping;
@@ -54,6 +54,7 @@ use crate::lower_expression;
 use crate::lsp_info;
 use crate::merge_signatures;
 use crate::normalize_sorts;
+use crate::resolve_data_expr_variables;
 use crate::resolve_data_specification_variables;
 use crate::resolve_sort;
 use crate::resolve_sort_id;
@@ -238,6 +239,9 @@ impl DataSpecification {
         let (mut system, new_groups) = extend_system_with_inferred_sorts(&context, &spec, &system, encoding);
         groups.extend(new_groups);
 
+        // Ties every system equation's own variable occurrences to its `var`-block declaration.
+        resolve_data_specification_variables(&mut system);
+
         // Unconditional in every build (not a debug_assert!): silently trusting
         // a malformed generated spec in release would leave a rewrite spec
         // quietly missing rules.
@@ -341,15 +345,15 @@ impl DataSpecification {
             .expect("map sorts are all resolved during from_untyped")
     }
 
-    /// The resolved sort of the `var_id`-th variable in the equation block
-    /// identified by `eqn_spec_id`. Requires both ids to be valid from this
-    /// specification; panics if called before `from_untyped` has completed.
+    /// The resolved sort of the equation `var`-block variable identified by `var_id`. Requires
+    /// `var_id` to be valid from this specification; panics if called before `from_untyped` has
+    /// completed.
     // Currently exercised by tests only.
     #[allow(dead_code)]
-    pub(crate) fn sort_of_equation_var(&self, eqn_spec_id: EqnSpecId, var_id: EqnVarId) -> crate::ResolvedSortId {
+    pub(crate) fn sort_of_equation_var(&self, var_id: VarId) -> crate::ResolvedSortId {
         self.context
             .sort_of_equation_var
-            .get(&(eqn_spec_id, var_id))
+            .get(&var_id)
             .copied()
             .expect("equation variable sorts are all resolved during from_untyped")
     }
@@ -429,10 +433,14 @@ impl DataSpecification {
         &mut self,
         expr: &DataExpr,
     ) -> Result<(DataExpression, TypingInfo), InferenceError> {
+        // Ties every local binder this.
+        let mut expr = expr.clone();
+        resolve_data_expr_variables(&mut expr);
+
         // The built-in operator nodes (`x + y`, `[x, y]`, `f[x -> y]`) become
         // applications first, exactly as `from_untyped_with` does for the
         // equations: inference and lowering both require a lowered expression.
-        let lowered_expr = lower_data_expr(expr.clone());
+        let lowered_expr = lower_data_expr(expr);
 
         let typing = infer_expression(&mut self.context, &self.spec, &self.system, &lowered_expr)?;
         let info = lsp_info::build(self, &typing);

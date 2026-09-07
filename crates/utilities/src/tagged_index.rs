@@ -167,3 +167,28 @@ impl<T, Tag> Deref for TagIndex<T, Tag> {
         &self.index
     }
 }
+
+/// Hands out consecutive `TagIndex<usize, Tag>` values, starting at 0.
+pub struct IdAllocator<Tag> {
+    next: usize,
+
+    marker: PhantomData<fn() -> Tag>,
+}
+
+impl<Tag> Default for IdAllocator<Tag> {
+    fn default() -> Self {
+        Self {
+            next: 0,
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<Tag> IdAllocator<Tag> {
+    /// Returns the next id in the sequence.
+    pub fn alloc(&mut self) -> TagIndex<usize, Tag> {
+        let id = TagIndex::new(self.next);
+        self.next += 1;
+        id
+    }
+}

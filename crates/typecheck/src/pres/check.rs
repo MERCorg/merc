@@ -8,6 +8,7 @@ use merc_syntax::PresExprKind;
 use merc_syntax::PropVarInst;
 use merc_syntax::Span;
 use merc_syntax::UntypedPres;
+use merc_syntax::VarId;
 
 use crate::DataSpecification;
 use crate::ResolvedName;
@@ -42,11 +43,11 @@ pub(super) fn check_pres_specification(
         }
     }
 
-    let globals: Vec<(Span, ResolvedSortId)> = spec
+    let globals: Vec<(VarId, ResolvedSortId)> = spec
         .global_variables
         .iter()
         .zip(&tables.global_sorts)
-        .map(|(decl, &sort)| (decl.identifier.span.clone(), sort))
+        .map(|(decl, &sort)| (decl.var_id.expect("resolve_pres_variables ran before checking"), sort))
         .collect();
     for (decl, &sort) in spec.global_variables.iter().zip(&tables.global_sorts) {
         lsp_info::push_binder_declaration(
@@ -61,13 +62,9 @@ pub(super) fn check_pres_specification(
     for (eqn, params) in spec.equations.iter().zip(&tables.equation_params) {
         let mut scope = globals.clone();
         // An equation's own parameters are in scope throughout its formula.
-        scope.extend(
-            eqn.variable
-                .parameters
-                .iter()
-                .zip(params)
-                .map(|(decl, &(_, sort))| (decl.identifier.span.clone(), sort)),
-        );
+        scope.extend(eqn.variable.parameters.iter().zip(params).map(|(decl, &(_, sort))| {
+            (decl.var_id.expect("resolve_pres_variables ran before checking"), sort)
+        }));
         for (decl, &(_, sort)) in eqn.variable.parameters.iter().zip(params) {
             lsp_info::push_binder_declaration(
                 data,
@@ -94,7 +91,7 @@ pub(super) fn check_pres_specification(
 fn collect_scope(
     data: &mut DataSpecification,
     expr: &PresExpr,
-    scope: &mut Vec<(Span, ResolvedSortId)>,
+    scope: &mut Vec<(VarId, ResolvedSortId)>,
     sort_references: &mut Vec<(Span, String)>,
     typing: &mut TypingInfo,
 ) -> Result<(), PresError> {

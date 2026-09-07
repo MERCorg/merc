@@ -1,11 +1,10 @@
 use merc_syntax::ConstructorId;
 use merc_syntax::DefId;
-use merc_syntax::EqnSpecId;
-use merc_syntax::EqnVarId;
 use merc_syntax::MapId;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
 use merc_syntax::UntypedDataSpecification;
+use merc_syntax::VarId;
 
 use crate::ResolvedSortId;
 use crate::TypeCheckContext;
@@ -46,29 +45,22 @@ pub(crate) fn query_sort_of_map(
     .expect("map sort has no cyclic dependency")
 }
 
-/// Returns the resolved sort of the `var_id`-th variable in the equation
-/// block identified by `eqn_spec_id`, memoized on
-/// [TypeCheckContext::sort_of_equation_var]. Requires both ids to originate from
-/// `assign_declaration_ids` on `spec`.
+/// Returns the resolved sort of the equation `var`-block variable declared by `sort`, identified
+/// by its own `var_id`, memoized on [TypeCheckContext::sort_of_equation_var]. Requires `var_id` to
+/// originate from `resolve_data_specification_variables` on `spec`.
 ///
 /// Covers the user specification only; the system-defined specification is
 /// still unresolved content.
 pub(crate) fn query_sort_of_equation_var(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
-    eqn_spec_id: EqnSpecId,
-    var_id: EqnVarId,
+    var_id: VarId,
+    sort: &SortExpression,
 ) -> ResolvedSortId {
     ctx.get_or_compute(
         |ctx| &mut ctx.sort_of_equation_var,
-        (eqn_spec_id, var_id),
-        |ctx| {
-            resolve_sort(
-                ctx,
-                spec,
-                &spec.equation_declarations[eqn_spec_id].variables[var_id].sort,
-            )
-        },
+        var_id,
+        |ctx| resolve_sort(ctx, spec, sort),
     )
     .expect("equation variable sort has no cyclic dependency")
 }
@@ -260,16 +252,10 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
     fn test_resolve_equation_variables() {
         let spec = typecheck("map f: Nat -> Bool; var n: Nat; eqn f(n) = true;");
-        let eqn_spec_id = spec.data_specification().equation_declarations[0]
-            .id
-            .expect("assign_declaration_ids ran");
         let var_id = spec.data_specification().equation_declarations[0].variables[0]
-            .id
-            .expect("assign_declaration_ids ran");
-        assert_eq!(
-            spec.sort_of_equation_var(eqn_spec_id, var_id),
-            spec.context().sorts.primitive(Sort::Nat)
-        );
+            .var_id
+            .expect("resolve_data_specification_variables ran");
+        assert_eq!(spec.sort_of_equation_var(var_id), spec.context().sorts.primitive(Sort::Nat));
     }
 
     #[test]

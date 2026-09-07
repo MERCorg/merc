@@ -1,5 +1,6 @@
 use std::hash::Hash;
 
+use merc_utilities::IdAllocator;
 use merc_utilities::Span;
 use merc_utilities::TagIndex;
 
@@ -38,25 +39,19 @@ pub struct EquationTag;
 /// The index type for a single equation, local to its enclosing `EqnSpec`.
 pub type EquationId = TagIndex<usize, EquationTag>;
 
-/// A unique type for equation variable declarations.
-pub struct EqnVarTag;
+/// A unique type for variable-binder occurrences.
+pub struct VarTag;
 
-/// The index type for a variable in an equation block, local to its enclosing
-/// [EqnSpec]. Assigned during declaration-id resolution.
-pub type EqnVarId = TagIndex<usize, EqnVarTag>;
+/// The index type assigned to every variable binder during variable resolution, spec-wide.
+pub type VarId = TagIndex<usize, VarTag>;
+
+/// Hands out fresh, spec-wide [VarId]s during variable resolution.
+pub type VarIdAllocator = IdAllocator<VarTag>;
 
 /// A unique type for a bound sort (type) variable.
 pub struct TypeVarTag;
 
-/// The index type for a bound sort variable, local to whatever declaration
-/// (or group of declarations) introduces it. Unlike [DefId], a `TypeVarId`
-/// never indexes a `sort_declarations` table: it names a position in a
-/// *scheme*, not a concrete sort. It exists so a template parameter (as used
-/// internally by the system-defined specification's `List`/`Set`/`Bag`/…
-/// templates) can be told apart, structurally, from an ordinary unresolved
-/// [SortExpressionKind::Reference] — see
-/// `merc_typecheck::signature::standard_sorts` for where these are
-/// introduced and substituted.
+/// The index type for a bound sort variable.
 pub type TypeVarId = TagIndex<usize, TypeVarTag>;
 
 /// A complete mCRL2 process specification.
@@ -187,6 +182,10 @@ pub struct IdDecl<Id = DefId> {
     pub sort: SortExpression,
     /// Unique ID assigned to this declaration during name/id resolution.
     pub id: Option<Id>,
+    /// Assigned during variable resolution when this declaration is a variable binder (every
+    /// site except a constructor/map declaration, which isn't a variable); `None` otherwise. See
+    /// [VarId].
+    pub var_id: Option<VarId>,
 }
 
 impl<Id> IdDecl<Id> {
@@ -197,6 +196,7 @@ impl<Id> IdDecl<Id> {
             identifier: Spanned { node: identifier, span },
             sort,
             id: None,
+            var_id: None,
         }
     }
 
@@ -206,6 +206,7 @@ impl<Id> IdDecl<Id> {
             identifier: self.identifier,
             sort: self.sort,
             id: None,
+            var_id: self.var_id,
         }
     }
 }
@@ -326,7 +327,7 @@ impl SortDecl {
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct EqnSpecData {
-    pub variables: Vec<IdDecl<EqnVarId>>,
+    pub variables: Vec<IdDecl>,
     pub equations: Vec<EqnDecl>,
     /// Unique ID assigned to this block during declaration-id resolution.
     pub id: Option<EqnSpecId>,
@@ -411,9 +412,9 @@ pub enum DataExprBinaryOp {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub enum DataExprKind {
     Id(String),
-    /// A variable reference paired with its declaring binder's own span: not this
-    /// occurrence's span.
-    Resolved(String, Span),
+    /// A variable reference paired with its declaring binder's own [VarId]: not this
+    /// occurrence's identity.
+    Resolved(String, VarId),
     Number(String), // Is string because the number can be any size.
     Bool(bool),
     Application {
@@ -495,6 +496,9 @@ pub struct DataExprUpdate {
 pub struct AssignmentData {
     pub identifier: String,
     pub expr: DataExpr,
+    /// Assigned during variable resolution when this assignment is a `whr` binding (a new
+    /// variable, in scope for the body).
+    pub id: Option<VarId>,
 }
 
 /// A process-instantiation assignment (`x = e`, as in `P(x = 1)`), paired with the source [Span]
@@ -513,7 +517,12 @@ impl Assignment {
     /// Creates a new assignment with the given identifier and expression, with a default (empty)
     /// span.
     pub fn new(identifier: String, expr: DataExpr) -> Self {
-        AssignmentData { identifier, expr }.spanned(Span::default())
+        AssignmentData {
+            identifier,
+            expr,
+            id: None,
+        }
+        .spanned(Span::default())
     }
 }
 
@@ -659,6 +668,8 @@ pub struct StateVarAssignment {
     pub identifier: Spanned<String>,
     pub sort: SortExpression,
     pub expr: DataExpr,
+    /// Assigned during variable resolution; see [VarId].
+    pub id: Option<VarId>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]

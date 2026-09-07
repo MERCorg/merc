@@ -30,7 +30,6 @@ use crate::Eq;
 use crate::EqnDecl;
 use crate::EqnSpec;
 use crate::EqnSpecData;
-use crate::EqnVarId;
 use crate::FixedPointOperator;
 use crate::IdDecl;
 use crate::MapId;
@@ -728,7 +727,7 @@ impl Mcrl2Parser {
     pub(crate) fn Assignment(assignment: ParseNode) -> ParseResult<Assignment> {
         match_nodes!(assignment.into_children();
             [IdAt(identifier), DataExpr(expr)] => {
-                Ok(AssignmentData { identifier: identifier.node, expr }.spanned(identifier.span))
+                Ok(AssignmentData { identifier: identifier.node, expr, id: None }.spanned(identifier.span))
             },
         )
     }
@@ -1480,7 +1479,7 @@ impl Mcrl2Parser {
         match_nodes!(spec.into_children();
             [VarSpec(variables), EqnDecl(decls)..] => {
                 ids.push(EqnSpecData {
-                    variables: variables.into_iter().map(|v| v.retag::<EqnVarId>()).collect(),
+                    variables,
                     equations: decls.collect(),
                     id: None,
                 }.spanned(span.into()));
@@ -1544,7 +1543,7 @@ impl Mcrl2Parser {
     fn StateVarAssignment(input: ParseNode) -> ParseResult<StateVarAssignment> {
         match_nodes!(input.into_children();
             [Id(identifier), SortExpr(sort), DataExpr(expr)] => {
-                Ok(StateVarAssignment { identifier, sort, expr })
+                Ok(StateVarAssignment { identifier, sort, expr, id: None })
             }
         )
     }

@@ -52,37 +52,41 @@ fn test_prop_var_inst_argument_hover_reports_declared_sort() {
     assert_eq!(hover("pres mu X(n: Nat) = val(n); init X(1);", "1);"), "Pos");
 }
 
-/// The declaration span carried by a `Variable` resolution points at the equation's own
-/// parameter declaration, not the (self-recursive) occurrence.
+/// The declaration `VarId` carried by a `Variable` resolution is the actual goto-definition
+/// target: stable and shared between the equation's own parameter and its (self-recursive)
+/// occurrence.
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
-fn test_prop_var_inst_self_recursive_argument_goto_def_declaration_points_at_parameter() {
+fn test_prop_var_inst_self_recursive_argument_goto_def_declaration_matches_parameter() {
     let text = "pres nu X(n: Nat) = val(n) || X(n); init X(0);";
-    let name = resolved_name_at(text, "n);");
-    let ResolvedName::Variable { name, declaration } = &name else {
-        panic!("expected a Variable resolution, got {name:?}");
+    let ResolvedName::Variable { name: first_name, declaration: first } = resolved_name_at(text, "n) ||") else {
+        panic!("expected a Variable resolution");
     };
-    assert_eq!(name, "n");
-    let declaration = declaration
-        .clone()
-        .expect("an equation parameter has a real declaration span");
-    assert_eq!(&text[declaration.start..declaration.end], "n");
+    let ResolvedName::Variable { name: second_name, declaration: second } = resolved_name_at(text, "n);") else {
+        panic!("expected a Variable resolution");
+    };
+    assert_eq!(first_name, "n");
+    assert_eq!(second_name, "n");
+    let first = first.expect("an equation parameter has a real declaration");
+    let second = second.expect("an equation parameter has a real declaration");
+    assert_eq!(first, second, "both occurrences refer to the same equation parameter");
 }
 
-/// A `sum`-bound variable's declaration span points at the `sum` binder itself, not the
-/// equation's own parameter list.
+/// A `sum`-bound variable's declaration is likewise stable and shared across its own
+/// occurrences, distinct from the equation's own parameter list.
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
-fn test_bound_variable_goto_def_declaration_points_at_binder() {
-    let text = "pres mu X = sum n: Nat . val(n); init X;";
-    let name = resolved_name_at(text, "n); init");
-    let ResolvedName::Variable { declaration, .. } = &name else {
-        panic!("expected a Variable resolution, got {name:?}");
+fn test_bound_variable_goto_def_declaration_is_shared_across_occurrences() {
+    let text = "pres mu X = sum n: Nat . val(n) || val(n); init X;";
+    let ResolvedName::Variable { declaration: first, .. } = resolved_name_at(text, "n) ||") else {
+        panic!("expected a Variable resolution");
     };
-    let declaration = declaration
-        .clone()
-        .expect("a sum-bound variable has a real declaration span");
-    assert_eq!(&text[declaration.start..declaration.end], "n");
+    let ResolvedName::Variable { declaration: second, .. } = resolved_name_at(text, "n); init") else {
+        panic!("expected a Variable resolution");
+    };
+    let first = first.expect("a sum-bound variable has a real declaration");
+    let second = second.expect("a sum-bound variable has a real declaration");
+    assert_eq!(first, second, "both occurrences refer to the same sum binder");
 }
 
 /// A `sum` binder's own declaration occurrence (`n` in `sum n: Nat . ...`, not a later use of it
