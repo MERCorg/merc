@@ -71,18 +71,7 @@ impl ModalSpecification {
         &self.spec.formula
     }
 
-    /// Every checked expression's typing across the *whole* specification — every `eqn` (via
-    /// [`DataSpecification::typing_info`]) plus every state/regular/action-formula expression (a
-    /// `val(...)` expression, an action argument, a fixpoint variable's initial value or reference
-    /// argument, …), span-keyed so hover/go-to-definition can look up a sub-expression by source
-    /// position anywhere in the document (see [`TypingInfo::at_offset`]) without caring which half
-    /// of the grammar it came from.
-    ///
-    /// The formula half needs no separate memoization: it was already computed once, during the
-    /// construction walk `from_untyped_with` runs anyway, and is just cloned out of the stored
-    /// value here. The `eqn` half *is* memoized, one level down — see
-    /// [`DataSpecification::typing_info`] — so a repeated call is cheap either way. Mirrors
-    /// [`crate::PresSpecification::typing_info`].
+    /// Every checked expression's typing across the *whole* specification.
     pub fn typing_info(&mut self) -> TypingInfo {
         let mut info = self.data.typing_info();
         info.merge(self.typing.clone());
@@ -91,12 +80,7 @@ impl ModalSpecification {
 }
 
 /// The resolved `act` declaration table, built once by [`Self::build`] and used by
-/// [`super::check`]'s scoped walk to resolve every action instance it reaches. Unlike a process
-/// specification's [`crate::process::process_specification::DeclarationTables`], there is no
-/// process table (a state formula's modalities only ever reference actions) and no fixpoint-
-/// variable table here either — a fixpoint variable is lexically nested and possibly shadowed, so
-/// it is resolved against a scope stack built directly by [`super::check`] as it descends the
-/// formula, not precomputed once up front.
+/// [`super::check`]'s scoped walk to resolve every action instance it reaches.
 pub(super) struct DeclarationTables {
     /// Resolved argument-sort domain of each action declaration, parallel to
     /// `spec.action_declarations`.
@@ -136,8 +120,7 @@ impl DeclarationTables {
 
 /// Resolves a sort expression occurring in an `act`/fixpoint-variable-parameter/binder declaration:
 /// rejects an anonymous `struct` (never legal here), then defers to
-/// [`DataSpecification::resolve_declared_sort`] for the rest. Mirrors
-/// `crate::process::process_specification::resolve_declared_sort`.
+/// [`DataSpecification::resolve_declared_sort`] for the rest.
 pub(super) fn resolve_declared_sort(
     data: &mut DataSpecification,
     sort: &SortExpression,
