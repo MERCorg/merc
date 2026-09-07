@@ -41,6 +41,7 @@ impl fmt::Display for SetIndex {
 }
 
 /// A set that assigns a unique index to every entry. The returned index can be used to access the inserted entry.
+#[derive(Clone)]
 pub struct IndexedSet<T, S = FxBuildHasher> {
     /// The table of elements, which can be either filled or empty.
     table: Vec<IndexSetEntry<T>>,
@@ -56,6 +57,7 @@ pub struct IndexedSet<T, S = FxBuildHasher> {
 }
 
 /// An entry in the indexed set, which can either be filled or empty.
+#[derive(Clone)]
 enum IndexSetEntry<T> {
     Filled(T),
     Empty(usize),

@@ -85,7 +85,7 @@ impl UntypedDataSpecification {
 }
 
 /// An mCRL2 parameterised boolean equation system (PBES).
-#[derive(Debug, Default, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub struct UntypedPbes {
     pub data_specification: UntypedDataSpecification,
     pub global_variables: Vec<IdDecl>,
@@ -94,7 +94,7 @@ pub struct UntypedPbes {
 }
 
 /// An mCRL2 parameterised real equation system (PRES).
-#[derive(Debug, Default, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub struct UntypedPres {
     pub data_specification: UntypedDataSpecification,
     pub global_variables: Vec<IdDecl>,
@@ -106,7 +106,7 @@ pub struct UntypedPres {
 pub type PropVarName = Spanned<String>;
 
 /// A `pbes`/`pres` equation's own declaration.
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct PropVarDecl {
     pub identifier: PropVarName,
     pub parameters: Vec<IdDecl>,
@@ -127,7 +127,7 @@ impl PropVarDecl {
     }
 }
 
-#[derive(Debug, Default, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub struct PropVarInstData {
     pub identifier: PropVarName,
     pub arguments: Vec<DataExpr>,
@@ -587,7 +587,7 @@ impl From<ProcessExprKind> for ProcessExpr {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct UntypedStateFrmSpec {
     pub data_specification: UntypedDataSpecification,
     pub action_declarations: Vec<ActDecl>,
@@ -867,7 +867,7 @@ impl From<ActFrmKind> for ActFrm {
 /// The kind of a [PbesExpr] node, without its source span. Every recursive
 /// child is a [PbesExpr] (a [Spanned] wrapper), so each node carries its own
 /// location.
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum PbesExprKind {
     DataValExpr(DataExpr),
     PropVarInst(PropVarInst),
@@ -909,13 +909,13 @@ impl From<PbesExprKind> for PbesExpr {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Clone,Debug, Eq, PartialEq, Hash)]
 pub enum Eq {
     EqInf,
     EqnInf,
 }
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Condition {
     Condsm,
     Condeq,
@@ -929,7 +929,7 @@ pub enum Bound {
     Sum,
 }
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum PresExprBinaryOp {
     Implies,
     Disjunction,
@@ -940,7 +940,7 @@ pub enum PresExprBinaryOp {
 /// The kind of a [PresExpr] node, without its source span. Every recursive
 /// child is a [PresExpr] (a [Spanned] wrapper), so each node carries its own
 /// location.
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum PresExprKind {
     DataValExpr(DataExpr),
     PropVarInst(PropVarInst),
@@ -1000,7 +1000,7 @@ impl From<PresExprKind> for PresExpr {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct PbesEquation {
     pub operator: FixedPointOperator,
     pub variable: PropVarDecl,
@@ -1027,7 +1027,7 @@ pub enum PbesExprBinaryOp {
     Conjunction,
 }
 
-#[derive(Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct PresEquation {
     pub operator: FixedPointOperator,
     pub variable: PropVarDecl,

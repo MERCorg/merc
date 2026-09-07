@@ -70,8 +70,10 @@ use crate::structured_sort_equations;
 pub struct DataSpecification {
     spec: UntypedDataSpecification,
     sorts: IndexedSet<String>,
+
     system: UntypedDataSpecification,
     context: TypeCheckContext,
+
     encoding: NumberEncoding,
     /// Every sort-name reference in `spec`'s own declarations.
     sort_references: Vec<(Span, String)>,
