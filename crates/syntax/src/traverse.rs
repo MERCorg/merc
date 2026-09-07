@@ -330,6 +330,7 @@ define_traversal! {
         }
         SortExpressionKind::Reference(_)
         | SortExpressionKind::TypeVar(_)
+        | SortExpressionKind::ResolvedTypeVar(_)
         | SortExpressionKind::Simple(_)
         | SortExpressionKind::Resolved(_, _) => {}
     },

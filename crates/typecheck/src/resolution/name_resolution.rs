@@ -13,9 +13,61 @@ use merc_syntax::MapId;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
 use merc_syntax::Traverse;
+use merc_syntax::TypeVarId;
 use merc_syntax::UntypedDataSpecification;
 
 use crate::WellTypedError;
+
+/// Assigns unique [TypeVarId]s to all `type_var` declarations, and then resolves all
+/// [SortExpressionKind::TypeVar] nodes to their id. Returns an indexed set that indicates the
+/// mapping from type-variable identifiers to their [TypeVarId]s.
+///
+/// Mirrors [resolve_sort_ids] for the type-variable namespace, and must run before it: a
+/// `type_var`-declared name is already told apart from an ordinary sort reference by the parser
+/// (see `merc_syntax`'s `type_var_binding`, which rewrites `Reference` into `TypeVar` before this
+/// ever runs), so `resolve_sort_ids` never has an occasion to see one.
+pub(crate) fn resolve_type_var_ids(spec: &mut UntypedDataSpecification) -> Result<IndexedSet<String>, WellTypedError> {
+    let mut vars = IndexedSet::new();
+
+    for (i, decl) in spec.type_var_declarations.iter_mut().enumerate() {
+        decl.id = Some(TypeVarId::new(i));
+        debug!("resolve_type_var_ids: type variable '{}' declared as id {i}", decl.identifier);
+
+        if !vars.insert(decl.identifier.clone()).1 {
+            return Err(WellTypedError::DuplicateTypeVarDeclaration {
+                type_var: decl.identifier.clone(),
+                span: decl.span.clone(),
+            });
+        }
+    }
+
+    apply_sorts_in_spec(spec, |sort| resolve_type_var_id(sort, &vars))?;
+
+    Ok(vars)
+}
+
+/// Rewrites every `TypeVar` node of `sort` to `ResolvedTypeVar(TypeVarId)` using the type-variable
+/// name index built by [resolve_type_var_ids], or fails on a name that names no declared type
+/// variable (which should not arise from parsing, but a hand-built specification could still
+/// construct one).
+fn resolve_type_var_id(sort: &SortExpression, resolved: &IndexedSet<String>) -> Result<SortExpression, WellTypedError> {
+    sort.clone().apply(|expr| {
+        if let SortExpressionKind::TypeVar(name) = &expr.node {
+            if let Some(id) = resolved.index(name) {
+                return Ok(Some(
+                    SortExpressionKind::ResolvedTypeVar(TypeVarId::new(*id)).spanned(expr.span.clone()),
+                ));
+            }
+
+            return Err(WellTypedError::UndefinedTypeVar {
+                type_var: name.clone(),
+                span: expr.span.clone(),
+            });
+        }
+
+        Ok(None)
+    })
+}
 
 /// Assigns unique DefIds to all sort declarations, and then resolves all sort
 /// expressions to their id. Returns an indexed set that indicates the mapping

@@ -1314,11 +1314,12 @@ impl<'a> ConstraintGenerator<'a> {
             SortExpressionKind::Reference(name) => *variables
                 .entry(name.clone())
                 .or_insert_with(|| self.unifier.fresh_var()),
-            SortExpressionKind::TypeVar(_) => unreachable!(
-                "no template is parsed with bound TypeVar nodes yet; a template's sort variables \
+            SortExpressionKind::TypeVar(_) | SortExpressionKind::ResolvedTypeVar(_) => unreachable!(
+                "no template is parsed with a `type_var` block yet; a template's sort variables \
                  are still plain Reference nodes, matched above by name. See the \
-                 unifying-polymorphism design: once templates carry real TypeVar nodes, this arm \
-                 should replace the Reference arm above, keyed by TypeVarId instead of by name."
+                 unifying-polymorphism design: once templates declare their variables with \
+                 `type_var`, this arm should replace the Reference arm above, keyed by \
+                 TypeVarId instead of by name."
             ),
             SortExpressionKind::Resolved(_, _)
             | SortExpressionKind::Struct { .. }

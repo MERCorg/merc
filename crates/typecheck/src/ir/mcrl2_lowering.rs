@@ -872,9 +872,10 @@ pub(crate) fn lower_syntax_sort(sort: &SortExpression) -> DataSortExpression {
         SortExpressionKind::Resolved(name, _) | SortExpressionKind::Reference(name) => {
             BasicSort::new(name.as_str()).into()
         }
-        SortExpressionKind::TypeVar(_) => unreachable!(
-            "no TypeVar node reaches lowering yet: nothing constructs one, and any future scheme \
-             must be instantiated (see template_instance) before its result is lowered"
+        SortExpressionKind::TypeVar(_) | SortExpressionKind::ResolvedTypeVar(_) => unreachable!(
+            "no TypeVar/ResolvedTypeVar node reaches lowering yet: nothing constructs a `type_var` \
+             block for a spec that reaches this far, and any future scheme must be instantiated \
+             (see template_instance) before its result is lowered"
         ),
         SortExpressionKind::Struct { .. } | SortExpressionKind::Product { .. } => {
             unreachable!("struct/product sorts are desugared/flattened before lowering")

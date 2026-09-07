@@ -130,6 +130,12 @@ pub enum WellTypedError {
 
     #[error("Undefined sort: '{}'", sort)]
     UndefinedSort { sort: String, span: Span },
+
+    #[error("Duplicate type variable declaration: '{}'", type_var)]
+    DuplicateTypeVarDeclaration { type_var: String, span: Span },
+
+    #[error("Undefined type variable: '{}'", type_var)]
+    UndefinedTypeVar { type_var: String, span: Span },
 }
 
 impl WellTypedError {
@@ -149,7 +155,9 @@ impl WellTypedError {
             | WellTypedError::AliasCycle { span, .. }
             | WellTypedError::RecursiveAliasThroughFunctionSort { span, .. }
             | WellTypedError::DuplicateSortDeclaration { span, .. }
-            | WellTypedError::UndefinedSort { span, .. } => Some(span),
+            | WellTypedError::UndefinedSort { span, .. }
+            | WellTypedError::DuplicateTypeVarDeclaration { span, .. }
+            | WellTypedError::UndefinedTypeVar { span, .. } => Some(span),
             WellTypedError::Custom(_) => None,
         }
     }
