@@ -34,6 +34,8 @@ members = [
     "crates/core/utilities/benchmarks",
 
     "crates/rewriter/data",
+    "crates/rewriter/enumerate",
+    "crates/rewriter/enumerate/benchmarks",
     "crates/rewriter/macros",
     "crates/rewriter/rec-tests",
     "crates/rewriter/sabre_compiling",
@@ -151,6 +153,7 @@ merc_unsafety = { version = "3.0", path = "crates/core/unsafety" }
 merc_utilities = { version = "3.0", path = "crates/core/utilities" }
 
 merc_data = { version = "3.0", path = "crates/rewriter/data" }
+merc_enumerate = { version = "0.1", path = "crates/rewriter/enumerate" }
 merc_macros = { version = "2.0", path = "crates/rewriter/macros" }
 merc_rec-tests = { path = "crates/rewriter/rec-tests" }
 merc_sabre = { version = "3.0", path = "crates/rewriter/sabre" }
