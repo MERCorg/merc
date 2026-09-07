@@ -3,6 +3,7 @@ edition = "2024"
 homepage = "https://mercorg.github.io/merc-website/"
 repository = "https://github.com/MERCorg/merc.git"
 license = "BSL-1.0"
+# This version should not exceed the version supported by kani
 rust-version = "1.91.0"
 version = "2.0.0"
 

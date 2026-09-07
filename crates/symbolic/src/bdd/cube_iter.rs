@@ -70,12 +70,12 @@ impl Iterator for CubeIter<'_> {
     }
 }
 
-/// The same as [CubeIter], but iterates over all satisfying assignments without
-/// considering don't care values.
+/// Iterates over all satisfying assignments without considering don't care
+/// values.
 ///
 /// # Details
 ///
-/// For the universe BDD, the [CubeIter] yields only one cube with all don't
+/// For the universe BDD, the `CubeIter` yields only one cube with all don't
 /// cares, while this iterator yields all possible cubes. When
 /// `variable_indices` is provided, returned assignments are projected to only
 /// those variables.
