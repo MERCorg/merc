@@ -45,6 +45,7 @@ pub fn generate_refinement_formula<L: TransitionLabel>(counter_example: &Counter
                     identifier: "X".to_string(),
                     arguments: Vec::new(),
                     span: Span::default(),
+                    id: None,
                 },
                 body: Box::new(
                     StateFrmKind::Modality {
