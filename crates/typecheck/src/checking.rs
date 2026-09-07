@@ -6,6 +6,7 @@ use merc_syntax::DataExpr;
 use merc_syntax::IdDecl;
 use merc_syntax::SortExpression;
 use merc_syntax::Span;
+use merc_syntax::VarId;
 
 use crate::DataSpecification;
 use crate::InferenceError;
@@ -18,8 +19,8 @@ use crate::lsp_info;
 
 /// Every declaration reachable from the `proc` body/PBES equation currently being checked —
 /// global variables, that declaration's own parameters, and every `sum`/`dist`/quantifier binder
-/// anywhere in it — keyed by each declaration's own span.
-pub(crate) type Scope = [(Span, ResolvedSortId)];
+/// anywhere in it — keyed by each declaration's own [VarId].
+pub(crate) type Scope = [(VarId, ResolvedSortId)];
 
 /// Prepares a raw expression for inference: resolves its embedded binder sorts (see
 /// [`DataSpecification::resolve_expression_binder_sorts`]) and lowers it, exactly as
@@ -62,7 +63,7 @@ where
 /// [`lsp_info::push_binder_declaration`]).
 pub(crate) fn collect_binder_sorts<E>(
     data: &mut DataSpecification,
-    scope: &mut Vec<(Span, ResolvedSortId)>,
+    scope: &mut Vec<(VarId, ResolvedSortId)>,
     sort_references: &mut Vec<(Span, String)>,
     typing: &mut TypingInfo,
     variables: &[IdDecl],
@@ -78,7 +79,10 @@ pub(crate) fn collect_binder_sorts<E>(
             var.identifier.node.clone(),
             sort,
         );
-        scope.push((var.identifier.span.clone(), sort));
+        let var_id = var
+            .var_id
+            .expect("resolve_process_variables/resolve_pbes_variables/... ran before checking");
+        scope.push((var_id, sort));
     }
     Ok(())
 }

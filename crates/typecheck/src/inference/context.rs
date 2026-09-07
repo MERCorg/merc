@@ -6,10 +6,10 @@ use std::sync::Arc;
 use merc_syntax::ConstructorId;
 use merc_syntax::DefId;
 use merc_syntax::EqnSpecId;
-use merc_syntax::EqnVarId;
 use merc_syntax::EquationId;
 use merc_syntax::MapId;
 use merc_syntax::UntypedDataSpecification;
+use merc_syntax::VarId;
 
 use crate::EquationTyping;
 use crate::InferenceError;
@@ -33,8 +33,8 @@ pub(crate) struct TypeCheckContext {
     /// The memoized resolved sort of each map declaration, keyed by [MapId].
     /// Populated lazily by `query_sort_of_map`.
     pub(crate) sort_of_map: QueryCache<MapId, ResolvedSortId>,
-    /// The memoized resolved sort of each equation variable.
-    pub(crate) sort_of_equation_var: QueryCache<(EqnSpecId, EqnVarId), ResolvedSortId>,
+    /// The memoized resolved sort of each equation variable, keyed by its own [VarId].
+    pub(crate) sort_of_equation_var: QueryCache<VarId, ResolvedSortId>,
 
     /// The signature of the specification.
     pub(crate) signature: Option<Arc<Signature>>,

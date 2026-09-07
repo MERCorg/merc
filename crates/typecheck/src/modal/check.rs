@@ -19,6 +19,7 @@ use merc_syntax::StateFrm;
 use merc_syntax::StateFrmKind;
 use merc_syntax::StateVarDecl;
 use merc_syntax::UntypedStateFrmSpec;
+use merc_syntax::VarId;
 
 use crate::DataSpecification;
 use crate::ResolvedName;
@@ -76,7 +77,7 @@ pub(super) fn check_modal_specification(
 fn collect_scope(
     data: &mut DataSpecification,
     formula: &StateFrm,
-    scope: &mut Vec<(Span, ResolvedSortId)>,
+    scope: &mut Vec<(VarId, ResolvedSortId)>,
     sort_references: &mut Vec<(Span, String)>,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
@@ -115,7 +116,8 @@ fn collect_scope(
                     argument.identifier.node.clone(),
                     sort,
                 );
-                scope.push((argument.identifier.span.clone(), sort));
+                let var_id = argument.id.expect("resolve_modal_variables ran before checking");
+                scope.push((var_id, sort));
             }
             collect_scope(data, body, scope, sort_references, typing)
         }
@@ -125,7 +127,7 @@ fn collect_scope(
 fn collect_scope_regfrm(
     data: &mut DataSpecification,
     formula: &RegFrm,
-    scope: &mut Vec<(Span, ResolvedSortId)>,
+    scope: &mut Vec<(VarId, ResolvedSortId)>,
     sort_references: &mut Vec<(Span, String)>,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
@@ -144,7 +146,7 @@ fn collect_scope_regfrm(
 fn collect_scope_actfrm(
     data: &mut DataSpecification,
     formula: &ActFrm,
-    scope: &mut Vec<(Span, ResolvedSortId)>,
+    scope: &mut Vec<(VarId, ResolvedSortId)>,
     sort_references: &mut Vec<(Span, String)>,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {

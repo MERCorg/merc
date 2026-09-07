@@ -8,7 +8,6 @@ use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
 use merc_syntax::DefId;
 use merc_syntax::EqnSpecId;
-use merc_syntax::EqnVarId;
 use merc_syntax::EquationId;
 use merc_syntax::MapId;
 use merc_syntax::SortExpression;
@@ -71,9 +70,7 @@ pub(crate) fn assign_declaration_ids(spec: &mut UntypedDataSpecification) {
 
     for (i, eqn_spec) in spec.equation_declarations.iter_mut().enumerate() {
         eqn_spec.id = Some(EqnSpecId::new(i));
-        for (j, variable) in eqn_spec.variables.iter_mut().enumerate() {
-            variable.id = Some(EqnVarId::new(j));
-        }
+        // Each variable's `VarId` is assigned earlier, by `resolve_data_specification_variables`.
         for (j, equation) in eqn_spec.equations.iter_mut().enumerate() {
             equation.id = Some(EquationId::new(j));
         }

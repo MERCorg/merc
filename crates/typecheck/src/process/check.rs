@@ -14,6 +14,7 @@ use merc_syntax::ProcessExprKind;
 use merc_syntax::Rename;
 use merc_syntax::Span;
 use merc_syntax::UntypedProcessSpecification;
+use merc_syntax::VarId;
 
 use crate::DataSpecification;
 use crate::DisplaySortContext;
@@ -54,11 +55,11 @@ pub(super) fn check_process_specification(
         lsp_info::collect_sort_name_references(&decl.sort, &mut sort_references);
     }
 
-    let globals: Vec<(Span, ResolvedSortId)> = spec
+    let globals: Vec<(VarId, ResolvedSortId)> = spec
         .global_variables
         .iter()
         .zip(&tables.global_sorts)
-        .map(|(decl, &sort)| (decl.identifier.span.clone(), sort))
+        .map(|(decl, &sort)| (decl.var_id.expect("resolve_process_variables ran before checking"), sort))
         .collect();
     for (decl, &sort) in spec.global_variables.iter().zip(&tables.global_sorts) {
         lsp_info::push_binder_declaration(
@@ -73,13 +74,9 @@ pub(super) fn check_process_specification(
     for (proc_decl, params) in spec.process_declarations.iter().zip(&tables.process_params) {
         let mut scope = globals.clone();
         // A process's own parameters are in scope throughout its body.
-        scope.extend(
-            proc_decl
-                .params
-                .iter()
-                .zip(params)
-                .map(|(decl, &(_, sort))| (decl.identifier.span.clone(), sort)),
-        );
+        scope.extend(proc_decl.params.iter().zip(params).map(|(decl, &(_, sort))| {
+            (decl.var_id.expect("resolve_process_variables ran before checking"), sort)
+        }));
         for (decl, &(_, sort)) in proc_decl.params.iter().zip(params) {
             lsp_info::push_binder_declaration(
                 data,
@@ -108,7 +105,7 @@ pub(super) fn check_process_specification(
 fn collect_scope(
     data: &mut DataSpecification,
     expr: &ProcessExpr,
-    scope: &mut Vec<(Span, ResolvedSortId)>,
+    scope: &mut Vec<(VarId, ResolvedSortId)>,
     sort_references: &mut Vec<(Span, String)>,
     typing: &mut TypingInfo,
 ) -> Result<(), ProcessError> {
