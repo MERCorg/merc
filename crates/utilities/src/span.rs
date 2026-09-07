@@ -23,6 +23,11 @@ impl From<pest::Span<'_>> for Span {
 }
 
 impl Span {
+    /// Creates a span covering the byte range `[start, end)`.
+    pub fn new(start: usize, end: usize) -> Self {
+        Span { start, end }
+    }
+
     /// The 1-based (line, column) of `self.start` within `source`, counted in
     /// `char`s rather than bytes so the column lines up under multi-byte
     /// UTF-8 text.
@@ -64,12 +69,9 @@ impl Span {
     /// node) renders against the start of its file.
     pub fn render(&self, sources: &SourceMap) -> String {
         let id = sources.lookup(self.start);
-        let base = sources.base(id);
+        let base = sources.base_offset(id);
         let source = sources.text(id);
-        let local = Span {
-            start: self.start.saturating_sub(base),
-            end: self.end.saturating_sub(base),
-        };
+        let local = Span::new(self.start.saturating_sub(base), self.end.saturating_sub(base));
 
         let (line, col) = local.start_line_col(source);
         let line_text = source.lines().nth(line - 1).unwrap_or("");
@@ -280,7 +282,7 @@ mod tests {
             " --> a.mcrl2:1:6\n  |\n1 | sort D;\n  |      ^"
         );
 
-        let base = sources.base(second);
+        let base = sources.base_offset(second);
         let span_in_second = Span {
             start: base + 5,
             end: base + 6,

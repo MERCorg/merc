@@ -92,10 +92,14 @@ impl SourceMap {
         self.files[id.value()].is_virtual
     }
 
-    /// The global offset at which the file `id` refers to starts. A [`crate::Span`] produced
-    /// while parsing that file's text alone has `start`/`end` offset by this amount from what
-    /// pest reported; subtracting it back off recovers a span local to that file's own text.
-    pub(crate) fn base(&self, id: SourceId) -> usize {
+    /// The global offset at which the file `id` refers to starts. A
+    /// [`crate::Span`] produced while parsing that file's text alone has
+    /// `start`/`end` offset by this amount from what pest reported; subtracting
+    /// it back off recovers a span local to that file's own text.
+    ///
+    /// Padding a file's text with this many leading bytes before handing it to
+    /// pest.
+    pub fn base_offset(&self, id: SourceId) -> usize {
         self.files[id.value()].base
     }
 }
@@ -147,12 +151,12 @@ mod tests {
         assert!(!sources.is_virtual(first));
         assert!(sources.is_virtual(second));
 
-        assert_eq!(sources.base(first), 0);
-        assert_eq!(sources.base(second), "sort D;".len());
+        assert_eq!(sources.base_offset(first), 0);
+        assert_eq!(sources.base_offset(second), "sort D;".len());
 
         assert_eq!(sources.lookup(0), first);
         assert_eq!(sources.lookup("sort D;".len() - 1), first);
-        assert_eq!(sources.lookup(sources.base(second)), second);
-        assert_eq!(sources.lookup(sources.base(second) + 3), second);
+        assert_eq!(sources.lookup(sources.base_offset(second)), second);
+        assert_eq!(sources.lookup(sources.base_offset(second) + 3), second);
     }
 }

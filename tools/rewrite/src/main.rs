@@ -219,8 +219,8 @@ fn handle_command(commands: Option<Commands>, timing: &Timing) -> Result<(), Mer
                     }
                     Format::Mcrl2 => {
                         let mut sources = SourceMap::new();
-                        let source_id = sources.load_file(&args.specification)?;
-                        let untyped_spec = UntypedDataSpecification::parse(sources.text(source_id))?;
+                        let (untyped_spec, _source_id) =
+                            UntypedDataSpecification::parse_with_imports(&args.specification, &mut sources)?;
 
                         let mut data_spec = match DataSpecification::from_untyped(untyped_spec) {
                             Ok(data_spec) => data_spec,
@@ -263,8 +263,8 @@ fn handle_command(commands: Option<Commands>, timing: &Timing) -> Result<(), Mer
                 let show_all = !args.ast && !args.ir && !args.lowered;
 
                 let mut sources = SourceMap::new();
-                let source_id = sources.load_file(&args.specification)?;
-                let untyped_spec = UntypedDataSpecification::parse(sources.text(source_id))?;
+                let (untyped_spec, _source_id) =
+                    UntypedDataSpecification::parse_with_imports(&args.specification, &mut sources)?;
 
                 if show_all || args.ast {
                     println!("=== AST ===\n");
