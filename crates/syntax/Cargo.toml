@@ -35,3 +35,4 @@ rand.workspace = true
 indoc.workspace = true
 test-case.workspace = true
 env_logger.workspace = true
+tempfile.workspace = true

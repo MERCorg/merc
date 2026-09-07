@@ -3,6 +3,7 @@
 
 mod consume;
 mod counterexample_formula;
+pub mod imports;
 mod parse;
 mod precedence;
 pub mod random_data_expression;
@@ -19,6 +20,8 @@ pub(crate) use syntax_tree::*;
 
 pub use counterexample_formula::generate_distinguishing_formula;
 pub use counterexample_formula::generate_refinement_formula;
+pub use imports::ImportDirective;
+pub use imports::scan_imports;
 pub use merc_utilities::SourceId;
 pub use merc_utilities::SourceMap;
 pub use merc_utilities::Span;
@@ -95,6 +98,8 @@ pub use syntax_tree::StateFrmOp;
 pub use syntax_tree::StateFrmUnaryOp;
 pub use syntax_tree::StateVarAssignment;
 pub use syntax_tree::StateVarDecl;
+pub use syntax_tree::StateVarId;
+pub use syntax_tree::StateVarIdAllocator;
 pub use syntax_tree::TypeVarId;
 pub use syntax_tree::UntypedDataSpecification;
 pub use syntax_tree::UntypedPbes;
