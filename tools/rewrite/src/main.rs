@@ -17,6 +17,7 @@ use merc_rewrite::rewrite_rec;
 use merc_rewrite::rewrite_terms;
 use merc_sabre::RewriteSpecification;
 use merc_syntax::DataExpr;
+use merc_syntax::SourceMap;
 use merc_syntax::UntypedDataSpecification;
 use merc_tools::VerbosityFlag;
 use merc_tools::Version;
@@ -176,8 +177,11 @@ fn read_expressions(path: Option<&Path>) -> Result<Vec<String>, MercError> {
 fn typecheck_expression(spec: &mut DataSpecification, text: &str) -> Result<DataExpression, MercError> {
     let expr = DataExpr::parse(text)?;
 
-    spec.typecheck_expression(&expr)
-        .map_err(|err| MercError::from(err.render(text)))
+    spec.typecheck_expression(&expr).map_err(|err| {
+        let mut sources = SourceMap::new();
+        sources.add_text("<expression>", text.to_string());
+        MercError::from(err.render(&sources))
+    })
 }
 
 fn handle_command(commands: Option<Commands>, timing: &Timing) -> Result<(), MercError> {
@@ -214,12 +218,13 @@ fn handle_command(commands: Option<Commands>, timing: &Timing) -> Result<(), Mer
                         rewrite_rec(args.rewriter, &spec, &syntax_terms, args.output, timing)?;
                     }
                     Format::Mcrl2 => {
-                        let source = std::fs::read_to_string(&args.specification)?;
-                        let untyped_spec = UntypedDataSpecification::parse(&source)?;
+                        let mut sources = SourceMap::new();
+                        let source_id = sources.load_file(&args.specification)?;
+                        let untyped_spec = UntypedDataSpecification::parse(sources.text(source_id))?;
 
                         let mut data_spec = match DataSpecification::from_untyped(untyped_spec) {
                             Ok(data_spec) => data_spec,
-                            Err(err) => return Err(err.render(&source).into()),
+                            Err(err) => return Err(err.render(&sources).into()),
                         };
 
                         // Every term is type checked and lowered against the
@@ -257,8 +262,9 @@ fn handle_command(commands: Option<Commands>, timing: &Timing) -> Result<(), Mer
                 // With none of the stage flags given, show every stage.
                 let show_all = !args.ast && !args.ir && !args.lowered;
 
-                let source = std::fs::read_to_string(&args.specification)?;
-                let untyped_spec = UntypedDataSpecification::parse(&source)?;
+                let mut sources = SourceMap::new();
+                let source_id = sources.load_file(&args.specification)?;
+                let untyped_spec = UntypedDataSpecification::parse(sources.text(source_id))?;
 
                 if show_all || args.ast {
                     println!("=== AST ===\n");
@@ -267,7 +273,7 @@ fn handle_command(commands: Option<Commands>, timing: &Timing) -> Result<(), Mer
 
                 let data_spec = match DataSpecification::from_untyped(untyped_spec) {
                     Ok(data_spec) => data_spec,
-                    Err(err) => return Err(err.render(&source).into()),
+                    Err(err) => return Err(err.render(&sources).into()),
                 };
 
                 if show_all || args.ir {

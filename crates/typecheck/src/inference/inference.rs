@@ -14,6 +14,7 @@ use merc_syntax::IdDecl;
 use merc_syntax::Sort;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SourceMap;
 use merc_syntax::Span;
 use merc_syntax::UntypedDataSpecification;
 use merc_syntax::VarId;
@@ -149,12 +150,12 @@ impl InferenceError {
     }
 
     /// Renders this error's message, followed by a caret-annotated source
-    /// snippet (see [Span::render]). `source` must be the original text the
-    /// error was raised against — the specification for an equation error, the
-    /// expression text for one raised by
+    /// snippet (see [Span::render]). `sources` must contain the original text
+    /// the error was raised against — the specification for an equation
+    /// error, the expression text for one raised by
     /// [`crate::DataSpecification::typecheck_expression`].
-    pub fn render(&self, source: &str) -> String {
-        format!("{self}\n{}", self.span().render(source))
+    pub fn render(&self, sources: &SourceMap) -> String {
+        format!("{self}\n{}", self.span().render(sources))
     }
 }
 
