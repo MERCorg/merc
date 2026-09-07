@@ -98,7 +98,8 @@ pub(crate) fn resolve_sort(
         }
         SortExpressionKind::Resolved(_, id) => query_sort_of_def(ctx, spec, *id),
         SortExpressionKind::Reference(_) => unreachable!("Names must have been resolved"),
-        SortExpressionKind::TypeVar(_) => unreachable!(
+        SortExpressionKind::TypeVar(_) => unreachable!("Names must have been resolved"),
+        SortExpressionKind::ResolvedTypeVar(_) => unreachable!(
             "a bound type variable denotes a scheme, not a single ground sort: it must be \
              instantiated (substituted for a rigid placeholder or a fresh unification variable, \
              see inference::template_instance) before the result is ever handed to resolve_sort"

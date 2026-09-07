@@ -81,6 +81,7 @@ pub struct UntypedDataSpecification {
     pub constructor_declarations: Vec<IdDecl<ConstructorId>>,
     pub map_declarations: Vec<IdDecl<MapId>>,
     pub equation_declarations: Vec<EqnSpec>,
+    pub type_var_declarations: Vec<TypeVarDecl>,
 }
 
 impl UntypedDataSpecification {
@@ -90,6 +91,7 @@ impl UntypedDataSpecification {
             && self.constructor_declarations.is_empty()
             && self.map_declarations.is_empty()
             && self.equation_declarations.is_empty()
+            && self.type_var_declarations.is_empty()
     }
 
     /// Merges another data specification into the current one.
@@ -100,6 +102,30 @@ impl UntypedDataSpecification {
         self.map_declarations.extend_from_slice(&other_spec.map_declarations);
         self.equation_declarations
             .extend_from_slice(&other_spec.equation_declarations);
+        self.type_var_declarations
+            .extend_from_slice(&other_spec.type_var_declarations);
+    }
+}
+
+/// A bound sort (type) variable's own declaration, introduced by a `type_var` block.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct TypeVarDecl {
+    /// The type variable's own name (`S`).
+    pub identifier: String,
+    /// Where the type variable is declared.
+    pub span: Span,
+    /// Unique ID assigned to this declaration during name resolution.
+    pub id: Option<TypeVarId>,
+}
+
+impl TypeVarDecl {
+    /// Creates a new type variable declaration with the given identifier and span.
+    pub fn new(identifier: String, span: Span) -> Self {
+        TypeVarDecl {
+            identifier,
+            span,
+            id: None,
+        }
     }
 }
 
@@ -239,13 +265,11 @@ pub enum SortExpressionKind {
     },
     /// Reference to a named sort
     Reference(String),
-    /// A bound sort (type) variable, such as the `S` in a container
-    /// template's `in: S # List(S) -> Bool`. Distinct from [Reference]: a
-    /// `Reference` is a name still waiting to be looked up against
-    /// `sort_declarations`, while a `TypeVar` is already bound by an
-    /// enclosing declaration's type-parameter scope and never resolves that
-    /// way. See [TypeVarId] for why the two are not the same node.
-    TypeVar(TypeVarId),
+    /// A bound sort (type) variable, such as the `S` in a container spec.
+    TypeVar(String),
+    /// A bound sort (type) variable after name resolution has assigned its
+    /// [TypeVarId], mirroring how [Reference] becomes [Resolved].
+    ResolvedTypeVar(TypeVarId),
     /// Built-in simple sort
     Simple(Sort),
     /// Parameterized complex sort

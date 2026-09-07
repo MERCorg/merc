@@ -136,6 +136,15 @@ impl fmt::Display for UntypedProcessSpecification {
 
 impl fmt::Display for UntypedDataSpecification {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if !self.type_var_declarations.is_empty() {
+            writeln!(f, "type_var")?;
+            for decl in &self.type_var_declarations {
+                writeln!(f, "   {};", decl.identifier)?;
+            }
+
+            writeln!(f)?;
+        }
+
         if !self.sort_declarations.is_empty() {
             writeln!(f, "sort")?;
             for decl in &self.sort_declarations {
@@ -371,7 +380,8 @@ impl fmt::Display for SortExpression {
             SortExpressionKind::Product { lhs, rhs } => write!(f, "({lhs} # {rhs})"),
             SortExpressionKind::Function { domain, range } => write!(f, "({domain} -> {range})"),
             SortExpressionKind::Reference(name) => write!(f, "{name}"),
-            SortExpressionKind::TypeVar(id) => write!(f, "'{id}"),
+            SortExpressionKind::TypeVar(name) => write!(f, "'{name}"),
+            SortExpressionKind::ResolvedTypeVar(id) => write!(f, "'{id}"),
             SortExpressionKind::Simple(sort) => write!(f, "{sort}"),
             SortExpressionKind::Complex(complex, inner) => write!(f, "{complex}({inner})"),
             SortExpressionKind::Struct { inner } => {

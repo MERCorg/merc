@@ -61,6 +61,7 @@ use crate::resolve_sort_id;
 use crate::resolve_sort_ids;
 use crate::resolve_system_signature;
 use crate::resolve_system_signature_full;
+use crate::resolve_type_var_ids;
 use crate::structured_sort_equations;
 
 /// A type checked and well-typed data specification.
@@ -116,6 +117,10 @@ impl DataSpecification {
             Ok(flatten_function_sorts(sort))
         })
         .expect("The inner function never fails");
+
+        // Assign ids to `type_var` declarations and resolve every `TypeVar` node to its id.
+        let type_vars = resolve_type_var_ids(&mut spec)?;
+        debug!("typecheck: resolved {} type variable name(s)", type_vars.len());
 
         let sorts = resolve_sort_ids(&mut spec)?;
         debug!("typecheck: resolved {} sort name(s)", sorts.len());

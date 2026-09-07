@@ -4,6 +4,7 @@ use pest::Parser;
 
 use merc_syntax::Mcrl2Parser;
 use merc_syntax::Rule;
+use merc_syntax::SortExpressionKind;
 use merc_syntax::UntypedProcessSpecification;
 use merc_syntax::UntypedStateFrmSpec;
 use merc_syntax::parse_sortexpr;
@@ -94,6 +95,60 @@ fn test_parse_sort_spec() {
         Err(e) => {
             panic!("Failed to parse expression: {}", e);
         }
+    }
+}
+
+/// A `type_var` block declares names that are bound for the rest of the specification: every
+/// later occurrence of one of them in sort-expression position must parse as a
+/// [SortExpressionKind::TypeVar], not a [SortExpressionKind::Reference] — in a constructor's
+/// sort, a map's sort, and a `var`-block binder sort alike.
+#[test]
+fn test_parse_type_var_spec() {
+    let spec = indoc! {"
+        type_var S;
+
+        cons []: List(S);
+             |>: S # List(S) -> List(S);
+
+        map in: S # List(S) -> Bool;
+
+        var d: S;
+            s: List(S);
+        eqn in(d, []) = false;
+    "};
+
+    let parsed = UntypedProcessSpecification::parse(spec).expect("the type_var spec should parse");
+    let data = &parsed.data_specification;
+
+    assert_eq!(data.type_var_declarations.len(), 1);
+    assert_eq!(data.type_var_declarations[0].identifier, "S");
+
+    // `|>: S # List(S) -> List(S)`: `S` must become `TypeVar` both bare and inside `List(...)`.
+    let cons_sort = &data.constructor_declarations[1].sort;
+    let SortExpressionKind::Function { domain, range } = &cons_sort.node else {
+        panic!("expected a function sort, got {:?}", cons_sort.node);
+    };
+    let SortExpressionKind::Product { lhs, rhs } = &domain.node else {
+        panic!("expected a product domain, got {:?}", domain.node);
+    };
+    assert!(matches!(&lhs.node, SortExpressionKind::TypeVar(name) if name == "S"));
+    assert!(is_list_of_type_var(rhs, "S"));
+    assert!(is_list_of_type_var(range, "S"));
+
+    // The `var d: S;` binder sort is rewritten too, not just declaration-level sorts.
+    assert!(matches!(
+        &data.equation_declarations[0].variables[0].sort.node,
+        SortExpressionKind::TypeVar(name) if name == "S"
+    ));
+}
+
+/// Whether `sort` is `List(TypeVar(name))`.
+fn is_list_of_type_var(sort: &merc_syntax::SortExpression, name: &str) -> bool {
+    match &sort.node {
+        SortExpressionKind::Complex(_, inner) => {
+            matches!(&inner.node, SortExpressionKind::TypeVar(inner_name) if inner_name == name)
+        }
+        _ => false,
     }
 }
 

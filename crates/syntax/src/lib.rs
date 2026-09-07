@@ -13,10 +13,12 @@ mod spanned;
 mod syntax_tree;
 mod syntax_tree_display;
 mod traverse;
+mod type_var_binding;
 
 pub(crate) use consume::*;
 pub(crate) use precedence::*;
 pub(crate) use syntax_tree::*;
+pub(crate) use type_var_binding::*;
 
 pub use counterexample_formula::generate_distinguishing_formula;
 pub use counterexample_formula::generate_refinement_formula;
@@ -100,6 +102,7 @@ pub use syntax_tree::StateVarAssignment;
 pub use syntax_tree::StateVarDecl;
 pub use syntax_tree::StateVarId;
 pub use syntax_tree::StateVarIdAllocator;
+pub use syntax_tree::TypeVarDecl;
 pub use syntax_tree::TypeVarId;
 pub use syntax_tree::UntypedDataSpecification;
 pub use syntax_tree::UntypedPbes;
