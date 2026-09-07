@@ -1,5 +1,6 @@
 //! Errors from whole-state-formula type checking ([`crate::ModalSpecification`]).
 
+use merc_syntax::SourceMap;
 use merc_syntax::Span;
 
 use crate::InferenceError;
@@ -73,11 +74,11 @@ impl ModalError {
     }
 
     /// Renders this error's message, followed by a caret-annotated source snippet, the same way
-    /// [`crate::PresError::render`] does. `source` must be the original specification text this
-    /// error was raised against.
-    pub fn render(&self, source: &str) -> String {
+    /// [`crate::PresError::render`] does. `sources` must contain the original specification text
+    /// this error was raised against.
+    pub fn render(&self, sources: &SourceMap) -> String {
         match self.span() {
-            Some(span) => format!("{self}\n{}", span.render(source)),
+            Some(span) => format!("{self}\n{}", span.render(sources)),
             None => self.to_string(),
         }
     }

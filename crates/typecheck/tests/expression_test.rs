@@ -3,6 +3,7 @@
 //! lowered aterm it can rewrite with a specification's rules.
 
 use merc_syntax::DataExpr;
+use merc_syntax::SourceMap;
 use merc_syntax::UntypedDataSpecification;
 use merc_typecheck::DataSpecification;
 use merc_typecheck::InferenceError;
@@ -188,7 +189,9 @@ fn test_applying_a_non_function_is_rejected() {
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_error_renders_a_source_snippet() {
     let err = lower_err("map f: Bool;", "x");
-    let rendered = err.render("x");
+    let mut sources = SourceMap::new();
+    sources.add_text("<expression>", "x");
+    let rendered = err.render(&sources);
     assert!(rendered.contains("-->"), "expected a caret snippet in: {rendered}");
 }
 

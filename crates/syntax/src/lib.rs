@@ -19,6 +19,8 @@ pub(crate) use syntax_tree::*;
 
 pub use counterexample_formula::generate_distinguishing_formula;
 pub use counterexample_formula::generate_refinement_formula;
+pub use merc_utilities::SourceId;
+pub use merc_utilities::SourceMap;
 pub use merc_utilities::Span;
 pub use parse::Mcrl2Parser;
 pub use parse::Rule;
