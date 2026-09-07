@@ -50,7 +50,10 @@ pub(crate) fn resolve_system_signature(
 
     for decl in &system.constructor_declarations {
         let id = resolve_system_sort(ctx, user_spec, &sort_ids, &decl.sort)?;
-        push_overload(signature.constructors.entry(decl.identifier.node.clone()).or_default(), id);
+        push_overload(
+            signature.constructors.entry(decl.identifier.node.clone()).or_default(),
+            id,
+        );
     }
     for decl in &system.map_declarations {
         let id = resolve_system_sort(ctx, user_spec, &sort_ids, &decl.sort)?;
@@ -109,7 +112,10 @@ pub(crate) fn resolve_system_signature_full(
         };
         for decl in &group.declarations.constructor_declarations {
             let id = resolve_system_sort(ctx, user_spec, &sort_ids, &decl.sort)?;
-            push_overload(signature.constructors.entry(decl.identifier.node.clone()).or_default(), id);
+            push_overload(
+                signature.constructors.entry(decl.identifier.node.clone()).or_default(),
+                id,
+            );
         }
         for decl in &group.declarations.map_declarations {
             let id = resolve_system_sort(ctx, user_spec, &sort_ids, &decl.sort)?;

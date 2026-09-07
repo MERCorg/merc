@@ -141,14 +141,20 @@ fn test_fixpoint_parameter_initial_value_upcasts_like_any_other_expression() {
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_undeclared_fixpoint_variable_is_rejected() {
     let error = check_err("mu X. Y");
-    assert!(matches!(error, ModalError::UndeclaredStateVariable { .. }), "got {error:?}");
+    assert!(
+        matches!(error, ModalError::UndeclaredStateVariable { .. }),
+        "got {error:?}"
+    );
 }
 
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_fixpoint_variable_out_of_scope_outside_its_body_is_rejected() {
     let error = check_err("(mu X. true) && X");
-    assert!(matches!(error, ModalError::UndeclaredStateVariable { .. }), "got {error:?}");
+    assert!(
+        matches!(error, ModalError::UndeclaredStateVariable { .. }),
+        "got {error:?}"
+    );
 }
 
 #[test]

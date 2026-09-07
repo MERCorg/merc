@@ -58,7 +58,7 @@ impl Names {
 }
 
 /// Rewrites every `proc` body and `init` in `spec` in place, fixing every misparsed `Condition`
-/// this module's doc comment describes. 
+/// this module's doc comment describes.
 pub fn disambiguate_process_specification(spec: &mut UntypedProcessSpecification) {
     let names = Names::build(spec);
     for decl in &mut spec.process_declarations {

@@ -50,7 +50,11 @@ pub fn random_boolean_data_expression<R: Rng, Id>(rng: &mut R, variables: &[IdDe
         candidates.push(binary(DataExprBinaryOp::LessThan, mv.clone(), number("2")));
         candidates.push(binary(DataExprBinaryOp::LessThan, mv.clone(), number("3")));
         for n in &integers {
-            candidates.push(binary(DataExprBinaryOp::Equal, mv.clone(), id(n.identifier.node.clone())));
+            candidates.push(binary(
+                DataExprBinaryOp::Equal,
+                mv.clone(),
+                id(n.identifier.node.clone()),
+            ));
         }
     }
 

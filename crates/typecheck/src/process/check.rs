@@ -219,7 +219,7 @@ enum Candidate {
 
 /// Resolves `name(args)` (an action instance or a positional process instantiation against both declaration tables, trying every
 /// candidate of the right arity and requiring exactly one to succeed.
-/// 
+///
 /// Each candidate is checked against its own scratch `TypingInfo`, merged into `typing` only once
 /// the single successful candidate is known — a failed or ultimately-ambiguous candidate's typing
 /// must never reach `typing`, since it would otherwise misreport a sort for the wrong overload at

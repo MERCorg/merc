@@ -1,16 +1,16 @@
 //! The scoped walk over the state formula: checks each `val(...)` expression —
 //! `Real`-valued at the state-formula level, `Bool`-valued at the
 //! action-formula level nested inside a `<...>`/ `[...]` modality.
-//! 
+//!
 //! To resolve a state variable's sort, the checker uses the `state_vars` stack,
 //! which pairs each fixpoint variable's declaration span with its declared
 //! parameter sorts.
 
 use std::collections::HashSet;
 
-use merc_syntax::Action;
 use merc_syntax::ActFrm;
 use merc_syntax::ActFrmKind;
+use merc_syntax::Action;
 use merc_syntax::DataExpr;
 use merc_syntax::RegFrm;
 use merc_syntax::RegFrmKind;
@@ -178,9 +178,16 @@ fn check_state_formula(
             span: formula.span.clone(),
         }),
 
-        StateFrmKind::Resolved(name, arguments, declaration) => {
-            check_state_var_inst(data, state_vars, scope, name, arguments, declaration, &formula.span, typing)
-        }
+        StateFrmKind::Resolved(name, arguments, declaration) => check_state_var_inst(
+            data,
+            state_vars,
+            scope,
+            name,
+            arguments,
+            declaration,
+            &formula.span,
+            typing,
+        ),
 
         StateFrmKind::DataValExpr(data_expr) => {
             let real_sort = data.context().sorts.real_sort();
@@ -387,7 +394,13 @@ fn check_action(
     let mut matched: Option<(usize, TypingInfo)> = None;
     for &index in &candidates {
         let mut candidate_typing = TypingInfo::default();
-        match check_action_arguments(data, scope, &action.args, &tables.action_domains[index], &mut candidate_typing) {
+        match check_action_arguments(
+            data,
+            scope,
+            &action.args,
+            &tables.action_domains[index],
+            &mut candidate_typing,
+        ) {
             Ok(()) => {
                 successes += 1;
                 matched = Some((index, candidate_typing));
