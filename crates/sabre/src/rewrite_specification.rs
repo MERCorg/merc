@@ -167,6 +167,7 @@ impl fmt::Display for Condition {
 
 #[cfg(test)]
 mod tests {
+    use merc_syntax::SourceMap;
     use merc_syntax::UntypedDataSpecification;
     use merc_typecheck::DataSpecification;
 
@@ -175,7 +176,7 @@ mod tests {
     /// Parses and type-checks the given mCRL2 data specification text.
     fn lower(source: &str) -> Mcrl2DataSpecification {
         let untyped = UntypedDataSpecification::parse(source).unwrap();
-        let data_spec = DataSpecification::from_untyped(untyped).unwrap();
+        let data_spec = DataSpecification::from_untyped(untyped, &mut SourceMap::new()).unwrap();
         data_spec.lower_data_specification()
     }
 
