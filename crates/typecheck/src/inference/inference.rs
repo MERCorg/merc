@@ -13,25 +13,24 @@ use merc_syntax::EquationId;
 use merc_syntax::IdDecl;
 use merc_syntax::Sort;
 use merc_syntax::SortExpression;
-use merc_syntax::SortExpressionKind;
 use merc_syntax::SourceMap;
 use merc_syntax::Span;
+use merc_syntax::TypeVarId;
 use merc_syntax::UntypedDataSpecification;
 use merc_syntax::VarId;
 use merc_utilities::TagIndex;
 
-use crate::BUILTIN_SCHEME_SIGNATURE;
 use crate::DisplaySortContext;
 use crate::InferSort;
 use crate::InferSortId;
-use crate::POLYMORPHIC_SIGNATURE;
-use crate::PolymorphicSignature;
+use crate::PolySortScheme;
 use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::Signature;
 use crate::SortInterner;
 use crate::TypeCheckContext;
 use crate::Unifier;
+use crate::build_builtin_scheme_signature;
 use crate::is_lowered;
 use crate::is_supported_binder_sort;
 use crate::number_generality;
@@ -470,10 +469,13 @@ fn infer<'a>(
     // because the generator needs the context mutably: resolving a
     // comprehension's binder sort interns sorts and fills the sort-of-def
     // cache mid-walk.
-    let (signature, polymorphic): (Arc<Signature>, &'static PolymorphicSignature) = match role {
+    //
+    // `builtin_schemes` is the *only* remaining source of polymorphic
+    // overloads for the System role.
+    let (signature, builtin_schemes): (Arc<Signature>, Arc<HashMap<String, Vec<PolySortScheme>>>) = match role {
         EquationRole::User => (
             Arc::clone(ctx.signature.as_ref().expect("build_signature ran before inference")),
-            &POLYMORPHIC_SIGNATURE,
+            Arc::new(HashMap::new()),
         ),
         EquationRole::System => (
             Arc::clone(
@@ -481,7 +483,7 @@ fn infer<'a>(
                     .get(*eqn_spec_id)
                     .expect("resolve_system_signature_full ran before inference"),
             ),
-            &BUILTIN_SCHEME_SIGNATURE,
+            build_builtin_scheme_signature(ctx),
         ),
     };
     let system_signature = Arc::clone(
@@ -505,7 +507,7 @@ fn infer<'a>(
         sort_ids,
         signature,
         system_signature,
-        polymorphic,
+        builtin_schemes,
         declared_sorts,
         unifier: &mut unifier,
         expr_sorts: Vec::new(),
@@ -840,7 +842,11 @@ struct ConstraintGenerator<'a> {
     signature: Arc<Signature>,
     /// Always the basic-sort system signature, regardless of `role`.
     system_signature: Arc<Signature>,
-    polymorphic: &'static PolymorphicSignature,
+    /// The narrow comparison/`if`-only scheme table consulted alongside
+    /// `signature`'s own `schemes`; see [`infer`]'s construction of this
+    /// field for why it differs by role. Empty for the User role, since
+    /// `ctx.signature.schemes` already covers everything polymorphic.
+    builtin_schemes: Arc<HashMap<String, Vec<PolySortScheme>>>,
     /// A `Resolved` node's declaration [VarId], mapped to its sort; see [`infer`]'s doc comment.
     declared_sorts: HashMap<VarId, InferSortId>,
     unifier: &'a mut Unifier,
@@ -1227,33 +1233,21 @@ impl<'a> ConstraintGenerator<'a> {
         }
 
         let mut disjuncts: Vec<(NameTarget, InferSortId)> = Vec::new();
-        let push_signature = |signature: &Signature, disjuncts: &mut Vec<_>, unifier: &mut Unifier| {
-            for overloads in [signature.constructors.get(name), signature.mappings.get(name)]
-                .into_iter()
-                .flatten()
-            {
-                for &overload in overloads {
-                    let target = NameTarget::Op { sort: overload };
-                    // The user and system specifications may declare the same
-                    // symbol; a duplicate disjunct would misreport ambiguity.
-                    if !disjuncts.iter().any(|(existing, _)| *existing == target) {
-                        disjuncts.push((target, unifier.resolved_node(overload)));
-                    }
-                }
-            }
-        };
+        let signature = Arc::clone(&self.signature);
+        let system_signature = Arc::clone(&self.system_signature);
+        self.push_signature_disjuncts(&signature, name, &mut disjuncts);
+        self.push_signature_disjuncts(&system_signature, name, &mut disjuncts);
 
-        push_signature(&self.signature, &mut disjuncts, self.unifier);
-        push_signature(&self.system_signature, &mut disjuncts, self.unifier);
-
-        // The polymorphic built-ins exist for every element sort, so they are
-        // schemes: the container and function-update operations (`in`, `#`,
-        // `|>`, `head`, ...) and the comparison operators and `if` alike. Each
-        // template overload is instantiated with fresh variables per occurrence,
-        // mirroring mCRL2's polymorphic symbol table; Phase-4 lowering recovers
-        // the concrete operation from the name and the inferred sort.
-        for overload in self.polymorphic.ops.get(name).into_iter().flatten() {
-            let instance = self.template_instance(overload);
+        // The comparison operators and `if` are not in either signature above
+        // for the System role (see `builtin_schemes`'s doc comment); for the
+        // User role this is always empty, since `self.signature.schemes`
+        // (part of `ctx.signature`, pushed above) already covers everything
+        // polymorphic. Each scheme overload is instantiated with fresh
+        // variables per occurrence, mirroring mCRL2's polymorphic symbol
+        // table; Phase-4 lowering recovers the concrete operation from the
+        // name and the inferred sort.
+        for scheme in self.builtin_schemes.clone().get(name).into_iter().flatten() {
+            let instance = self.instantiate_scheme(scheme.sort, &mut HashMap::new());
             disjuncts.push((NameTarget::Builtin, instance));
         }
 
@@ -1279,70 +1273,67 @@ impl<'a> ConstraintGenerator<'a> {
         }
     }
 
-    /// A fresh instance of a template overload: every sort variable (a
-    /// `Reference` node of the uninstantiated template, i.e. `S` or `T`)
-    /// becomes one fresh unification variable, shared between its occurrences.
-    fn template_instance(&mut self, sort: &SortExpression) -> InferSortId {
-        let mut variables = HashMap::new();
-        self.template_node(sort, &mut variables)
-    }
-
-    fn template_node(&mut self, sort: &SortExpression, variables: &mut HashMap<String, InferSortId>) -> InferSortId {
-        match &sort.node {
-            SortExpressionKind::Simple(sort) => {
-                let resolved = self.ctx.sorts.primitive(*sort);
-                self.unifier.resolved_node(resolved)
+    /// Pushes every overload of `name` found in `signature` — ground
+    /// (`constructors`/`mappings`) and polymorphic (`schemes`) alike — onto
+    /// `disjuncts`. `signature` is taken by value (an `Arc` clone, cheap) so
+    /// this can call [Self::instantiate_scheme] (which needs `&mut self`)
+    /// without borrowing `self.signature`/`self.system_signature` for the
+    /// duration.
+    fn push_signature_disjuncts(
+        &mut self,
+        signature: &Arc<Signature>,
+        name: &str,
+        disjuncts: &mut Vec<(NameTarget, InferSortId)>,
+    ) {
+        for overloads in [signature.constructors.get(name), signature.mappings.get(name)]
+            .into_iter()
+            .flatten()
+        {
+            for &overload in overloads {
+                let target = NameTarget::Op { sort: overload };
+                // The user and system specifications may declare the same
+                // symbol; a duplicate disjunct would misreport ambiguity.
+                if !disjuncts.iter().any(|(existing, _)| *existing == target) {
+                    disjuncts.push((target, self.unifier.resolved_node(overload)));
+                }
             }
-            SortExpressionKind::Complex(op, subsort) => {
-                let subsort = self.template_node(subsort, variables);
-                self.unifier.generic(*op, subsort)
-            }
-            SortExpressionKind::Function { domain, range } => {
-                let mut parameters = Vec::new();
-                self.template_domain(domain, variables, &mut parameters);
-                let range = self.template_node(range, variables);
-                self.unifier.function(parameters, range)
-            }
-            SortExpressionKind::FlattenedFunction { domain, range } => {
-                let parameters = domain
-                    .iter()
-                    .map(|parameter| self.template_node(parameter, variables))
-                    .collect();
-                let range = self.template_node(range, variables);
-                self.unifier.function(parameters, range)
-            }
-            SortExpressionKind::Reference(name) => *variables
-                .entry(name.clone())
-                .or_insert_with(|| self.unifier.fresh_var()),
-            SortExpressionKind::TypeVar(_) | SortExpressionKind::ResolvedTypeVar(_) => unreachable!(
-                "no template is parsed with a `type_var` block yet; a template's sort variables \
-                 are still plain Reference nodes, matched above by name. See the \
-                 unifying-polymorphism design: once templates declare their variables with \
-                 `type_var`, this arm should replace the Reference arm above, keyed by \
-                 TypeVarId instead of by name."
-            ),
-            SortExpressionKind::Resolved(_, _)
-            | SortExpressionKind::Struct { .. }
-            | SortExpressionKind::Product { .. } => {
-                unreachable!("the templates declare only primitive, container, function and variable sorts")
-            }
+        }
+        for scheme in signature.schemes.get(name).into_iter().flatten() {
+            let instance = self.instantiate_scheme(scheme.sort, &mut HashMap::new());
+            disjuncts.push((NameTarget::Builtin, instance));
         }
     }
 
-    /// Instantiates the leaves of a `Product` domain spine in declaration
-    /// order, the template counterpart of `resolve_function_domain`.
-    fn template_domain(
+    /// A fresh instance of a scheme's already-*interned* sort: every bound
+    /// [`ResolvedSort::Var`] it mentions becomes one fresh unification
+    /// variable, shared between its occurrences within this one
+    /// instantiation — this is what lets `S` mean "the same `S`" on both
+    /// sides of a use like `in: S # List(S) -> Bool`. Unlike the syntax-tree
+    /// walk this replaces, there is no separate `Reference`/name-keyed path
+    /// any more: every polymorphic template now declares its variable(s)
+    /// with a real `type_var` block (see `docs/polymorphism.md`), so `sort`
+    /// can only ever contain `Var`, never a name to match by string.
+    fn instantiate_scheme(
         &mut self,
-        sort: &SortExpression,
-        variables: &mut HashMap<String, InferSortId>,
-        domain: &mut Vec<InferSortId>,
-    ) {
-        match &sort.node {
-            SortExpressionKind::Product { lhs, rhs } => {
-                self.template_domain(lhs, variables, domain);
-                self.template_domain(rhs, variables, domain);
+        sort: ResolvedSortId,
+        type_vars: &mut HashMap<TypeVarId, InferSortId>,
+    ) -> InferSortId {
+        match self.ctx.sorts.get(sort).clone() {
+            ResolvedSort::Var(id) => *type_vars.entry(id).or_insert_with(|| self.unifier.fresh_var()),
+            ResolvedSort::Generic { op, subsort } => {
+                let subsort = self.instantiate_scheme(subsort, type_vars);
+                self.unifier.generic(op, subsort)
             }
-            _ => domain.push(self.template_node(sort, variables)),
+            ResolvedSort::Function { domain, range } => {
+                let domain = domain
+                    .iter()
+                    .map(|&sort| self.instantiate_scheme(sort, type_vars))
+                    .collect();
+                let range = self.instantiate_scheme(range, type_vars);
+                self.unifier.function(domain, range)
+            }
+            // Already ground — no variable can occur any deeper.
+            ResolvedSort::Unit | ResolvedSort::Primitive(_) | ResolvedSort::Def(_) => self.unifier.resolved_node(sort),
         }
     }
 }
@@ -1756,6 +1747,7 @@ mod tests {
     use merc_syntax::ComplexSort;
     use merc_syntax::EqnSpecId;
     use merc_syntax::EquationId;
+    use merc_syntax::SourceMap;
     use merc_syntax::UntypedDataSpecification;
 
     use crate::DataSpecification;
@@ -1768,12 +1760,12 @@ mod tests {
     use crate::WellTypedError;
 
     fn typed(text: &str) -> DataSpecification {
-        DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap())
+        DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap(), &mut SourceMap::new())
             .unwrap_or_else(|err| panic!("expected {text} to typecheck, got {err}"))
     }
 
     fn inference_error(text: &str) -> InferenceError {
-        match DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap()) {
+        match DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap(), &mut SourceMap::new()) {
             Err(WellTypedError::Inference(error)) => error,
             Err(other) => panic!("expected an inference error for {text}, got {other}"),
             Ok(_) => panic!("expected {text} to be rejected"),

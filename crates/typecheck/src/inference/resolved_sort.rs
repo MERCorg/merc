@@ -5,6 +5,7 @@ use std::fmt;
 use merc_syntax::ComplexSort;
 use merc_syntax::DefId;
 use merc_syntax::Sort;
+use merc_syntax::TypeVarId;
 use merc_syntax::UntypedDataSpecification;
 use merc_utilities::TagIndex;
 
@@ -51,6 +52,9 @@ pub(crate) enum ResolvedSort {
     /// to. Two `Def` sorts are equal only when they refer to the same
     /// declaration, and otherwise incomparable.
     Def(DefId),
+    /// A bound type variable, scoped to the polymorphic specification that
+    /// introduces it.
+    Var(TypeVarId),
 }
 
 impl ResolvedSort {
@@ -159,6 +163,8 @@ impl fmt::Display for DisplaySortContext<'_> {
                     write!(f, "@sort_{}", **def)
                 }
             }
+            // Debug logging only (per this struct's doc comment).
+            ResolvedSort::Var(id) => write!(f, "@S_{id}"),
         }
     }
 }
@@ -276,6 +282,13 @@ impl SortInterner {
     /// Interns the nominal sort for the given declaration.
     pub(crate) fn def(&mut self, def: DefId) -> ResolvedSortId {
         self.intern(ResolvedSort::Def(def))
+    }
+
+    /// Interns the bound type variable `id`. Two calls with the same `id`
+    /// return the same [ResolvedSortId], which is what makes two occurrences
+    /// of the same `type_var` inside one declaration denote the same sort.
+    pub(crate) fn var(&mut self, id: TypeVarId) -> ResolvedSortId {
+        self.intern(ResolvedSort::Var(id))
     }
 }
 
