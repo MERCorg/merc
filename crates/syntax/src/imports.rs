@@ -25,6 +25,29 @@ pub struct ImportDirective {
     pub path_span: Span,
 }
 
+/// An `%import "relative/path"` directive whose target couldn't be resolved.
+#[derive(Debug)]
+pub struct ImportError {
+    /// The relative path exactly as written in the directive (`directive.node.path`), not the
+    /// path it was resolved against the importing file's directory to.
+    pub path: String,
+    /// Span of the failing directive's own quoted path, at the importing file's global (shared
+    /// [SourceMap]) offset.
+    pub span: Span,
+    /// The underlying failure's own message — another [ImportError]'s [Display](std::fmt::Display)
+    /// output, one level further down, when the failure is a transitively imported file's own
+    /// unresolved import rather than this directive's target itself.
+    message: String,
+}
+
+impl std::fmt::Display for ImportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "cannot resolve %import \"{}\": {}", self.path, self.message)
+    }
+}
+
+impl std::error::Error for ImportError {}
+
 /// Scans `text` line by line for `%import "relative/path"` directives: a line,
 /// once its leading and trailing whitespace is trimmed, of the exact shape
 /// `%import "PATH"`.
@@ -200,7 +223,11 @@ impl<'a, T: ImportMergeable> Resolver<'a, T> {
             let import_path = directory.join(&directive.node.path);
             self.load(&import_path, output).map_err(|error| {
                 let span = Span::new(base + directive.span.start, base + directive.span.end);
-                format!("{error}\n{}", span.render(self.sources))
+                MercError::from(ImportError {
+                    path: directive.node.path.clone(),
+                    span,
+                    message: error.to_string(),
+                })
             })?;
         }
 
@@ -288,7 +315,11 @@ impl UntypedStateFrmSpec {
             let import_path = directory.join(&directive.node.path);
             resolver.load(&import_path, &mut imported).map_err(|error| {
                 let span = Span::new(base + directive.span.start, base + directive.span.end);
-                format!("{error}\n{}", span.render(resolver.sources))
+                MercError::from(ImportError {
+                    path: directive.node.path.clone(),
+                    span,
+                    message: error.to_string(),
+                })
             })?;
         }
 
@@ -443,6 +474,52 @@ mod tests {
         let error = UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources);
 
         assert!(error.is_err());
+    }
+
+    #[test]
+    fn test_parse_with_imports_reports_a_missing_import_as_a_structured_error() {
+        // A caller with access to the `SourceMap` (`merc-lsp`) needs more than a formatted
+        // string to place this as a real diagnostic: the offending `%import` directive's own
+        // path and span, downcastable straight out of the returned `MercError`.
+        let text = "%import \"missing.mcrl2\"\ninit delta;\n";
+        let dir = temp_project(&[("main.mcrl2", text)]);
+
+        let mut sources = SourceMap::new();
+        let error = UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
+            .expect_err("importing a nonexistent file must fail");
+
+        let import_error = error
+            .downcast_ref::<ImportError>()
+            .expect("expected a structured ImportError");
+        assert_eq!(import_error.path, "missing.mcrl2");
+        assert_eq!(import_error.span, Span::new(0, text.find('\n').unwrap()));
+    }
+
+    #[test]
+    fn test_parse_with_imports_reports_a_transitively_missing_import_against_the_root_files_own_directive() {
+        // `main.mcrl2` imports `common.mcrl2`, which itself imports something missing. The
+        // structured error that reaches `main.mcrl2`'s own caller must point at *its* own
+        // `%import "common.mcrl2"` line — the only one it can actually edit — not at
+        // `common.mcrl2`'s nested directive.
+        let main_text = "%import \"common.mcrl2\"\ninit delta;\n";
+        let dir = temp_project(&[(
+            "main.mcrl2",
+            main_text,
+        ), ("common.mcrl2", "%import \"missing.mcrl2\"\n")]);
+
+        let mut sources = SourceMap::new();
+        let error = UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
+            .expect_err("a transitively missing import must fail");
+
+        let import_error = error
+            .downcast_ref::<ImportError>()
+            .expect("expected a structured ImportError");
+        assert_eq!(import_error.path, "common.mcrl2");
+        assert_eq!(import_error.span, Span::new(0, main_text.find('\n').unwrap()));
+        assert!(
+            import_error.to_string().contains("missing.mcrl2"),
+            "expected the nested failure to still be mentioned in the message, got: {import_error}"
+        );
     }
 
     #[test]
