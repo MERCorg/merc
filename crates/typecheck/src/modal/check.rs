@@ -26,6 +26,7 @@ use crate::DataSpecification;
 use crate::ResolvedName;
 use crate::ResolvedSortId;
 use crate::TypingInfo;
+use crate::VariableSpans;
 use crate::checking::Scope;
 use crate::checking::check_expression_against;
 use crate::checking::collect_binder_sorts;
@@ -48,6 +49,7 @@ type StateVarStack = Vec<(StateVarId, Span, Vec<ResolvedSortId>)>;
 pub(super) fn check_modal_specification(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
+    variable_spans: &VariableSpans,
     spec: &UntypedStateFrmSpec,
 ) -> Result<TypingInfo, ModalError> {
     let mut typing = TypingInfo::default();
@@ -63,7 +65,15 @@ pub(super) fn check_modal_specification(
     collect_scope(data, &spec.formula, &mut scope, &mut sort_references, &mut typing)?;
 
     let mut state_vars = StateVarStack::new();
-    check_state_formula(data, tables, &scope, &mut state_vars, &spec.formula, &mut typing)?;
+    check_state_formula(
+        data,
+        tables,
+        &scope,
+        variable_spans,
+        &mut state_vars,
+        &spec.formula,
+        &mut typing,
+    )?;
 
     lsp_info::push_sort_references(data, &sort_references, &mut typing);
     Ok(typing)
@@ -170,6 +180,7 @@ fn check_state_formula(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
     scope: &Scope,
+    variable_spans: &VariableSpans,
     state_vars: &mut StateVarStack,
     formula: &StateFrm,
     typing: &mut TypingInfo,
@@ -180,7 +191,7 @@ fn check_state_formula(
         StateFrmKind::Delay(time) | StateFrmKind::Yaled(time) => match time {
             Some(time) => {
                 let real_sort = data.context().sorts.real_sort();
-                check_expression_against::<ModalError>(data, scope, time, real_sort, typing)
+                check_expression_against::<ModalError>(data, scope, variable_spans, time, real_sort, typing)
             }
             None => Ok(()),
         },
@@ -196,6 +207,7 @@ fn check_state_formula(
             data,
             state_vars,
             scope,
+            variable_spans,
             name,
             arguments,
             *declaration,
@@ -205,33 +217,35 @@ fn check_state_formula(
 
         StateFrmKind::DataValExpr(data_expr) => {
             let real_sort = data.context().sorts.real_sort();
-            check_expression_against::<ModalError>(data, scope, data_expr, real_sort, typing)
+            check_expression_against::<ModalError>(data, scope, variable_spans, data_expr, real_sort, typing)
         }
 
         StateFrmKind::DataValExprLeftMult(constant, expr) | StateFrmKind::DataValExprRightMult(expr, constant) => {
             let real_sort = data.context().sorts.real_sort();
-            check_expression_against::<ModalError>(data, scope, constant, real_sort, typing)?;
-            check_state_formula(data, tables, scope, state_vars, expr, typing)
+            check_expression_against::<ModalError>(data, scope, variable_spans, constant, real_sort, typing)?;
+            check_state_formula(data, tables, scope, variable_spans, state_vars, expr, typing)
         }
 
         StateFrmKind::Modality { formula: reg, expr, .. } => {
-            check_reg_formula(data, tables, scope, reg, typing)?;
-            check_state_formula(data, tables, scope, state_vars, expr, typing)
+            check_reg_formula(data, tables, scope, variable_spans, reg, typing)?;
+            check_state_formula(data, tables, scope, variable_spans, state_vars, expr, typing)
         }
 
-        StateFrmKind::Unary { expr, .. } => check_state_formula(data, tables, scope, state_vars, expr, typing),
+        StateFrmKind::Unary { expr, .. } => {
+            check_state_formula(data, tables, scope, variable_spans, state_vars, expr, typing)
+        }
 
         StateFrmKind::Binary { lhs, rhs, .. } => {
-            check_state_formula(data, tables, scope, state_vars, lhs, typing)?;
-            check_state_formula(data, tables, scope, state_vars, rhs, typing)
+            check_state_formula(data, tables, scope, variable_spans, state_vars, lhs, typing)?;
+            check_state_formula(data, tables, scope, variable_spans, state_vars, rhs, typing)
         }
 
         StateFrmKind::Quantifier { body, .. } | StateFrmKind::Bound { body, .. } => {
-            check_state_formula(data, tables, scope, state_vars, body, typing)
+            check_state_formula(data, tables, scope, variable_spans, state_vars, body, typing)
         }
 
         StateFrmKind::FixedPoint { variable, body, .. } => {
-            check_fixed_point(data, tables, scope, state_vars, variable, body, typing)
+            check_fixed_point(data, tables, scope, variable_spans, state_vars, variable, body, typing)
         }
     }
 }
@@ -245,6 +259,7 @@ fn check_fixed_point(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
     scope: &Scope,
+    variable_spans: &VariableSpans,
     state_vars: &mut StateVarStack,
     variable: &StateVarDecl,
     body: &StateFrm,
@@ -261,13 +276,13 @@ fn check_fixed_point(
             });
         }
         let sort = resolve_declared_sort(data, &argument.sort)?;
-        check_expression_against::<ModalError>(data, scope, &argument.expr, sort, typing)?;
+        check_expression_against::<ModalError>(data, scope, variable_spans, &argument.expr, sort, typing)?;
         params.push(sort);
     }
 
     let state_var_id = variable.id.expect("resolve_modal_variables ran before checking");
     state_vars.push((state_var_id, variable.span.clone(), params));
-    let result = check_state_formula(data, tables, scope, state_vars, body, typing);
+    let result = check_state_formula(data, tables, scope, variable_spans, state_vars, body, typing);
     state_vars.pop();
     result
 }
@@ -283,6 +298,7 @@ fn check_state_var_inst(
     data: &mut DataSpecification,
     state_vars: &StateVarStack,
     scope: &Scope,
+    variable_spans: &VariableSpans,
     name: &str,
     arguments: &[DataExpr],
     declaration: StateVarId,
@@ -313,7 +329,7 @@ fn check_state_var_inst(
     }
 
     for (argument, &sort) in arguments.iter().zip(params) {
-        check_expression_against::<ModalError>(data, scope, argument, sort, typing)?;
+        check_expression_against::<ModalError>(data, scope, variable_spans, argument, sort, typing)?;
     }
     Ok(())
 }
@@ -322,15 +338,18 @@ fn check_reg_formula(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
     scope: &Scope,
+    variable_spans: &VariableSpans,
     formula: &RegFrm,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
     match &formula.node {
-        RegFrmKind::Action(action) => check_action_formula(data, tables, scope, action, typing),
-        RegFrmKind::Iteration(inner) | RegFrmKind::Plus(inner) => check_reg_formula(data, tables, scope, inner, typing),
+        RegFrmKind::Action(action) => check_action_formula(data, tables, scope, variable_spans, action, typing),
+        RegFrmKind::Iteration(inner) | RegFrmKind::Plus(inner) => {
+            check_reg_formula(data, tables, scope, variable_spans, inner, typing)
+        }
         RegFrmKind::Sequence { lhs, rhs } | RegFrmKind::Choice { lhs, rhs } => {
-            check_reg_formula(data, tables, scope, lhs, typing)?;
-            check_reg_formula(data, tables, scope, rhs, typing)
+            check_reg_formula(data, tables, scope, variable_spans, lhs, typing)?;
+            check_reg_formula(data, tables, scope, variable_spans, rhs, typing)
         }
     }
 }
@@ -339,6 +358,7 @@ fn check_action_formula(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
     scope: &Scope,
+    variable_spans: &VariableSpans,
     formula: &ActFrm,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
@@ -347,23 +367,23 @@ fn check_action_formula(
 
         ActFrmKind::MultAct(multi_action) => {
             for action in &multi_action.actions {
-                check_action(data, tables, scope, action, typing)?;
+                check_action(data, tables, scope, variable_spans, action, typing)?;
             }
             Ok(())
         }
 
         ActFrmKind::DataExprVal(data_expr) => {
             let bool_sort = data.context().sorts.bool_sort();
-            check_expression_against::<ModalError>(data, scope, data_expr, bool_sort, typing)
+            check_expression_against::<ModalError>(data, scope, variable_spans, data_expr, bool_sort, typing)
         }
 
-        ActFrmKind::Negation(inner) => check_action_formula(data, tables, scope, inner, typing),
+        ActFrmKind::Negation(inner) => check_action_formula(data, tables, scope, variable_spans, inner, typing),
 
-        ActFrmKind::Quantifier { body, .. } => check_action_formula(data, tables, scope, body, typing),
+        ActFrmKind::Quantifier { body, .. } => check_action_formula(data, tables, scope, variable_spans, body, typing),
 
         ActFrmKind::Binary { lhs, rhs, .. } => {
-            check_action_formula(data, tables, scope, lhs, typing)?;
-            check_action_formula(data, tables, scope, rhs, typing)
+            check_action_formula(data, tables, scope, variable_spans, lhs, typing)?;
+            check_action_formula(data, tables, scope, variable_spans, rhs, typing)
         }
     }
 }
@@ -380,6 +400,7 @@ fn check_action(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
     scope: &Scope,
+    variable_spans: &VariableSpans,
     action: &Action,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
@@ -408,6 +429,7 @@ fn check_action(
         match check_action_arguments(
             data,
             scope,
+            variable_spans,
             &action.args,
             &tables.action_domains[index],
             &mut candidate_typing,
@@ -451,12 +473,13 @@ fn check_action(
 fn check_action_arguments(
     data: &mut DataSpecification,
     scope: &Scope,
+    variable_spans: &VariableSpans,
     args: &[DataExpr],
     expected: &[ResolvedSortId],
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
     for (arg, &sort) in args.iter().zip(expected) {
-        check_expression_against::<ModalError>(data, scope, arg, sort, typing)?;
+        check_expression_against::<ModalError>(data, scope, variable_spans, arg, sort, typing)?;
     }
     Ok(())
 }

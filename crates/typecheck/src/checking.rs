@@ -12,6 +12,7 @@ use crate::DataSpecification;
 use crate::InferenceError;
 use crate::ResolvedSortId;
 use crate::TypingInfo;
+use crate::VariableSpans;
 use crate::WellTypedError;
 use crate::infer_expression_in_scope;
 use crate::lower_data_expr;
@@ -43,6 +44,7 @@ where
 pub(crate) fn check_expression_against<E>(
     data: &mut DataSpecification,
     scope: &Scope,
+    variable_spans: &VariableSpans,
     expr: &DataExpr,
     expected: ResolvedSortId,
     typing: &mut TypingInfo,
@@ -53,7 +55,7 @@ where
     let lowered = prepare_expression::<E>(data, expr)?;
     let (ctx, spec, system) = data.context_and_specs_mut();
     let equation_typing = infer_expression_in_scope(ctx, spec, system, &lowered, scope, Some(expected))?;
-    typing.merge(lsp_info::build(data, &equation_typing));
+    typing.merge(lsp_info::build(data, &equation_typing, variable_spans));
     Ok(())
 }
 

@@ -52,7 +52,7 @@ fn test_prop_var_inst_argument_hover_reports_declared_sort() {
     assert_eq!(hover("pres mu X(n: Nat) = val(n); init X(1);", "1);"), "Pos");
 }
 
-/// The declaration `VarId` carried by a `Variable` resolution is the actual goto-definition
+/// The declaration span carried by a `Variable` resolution is the actual goto-definition
 /// target: stable and shared between the equation's own parameter and its (self-recursive)
 /// occurrence.
 #[test]
