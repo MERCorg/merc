@@ -298,7 +298,6 @@ impl Checker<'_> {
 
 #[cfg(test)]
 mod tests {
-    use merc_syntax::SourceMap;
     use merc_syntax::UntypedDataSpecification;
 
     use crate::DataSpecification;
@@ -308,7 +307,7 @@ mod tests {
     /// Runs the checker on the system specification generated for `text`,
     /// verifying the real templates rather than trusting them.
     fn check_generated(text: &str) {
-        let spec = DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap(), &mut SourceMap::new()).unwrap();
+        let spec = DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap()).unwrap();
         check_system_specification(spec.data_specification(), spec.system_defined_specification())
             .unwrap_or_else(|err| panic!("the system specification of '{text}' is malformed: {err}"));
     }
