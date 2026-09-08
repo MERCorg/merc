@@ -24,6 +24,7 @@ use merc_tools::Version;
 use merc_tools::VersionFlag;
 use merc_tools::report_error;
 use merc_typecheck::DataSpecification;
+use merc_typecheck::NumberEncoding;
 use merc_unsafety::print_allocator_metrics;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
@@ -222,7 +223,11 @@ fn handle_command(commands: Option<Commands>, timing: &Timing) -> Result<(), Mer
                         let (untyped_spec, _source_id) =
                             UntypedDataSpecification::parse_with_imports(&args.specification, &mut sources)?;
 
-                        let mut data_spec = match DataSpecification::from_untyped(untyped_spec) {
+                        let mut data_spec = match DataSpecification::from_untyped_with(
+                            untyped_spec,
+                            NumberEncoding::default(),
+                            &mut sources,
+                        ) {
                             Ok(data_spec) => data_spec,
                             Err(err) => return Err(err.render(&sources).into()),
                         };
@@ -271,10 +276,11 @@ fn handle_command(commands: Option<Commands>, timing: &Timing) -> Result<(), Mer
                     println!("{untyped_spec}");
                 }
 
-                let data_spec = match DataSpecification::from_untyped(untyped_spec) {
-                    Ok(data_spec) => data_spec,
-                    Err(err) => return Err(err.render(&sources).into()),
-                };
+                let data_spec =
+                    match DataSpecification::from_untyped_with(untyped_spec, NumberEncoding::default(), &mut sources) {
+                        Ok(data_spec) => data_spec,
+                        Err(err) => return Err(err.render(&sources).into()),
+                    };
 
                 if show_all || args.ir {
                     println!("=== IR (resolved user declarations) ===\n");
