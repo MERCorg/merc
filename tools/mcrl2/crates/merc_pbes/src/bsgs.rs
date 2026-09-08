@@ -217,6 +217,7 @@ impl Bsgs {
     /// Cost: Σ |U_i| transversal scans, one comparison per surviving candidate for
     /// each skipped position, and one composition per surviving candidate per
     /// level — versus |orbit|·n for the naive BFS.
+    #[allow(dead_code)]
     pub(crate) fn canonicalize(&self, state: &[usize], param_offset: usize) -> Vec<usize> {
         let mut out = Vec::with_capacity(state.len());
         self.canonicalize_into(state, param_offset, &mut CanonicalizeContext::default(), &mut out);

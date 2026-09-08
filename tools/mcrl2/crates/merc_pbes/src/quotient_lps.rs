@@ -1,3 +1,6 @@
+use std::io::Error;
+use std::io::ErrorKind;
+use std::io::Read;
 use std::io::Write as _;
 use std::process::Command;
 use std::process::Stdio;
@@ -5,6 +8,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use itertools::Itertools;
+use log::debug;
 use log::info;
 use merc_explore::LPS;
 use merc_explore::StateEffect;
@@ -38,19 +42,19 @@ impl GapLexminSession {
 
         let mut stdin = child.stdin.take().expect("GAP stdin should be piped");
 
-        let gens_joined = gens.iter().map(|p| permutation_to_gap_cycles(p, n)).join(", ");
+        let gens_joined = if gens.is_empty() {
+            String::from("()")
+        } else {
+            gens.iter().map(|p| permutation_to_gap_cycles(p, n)).join(", ")
+        };
         let setup = format!("G := Group({gens_joined});; elems := Elements(G);; Print(\"LEXMIN-READY\\n\");\n");
+        debug!("GAP setup command: {}", setup);
         stdin.write_all(setup.as_bytes()).expect("write to GAP stdin");
         stdin.flush().expect("flush GAP stdin");
 
-        // Read until the setup sentinel while stdin is still open (GAP may
-        // buffer output otherwise).  drop(stdin) closes the write end so that
-        // GAP sees EOF on stdin only after the session is dropped.
+        // Read until the setup sentinel while stdin is still open.
         let mut stdout = child.stdout.take().expect("GAP stdout should be piped");
-        let ready = read_until_sentinel(&mut stdout, "LEXMIN-READY");
-        if ready.is_none() {
-            panic!("GAP session startup failed: group setup sentinel not found");
-        }
+        let ready = read_until_sentinel(&mut stdout, "LEXMIN-READY").expect("GAP session startup failed");
 
         // Put stdin and stdout back into the Child so they survive for later
         // queries.
@@ -78,6 +82,7 @@ impl GapLexminSession {
         let query = format!(
             "Print(\"LEXMIN-BEGIN\\n\"); Print(Minimum(List(elems, g -> Permuted({params_str}, g))), \"\\n\"); Print(\"LEXMIN-END\\n\");\n"
         );
+        debug!("GAP lex-min query: {}", query);
         stdin.write_all(query.as_bytes()).expect("write lex-min query");
         stdin.flush().expect("flush lex-min query");
 
@@ -106,20 +111,31 @@ impl Drop for GapLexminSession {
 
 /// Read from `reader` until ` sentinel` is found.  Returns the accumulated
 /// output **before** the sentinel, or `None` if EOF was reached first.
-fn read_until_sentinel(reader: &mut impl std::io::Read, sentinel: &str) -> Option<String> {
+fn read_until_sentinel<R: Read>(reader: &mut R, sentinel: &str) -> std::io::Result<String> {
     let mut buf = String::new();
     let mut tmp = [0u8; 1024];
     loop {
-        let n = reader.read(&mut tmp).ok()?;
+        let n = reader.read(&mut tmp)?;
         if n == 0 {
-            return None;
+            return Err(Error::new(
+                ErrorKind::UnexpectedEof,
+                format!("{sentinel} not found in: {buf}"),
+            ));
         }
+
         // SAFETY: GAP only produces ASCII output.
         buf.push_str(&String::from_utf8_lossy(&tmp[..n]));
         if let Some(pos) = buf.find(sentinel) {
-            return Some(buf[..pos].to_string());
+            debug!("GAP response before sentinel '{}': {}", sentinel, &buf[..pos]);
+            return Ok(buf[..pos].to_string());
         }
     }
+
+    Err(Error::new(
+        ErrorKind::UnexpectedEof,
+        format!("sentinel not found in {}", buf).as_str(),
+    )
+    .into())
 }
 
 /// Parse the flat integer list that GAP printed between `LEXMIN-BEGIN` and

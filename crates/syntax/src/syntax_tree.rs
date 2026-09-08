@@ -909,7 +909,7 @@ impl From<PbesExprKind> for PbesExpr {
     }
 }
 
-#[derive(Clone,Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Eq {
     EqInf,
     EqnInf,
