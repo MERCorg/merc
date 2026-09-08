@@ -22,6 +22,8 @@
 % and sums. When @fset_cons is a constructor unordered lists are generated, for which the rewrite rules
 % below do not work properly.
 
+type_var S;
+
 cons {} : FSet(S);
      @fset_insert: S # FSet(S) -> FSet(S);
 

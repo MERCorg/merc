@@ -10,6 +10,8 @@
 
 
 
+type_var S;
+
 cons [] : List(S);
      |> : S # List(S) -> List(S);
 

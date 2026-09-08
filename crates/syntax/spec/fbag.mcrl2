@@ -23,6 +23,8 @@
 % sum operators. Now it is the case that too many bags will be generated when evaluating for instance a sum operator,
 % but they are at least not incorrect.
 
+type_var S;
+
 cons {:} : FBag(S);
      @fbag_insert : S # Pos # FBag(S) -> FBag(S);
 

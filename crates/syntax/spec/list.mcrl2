@@ -8,6 +8,8 @@
 %
 % Specification of the List data sort.
 
+type_var S;
+
 cons []: List(S);
      |>: S # List(S) -> List(S);
 
