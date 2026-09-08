@@ -8,51 +8,128 @@ use merc_syntax::ComplexSort;
 use merc_syntax::ConstructorDecl;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SourceMap;
 use merc_syntax::Traverse;
+use merc_syntax::TypeVarId;
 use merc_syntax::UntypedDataSpecification;
 use merc_utilities::MercError;
 
 use crate::BASIC_SORT_NAMES;
 use crate::NumberEncoding;
 use crate::apply_sorts_in_spec;
+use crate::resolve_type_var_ids;
 
-/// Parses a bundled `spec/*.mcrl2` file..
-fn parse_template(text: &str) -> UntypedDataSpecification {
-    UntypedDataSpecification::parse(text).expect("the bundled templates parse")
+/// Parses a bundled `spec/*.mcrl2` file, or an equally self-contained
+/// hand-written template string (`BUILTIN_SCHEME_TEMPLATE`), with no
+/// `SourceMap` involved: the result's spans are meaningless outside `text`
+/// itself. Used for [CONTAINER_TEMPLATES] and `BUILTIN_SCHEME_TEMPLATE`,
+/// the two sources `build_polymorphic_schemes` draws from — nothing built
+/// this way is ever rendered.
+pub(crate) fn parse_template_bare(text: &str) -> UntypedDataSpecification {
+    let mut spec = UntypedDataSpecification::parse(text).expect("the bundled templates parse");
+    resolve_type_var_ids(&mut spec).expect("the bundled template's type_var block resolves");
+    spec
+}
+
+/// Registers `text` under `name` as a virtual source in `sources` (see
+/// [SourceMap::add_virtual]) and parses it padded to that registration's base
+/// offset, so every span pest reports already lands at the correct global
+/// offset — the same padding technique [merc_syntax::imports] uses for
+/// `%import`.
+fn parse_template(sources: &mut SourceMap, name: &str, text: &str) -> UntypedDataSpecification {
+    parse_generated(sources, name, text).expect("the bundled templates parse")
+}
+
+/// As [parse_template], but for content this module generated itself
+/// (`formatdoc!`/`write!` output rather than a bundled `spec/*.mcrl2` file)
+/// and so, unlike a bundled template, might not parse — a bug in the
+/// generator rather than in a `spec/*.mcrl2` file. Returns the parse error
+/// instead of panicking, so a caller can report it.
+fn parse_generated(sources: &mut SourceMap, name: &str, text: &str) -> Result<UntypedDataSpecification, MercError> {
+    let id = sources.add_virtual(name, text.to_string());
+    let base = sources.base_offset(id);
+    let padded = " ".repeat(base) + text;
+    let mut spec = UntypedDataSpecification::parse(&padded)?;
+    // As in `parse_template_bare`: resolves a template's own `type_var` block, if
+    // it has one. Content this module generates itself (`multi_argument_function_update`,
+    // `structured_sort_equations`) never declares one, so this is a no-op there.
+    resolve_type_var_ids(&mut spec)?;
+    Ok(spec)
 }
 
 /// The merged specifications of the five basic sorts (Appendix B.1–B.7) in the
-/// recursive binary encoding, parsed once like the Pratt parsers of
-/// `merc_syntax`.
-static BASIC_SORTS_BINARY: LazyLock<UntypedDataSpecification> = LazyLock::new(|| {
+/// recursive binary encoding, registered into `sources` as virtual documents.
+fn basic_sorts_binary(sources: &mut SourceMap) -> UntypedDataSpecification {
     let mut result = UntypedDataSpecification::default();
-    result.merge(&parse_template(include_str!("../../../syntax/spec/bool.mcrl2")));
-    result.merge(&parse_template(include_str!("../../../syntax/spec/pos.mcrl2")));
-    result.merge(&parse_template(include_str!("../../../syntax/spec/int.mcrl2")));
-    result.merge(&parse_template(include_str!("../../../syntax/spec/nat.mcrl2")));
-    result.merge(&parse_template(include_str!("../../../syntax/spec/real.mcrl2")));
+    result.merge(&parse_template(
+        sources,
+        "<builtin>/bool.mcrl2",
+        include_str!("../../../syntax/spec/bool.mcrl2"),
+    ));
+    result.merge(&parse_template(
+        sources,
+        "<builtin>/pos.mcrl2",
+        include_str!("../../../syntax/spec/pos.mcrl2"),
+    ));
+    result.merge(&parse_template(
+        sources,
+        "<builtin>/int.mcrl2",
+        include_str!("../../../syntax/spec/int.mcrl2"),
+    ));
+    result.merge(&parse_template(
+        sources,
+        "<builtin>/nat.mcrl2",
+        include_str!("../../../syntax/spec/nat.mcrl2"),
+    ));
+    result.merge(&parse_template(
+        sources,
+        "<builtin>/real.mcrl2",
+        include_str!("../../../syntax/spec/real.mcrl2"),
+    ));
     result
-});
+}
 
 /// The same five basic sorts in the 64-bit machine-word encoding. `Bool` is
 /// shared with the binary encoding; the numeric sorts come from the `*64`
 /// templates, which are defined in terms of the `@word` sort that
 /// `machine_word.mcrl2` declares.
-static BASIC_SORTS_MACHINE_WORD: LazyLock<UntypedDataSpecification> = LazyLock::new(|| {
+fn basic_sorts_machine_word(sources: &mut SourceMap) -> UntypedDataSpecification {
     let mut result = UntypedDataSpecification::default();
-    result.merge(&parse_template(include_str!("../../../syntax/spec/bool.mcrl2")));
-    result.merge(&parse_template(include_str!("../../../syntax/spec/machine_word.mcrl2")));
-    result.merge(&parse_template(include_str!("../../../syntax/spec/pos64.mcrl2")));
-    result.merge(&parse_template(include_str!("../../../syntax/spec/int64.mcrl2")));
-    result.merge(&parse_template(include_str!("../../../syntax/spec/nat64.mcrl2")));
-    result.merge(&parse_template(include_str!("../../../syntax/spec/real64.mcrl2")));
+    result.merge(&parse_template(
+        sources,
+        "<builtin>/bool.mcrl2",
+        include_str!("../../../syntax/spec/bool.mcrl2"),
+    ));
+    result.merge(&parse_template(
+        sources,
+        "<builtin>/machine_word.mcrl2",
+        include_str!("../../../syntax/spec/machine_word.mcrl2"),
+    ));
+    result.merge(&parse_template(
+        sources,
+        "<builtin>/pos64.mcrl2",
+        include_str!("../../../syntax/spec/pos64.mcrl2"),
+    ));
+    result.merge(&parse_template(
+        sources,
+        "<builtin>/int64.mcrl2",
+        include_str!("../../../syntax/spec/int64.mcrl2"),
+    ));
+    result.merge(&parse_template(
+        sources,
+        "<builtin>/nat64.mcrl2",
+        include_str!("../../../syntax/spec/nat64.mcrl2"),
+    ));
+    result.merge(&parse_template(
+        sources,
+        "<builtin>/real64.mcrl2",
+        include_str!("../../../syntax/spec/real64.mcrl2"),
+    ));
     result
-});
+}
 
 /// The raw, uninstantiated container and function-update templates, parsed
-/// once. The sort names `S` and `T` are the templates' sort variables: they
-/// remain unresolved `Reference` nodes, to be substituted ([standard_sort]) or
-/// instantiated with fresh unification variables (`POLYMORPHIC_SIGNATURE`).
+/// once.
 pub(crate) struct ContainerTemplates {
     list: UntypedDataSpecification,
     set: UntypedDataSpecification,
@@ -76,38 +153,107 @@ impl ContainerTemplates {
     }
 }
 
-/// The container templates in the recursive binary encoding.
+/// The container templates in the recursive binary encoding, only used for the
+/// signatures.
 ///
 /// This is also the set the polymorphic signature is built from: the `*64`
 /// templates declare exactly the same operations with the same sorts (they
-/// differ only in their defining equations), so the *signature* of the container
-/// operations does not depend on the number encoding.
+/// differ only in their defining equations), so the *signature* of the
+/// container operations does not depend on the number encoding.
 pub(crate) static CONTAINER_TEMPLATES: LazyLock<ContainerTemplates> = LazyLock::new(|| ContainerTemplates {
-    list: parse_template(include_str!("../../../syntax/spec/list.mcrl2")),
-    set: parse_template(include_str!("../../../syntax/spec/set.mcrl2")),
-    fset: parse_template(include_str!("../../../syntax/spec/fset.mcrl2")),
-    bag: parse_template(include_str!("../../../syntax/spec/bag.mcrl2")),
-    fbag: parse_template(include_str!("../../../syntax/spec/fbag.mcrl2")),
-    function_update: parse_template(include_str!("../../../syntax/spec/function_update.mcrl2")),
+    list: parse_template_bare(include_str!("../../../syntax/spec/list.mcrl2")),
+    set: parse_template_bare(include_str!("../../../syntax/spec/set.mcrl2")),
+    fset: parse_template_bare(include_str!("../../../syntax/spec/fset.mcrl2")),
+    bag: parse_template_bare(include_str!("../../../syntax/spec/bag.mcrl2")),
+    fbag: parse_template_bare(include_str!("../../../syntax/spec/fbag.mcrl2")),
+    function_update: parse_template_bare(include_str!("../../../syntax/spec/function_update.mcrl2")),
 });
+
+/// The container templates in the recursive binary encoding, registered into
+/// `sources` as virtual documents — the content-producing counterpart of
+/// [CONTAINER_TEMPLATES], used wherever the result joins a [DataSpecification]'s
+/// `system` and so needs spans that render correctly.
+///
+/// [DataSpecification]: crate::DataSpecification
+fn container_templates_binary(sources: &mut SourceMap) -> ContainerTemplates {
+    ContainerTemplates {
+        list: parse_template(
+            sources,
+            "<builtin>/list.mcrl2",
+            include_str!("../../../syntax/spec/list.mcrl2"),
+        ),
+        set: parse_template(
+            sources,
+            "<builtin>/set.mcrl2",
+            include_str!("../../../syntax/spec/set.mcrl2"),
+        ),
+        fset: parse_template(
+            sources,
+            "<builtin>/fset.mcrl2",
+            include_str!("../../../syntax/spec/fset.mcrl2"),
+        ),
+        bag: parse_template(
+            sources,
+            "<builtin>/bag.mcrl2",
+            include_str!("../../../syntax/spec/bag.mcrl2"),
+        ),
+        fbag: parse_template(
+            sources,
+            "<builtin>/fbag.mcrl2",
+            include_str!("../../../syntax/spec/fbag.mcrl2"),
+        ),
+        function_update: parse_template(
+            sources,
+            "<builtin>/function_update.mcrl2",
+            include_str!("../../../syntax/spec/function_update.mcrl2"),
+        ),
+    }
+}
 
 /// The container templates whose equations are expressed in terms of the
 /// machine-word numeric sorts. `function_update.mcrl2` mentions no numbers, so
 /// it is shared with the binary encoding.
-static CONTAINER_TEMPLATES_MACHINE_WORD: LazyLock<ContainerTemplates> = LazyLock::new(|| ContainerTemplates {
-    list: parse_template(include_str!("../../../syntax/spec/list64.mcrl2")),
-    set: parse_template(include_str!("../../../syntax/spec/set64.mcrl2")),
-    fset: parse_template(include_str!("../../../syntax/spec/fset64.mcrl2")),
-    bag: parse_template(include_str!("../../../syntax/spec/bag64.mcrl2")),
-    fbag: parse_template(include_str!("../../../syntax/spec/fbag64.mcrl2")),
-    function_update: parse_template(include_str!("../../../syntax/spec/function_update.mcrl2")),
-});
+fn container_templates_machine_word(sources: &mut SourceMap) -> ContainerTemplates {
+    ContainerTemplates {
+        list: parse_template(
+            sources,
+            "<builtin>/list64.mcrl2",
+            include_str!("../../../syntax/spec/list64.mcrl2"),
+        ),
+        set: parse_template(
+            sources,
+            "<builtin>/set64.mcrl2",
+            include_str!("../../../syntax/spec/set64.mcrl2"),
+        ),
+        fset: parse_template(
+            sources,
+            "<builtin>/fset64.mcrl2",
+            include_str!("../../../syntax/spec/fset64.mcrl2"),
+        ),
+        bag: parse_template(
+            sources,
+            "<builtin>/bag64.mcrl2",
+            include_str!("../../../syntax/spec/bag64.mcrl2"),
+        ),
+        fbag: parse_template(
+            sources,
+            "<builtin>/fbag64.mcrl2",
+            include_str!("../../../syntax/spec/fbag64.mcrl2"),
+        ),
+        function_update: parse_template(
+            sources,
+            "<builtin>/function_update.mcrl2",
+            include_str!("../../../syntax/spec/function_update.mcrl2"),
+        ),
+    }
+}
 
-/// The container templates to instantiate for `encoding`.
-fn container_templates(encoding: NumberEncoding) -> &'static ContainerTemplates {
+/// The container templates to instantiate for `encoding`, registered into
+/// `sources` so their spans render correctly.
+fn container_templates(sources: &mut SourceMap, encoding: NumberEncoding) -> ContainerTemplates {
     match encoding {
-        NumberEncoding::Binary => &CONTAINER_TEMPLATES,
-        NumberEncoding::MachineWord => &CONTAINER_TEMPLATES_MACHINE_WORD,
+        NumberEncoding::Binary => container_templates_binary(sources),
+        NumberEncoding::MachineWord => container_templates_machine_word(sources),
     }
 }
 
@@ -121,10 +267,10 @@ fn container_templates(encoding: NumberEncoding) -> &'static ContainerTemplates 
 /// live in `crate::BUILTIN_SCHEME_TEMPLATE`, resolved through
 /// `POLYMORPHIC_SIGNATURE` like the container operations) rather than declaring
 /// one overload per sort.
-pub(crate) fn builtin_operator_equations(sort: &str) -> UntypedDataSpecification {
+pub(crate) fn builtin_operator_equations(sources: &mut SourceMap, sort: &str) -> UntypedDataSpecification {
     // The variable names are qualified by sort so that merging the blocks of
     // several sorts cannot collide, here or with a user declaration.
-    parse_template(&formatdoc! {"
+    let text = formatdoc! {"
         var x_{sort}, y_{sort}: {sort};
         eqn x_{sort} == x_{sort} = true;
             x_{sort} != y_{sort} = !(x_{sort} == y_{sort});
@@ -134,26 +280,36 @@ pub(crate) fn builtin_operator_equations(sort: &str) -> UntypedDataSpecification
             x_{sort} >= y_{sort} = y_{sort} <= x_{sort};
             if(true, x_{sort}, y_{sort}) = x_{sort};
             if(false, x_{sort}, y_{sort}) = y_{sort};
-    "})
+    "};
+    parse_template(sources, &format!("<builtin>/schemes/{sort}.mcrl2"), &text)
 }
 
 /// Returns a standard data specification containing the standard sorts and their
-/// associated constructors, mappings, and equations, in the given `encoding`.
-pub(crate) fn basic_sort_data_specification(encoding: NumberEncoding) -> UntypedDataSpecification {
+/// associated constructors, mappings, and equations, in the given `encoding`,
+/// registered into `sources`.
+pub(crate) fn basic_sort_data_specification(
+    sources: &mut SourceMap,
+    encoding: NumberEncoding,
+) -> UntypedDataSpecification {
     let mut result = match encoding {
-        NumberEncoding::Binary => BASIC_SORTS_BINARY.clone(),
-        NumberEncoding::MachineWord => BASIC_SORTS_MACHINE_WORD.clone(),
+        NumberEncoding::Binary => basic_sorts_binary(sources),
+        NumberEncoding::MachineWord => basic_sorts_machine_word(sources),
     };
 
     for sort in BASIC_SORT_NAMES {
-        result.merge(&builtin_operator_equations(sort));
+        result.merge(&builtin_operator_equations(sources, sort));
     }
     result
 }
 
-/// Constructs a data specification for a standard sort, in the given `encoding`.
-pub(crate) fn standard_sort(sort: &SortExpression, encoding: NumberEncoding) -> UntypedDataSpecification {
-    let templates = container_templates(encoding);
+/// Constructs a data specification for a standard sort, in the given
+/// `encoding`, registered into `sources`.
+pub(crate) fn standard_sort(
+    sources: &mut SourceMap,
+    sort: &SortExpression,
+    encoding: NumberEncoding,
+) -> UntypedDataSpecification {
+    let templates = container_templates(sources, encoding);
 
     if let SortExpressionKind::Complex(complex, sort) = &sort.node {
         let template = match complex {
@@ -173,7 +329,7 @@ pub(crate) fn standard_sort(sort: &SortExpression, encoding: NumberEncoding) -> 
         // A multi-argument function sort: the bundled template's single index
         // variable `S` cannot stand for a product, so its equations are built
         // directly instead of substituted into the template.
-        multi_argument_function_update(domain, range)
+        multi_argument_function_update(sources, domain, range)
     } else {
         unreachable!("The given sort {} is not a standard sort", sort);
     }
@@ -194,6 +350,7 @@ pub(crate) fn standard_sort(sort: &SortExpression, encoding: NumberEncoding) -> 
 /// updates. This mirrors [structured_sort_equations]'s `lexicographic` helper,
 /// which solves the same problem for a constructor's argument tuple.
 pub(crate) fn multi_argument_function_update(
+    sources: &mut SourceMap,
     domain: &[SortExpression],
     range: &SortExpression,
 ) -> UntypedDataSpecification {
@@ -304,40 +461,62 @@ pub(crate) fn multi_argument_function_update(
     )
     .unwrap();
 
-    UntypedDataSpecification::parse(&spec).unwrap_or_else(|err| {
+    parse_generated(
+        sources,
+        &format!("<generated>/function_update({domain_sorts} -> {range}).mcrl2"),
+        &spec,
+    )
+    .unwrap_or_else(|err| {
         panic!(
             "the generated multi-argument function update for '{domain_sorts} -> {range}' does not parse: {err}\n{spec}"
         )
     })
 }
 
-/// Replaces the given identifier by the given sort expression in the given data
-/// specification.
+/// Replaces the given `type_var`-declared identifier by the given sort
+/// expression in the given data specification.
 ///
 /// # Details
 ///
 /// This function can be used to instantiate polymorphic types, for example,
-/// replacing identifier `S` in the specification for `List(S)` by `Nat` to get
-/// a specification for `List(Nat)`. The substitution covers every sort in the
+/// replacing `spec`'s bound type variable `S` (declared by `spec`'s own
+/// `type_var S;` block) by `Nat` to get a specification for `List(Nat)` out
+/// of the `List(S)` template. The substitution covers every sort in the
 /// specification, including the binder sorts inside equations (`forall c:S.`
 /// in the set/bag templates).
+///
+/// `identifier` is looked up in `spec.type_var_declarations` to find the
+/// [TypeVarId] name resolution already assigned it.
 fn replace_sort(spec: &UntypedDataSpecification, identifier: &str, sort: &SortExpression) -> UntypedDataSpecification {
     let mut result = spec.clone();
 
+    let type_var_id = spec
+        .type_var_declarations
+        .iter()
+        .find(|decl| decl.identifier == identifier)
+        .and_then(|decl| decl.id)
+        .unwrap_or_else(|| panic!("template has no resolved `type_var {identifier}` declaration"));
+
     apply_sorts_in_spec(&mut result, |expr| -> Result<_, Infallible> {
-        Ok(replace_sort_expression(expr, identifier, sort))
+        Ok(replace_type_var(expr, type_var_id, sort))
     })
     .expect("substitution never fails");
+
+    // `identifier` is now fully substituted away; drop its declaration so that.
+    result
+        .type_var_declarations
+        .retain(|decl| decl.identifier != identifier);
 
     result
 }
 
-/// Replaces sort references of `identifier` in `sort` by the given `result_sort`.
-fn replace_sort_expression(sort: &SortExpression, identifier: &str, result_sort: &SortExpression) -> SortExpression {
+/// Replaces every [ResolvedTypeVar] node naming `type_var_id` in `sort` by
+/// `result_sort`. See [replace_sort].
+fn replace_type_var(sort: &SortExpression, type_var_id: TypeVarId, result_sort: &SortExpression) -> SortExpression {
     sort.clone()
         .apply(|expr| -> Result<Option<SortExpression>, Infallible> {
-            if let SortExpressionKind::Reference(id) = &expr.node
-                && id == identifier
+            if let SortExpressionKind::ResolvedTypeVar(id) = &expr.node
+                && *id == type_var_id
             {
                 return Ok(Some(result_sort.clone()));
             }
@@ -362,6 +541,7 @@ fn replace_sort_expression(sort: &SortExpression, identifier: &str, result_sort:
 /// here. The result joins the system-defined specification, like the other
 /// Appendix-B content.
 pub(crate) fn structured_sort_equations(
+    sources: &mut SourceMap,
     constructors: &[ConstructorDecl],
 ) -> Result<UntypedDataSpecification, MercError> {
     // Builds the term `c_i(<prefix>i_0, ..., <prefix>i_{k_i - 1})`, using the
@@ -497,19 +677,114 @@ pub(crate) fn structured_sort_equations(
         write!(spec, "var\n{vars}eqn\n{eqns}").unwrap();
     }
 
-    UntypedDataSpecification::parse(&spec)
+    // Named after the first constructor so a parse-error render reads as "the
+    // struct with c1, ...", not an opaque, unnumbered "<generated>".
+    let name = constructors
+        .first()
+        .map(|c| format!("<generated>/struct/{}.mcrl2", c.name.node))
+        .unwrap_or_else(|| "<generated>/struct/empty.mcrl2".to_string());
+    parse_generated(sources, &name, &spec)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::ops::ControlFlow;
+
     use merc_syntax::ConstructorDecl;
     use merc_syntax::SortExpressionKind;
+    use merc_syntax::SourceMap;
+    use merc_syntax::Traverse;
 
+    use super::CONTAINER_TEMPLATES;
     use super::UntypedDataSpecification;
     use super::standard_sort;
     use super::structured_sort_equations;
     use crate::DataSpecification;
     use crate::NumberEncoding;
+
+    /// Whether `spec` mentions a bare, unresolved `Reference` sort anywhere.
+    /// Used to assert a template's own `S`/`T` no longer shows up this way.
+    fn contains_reference(spec: &UntypedDataSpecification) -> bool {
+        let has_reference = |sort: &merc_syntax::SortExpression| {
+            sort.visit(|expr| {
+                if matches!(expr.node, SortExpressionKind::Reference(_)) {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            })
+            .is_some()
+        };
+        spec.map_declarations.iter().any(|map| has_reference(&map.sort))
+            || spec
+                .constructor_declarations
+                .iter()
+                .any(|cons| has_reference(&cons.sort))
+    }
+
+    #[test]
+    fn test_container_templates_declare_type_var() {
+        // `list.mcrl2`/`bag.mcrl2`/... each declare one `type_var S;`, resolved
+        // once by `parse_template_bare` — no bare `Reference("S")` should remain.
+        for template in [
+            &CONTAINER_TEMPLATES.list,
+            &CONTAINER_TEMPLATES.set,
+            &CONTAINER_TEMPLATES.fset,
+            &CONTAINER_TEMPLATES.bag,
+            &CONTAINER_TEMPLATES.fbag,
+        ] {
+            assert_eq!(template.type_var_declarations.len(), 1, "{template}");
+            assert_eq!(template.type_var_declarations[0].identifier, "S");
+            assert!(
+                template.type_var_declarations[0].id.is_some(),
+                "resolve_type_var_ids should have assigned an id"
+            );
+            assert!(
+                !contains_reference(template),
+                "no bare `S` reference should remain:\n{template}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_function_update_template_declares_two_type_vars() {
+        // `function_update.mcrl2` declares `type_var S, T;`.
+        let names: Vec<&str> = CONTAINER_TEMPLATES
+            .function_update
+            .type_var_declarations
+            .iter()
+            .map(|decl| decl.identifier.as_str())
+            .collect();
+        assert_eq!(names, ["S", "T"]);
+        assert!(!contains_reference(&CONTAINER_TEMPLATES.function_update));
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // Test is too slow under miri
+    fn test_standard_sort_substitutes_type_var_for_element_sort() {
+        // `List(Nat)`'s `[]` constructor should end up with sort `List(Nat)` —
+        // the type-var-based substitution must produce the same result the old
+        // Reference-based one did — and no `type_var` declaration should be left
+        // over in the instantiated copy.
+        let mut sources = SourceMap::new();
+        let checked = DataSpecification::from_untyped_with(
+            UntypedDataSpecification::parse("map f: List(Nat);").unwrap(),
+            NumberEncoding::default(),
+            &mut sources,
+        )
+        .unwrap();
+        let sort = &checked.data_specification().map_declarations[0].sort;
+
+        let generated = standard_sort(&mut sources, sort, NumberEncoding::Binary);
+        assert!(generated.type_var_declarations.is_empty(), "{generated}");
+
+        let nil = generated
+            .constructor_declarations
+            .iter()
+            .find(|cons| cons.identifier.node == "[]")
+            .expect("List(Nat) should still declare `[]`");
+        assert_eq!(nil.sort.to_string(), "List(Nat)");
+    }
 
     #[test]
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
@@ -519,16 +794,20 @@ mod tests {
         // `FlattenedFunction` domain of length two and takes the
         // multi-argument branch instead of the bundled single-argument
         // template.
-        let checked =
-            DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Nat # Bool -> Nat;").unwrap())
-                .unwrap();
+        let mut sources = SourceMap::new();
+        let checked = DataSpecification::from_untyped_with(
+            UntypedDataSpecification::parse("map f: Nat # Bool -> Nat;").unwrap(),
+            NumberEncoding::default(),
+            &mut sources,
+        )
+        .unwrap();
         let sort = &checked.data_specification().map_declarations[0].sort;
         let SortExpressionKind::FlattenedFunction { domain, .. } = &sort.node else {
             panic!("expected a flattened function sort: {sort}");
         };
         assert_eq!(domain.len(), 2);
 
-        let generated = standard_sort(sort, NumberEncoding::Binary);
+        let generated = standard_sort(&mut sources, sort, NumberEncoding::Binary);
         assert!(
             generated
                 .map_declarations
@@ -560,13 +839,16 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
     fn test_multi_argument_function_update_generalizes_to_higher_arities() {
         // The same construction must not be hard-coded to arity two.
-        let checked = DataSpecification::from_untyped(
+        let mut sources = SourceMap::new();
+        let checked = DataSpecification::from_untyped_with(
             UntypedDataSpecification::parse("map f: Nat # Bool # Nat -> Bool;").unwrap(),
+            NumberEncoding::default(),
+            &mut sources,
         )
         .unwrap();
         let sort = &checked.data_specification().map_declarations[0].sort;
 
-        let generated = standard_sort(sort, NumberEncoding::Binary);
+        let generated = standard_sort(&mut sources, sort, NumberEncoding::Binary);
         let equations: Vec<String> = generated
             .equation_declarations
             .iter()
@@ -589,7 +871,11 @@ mod tests {
         // declaration sort, or the generated equation would reference the
         // undeclared `S`.
         let spec = UntypedDataSpecification::parse("map f: Set(Nat);").unwrap();
-        let generated = standard_sort(&spec.map_declarations[0].sort, NumberEncoding::Binary);
+        let generated = standard_sort(
+            &mut SourceMap::new(),
+            &spec.map_declarations[0].sort,
+            NumberEncoding::Binary,
+        );
 
         let equations: Vec<String> = generated
             .equation_declarations
@@ -624,7 +910,7 @@ mod tests {
 
         // The generated specification should be well-formed and parseable, and
         // contain only equations; the declarations come from desugaring.
-        let generated = structured_sort_equations(&constructors).unwrap();
+        let generated = structured_sort_equations(&mut SourceMap::new(), &constructors).unwrap();
         assert!(generated.sort_declarations.is_empty());
         assert!(generated.constructor_declarations.is_empty());
         assert!(generated.map_declarations.is_empty());
@@ -659,8 +945,32 @@ mod tests {
         // A structured sort where no constructor has arguments generates no
         // variables, so the `eqn` block must be emitted without a `var` block.
         let constructors = struct_constructors("sort E = struct red | green | blue;");
-        let generated = structured_sort_equations(&constructors).unwrap();
+        let generated = structured_sort_equations(&mut SourceMap::new(), &constructors).unwrap();
 
         assert!(!generated.equation_declarations.is_empty());
+    }
+
+    /// A system-defined declaration's span must render against its true
+    /// origin — the bundled template file it came from — not the caller's
+    /// own specification text, once it is registered into the same
+    /// `SourceMap` the caller renders against.
+    #[test]
+    #[cfg_attr(miri, ignore)] // Test is too slow under miri
+    fn test_basic_sort_declaration_renders_against_its_builtin_source() {
+        let mut sources = SourceMap::new();
+        let basics = super::basic_sort_data_specification(&mut sources, NumberEncoding::Binary);
+        let bool_decl = basics
+            .sort_declarations
+            .iter()
+            .find(|decl| decl.identifier == "Bool")
+            .expect("Bool is always declared");
+
+        let rendered = bool_decl.span.render(&sources);
+        assert!(
+            rendered.contains("bool.mcrl2"),
+            "expected the Bool sort declaration to render against bool.mcrl2, got: {rendered}"
+        );
+        let id = sources.lookup(bool_decl.span.start);
+        assert!(sources.is_virtual(id), "a builtin template's source must be virtual");
     }
 }
