@@ -1229,6 +1229,15 @@ impl<'a> ConstraintGenerator<'a> {
             }
         }
 
+        if let Some(declaration) = declaration {
+            debug_assert!(
+                self.declared_sorts.contains_key(&declaration),
+                "{declaration:?} (occurrence {name:?}) was resolved to a `DataExprKind::Resolved` \
+                 by the variable-resolution pre-pass but has no entry in `declared_sorts` — \
+                 `checking::Scope`/`with_binder_scope` and the pre-pass have gone out of sync"
+            );
+        }
+
         if let Some(sort) = declaration.and_then(|declaration| self.declared_sorts.get(&declaration)) {
             self.names.insert(id, NameTarget::Variable);
             self.bind_fresh(node, *sort);

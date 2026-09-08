@@ -16,7 +16,7 @@ use crate::VariableSpans;
 use crate::WellTypedError;
 use crate::infer_expression_in_scope;
 use crate::lower_data_expr;
-use crate::lsp_info;
+use crate::typing_info;
 
 /// Every declaration reachable from the `proc` body/PBES equation currently being checked —
 /// global variables, that declaration's own parameters, and every `sum`/`dist`/quantifier binder
@@ -55,7 +55,7 @@ where
     let lowered = prepare_expression::<E>(data, expr)?;
     let (ctx, spec, system) = data.context_and_specs_mut();
     let equation_typing = infer_expression_in_scope(ctx, spec, system, &lowered, scope, Some(expected))?;
-    typing.merge(lsp_info::build(data, &equation_typing, variable_spans));
+    typing.merge(typing_info::build(data, &equation_typing, variable_spans));
     Ok(())
 }
 
@@ -72,7 +72,7 @@ pub(crate) fn collect_binder_sorts<E>(
     mut resolve: impl FnMut(&mut DataSpecification, &SortExpression) -> Result<ResolvedSortId, E>,
 ) -> Result<(), E> {
     for var in variables {
-        lsp_info::collect_sort_name_references(&var.sort, sort_references);
+        typing_info::collect_sort_name_references(&var.sort, sort_references);
         let sort = resolve(data, &var.sort)?;
         lsp_info::push_binder_declaration(
             data,
