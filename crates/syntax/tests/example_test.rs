@@ -1,6 +1,4 @@
 use std::fmt;
-use std::fs::File;
-use std::io::Write;
 use std::path::Path;
 
 use merc_syntax::UntypedPbes;
@@ -10,61 +8,13 @@ use merc_syntax::UntypedDataSpecification;
 use merc_syntax::UntypedProcessSpecification;
 use merc_syntax::UntypedStateFrmSpec;
 use merc_utilities::MercError;
+use merc_utilities::check_snapshot;
 use merc_utilities::test_logger;
 
 /// Bump this whenever the stored snapshot format changes (e.g. the pretty-printer output
 /// changes) to force every snapshot in `tests/snapshot` to be regenerated instead of compared.
+/// See [merc_utilities::check_snapshot].
 const SNAPSHOT_VERSION: u32 = 1;
-
-/// Compares the version recorded in `<dir>/VERSION` to [`SNAPSHOT_VERSION`] and returns whether
-/// it already matched. If it did not, the file is updated to the current version.
-///
-/// Individual test cases run as separate processes under `cargo nextest`, so many of them can
-/// reach this concurrently. The update is therefore done by writing to a process-unique temporary
-/// file and renaming it into place, which is atomic: concurrent readers only ever see either the
-/// old or the new complete contents, never a torn write.
-fn ensure_snapshot_version(dir: &Path) -> Result<bool, MercError> {
-    let version_path = dir.join("VERSION");
-
-    let up_to_date = std::fs::read_to_string(&version_path)
-        .ok()
-        .and_then(|contents| contents.trim().parse::<u32>().ok())
-        == Some(SNAPSHOT_VERSION);
-
-    if !up_to_date {
-        let tmp_path = dir.join(format!("VERSION.{}.tmp", std::process::id()));
-        std::fs::write(&tmp_path, SNAPSHOT_VERSION.to_string())?;
-        std::fs::rename(&tmp_path, &version_path)?;
-    }
-
-    Ok(up_to_date)
-}
-
-/// Creates a snapshot of the given object, in JSON format, in the snapshot directory. If the snapshot already exists
-/// and the stored snapshots are at [`SNAPSHOT_VERSION`], the JSON representation of the object is compared to the
-/// stored snapshot. Otherwise (missing snapshot, or a version bump) the snapshot is (re)written.
-fn check_snapshot<T: fmt::Display>(result: &T, snapshot_path: &Path) -> Result<(), MercError> {
-    let snapshot_dir = snapshot_path
-        .parent()
-        .expect("snapshot_path must have a parent directory");
-    let up_to_date = ensure_snapshot_version(snapshot_dir)?;
-
-    if up_to_date && snapshot_path.exists() {
-        // Read the existing tests/snapshot and compare it to the given object.
-        let result = format!("{}", result);
-        let expected_str = std::fs::read_to_string(snapshot_path)?;
-        assert_eq!(
-            result, expected_str,
-            "Result does not match the stored snapshot at {snapshot_path:?}"
-        );
-    } else {
-        // Write a new snapshot if the file does not exist, or the snapshot version changed.
-        let mut file = File::create(snapshot_path)?;
-        write!(&mut file, "{}", result)?;
-    }
-
-    Ok(())
-}
 
 /// Asserts that the printed form reparses and prints identically. This catches
 /// grammar / printer mismatches on real specifications.
@@ -267,7 +217,8 @@ fn test_parse_mcrl2_spec(input: &str, snapshot_file: &str) {
 
     match UntypedProcessSpecification::parse(input) {
         Ok(spec) => {
-            check_snapshot(&spec, Path::new(snapshot_file)).expect("Could not read or write the tests/snapshot file");
+            check_snapshot(&spec, Path::new(snapshot_file), SNAPSHOT_VERSION)
+                .expect("Could not read or write the tests/snapshot file");
             check_roundtrip(&format!("{spec}"), UntypedProcessSpecification::parse);
         }
         Err(err) => panic!("{}", err),
@@ -433,7 +384,8 @@ fn test_parse_mcrl2_modal_formula(input: &str, snapshot_file: &str) {
 
     match UntypedStateFrmSpec::parse(input) {
         Ok(spec) => {
-            check_snapshot(&spec, Path::new(snapshot_file)).expect("Could not read or write the tests/snapshot file");
+            check_snapshot(&spec, Path::new(snapshot_file), SNAPSHOT_VERSION)
+                .expect("Could not read or write the tests/snapshot file");
             check_roundtrip(&format!("{spec}"), UntypedStateFrmSpec::parse);
         }
         Err(err) => panic!("{}", err),
@@ -531,7 +483,8 @@ fn test_parse_mcrl2_dataspec(input: &str, snapshot_file: &str) {
 
     match UntypedDataSpecification::parse(input) {
         Ok(spec) => {
-            check_snapshot(&spec, Path::new(snapshot_file)).expect("Could not read or write the tests/snapshot file");
+            check_snapshot(&spec, Path::new(snapshot_file), SNAPSHOT_VERSION)
+                .expect("Could not read or write the tests/snapshot file");
             check_roundtrip(&format!("{spec}"), UntypedDataSpecification::parse);
         }
         Err(err) => panic!("{}", err),
@@ -548,7 +501,8 @@ fn test_parse_pbes(input: &str, snapshot_file: &str) {
 
     match UntypedPbes::parse(input) {
         Ok(spec) => {
-            check_snapshot(&spec, Path::new(snapshot_file)).expect("Could not read or write the tests/snapshot file");
+            check_snapshot(&spec, Path::new(snapshot_file), SNAPSHOT_VERSION)
+                .expect("Could not read or write the tests/snapshot file");
             check_roundtrip(&format!("{spec}"), UntypedPbes::parse);
         }
         Err(err) => panic!("{}", err),
