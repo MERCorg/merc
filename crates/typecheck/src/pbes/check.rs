@@ -19,7 +19,7 @@ use crate::checking::Scope;
 use crate::checking::check_expression_against;
 use crate::checking::collect_binder_sorts;
 use crate::declared_span;
-use crate::lsp_info;
+use crate::typing_info;
 
 use super::PbesError;
 use super::pbes_specification::DeclarationTables;
@@ -37,11 +37,11 @@ pub(super) fn check_pbes_specification(
     let mut sort_references = Vec::new();
 
     for decl in &spec.global_variables {
-        lsp_info::collect_sort_name_references(&decl.sort, &mut sort_references);
+        typing_info::collect_sort_name_references(&decl.sort, &mut sort_references);
     }
     for eqn in &spec.equations {
         for param in &eqn.variable.parameters {
-            lsp_info::collect_sort_name_references(&param.sort, &mut sort_references);
+            typing_info::collect_sort_name_references(&param.sort, &mut sort_references);
         }
     }
 
@@ -84,7 +84,7 @@ pub(super) fn check_pbes_specification(
     // scope = globals only, since it sits outside every equation's own parameter scope.
     check_prop_var_inst(data, tables, &globals, variable_spans, &spec.init, &mut typing)?;
 
-    lsp_info::push_sort_references(data, &sort_references, &mut typing);
+    typing_info::push_sort_references(data, &sort_references, &mut typing);
     Ok(typing)
 }
 

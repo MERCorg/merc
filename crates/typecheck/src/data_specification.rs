@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::convert::Infallible;
+use std::fmt::Write as _;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -53,7 +54,7 @@ use crate::lower_data_expr;
 use crate::lower_data_expressions;
 use crate::lower_data_specification;
 use crate::lower_expression;
-use crate::lsp_info;
+use crate::typing_info;
 use crate::merge_signatures;
 use crate::normalize_sorts;
 use crate::resolve_data_expr_variables;
@@ -65,6 +66,7 @@ use crate::resolve_system_signature;
 use crate::resolve_system_signature_full;
 use crate::resolve_type_var_ids;
 use crate::structured_sort_equations;
+use crate::typed_equation_string;
 
 /// A type checked and well-typed data specification.
 ///
@@ -181,7 +183,7 @@ impl DataSpecification {
         debug!("typecheck: signature checks passed");
 
         // Every sort-name reference `spec`'s own declarations make.
-        let sort_references = lsp_info::collect_data_specification_sort_references(&spec);
+        let sort_references = typing_info::collect_data_specification_sort_references(&spec);
         debug!("typecheck: collected {} sort-name reference(s)", sort_references.len());
 
         // Expand aliases to a canonical form now that they are known to be
@@ -428,6 +430,66 @@ impl DataSpecification {
         lower_data_specification(&self.context, &self.spec, &self.system, self.encoding)
     }
 
+    /// Renders `self.data_specification()` the same way its own `Display` does
+    /// except each equation's own sub-expressions are annotated with their
+    /// resolved sort (`expr:Sort`) rather than left implicit.
+    pub fn to_typed_string(&self) -> String {
+        let spec = &self.spec;
+        let mut out = String::new();
+
+        if !spec.type_var_declarations.is_empty() {
+            out.push_str("type_var\n");
+            for decl in &spec.type_var_declarations {
+                let _ = writeln!(out, "   {};", decl.identifier);
+            }
+            out.push('\n');
+        }
+        if !spec.sort_declarations.is_empty() {
+            out.push_str("sort\n");
+            for decl in &spec.sort_declarations {
+                let _ = writeln!(out, "   {decl};");
+            }
+            out.push('\n');
+        }
+        if !spec.constructor_declarations.is_empty() {
+            out.push_str("cons\n");
+            for decl in &spec.constructor_declarations {
+                let _ = writeln!(out, "   {decl};");
+            }
+            out.push('\n');
+        }
+        if !spec.map_declarations.is_empty() {
+            out.push_str("map\n");
+            for decl in &spec.map_declarations {
+                let _ = writeln!(out, "   {decl};");
+            }
+            out.push('\n');
+        }
+
+        for eqn_spec in &spec.equation_declarations {
+            if !eqn_spec.node.variables.is_empty() {
+                out.push_str("var\n");
+                for decl in &eqn_spec.node.variables {
+                    let _ = writeln!(out, "   {decl};");
+                }
+            }
+
+            out.push_str("eqn\n");
+            let eqn_spec_id = eqn_spec
+                .node
+                .id
+                .expect("assign_declaration_ids ran during from_untyped");
+            for equation in &eqn_spec.node.equations {
+                let equation_id = equation.id.expect("assign_declaration_ids ran during from_untyped");
+                let typing = self.equation_typing((eqn_spec_id, equation_id));
+                let text = typed_equation_string(equation, &self.context, &self.spec, &self.system, typing);
+                let _ = writeln!(out, "   {text};");
+            }
+        }
+
+        out
+    }
+
     /// Type checks a single data expression against this specification and
     /// lowers it to the same aterm form [`Self::lower_data_specification`]
     /// produces, so the result can be handed straight to a rewriter built from
@@ -477,7 +539,7 @@ impl DataSpecification {
         let lowered_expr = lower_data_expr(expr);
 
         let typing = infer_expression(&mut self.context, &self.spec, &self.system, &lowered_expr)?;
-        let info = lsp_info::build(self, &typing, &variable_spans);
+        let info = typing_info::build(self, &typing, &variable_spans);
 
         let lowered = lower_expression(
             &self.context,
@@ -505,7 +567,7 @@ impl DataSpecification {
         if let Some(cached) = self.context.equation_typing_info.get(&key) {
             return (**cached).clone();
         }
-        let info = Arc::new(lsp_info::build(self, self.equation_typing(key), &self.variable_spans));
+        let info = Arc::new(typing_info::build(self, self.equation_typing(key), &self.variable_spans));
         self.context.equation_typing_info.insert(key, Arc::clone(&info));
         (*info).clone()
     }
@@ -544,7 +606,7 @@ impl DataSpecification {
         for key in keys {
             info.merge(self.equation_typing_info(key));
         }
-        lsp_info::push_sort_references(self, &self.sort_references, &mut info);
+        typing_info::push_sort_references(self, &self.sort_references, &mut info);
         self.context.whole_typing_info = Some(Arc::new(info.clone()));
         info
     }
@@ -1090,6 +1152,73 @@ mod tests {
             reflexivity,
             "struct A's own 'a == a = true' equation must survive, unambiguously: {:#?}",
             equation_strings(&mcrl2)
+        );
+    }
+
+    /// Tests that `to_typed_string` correctly annotates every sub-expression
+    /// with its resolved sort.
+    #[test]
+    #[cfg_attr(miri, ignore)] // Test is too slow under miri
+    fn test_to_typed_string_annotates_every_subexpression() {
+        let spec = DataSpecification::from_untyped(
+            UntypedDataSpecification::parse(
+                "sort Signal; Message;
+                 map AssocReq: Nat -> Message;
+                     signal: Signal -> Message;
+                     sig_AssocReq: Nat -> Signal;
+                 var t: Nat;
+                 eqn AssocReq(t) = signal(sig_AssocReq(t));",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            spec.to_typed_string(),
+            "sort\n\
+             \u{20}  Signal;\n\
+             \u{20}  Message;\n\
+             \n\
+             map\n\
+             \u{20}  AssocReq: (Nat -> Message);\n\
+             \u{20}  signal: (Signal -> Message);\n\
+             \u{20}  sig_AssocReq: (Nat -> Signal);\n\
+             \n\
+             var\n\
+             \u{20}  t: Nat;\n\
+             eqn\n\
+             \u{20}  AssocReq(t: Nat): (Nat -> Message) = \
+             signal(sig_AssocReq(t: Nat): (Nat -> Signal)): (Signal -> Message);\n"
+        );
+    }
+
+    /// As above, over the polymorphic comparison/`if` schemes and an implicit `Pos -> Nat`
+    /// upcast: every operator's own resolved overload is visible, not just the equation's
+    /// declared result.
+    #[test]
+    #[cfg_attr(miri, ignore)] // Test is too slow under miri
+    fn test_to_typed_string_shows_the_resolved_overload_of_a_polymorphic_operator() {
+        let spec = DataSpecification::from_untyped(
+            UntypedDataSpecification::parse(
+                "map f: Nat -> Bool;
+                 var i: Nat;
+                 eqn f(i) = if(i == 1, true, false);",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            spec.to_typed_string(),
+            "map\n\
+             \u{20}  f: (Nat -> Bool);\n\
+             \n\
+             var\n\
+             \u{20}  i: Nat;\n\
+             eqn\n\
+             \u{20}  f(i: Nat): (Nat -> Bool) = \
+             if(==(i: Nat, 1: Pos): (Nat # Nat -> Bool), true: Bool, false: Bool): \
+             (Bool # Bool # Bool -> Bool);\n"
         );
     }
 }

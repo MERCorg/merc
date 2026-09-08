@@ -9,7 +9,7 @@ use merc_utilities::test_logger;
 use test_case::test_case;
 
 /// Bump this whenever the stored snapshot format changes.
-const SNAPSHOT_VERSION: u32 = 1;
+const SNAPSHOT_VERSION: u32 = 3;
 
 #[cfg_attr(miri, ignore)]
 #[test_case(include_str!("../../../examples/mCRL2/academic/abp/abp.mcrl2"), "tests/snapshot/result_abp.mcrl2" ; "abp.mcrl2")]
@@ -202,8 +202,12 @@ fn test_typecheck_mcrl2_spec(input: &str, snapshot_file: &str) {
     let spec = UntypedProcessSpecification::parse(input).expect("the example corpus parses in merc_syntax");
     match ProcessSpecification::from_untyped(spec) {
         Ok(typed) => {
+            // `to_typed_string` (rather than the plain `Display` of `data_specification()`)
+            // annotates every equation's sub-expressions with their resolved sort, so a
+            // regression in overload resolution or an implicit coercion shows up as a snapshot
+            // diff even when it changes no declaration.
             check_snapshot(
-                typed.data_specification().data_specification(),
+                &typed.data_specification().to_typed_string(),
                 Path::new(snapshot_file),
                 SNAPSHOT_VERSION,
             )

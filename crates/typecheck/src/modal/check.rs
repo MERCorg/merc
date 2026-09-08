@@ -31,7 +31,7 @@ use crate::checking::Scope;
 use crate::checking::check_expression_against;
 use crate::checking::collect_binder_sorts;
 use crate::declared_span;
-use crate::lsp_info;
+use crate::typing_info;
 
 use super::ModalError;
 use super::modal_specification::DeclarationTables;
@@ -57,7 +57,7 @@ pub(super) fn check_modal_specification(
 
     for decl in &spec.action_declarations {
         for sort in &decl.args {
-            lsp_info::collect_sort_name_references(sort, &mut sort_references);
+            typing_info::collect_sort_name_references(sort, &mut sort_references);
         }
     }
 
@@ -75,7 +75,7 @@ pub(super) fn check_modal_specification(
         &mut typing,
     )?;
 
-    lsp_info::push_sort_references(data, &sort_references, &mut typing);
+    typing_info::push_sort_references(data, &sort_references, &mut typing);
     Ok(typing)
 }
 
@@ -119,7 +119,7 @@ fn collect_scope(
         }
         StateFrmKind::FixedPoint { variable, body, .. } => {
             for argument in &variable.arguments {
-                lsp_info::collect_sort_name_references(&argument.sort, sort_references);
+                typing_info::collect_sort_name_references(&argument.sort, sort_references);
                 let sort = resolve_declared_sort(data, &argument.sort)?;
                 lsp_info::push_binder_declaration(
                     data,

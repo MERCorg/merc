@@ -276,7 +276,7 @@ pub(crate) fn build(spec: &DataSpecification, typing: &EquationTyping, variable_
     debug_assert_eq!(
         typing.spans.len(),
         typing.sorts.len(),
-        "lsp_info::build requires an EquationTyping built for EquationRole::User"
+        "typing_info::build requires an EquationTyping built for EquationRole::User"
     );
 
     let index = DeclarationIndex::build(spec);
@@ -320,7 +320,16 @@ fn resolved_name(
 ) -> ResolvedName {
     match target {
         NameTarget::Variable => {
-            let declaration = declaration.and_then(|var_id| variable_spans.get(&var_id).cloned());
+            let declaration = declaration.and_then(|var_id| {
+                let span = variable_spans.get(&var_id).cloned();
+                debug_assert!(
+                    span.is_some(),
+                    "VariableSpans has no entry for {var_id:?} ({name:?}), which resolved as \
+                     NameTarget::Variable — the variable-resolution pre-pass that builds both \
+                     tables has gone out of sync"
+                );
+                span
+            });
             ResolvedName::Variable { name, declaration }
         }
         NameTarget::Builtin => ResolvedName::Builtin { name },

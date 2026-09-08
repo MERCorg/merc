@@ -26,7 +26,7 @@ use crate::checking::Scope;
 use crate::checking::check_expression_against;
 use crate::checking::collect_binder_sorts;
 use crate::declared_span;
-use crate::lsp_info;
+use crate::typing_info;
 
 use super::ProcessError;
 use super::process_specification::DeclarationTables;
@@ -45,16 +45,16 @@ pub(super) fn check_process_specification(
 
     for decl in &spec.action_declarations {
         for sort in &decl.args {
-            lsp_info::collect_sort_name_references(sort, &mut sort_references);
+            typing_info::collect_sort_name_references(sort, &mut sort_references);
         }
     }
     for decl in &spec.process_declarations {
         for param in &decl.params {
-            lsp_info::collect_sort_name_references(&param.sort, &mut sort_references);
+            typing_info::collect_sort_name_references(&param.sort, &mut sort_references);
         }
     }
     for decl in &spec.global_variables {
-        lsp_info::collect_sort_name_references(&decl.sort, &mut sort_references);
+        typing_info::collect_sort_name_references(&decl.sort, &mut sort_references);
     }
 
     let globals: Vec<(VarId, ResolvedSortId)> = spec
@@ -106,7 +106,7 @@ pub(super) fn check_process_specification(
         check_process_expr(data, tables, &scope, variable_spans, init, &mut typing)?;
     }
 
-    lsp_info::push_sort_references(data, &sort_references, &mut typing);
+    typing_info::push_sort_references(data, &sort_references, &mut typing);
     Ok(typing)
 }
 
@@ -261,7 +261,7 @@ enum Candidate {
 /// must never reach `typing`, since it would otherwise misreport a sort for the wrong overload at
 /// the same span. On success, also pushes a [`ResolvedName::Action`]/[`ResolvedName::Process`] at
 /// `name`'s own span (not `span`, the whole `name(args)` node) — the winning candidate identifies
-/// exactly which declaration `name` names, the same way `lsp_info::resolved_name` already picks
+/// exactly which declaration `name` names, the same way `typing_info::resolved_name` already picks
 /// a `Constructor`/`Mapping` declaration by its resolved overload.
 fn check_action_or_process(
     data: &mut DataSpecification,
