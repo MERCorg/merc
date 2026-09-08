@@ -29,6 +29,7 @@ use crate::NumberEncoding;
 use crate::Signature;
 use crate::TypeCheckContext;
 use crate::TypingInfo;
+use crate::VariableSpans;
 use crate::WellTypedError;
 use crate::apply_sorts_in_data_expr;
 use crate::apply_sorts_in_spec;
@@ -80,6 +81,12 @@ pub struct DataSpecification {
     encoding: NumberEncoding,
     /// Every sort-name reference in `spec`'s own declarations.
     sort_references: Vec<(Span, String)>,
+    /// Every `var`-block-declared equation variable's own [`VarId`], paired with its declaring
+    /// identifier's span — see [`VariableSpans`]. Scoped to `spec`'s own equation-variable
+    /// numbering: never valid for a `VarId` from a process/PBES/PRES/modal specification built on
+    /// top of this one, which allocates from its own separate counter (see the module doc comment
+    /// on [`crate::resolve_process_variables`] and friends).
+    variable_spans: VariableSpans,
 }
 
 impl DataSpecification {
@@ -118,7 +125,7 @@ impl DataSpecification {
 
         // Ties every equation-variable occurrence to its own `var`-block
         // declaration span.
-        resolve_data_specification_variables(&mut spec);
+        let variable_spans = resolve_data_specification_variables(&mut spec);
 
         // Hoist anonymous structured sorts into fresh named declarations.
         hoist_anonymous_structs(&mut spec);
@@ -308,6 +315,7 @@ impl DataSpecification {
             context,
             encoding,
             sort_references,
+            variable_spans,
         })
     }
 
@@ -461,7 +469,7 @@ impl DataSpecification {
     ) -> Result<(DataExpression, TypingInfo), InferenceError> {
         // Ties every local binder this.
         let mut expr = expr.clone();
-        resolve_data_expr_variables(&mut expr);
+        let variable_spans = resolve_data_expr_variables(&mut expr);
 
         // The built-in operator nodes (`x + y`, `[x, y]`, `f[x -> y]`) become
         // applications first, exactly as `from_untyped_with` does for the
@@ -469,7 +477,7 @@ impl DataSpecification {
         let lowered_expr = lower_data_expr(expr);
 
         let typing = infer_expression(&mut self.context, &self.spec, &self.system, &lowered_expr)?;
-        let info = lsp_info::build(self, &typing);
+        let info = lsp_info::build(self, &typing, &variable_spans);
 
         let lowered = lower_expression(
             &self.context,
@@ -497,7 +505,7 @@ impl DataSpecification {
         if let Some(cached) = self.context.equation_typing_info.get(&key) {
             return (**cached).clone();
         }
-        let info = Arc::new(lsp_info::build(self, self.equation_typing(key)));
+        let info = Arc::new(lsp_info::build(self, self.equation_typing(key), &self.variable_spans));
         self.context.equation_typing_info.insert(key, Arc::clone(&info));
         (*info).clone()
     }

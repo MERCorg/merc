@@ -59,6 +59,7 @@ use crate::NameTarget;
 use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::TypeCheckContext;
+use crate::VariableSpans;
 
 /// The typing of a document's data specification (or of one expression checked via
 /// [`DataSpecification::typecheck_expression_with_typing`]): one [`TypedNode`] per checked
@@ -89,12 +90,13 @@ pub struct TypedNode {
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum ResolvedName {
-    /// An equation variable, a process/PBES parameter, or a `sum`/`dist`/quantifier binder.
+    /// An equation variable, a process/PBES/PRES parameter, or a `sum`/`dist`/quantifier binder.
     Variable {
         name: String,
-        /// The binder's own [`merc_syntax::VarId`]. Can be used to look up the
-        /// original definition.
-        declaration: Option<VarId>,
+        /// See [`ResolvedName::Constructor::declaration`]. Resolved from the occurrence's own
+        /// [`merc_syntax::VarId`] via the [`VariableSpans`] map in scope where this node was
+        /// built — never a raw `VarId` a caller would have no way to look up on its own.
+        declaration: Option<Span>,
     },
     /// A user-declared constructor.
     Constructor {
@@ -270,7 +272,7 @@ impl TypingInfo {
 /// standalone expression. `typing.spans`/`typing.identifier_names` must be filled — true for
 /// every `EquationTyping` this crate ever hands to a public caller, since both are only ever
 /// omitted for `EquationRole::System`, which never reaches here.
-pub(crate) fn build(spec: &DataSpecification, typing: &EquationTyping) -> TypingInfo {
+pub(crate) fn build(spec: &DataSpecification, typing: &EquationTyping, variable_spans: &VariableSpans) -> TypingInfo {
     debug_assert_eq!(
         typing.spans.len(),
         typing.sorts.len(),
@@ -296,7 +298,7 @@ pub(crate) fn build(spec: &DataSpecification, typing: &EquationTyping) -> Typing
                     .cloned()
                     .unwrap_or_else(|| unreachable!("every named node has a recorded identifier"));
                 let declaration = typing.declarations.get(&id).cloned();
-                resolved_name(&index, target, name, declaration)
+                resolved_name(&index, variable_spans, target, name, declaration)
             });
             TypedNode {
                 span: span.clone(),
@@ -311,12 +313,16 @@ pub(crate) fn build(spec: &DataSpecification, typing: &EquationTyping) -> Typing
 
 fn resolved_name(
     index: &DeclarationIndex<'_>,
+    variable_spans: &VariableSpans,
     target: NameTarget,
     name: String,
     declaration: Option<VarId>,
 ) -> ResolvedName {
     match target {
-        NameTarget::Variable => ResolvedName::Variable { name, declaration },
+        NameTarget::Variable => {
+            let declaration = declaration.and_then(|var_id| variable_spans.get(&var_id).cloned());
+            ResolvedName::Variable { name, declaration }
+        }
         NameTarget::Builtin => ResolvedName::Builtin { name },
         NameTarget::Op { sort } => {
             let constructor = index.constructors.get(&(name.as_str(), sort)).cloned();

@@ -54,7 +54,7 @@ fn test_action_argument_hover_reports_declared_sort() {
     assert_eq!(hover("act a: Nat; proc P(n: Nat) = a(n); init P(1);", "n);"), "Nat");
 }
 
-/// The declaration `VarId` carried by a `Variable` resolution is the actual goto-definition
+/// The declaration span carried by a `Variable` resolution is the actual goto-definition
 /// target: stable and shared across every occurrence of the process's own parameter, including
 /// the self-same occurrence's own re-reference.
 #[test]

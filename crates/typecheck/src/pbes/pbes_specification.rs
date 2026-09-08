@@ -55,13 +55,13 @@ impl PbesSpecification {
     pub fn from_untyped_with(mut spec: UntypedPbes, encoding: NumberEncoding) -> Result<Self, PbesError> {
         // A pure syntactic pass, before anything else needs `spec` — see
         // `resolution::variable_resolution`.
-        crate::resolve_pbes_variables(&mut spec);
+        let variable_spans = crate::resolve_pbes_variables(&mut spec);
 
         let data_spec = std::mem::take(&mut spec.data_specification);
         let mut data = DataSpecification::from_untyped_with(data_spec, encoding, &mut SourceMap::new())?;
 
         let tables = DeclarationTables::build(&mut data, &spec)?;
-        let typing = check::check_pbes_specification(&mut data, &tables, &spec)?;
+        let typing = check::check_pbes_specification(&mut data, &tables, &variable_spans, &spec)?;
 
         Ok(PbesSpecification { spec, data, typing })
     }
