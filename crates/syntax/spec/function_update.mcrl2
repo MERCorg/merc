@@ -1,3 +1,5 @@
+type_var S, T;
+
 map @func_update: (S -> T) # S # T -> (S -> T);
     @func_update_stable: (S -> T) # S # T -> (S -> T);
     @is_not_an_update: (S->T) -> Bool;

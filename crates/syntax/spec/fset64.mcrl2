@@ -24,6 +24,8 @@
 
 
 
+type_var S;
+
 cons {} : FSet(S);
      @fset_insert: S # FSet(S) -> FSet(S);
 
