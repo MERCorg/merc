@@ -2,6 +2,8 @@ use std::sync::LazyLock;
 
 use merc_syntax::UntypedDataSpecification;
 
+use crate::parse_template_bare;
+
 /// The five built-in basic sorts. They are always present in a specification,
 /// resolve to primitives, and may not receive user constructors.
 pub(crate) const BASIC_SORT_NAMES: [&str; 5] = ["Bool", "Pos", "Nat", "Int", "Real"];
@@ -12,23 +14,19 @@ pub(crate) fn is_basic_sort_name(name: &str) -> bool {
 }
 
 /// The polymorphic built-in operators that exist for *every* sort: the
-/// comparison operators and the conditional `if`. Their sort variable `S`
-/// remains an unresolved `Reference` node, instantiated with fresh unification
-/// variables per occurrence, exactly like the container operations — they feed
-/// `POLYMORPHIC_SIGNATURE` alongside the containers, so inference resolves `==`
-/// and `|>` through one mechanism.
+/// comparison operators and the conditional `if`.
 ///
 /// These operators are built in and never declared in a `spec/*.mcrl2` file, so
 /// this template is written inline rather than bundled. It is the single source
 /// of the built-in scheme *names* (see [`builtin_scheme_names`]) and their
-/// *sorts* (via `POLYMORPHIC_SIGNATURE`).
+/// *sorts* (via `build_polymorphic_schemes`).
 pub(crate) static BUILTIN_SCHEME_TEMPLATE: LazyLock<UntypedDataSpecification> = LazyLock::new(|| {
-    UntypedDataSpecification::parse(
-        "map ==: S # S -> Bool; !=: S # S -> Bool; \
+    parse_template_bare(
+        "type_var S; \
+             map ==: S # S -> Bool; !=: S # S -> Bool; \
              <: S # S -> Bool; <=: S # S -> Bool; >: S # S -> Bool; >=: S # S -> Bool; \
              if: Bool # S # S -> S;",
     )
-    .expect("the built-in scheme template parses")
 });
 
 /// The names of the polymorphic built-in schemes, derived from

@@ -74,6 +74,19 @@ pub struct UntypedProcessSpecification {
     pub init: Option<ProcessExpr>,
 }
 
+impl UntypedProcessSpecification {
+    /// Merges another process specification's declarations into this one.
+    ///
+    /// `other.init` is discarded: the importing file's own `init` always wins.
+    /// A file meant to be imported would not usually declare one anyway.
+    pub fn merge(&mut self, other: &UntypedProcessSpecification) {
+        self.data_specification.merge(&other.data_specification);
+        self.global_variables.extend_from_slice(&other.global_variables);
+        self.action_declarations.extend_from_slice(&other.action_declarations);
+        self.process_declarations.extend_from_slice(&other.process_declarations);
+    }
+}
+
 /// An mCRL2 data specification.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub struct UntypedDataSpecification {

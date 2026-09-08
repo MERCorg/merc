@@ -16,6 +16,7 @@ use merc_syntax::EquationId;
 use merc_syntax::MapId;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SourceMap;
 use merc_syntax::Span;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedDataSpecification;
@@ -84,15 +85,20 @@ pub struct DataSpecification {
 impl DataSpecification {
     /// Create a completed well-typed data specification from an untyped data
     /// specification, using the default number encoding.
-    pub fn from_untyped(spec: UntypedDataSpecification) -> Result<Self, WellTypedError> {
-        Self::from_untyped_with(spec, NumberEncoding::default())
+    ///
+    /// `sources` accumulates the system-defined (Appendix-B) content this
+    /// generates as virtual documents.
+    pub fn from_untyped(spec: UntypedDataSpecification, sources: &mut SourceMap) -> Result<Self, WellTypedError> {
+        Self::from_untyped_with(spec, NumberEncoding::default(), sources)
     }
 
     /// Create a completed well-typed data specification from an untyped data
-    /// specification, using `encoding` to represent the numeric sorts.
+    /// specification, using `encoding` to represent the numeric sorts. See
+    /// [`Self::from_untyped`] for what `sources` is for.
     pub fn from_untyped_with(
         mut spec: UntypedDataSpecification,
         encoding: NumberEncoding,
+        sources: &mut SourceMap,
     ) -> Result<Self, WellTypedError> {
         debug!(
             "typecheck: starting on {} sort, {} constructor, {} map and {} equation declaration(s)",
@@ -181,11 +187,11 @@ impl DataSpecification {
         // that the specification uses. The container sorts are deliberately
         // excluded such that type checking can be done on their polymorphic
         // definitions.
-        let basics = basic_sort_data_specification(encoding);
+        let basics = basic_sort_data_specification(sources, encoding);
         check_no_system_function_redeclaration(&spec, &basics)?;
         debug!("typecheck: no user declaration redeclares a system function");
 
-        let (mut system, mut groups) = build_system_defined_specification(&spec, basics.clone(), encoding);
+        let (mut system, mut groups) = build_system_defined_specification(sources, &spec, basics.clone(), encoding);
 
         // The defining equations of each structured sort (Appendix B.10) join
         // the system-defined part, appended after every group above so those
@@ -197,7 +203,7 @@ impl DataSpecification {
         let mut struct_ranges: Vec<(Range<usize>, HashSet<String>, HashSet<String>)> = Vec::new();
         for constructors in &structs {
             let start = system.equation_declarations.len();
-            system.merge(&structured_sort_equations(constructors).map_err(WellTypedError::Custom)?);
+            system.merge(&structured_sort_equations(sources, constructors).map_err(WellTypedError::Custom)?);
             let end = system.equation_declarations.len();
             let constructor_names: HashSet<String> = constructors.iter().map(|c| c.name.node.clone()).collect();
             let mapping_names: HashSet<String> = constructors
@@ -241,7 +247,7 @@ impl DataSpecification {
         // Must happen before the sanity check below and before `self.system` is
         // stored, so every equation this specification ever lowers is covered by
         // both.
-        let (mut system, new_groups) = extend_system_with_inferred_sorts(&context, &spec, &system, encoding);
+        let (mut system, new_groups) = extend_system_with_inferred_sorts(sources, &context, &spec, &system, encoding);
         groups.extend(new_groups);
 
         // Ties every system equation's own variable occurrences to its `var`-block declaration.
@@ -331,6 +337,11 @@ impl DataSpecification {
     /// The resolved sort of the constructor declaration with the given
     /// [ConstructorId]. Requires `id` to be a valid constructor id from this
     /// specification; panics if called before `from_untyped` has completed.
+    ///
+    /// Only ever safe for a *user* declaration's id: every one of those has its sort resolved
+    /// unconditionally during `from_untyped`, whether or not anything actually references it. A
+    /// system-defined declaration's id is not resolved this way at all — see
+    /// [`TypeCheckContext::system_symbol_spans`]'s doc comment for where that comes from instead.
     pub(crate) fn sort_of_constructor(&self, id: ConstructorId) -> crate::ResolvedSortId {
         self.context
             .sort_of_constructor
@@ -342,6 +353,8 @@ impl DataSpecification {
     /// The resolved sort of the map declaration with the given [MapId].
     /// Requires `id` to be a valid map id from this specification; panics if
     /// called before `from_untyped` has completed.
+    ///
+    /// See [`Self::sort_of_constructor`]'s doc comment: safe only for a *user* declaration's id.
     pub(crate) fn sort_of_map(&self, id: MapId) -> crate::ResolvedSortId {
         self.context
             .sort_of_map
@@ -638,6 +651,7 @@ mod tests {
 
     use merc_syntax::EqnSpecId;
     use merc_syntax::EquationId;
+    use merc_syntax::SourceMap;
     use merc_syntax::UntypedDataSpecification;
 
     use crate::DataSpecification;
@@ -647,7 +661,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
     fn test_equation_typing_is_memoized() {
         let spec = UntypedDataSpecification::parse("map f: Nat; eqn f = 1;").unwrap();
-        let mut checked = DataSpecification::from_untyped(spec).unwrap();
+        let mut checked = DataSpecification::from_untyped(spec, &mut SourceMap::new()).unwrap();
 
         let key = (EqnSpecId::new(0), EquationId::new(0));
 
@@ -672,7 +686,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
     fn test_equation_typing_info_is_memoized() {
         let spec = UntypedDataSpecification::parse("map f: Nat; eqn f = 1;").unwrap();
-        let mut checked = DataSpecification::from_untyped(spec).unwrap();
+        let mut checked = DataSpecification::from_untyped(spec, &mut SourceMap::new()).unwrap();
         let key = (EqnSpecId::new(0), EquationId::new(0));
 
         checked.equation_typing_info(key);
@@ -696,7 +710,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
     fn test_typing_info_is_memoized() {
         let spec = UntypedDataSpecification::parse("map f: Nat; eqn f = 1;").unwrap();
-        let mut checked = DataSpecification::from_untyped(spec).unwrap();
+        let mut checked = DataSpecification::from_untyped(spec, &mut SourceMap::new()).unwrap();
 
         checked.typing_info();
         let first = Arc::clone(
@@ -727,7 +741,7 @@ mod tests {
                  eqn f(d) = true;",
             )
             .unwrap(),
-        )
+        &mut SourceMap::new())
         .unwrap();
         let mcrl2 = spec.lower_data_specification();
 
@@ -761,7 +775,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
     fn test_mcrl2_data_specification_system_constructors_present() {
         // `Bool` always pulls in its system constructors; at least `true`/`false` must appear.
-        let spec = DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Bool;").unwrap()).unwrap();
+        let spec = DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Bool;").unwrap(), &mut SourceMap::new()).unwrap();
         let mcrl2 = spec.lower_data_specification();
         assert!(
             mcrl2.constructors().iter().any(|c| c.name() == "true"),
@@ -774,7 +788,7 @@ mod tests {
     fn test_mcrl2_data_specification_system_equations_present() {
         // System Bool equations (e.g. `!true = false`) must appear now that
         // `lower_data_specification` includes structurally-lowerable system equations.
-        let spec = DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Bool;").unwrap()).unwrap();
+        let spec = DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Bool;").unwrap(), &mut SourceMap::new()).unwrap();
         let mcrl2 = spec.lower_data_specification();
         // `!true = false` should be among the system Bool equations.
         let found = mcrl2
@@ -793,7 +807,7 @@ mod tests {
         // propagation rather than skipped.
         let spec = DataSpecification::from_untyped(
             UntypedDataSpecification::parse("sort D; map f: List(D) -> Bool;").unwrap(),
-        )
+        &mut SourceMap::new())
         .unwrap();
         let mcrl2 = spec.lower_data_specification();
 
@@ -823,7 +837,7 @@ mod tests {
         // the inferred sort during lowering.
         let spec = DataSpecification::from_untyped(
             UntypedDataSpecification::parse("map f: Bool; eqn f = 1 in [2, 3];").unwrap(),
-        )
+        &mut SourceMap::new())
         .unwrap();
         let mcrl2 = spec.lower_data_specification();
 
@@ -852,7 +866,7 @@ mod tests {
         // declared textually).
         let spec = DataSpecification::from_untyped(
             UntypedDataSpecification::parse("map n: Nat; eqn n = #{1, 2, 3};").unwrap(),
-        )
+        &mut SourceMap::new())
         .unwrap();
         let mcrl2 = spec.lower_data_specification();
 
@@ -878,7 +892,7 @@ mod tests {
         // declared textually).
         let spec = DataSpecification::from_untyped(
             UntypedDataSpecification::parse("map n: Nat; eqn n = #{1: 2, 3: 4};").unwrap(),
-        )
+        &mut SourceMap::new())
         .unwrap();
         let mcrl2 = spec.lower_data_specification();
 
@@ -911,7 +925,7 @@ mod tests {
     fn test_set_extensionality_equation_survives_lowering() {
         // `set.mcrl2`'s `@set(f, s) == @set(g, t) = forall c:S. ...`.
         let spec =
-            DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Set(Nat) -> Bool;").unwrap())
+            DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Set(Nat) -> Bool;").unwrap(), &mut SourceMap::new())
                 .unwrap();
         let mcrl2 = spec.lower_data_specification();
         let found = mcrl2
@@ -930,7 +944,7 @@ mod tests {
     fn test_bag_extensionality_equation_survives_lowering() {
         // `bag.mcrl2`'s counterpart of the Set extensionality equation.
         let spec =
-            DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Bag(Nat) -> Bool;").unwrap())
+            DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Bag(Nat) -> Bool;").unwrap(), &mut SourceMap::new())
                 .unwrap();
         let mcrl2 = spec.lower_data_specification();
         let found = mcrl2
@@ -950,7 +964,7 @@ mod tests {
         // `set.mcrl2`'s `@setfset(s) = @set(@false_, s)`, where `@false_` is used
         // point-free (`S -> Bool`, never applied).
         let spec =
-            DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Set(Nat) -> Bool;").unwrap())
+            DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Set(Nat) -> Bool;").unwrap(), &mut SourceMap::new())
                 .unwrap();
         let mcrl2 = spec.lower_data_specification();
         let found = mcrl2
@@ -975,7 +989,7 @@ mod tests {
                 "sort D = struct c1(pr1: Nat, pr2: Bool)?is_c1 | c2?is_c2; map f: D -> Bool;",
             )
             .unwrap(),
-        )
+        &mut SourceMap::new())
         .unwrap();
         let mcrl2 = spec.lower_data_specification();
 
@@ -1008,7 +1022,7 @@ mod tests {
         // be ambiguous against one pooled signature — see `SystemEquationGroup`.
         let spec = DataSpecification::from_untyped(
             UntypedDataSpecification::parse("sort D = struct d1; map f: Bag(Nat) -> Bool; g: Bag(D) -> Bool;").unwrap(),
-        )
+        &mut SourceMap::new())
         .unwrap();
         let mcrl2 = spec.lower_data_specification();
 
@@ -1049,7 +1063,7 @@ mod tests {
                  map f: A -> Bool;",
             )
             .unwrap(),
-        )
+        &mut SourceMap::new())
         .unwrap();
         let mcrl2 = spec.lower_data_specification();
 

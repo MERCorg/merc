@@ -341,13 +341,14 @@ fn push_unique(mappings: &mut Vec<IdDecl<MapId>>, mapping: IdDecl<MapId>) {
 
 #[cfg(test)]
 mod tests {
+    use merc_syntax::SourceMap;
     use merc_syntax::UntypedDataSpecification;
 
     use crate::DataSpecification;
 
     /// Returns the constructor and mapping names of the type-checked spec.
     fn constructors_and_mappings(text: &str) -> (Vec<String>, Vec<String>) {
-        let checked = DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap()).unwrap();
+        let checked = DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap(), &mut SourceMap::new()).unwrap();
         let spec = checked.data_specification();
         let constructors = spec
             .constructor_declarations
@@ -387,7 +388,7 @@ mod tests {
     fn test_struct_equations_are_in_system_spec() {
         let checked = DataSpecification::from_untyped(
             UntypedDataSpecification::parse("sort D = struct c1(p1: Bool)?is_c1 | c2;").unwrap(),
-        )
+        &mut SourceMap::new())
         .unwrap();
 
         let equations: Vec<String> = checked
@@ -463,7 +464,7 @@ mod tests {
         // type checks after desugaring.
         DataSpecification::from_untyped(
             UntypedDataSpecification::parse("sort Tree = struct leaf | node(Tree, Tree);").unwrap(),
-        )
+        &mut SourceMap::new())
         .expect("a recursive struct with a base case is non-empty");
     }
 
@@ -474,7 +475,7 @@ mod tests {
         // (the abstract arguments are assumed non-empty).
         DataSpecification::from_untyped(
             UntypedDataSpecification::parse("sort A;\n     B;\nsort S = struct c(A) | d(B);").unwrap(),
-        )
+        &mut SourceMap::new())
         .expect("a struct over abstract argument sorts is non-empty");
     }
 }
