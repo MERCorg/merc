@@ -653,12 +653,13 @@ PresExprPrefix = _{
       PresExprInf
     | PresExprSup
     | PresExprSum
-    | PbesExprNegation
+    | PresExprNegation
     | PresExprLeftConstantMultiply
 }
     PresExprInf = { "inf" ~ VarsDeclList ~ "." }
     PresExprSup = { "sup" ~ VarsDeclList ~ "." }
     PresExprSum = { "sum" ~ VarsDeclList ~ "." }
+    PresExprNegation = { "-" }
     PresExprLeftConstantMultiply = { DataValExpr ~ "*" }
 
 PresExprInfix = _{

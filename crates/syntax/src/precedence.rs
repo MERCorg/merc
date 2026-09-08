@@ -828,7 +828,7 @@ static PRESEXPR_PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| {
         .op(Op::infix(Rule::PbesExprDisj, Assoc::Right)) // $right 4
         .op(Op::infix(Rule::PbesExprConj, Assoc::Right)) // $right 5
         .op(Op::prefix(Rule::PresExprLeftConstantMultiply) | Op::postfix(Rule::PresExprRightConstMultiply)) // $right 6
-        .op(Op::prefix(Rule::PbesExprNegation)) // $right 7
+        .op(Op::prefix(Rule::PresExprNegation)) // $right 7
 });
 
 #[allow(clippy::result_large_err)]
@@ -868,7 +868,7 @@ pub fn parse_presexpr(pairs: Pairs<Rule>) -> ParseResult<PresExpr> {
                 end: expr.span.end,
             };
             match op.as_rule() {
-                Rule::PbesExprNegation => Ok(PresExprKind::Negation(Box::new(expr)).spanned(span)),
+                Rule::PresExprNegation => Ok(PresExprKind::Negation(Box::new(expr)).spanned(span)),
                 Rule::PresExprInf => Ok(PresExprKind::Bound {
                     op: Bound::Inf,
                     expr: Box::new(expr),
