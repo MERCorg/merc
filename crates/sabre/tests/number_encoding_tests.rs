@@ -14,6 +14,7 @@
 use merc_sabre::InnermostRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
+use merc_syntax::SourceMap;
 use merc_syntax::UntypedDataSpecification;
 use merc_typecheck::DataSpecification;
 use merc_typecheck::NumberEncoding;
@@ -31,7 +32,7 @@ const ENCODINGS: [NumberEncoding; 2] = [NumberEncoding::Binary, NumberEncoding::
 fn rewrite(expr: &str, sort: &str, encoding: NumberEncoding) -> String {
     let text = format!("map q: {sort};\neqn q = {expr};");
     let untyped = UntypedDataSpecification::parse(&text).expect("the specification should parse");
-    let spec = DataSpecification::from_untyped_with(untyped, encoding)
+    let spec = DataSpecification::from_untyped_with(untyped, encoding, &mut SourceMap::new())
         .unwrap_or_else(|error| panic!("{encoding:?} should type check `{expr}`: {error:?}"));
     let lowered = spec.lower_data_specification();
 
