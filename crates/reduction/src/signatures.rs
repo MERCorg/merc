@@ -19,13 +19,13 @@ use crate::quotient_lts_naive;
 use crate::tau_scc_decomposition_iterative;
 
 /// The builder used to construct the signature.
-pub(crate) type SignatureBuilder = Vec<(LabelIndex, BlockIndex)>;
+pub type SignatureBuilder = Vec<(LabelIndex, BlockIndex)>;
 
 /// A signature: a sorted, deduplicated slice of `(label, block)` pairs.
 /// Sorted slices avoid the overhead of a hash set for these typically small
 /// collections.
 #[derive(Eq)]
-pub(crate) struct Signature<'a>(&'a [(LabelIndex, BlockIndex)]);
+pub struct Signature<'a>(&'a [(LabelIndex, BlockIndex)]);
 
 impl<'a> Signature<'a> {
     pub(crate) fn new(slice: &'a [(LabelIndex, BlockIndex)]) -> Signature<'a> {
@@ -109,7 +109,7 @@ fn tau_hat<L: LTS>(lts: &L) -> LabelIndex {
 /// ```plain
 ///     sig(s, pi) = { (a, pi(t)) | s -a-> t in T }
 /// ```
-pub(crate) fn strong_bisim_signature<L: LTS, P: Partition>(
+pub fn strong_bisim_signature<L: LTS, P: Partition>(
     state_index: StateIndex,
     lts: &L,
     partition: &P,
@@ -132,7 +132,7 @@ pub(crate) fn strong_bisim_signature<L: LTS, P: Partition>(
 /// ```plain
 ///     sig(s, pi) = { (a, pi(t)) | s -tau-> s1 -> ... s_n -a-> t in T && pi(s) = pi(s_i) && ((a != tau) || pi(s) != pi(t)) }
 /// ```
-pub(crate) fn branching_bisim_signature<L: LTS, P: Partition>(
+pub fn branching_bisim_signature<L: LTS, P: Partition>(
     state_index: StateIndex,
     lts: &L,
     partition: &P,
@@ -177,7 +177,7 @@ pub(crate) fn branching_bisim_signature<L: LTS, P: Partition>(
 
 /// Like [`branching_bisim_signature`], computed into `builder`, but assumes
 /// the input LTS is topologically sorted with no tau-cycles.
-pub(crate) fn branching_bisim_signature_sorted<L: LTS, P: Partition>(
+pub fn branching_bisim_signature_sorted<L: LTS, P: Partition>(
     state_index: StateIndex,
     lts: &L,
     partition: &P,
@@ -210,7 +210,7 @@ pub(crate) fn branching_bisim_signature_sorted<L: LTS, P: Partition>(
 /// The inductive version of [`branching_bisim_signature_sorted`], computed
 /// into `builder`. Assumes the input LTS has no tau-cycles and is
 /// topologically sorted.
-pub(crate) fn branching_bisim_signature_inductive<L: LTS>(
+pub fn branching_bisim_signature_inductive<L: LTS>(
     state_index: StateIndex,
     lts: &L,
     partition: &BlockPartition,
@@ -244,7 +244,7 @@ pub(crate) fn branching_bisim_signature_inductive<L: LTS>(
 /// `builder`.
 ///
 /// Assumes the input LTS has no tau-cycles.
-pub(crate) fn weak_bisim_presignature_sorted<L: LTS, P: Partition>(
+pub fn weak_bisim_presignature_sorted<L: LTS, P: Partition>(
     state_index: StateIndex,
     lts: &L,
     partition: &P,
@@ -276,7 +276,7 @@ pub(crate) fn weak_bisim_presignature_sorted<L: LTS, P: Partition>(
 /// `builder`.
 ///
 /// Assumes the input LTS has no tau-cycles.
-pub(crate) fn weak_bisim_signature_sorted_full<L: LTS, P: Partition>(
+pub fn weak_bisim_signature_sorted_full<L: LTS, P: Partition>(
     state_index: StateIndex,
     lts: &L,
     partition: &P,
@@ -311,7 +311,7 @@ pub(crate) fn weak_bisim_signature_sorted_full<L: LTS, P: Partition>(
 /// Computes the weak bisimulation signature of `state_index` into `builder`.
 ///
 /// Assumes the input LTS has no tau-cycles.
-pub(crate) fn weak_bisim_signature_sorted<L: LTS, P: Partition>(
+pub fn weak_bisim_signature_sorted<L: LTS, P: Partition>(
     state_index: StateIndex,
     lts: &L,
     partition: &P,
@@ -344,7 +344,7 @@ pub(crate) fn weak_bisim_signature_sorted<L: LTS, P: Partition>(
 /// Computes only the tau signature of `state_index` into `builder`.
 ///
 /// Assumes the input LTS has no tau-cycles.
-pub(crate) fn weak_bisim_signature_sorted_taus<L: LTS, P: Partition>(
+pub fn weak_bisim_signature_sorted_taus<L: LTS, P: Partition>(
     state_index: StateIndex,
     lts: &L,
     partition: &P,
