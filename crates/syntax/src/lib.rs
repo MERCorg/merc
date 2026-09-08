@@ -23,6 +23,7 @@ pub(crate) use type_var_binding::*;
 pub use counterexample_formula::generate_distinguishing_formula;
 pub use counterexample_formula::generate_refinement_formula;
 pub use imports::ImportDirective;
+pub use imports::ImportError;
 pub use imports::scan_imports;
 pub use merc_utilities::SourceId;
 pub use merc_utilities::SourceMap;
