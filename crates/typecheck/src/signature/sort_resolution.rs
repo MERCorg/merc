@@ -99,11 +99,9 @@ pub(crate) fn resolve_sort(
         SortExpressionKind::Resolved(_, id) => query_sort_of_def(ctx, spec, *id),
         SortExpressionKind::Reference(_) => unreachable!("Names must have been resolved"),
         SortExpressionKind::TypeVar(_) => unreachable!("Names must have been resolved"),
-        SortExpressionKind::ResolvedTypeVar(_) => unreachable!(
-            "a bound type variable denotes a scheme, not a single ground sort: it must be \
-             instantiated (substituted for a rigid placeholder or a fresh unification variable, \
-             see inference::template_instance) before the result is ever handed to resolve_sort"
-        ),
+        // Interned as a genuine lattice element, the same `S` is considered
+        // identical wherever it appears.
+        SortExpressionKind::ResolvedTypeVar(id) => ctx.sorts.var(*id),
         SortExpressionKind::Struct { .. } => unreachable!("Structured sorts must have been desugared"),
         SortExpressionKind::Product { .. } => {
             unreachable!("product sorts outside a function domain were rejected before resolution")
@@ -256,7 +254,10 @@ mod tests {
         let var_id = spec.data_specification().equation_declarations[0].variables[0]
             .var_id
             .expect("resolve_data_specification_variables ran");
-        assert_eq!(spec.sort_of_equation_var(var_id), spec.context().sorts.primitive(Sort::Nat));
+        assert_eq!(
+            spec.sort_of_equation_var(var_id),
+            spec.context().sorts.primitive(Sort::Nat)
+        );
     }
 
     #[test]

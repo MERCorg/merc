@@ -170,6 +170,11 @@ pub(crate) fn lower_sort(
             let name = ctx.sort_name(spec, system, *def).unwrap_or("@sort_unknown");
             BasicSort::new(name).into()
         }
+        ResolvedSort::Var(_) => unreachable!(
+            "a bound type variable denotes a scheme, not a ground sort: it is always instantiated \
+             to a fresh unification variable (ConstraintGenerator::instantiate_scheme) before Phase-3 \
+             solving ever produces a ResolvedSortId, so one can never reach lowering"
+        ),
     }
 }
 
@@ -873,9 +878,12 @@ pub(crate) fn lower_syntax_sort(sort: &SortExpression) -> DataSortExpression {
             BasicSort::new(name.as_str()).into()
         }
         SortExpressionKind::TypeVar(_) | SortExpressionKind::ResolvedTypeVar(_) => unreachable!(
-            "no TypeVar/ResolvedTypeVar node reaches lowering yet: nothing constructs a `type_var` \
-             block for a spec that reaches this far, and any future scheme must be instantiated \
-             (see template_instance) before its result is lowered"
+            "no TypeVar/ResolvedTypeVar node reaches lowering: the container/function-update \
+             templates do declare their own sort variable(s) with a `type_var` block now (see the \
+             unifying-polymorphism design), but `replace_sort` always substitutes every \
+             ResolvedTypeVar node for a concrete sort before the result is merged into `system`, and \
+             a scheme reached through inference is instantiated (see template_instance) before its \
+             result is ever lowered"
         ),
         SortExpressionKind::Struct { .. } | SortExpressionKind::Product { .. } => {
             unreachable!("struct/product sorts are desugared/flattened before lowering")
