@@ -85,6 +85,40 @@ fn test_bound_variable_goto_def_declaration_points_at_binder() {
     assert_eq!(&text[declaration.start..declaration.end], "n");
 }
 
+/// A `sum` binder's own declaration occurrence (`n` in `sum n: Nat . ...`, not a later use of it
+/// in the body) is itself hoverable.
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_bound_variable_declaration_itself_is_hoverable() {
+    let text = "pres mu X = sum n: Nat . val(n); init X;";
+    assert_eq!(hover(text, "n: Nat"), "Nat");
+    let name = resolved_name_at(text, "n: Nat");
+    let ResolvedName::Variable { name, declaration } = &name else {
+        panic!("expected a Variable resolution, got {name:?}");
+    };
+    assert_eq!(name, "n");
+    let declaration = declaration
+        .clone()
+        .expect("a sum-bound variable has a real declaration span");
+    assert_eq!(&text[declaration.start..declaration.end], "n");
+}
+
+/// An equation's own parameter declaration (`n` in `X(n: Nat)`, not a use of it in the formula)
+/// is itself hoverable.
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_equation_parameter_declaration_itself_is_hoverable() {
+    let text = "pres mu X(n: Nat) = val(n); init X(1);";
+    assert_eq!(hover(text, "n: Nat"), "Nat");
+}
+
+/// A `glob` variable's own declaration (not a use of it) is itself hoverable.
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_global_variable_declaration_itself_is_hoverable() {
+    let text = "glob x: Nat; pres mu X = val(x); init X;";
+    assert_eq!(hover(text, "x:"), "Nat");
+}
+
 /// A `sum` binder's bound variable is checked (and its typing recorded) inside its own body.
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
