@@ -277,6 +277,26 @@ fn test_a_built_in_sort_reference_now_resolves_to_its_appendix_b_declaration() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_a_container_sort_keyword_resolves_with_no_declaration() {
+    // Unlike a `Simple` built-in sort (`Nat`, above), a `Complex` container keyword (`List`,
+    // `Set`, `FSet`, `FBag`, `Bag`) has no single declaration site.
+    let text = "sort D; map f: List(D) -> Bool;";
+    // "List(" is unique to the keyword itself, not its nested subsort `D` (see the sibling test
+    // just below, which resolves the `D)` occurrence instead).
+    match resolved_name_at(text, "List(") {
+        ResolvedName::SystemDefined { name, declaration } => {
+            assert_eq!(name, "List");
+            assert!(
+                declaration.is_none(),
+                "a container keyword has no declaration site to point at"
+            );
+        }
+        other => panic!("expected a SystemDefined resolution for 'List', got {other:?}"),
+    }
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_mapping_signature_sort_goto_def_resolves_to_its_declaration() {
     let text = "sort D; map f: D -> D;";
     // "D ->" is unique to the *domain* sort — the range "D" (before the trailing `;`) would be

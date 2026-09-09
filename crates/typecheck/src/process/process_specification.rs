@@ -67,13 +67,13 @@ impl ProcessSpecification {
 
         // A pure syntactic pass, before anything else needs `spec` — see
         // `resolution::variable_resolution`.
-        let variable_spans = crate::resolve_process_variables(&mut spec);
+        crate::resolve_process_variables(&mut spec);
 
         let data_spec = std::mem::take(&mut spec.data_specification);
         let mut data = DataSpecification::from_untyped_with(data_spec, encoding, sources)?;
 
         let tables = DeclarationTables::build(&mut data, &spec)?;
-        let typing = check::check_process_specification(&mut data, &tables, &variable_spans, &spec)?;
+        let typing = check::check_process_specification(&mut data, &tables, &spec)?;
 
         Ok(ProcessSpecification { spec, data, typing })
     }

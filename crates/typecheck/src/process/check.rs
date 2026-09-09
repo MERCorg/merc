@@ -21,7 +21,6 @@ use crate::DisplaySortContext;
 use crate::ResolvedName;
 use crate::ResolvedSortId;
 use crate::TypingInfo;
-use crate::VariableSpans;
 use crate::checking::Scope;
 use crate::checking::check_expression_against;
 use crate::checking::collect_binder_sorts;
@@ -37,7 +36,6 @@ use super::process_specification::resolve_declared_sort;
 pub(super) fn check_process_specification(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
-    variable_spans: &VariableSpans,
     spec: &UntypedProcessSpecification,
 ) -> Result<TypingInfo, ProcessError> {
     let mut typing = TypingInfo::default();
@@ -57,7 +55,7 @@ pub(super) fn check_process_specification(
         typing_info::collect_sort_name_references(&decl.sort, &mut sort_references);
     }
 
-    let globals: Vec<(VarId, ResolvedSortId)> = spec
+    let globals: Vec<(VarId, ResolvedSortId, Span)> = spec
         .global_variables
         .iter()
         .zip(&tables.global_sorts)
@@ -65,6 +63,7 @@ pub(super) fn check_process_specification(
             (
                 decl.var_id.expect("resolve_process_variables ran before checking"),
                 sort,
+                decl.identifier.span.clone(),
             )
         })
         .collect();
@@ -85,6 +84,7 @@ pub(super) fn check_process_specification(
             (
                 decl.var_id.expect("resolve_process_variables ran before checking"),
                 sort,
+                decl.identifier.span.clone(),
             )
         }));
         for (decl, &(_, sort)) in proc_decl.params.iter().zip(params) {
@@ -97,13 +97,13 @@ pub(super) fn check_process_specification(
             );
         }
         collect_scope(data, &proc_decl.body, &mut scope, &mut sort_references, &mut typing)?;
-        check_process_expr(data, tables, &scope, variable_spans, &proc_decl.body, &mut typing)?;
+        check_process_expr(data, tables, &scope, &proc_decl.body, &mut typing)?;
     }
 
     if let Some(init) = &spec.init {
         let mut scope = globals.clone();
         collect_scope(data, init, &mut scope, &mut sort_references, &mut typing)?;
-        check_process_expr(data, tables, &scope, variable_spans, init, &mut typing)?;
+        check_process_expr(data, tables, &scope, init, &mut typing)?;
     }
 
     typing_info::push_sort_references(data, &sort_references, &mut typing);
@@ -115,7 +115,7 @@ pub(super) fn check_process_specification(
 fn collect_scope(
     data: &mut DataSpecification,
     expr: &ProcessExpr,
-    scope: &mut Vec<(VarId, ResolvedSortId)>,
+    scope: &mut Vec<(VarId, ResolvedSortId, Span)>,
     sort_references: &mut Vec<(Span, String)>,
     typing: &mut TypingInfo,
 ) -> Result<(), ProcessError> {
@@ -153,7 +153,6 @@ fn check_process_expr(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
     scope: &Scope,
-    variable_spans: &VariableSpans,
     expr: &ProcessExpr,
     typing: &mut TypingInfo,
 ) -> Result<(), ProcessError> {
@@ -161,43 +160,34 @@ fn check_process_expr(
         ProcessExprKind::Delta | ProcessExprKind::Tau => Ok(()),
 
         ProcessExprKind::Action(name, args) => {
-            check_action_or_process(data, tables, scope, variable_spans, name, args, &expr.span, typing)
+            check_action_or_process(data, tables, scope, name, args, &expr.span, typing)
         }
-        ProcessExprKind::Id(name, assignments) => check_instantiation(
-            data,
-            tables,
-            scope,
-            variable_spans,
-            name,
-            assignments,
-            &expr.span,
-            typing,
-        ),
+        ProcessExprKind::Id(name, assignments) => {
+            check_instantiation(data, tables, scope, name, assignments, &expr.span, typing)
+        }
 
-        ProcessExprKind::Sum { operand, .. } => {
-            check_process_expr(data, tables, scope, variable_spans, operand, typing)
-        }
+        ProcessExprKind::Sum { operand, .. } => check_process_expr(data, tables, scope, operand, typing),
         ProcessExprKind::Dist {
             expr: weight, operand, ..
         } => {
             // Checked against `Real`: `dist`'s weight is the distribution's density over its own
             // bound variables, already part of `scope` (collected up front by `collect_scope`).
             let real_sort = data.context().sorts.real_sort();
-            check_expression_against::<ProcessError>(data, scope, variable_spans, weight, real_sort, typing)?;
-            check_process_expr(data, tables, scope, variable_spans, operand, typing)
+            check_expression_against::<ProcessError>(data, scope, weight, real_sort, typing)?;
+            check_process_expr(data, tables, scope, operand, typing)
         }
 
         ProcessExprKind::Binary { lhs, rhs, .. } => {
-            check_process_expr(data, tables, scope, variable_spans, lhs, typing)?;
-            check_process_expr(data, tables, scope, variable_spans, rhs, typing)
+            check_process_expr(data, tables, scope, lhs, typing)?;
+            check_process_expr(data, tables, scope, rhs, typing)
         }
 
         ProcessExprKind::Condition { condition, then, else_ } => {
             let bool_sort = data.context().sorts.bool_sort();
-            check_expression_against::<ProcessError>(data, scope, variable_spans, condition, bool_sort, typing)?;
-            check_process_expr(data, tables, scope, variable_spans, then, typing)?;
+            check_expression_against::<ProcessError>(data, scope, condition, bool_sort, typing)?;
+            check_process_expr(data, tables, scope, then, typing)?;
             if let Some(else_) = else_ {
-                check_process_expr(data, tables, scope, variable_spans, else_, typing)?;
+                check_process_expr(data, tables, scope, else_, typing)?;
             }
             Ok(())
         }
@@ -207,23 +197,23 @@ fn check_process_expr(
             operand: time,
         } => {
             let real_sort = data.context().sorts.real_sort();
-            check_expression_against::<ProcessError>(data, scope, variable_spans, time, real_sort, typing)?;
-            check_process_expr(data, tables, scope, variable_spans, inner, typing)
+            check_expression_against::<ProcessError>(data, scope, time, real_sort, typing)?;
+            check_process_expr(data, tables, scope, inner, typing)
         }
 
         ProcessExprKind::Hide { actions, operand } => {
             check_action_names(tables, actions, typing)?;
-            check_process_expr(data, tables, scope, variable_spans, operand, typing)
+            check_process_expr(data, tables, scope, operand, typing)
         }
         ProcessExprKind::Block { actions, operand } => {
             check_action_names(tables, actions, typing)?;
-            check_process_expr(data, tables, scope, variable_spans, operand, typing)
+            check_process_expr(data, tables, scope, operand, typing)
         }
         ProcessExprKind::Allow { actions, operand } => {
             for label in actions {
                 check_action_names(tables, &label.actions, typing)?;
             }
-            check_process_expr(data, tables, scope, variable_spans, operand, typing)
+            check_process_expr(data, tables, scope, operand, typing)
         }
         ProcessExprKind::Comm { comm, operand } => {
             for c in comm {
@@ -231,7 +221,7 @@ fn check_process_expr(
                 check_action_names(tables, std::slice::from_ref(&c.to), typing)?;
                 check_comm_sorts(data, tables, c)?;
             }
-            check_process_expr(data, tables, scope, variable_spans, operand, typing)
+            check_process_expr(data, tables, scope, operand, typing)
         }
         ProcessExprKind::Rename { renames, operand } => {
             for r in renames {
@@ -239,7 +229,7 @@ fn check_process_expr(
                 check_action_names(tables, std::slice::from_ref(&r.to), typing)?;
                 check_rename_sorts(data, tables, r)?;
             }
-            check_process_expr(data, tables, scope, variable_spans, operand, typing)
+            check_process_expr(data, tables, scope, operand, typing)
         }
     }
 }
@@ -267,7 +257,6 @@ fn check_action_or_process(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
     scope: &Scope,
-    variable_spans: &VariableSpans,
     name: &ActionName,
     args: &[DataExpr],
     span: &Span,
@@ -308,7 +297,7 @@ fn check_action_or_process(
     let mut matched: Option<(&Candidate, TypingInfo)> = None;
     for (candidate, expected) in &candidates {
         let mut candidate_typing = TypingInfo::default();
-        match check_arguments(data, scope, variable_spans, args, expected, &mut candidate_typing) {
+        match check_arguments(data, scope, args, expected, &mut candidate_typing) {
             Ok(()) => {
                 successes += 1;
                 matched = Some((candidate, candidate_typing));
@@ -352,13 +341,12 @@ fn check_action_or_process(
 fn check_arguments(
     data: &mut DataSpecification,
     scope: &Scope,
-    variable_spans: &VariableSpans,
     args: &[DataExpr],
     expected: &[ResolvedSortId],
     typing: &mut TypingInfo,
 ) -> Result<(), ProcessError> {
     for (arg, &sort) in args.iter().zip(expected) {
-        check_expression_against::<ProcessError>(data, scope, variable_spans, arg, sort, typing)?;
+        check_expression_against::<ProcessError>(data, scope, arg, sort, typing)?;
     }
     Ok(())
 }
@@ -374,7 +362,6 @@ fn check_instantiation(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
     scope: &Scope,
-    variable_spans: &VariableSpans,
     name: &ActionName,
     assignments: &[Assignment],
     span: &Span,
@@ -397,7 +384,6 @@ fn check_instantiation(
         match check_one_instantiation(
             data,
             scope,
-            variable_spans,
             &tables.process_params[index],
             assignments,
             &name.node,
@@ -436,7 +422,6 @@ fn check_instantiation(
 fn check_one_instantiation(
     data: &mut DataSpecification,
     scope: &Scope,
-    variable_spans: &VariableSpans,
     params: &[(String, ResolvedSortId)],
     assignments: &[Assignment],
     process: &str,
@@ -459,7 +444,7 @@ fn check_one_instantiation(
             });
         }
         assigned.push(&assignment.identifier);
-        check_expression_against::<ProcessError>(data, scope, variable_spans, &assignment.expr, sort, typing)?;
+        check_expression_against::<ProcessError>(data, scope, &assignment.expr, sort, typing)?;
     }
     Ok(())
 }

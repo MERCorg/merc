@@ -14,7 +14,6 @@ use crate::DataSpecification;
 use crate::ResolvedName;
 use crate::ResolvedSortId;
 use crate::TypingInfo;
-use crate::VariableSpans;
 use crate::checking::Scope;
 use crate::checking::check_expression_against;
 use crate::checking::collect_binder_sorts;
@@ -30,7 +29,6 @@ use super::pres_specification::resolve_declared_sort;
 pub(super) fn check_pres_specification(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
-    variable_spans: &VariableSpans,
     spec: &UntypedPres,
 ) -> Result<TypingInfo, PresError> {
     let mut typing = TypingInfo::default();
@@ -45,11 +43,17 @@ pub(super) fn check_pres_specification(
         }
     }
 
-    let globals: Vec<(VarId, ResolvedSortId)> = spec
+    let globals: Vec<(VarId, ResolvedSortId, Span)> = spec
         .global_variables
         .iter()
         .zip(&tables.global_sorts)
-        .map(|(decl, &sort)| (decl.var_id.expect("resolve_pres_variables ran before checking"), sort))
+        .map(|(decl, &sort)| {
+            (
+                decl.var_id.expect("resolve_pres_variables ran before checking"),
+                sort,
+                decl.identifier.span.clone(),
+            )
+        })
         .collect();
     for (decl, &sort) in spec.global_variables.iter().zip(&tables.global_sorts) {
         typing_info::push_binder_declaration(
@@ -64,13 +68,13 @@ pub(super) fn check_pres_specification(
     for (eqn, params) in spec.equations.iter().zip(&tables.equation_params) {
         let mut scope = globals.clone();
         // An equation's own parameters are in scope throughout its formula.
-        scope.extend(
-            eqn.variable
-                .parameters
-                .iter()
-                .zip(params)
-                .map(|(decl, &(_, sort))| (decl.var_id.expect("resolve_pres_variables ran before checking"), sort)),
-        );
+        scope.extend(eqn.variable.parameters.iter().zip(params).map(|(decl, &(_, sort))| {
+            (
+                decl.var_id.expect("resolve_pres_variables ran before checking"),
+                sort,
+                decl.identifier.span.clone(),
+            )
+        }));
         for (decl, &(_, sort)) in eqn.variable.parameters.iter().zip(params) {
             typing_info::push_binder_declaration(
                 data,
@@ -81,12 +85,12 @@ pub(super) fn check_pres_specification(
             );
         }
         collect_scope(data, &eqn.formula, &mut scope, &mut sort_references, &mut typing)?;
-        check_pres_expr(data, tables, &scope, variable_spans, &eqn.formula, &mut typing)?;
+        check_pres_expr(data, tables, &scope, &eqn.formula, &mut typing)?;
     }
 
     // `init` is a bare `PropVarInst`, checked the same way as one appearing inside a formula —
     // scope = globals only, since it sits outside every equation's own parameter scope.
-    check_prop_var_inst(data, tables, &globals, variable_spans, &spec.init, &mut typing)?;
+    check_prop_var_inst(data, tables, &globals, &spec.init, &mut typing)?;
 
     typing_info::push_sort_references(data, &sort_references, &mut typing);
     Ok(typing)
@@ -97,7 +101,7 @@ pub(super) fn check_pres_specification(
 fn collect_scope(
     data: &mut DataSpecification,
     expr: &PresExpr,
-    scope: &mut Vec<(VarId, ResolvedSortId)>,
+    scope: &mut Vec<(VarId, ResolvedSortId, Span)>,
     sort_references: &mut Vec<(Span, String)>,
     typing: &mut TypingInfo,
 ) -> Result<(), PresError> {
@@ -130,7 +134,6 @@ fn check_pres_expr(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
     scope: &Scope,
-    variable_spans: &VariableSpans,
     expr: &PresExpr,
     typing: &mut TypingInfo,
 ) -> Result<(), PresError> {
@@ -139,34 +142,34 @@ fn check_pres_expr(
 
         PresExprKind::DataValExpr(data_expr) => {
             let real_sort = data.context().sorts.real_sort();
-            check_expression_against::<PresError>(data, scope, variable_spans, data_expr, real_sort, typing)
+            check_expression_against::<PresError>(data, scope, data_expr, real_sort, typing)
         }
 
-        PresExprKind::PropVarInst(inst) => check_prop_var_inst(data, tables, scope, variable_spans, inst, typing),
+        PresExprKind::PropVarInst(inst) => check_prop_var_inst(data, tables, scope, inst, typing),
 
-        PresExprKind::Negation(inner) => check_pres_expr(data, tables, scope, variable_spans, inner, typing),
+        PresExprKind::Negation(inner) => check_pres_expr(data, tables, scope, inner, typing),
 
         PresExprKind::Binary { lhs, rhs, .. } => {
-            check_pres_expr(data, tables, scope, variable_spans, lhs, typing)?;
-            check_pres_expr(data, tables, scope, variable_spans, rhs, typing)
+            check_pres_expr(data, tables, scope, lhs, typing)?;
+            check_pres_expr(data, tables, scope, rhs, typing)
         }
 
-        PresExprKind::Equal { body, .. } => check_pres_expr(data, tables, scope, variable_spans, body, typing),
+        PresExprKind::Equal { body, .. } => check_pres_expr(data, tables, scope, body, typing),
 
         PresExprKind::Condition { lhs, then, else_, .. } => {
-            check_pres_expr(data, tables, scope, variable_spans, lhs, typing)?;
-            check_pres_expr(data, tables, scope, variable_spans, then, typing)?;
-            check_pres_expr(data, tables, scope, variable_spans, else_, typing)
+            check_pres_expr(data, tables, scope, lhs, typing)?;
+            check_pres_expr(data, tables, scope, then, typing)?;
+            check_pres_expr(data, tables, scope, else_, typing)
         }
 
         PresExprKind::RightConstantMultiply { expr, constant }
         | PresExprKind::LeftConstantMultiply { expr, constant } => {
             let real_sort = data.context().sorts.real_sort();
-            check_expression_against::<PresError>(data, scope, variable_spans, constant, real_sort, typing)?;
-            check_pres_expr(data, tables, scope, variable_spans, expr, typing)
+            check_expression_against::<PresError>(data, scope, constant, real_sort, typing)?;
+            check_pres_expr(data, tables, scope, expr, typing)
         }
 
-        PresExprKind::Bound { expr, .. } => check_pres_expr(data, tables, scope, variable_spans, expr, typing),
+        PresExprKind::Bound { expr, .. } => check_pres_expr(data, tables, scope, expr, typing),
     }
 }
 
@@ -174,14 +177,12 @@ fn check_pres_expr(
 /// missing), checks its argument count against the declared parameter count (`ArityMismatch`), and
 /// checks each argument against its parameter's sort. On success, also pushes a
 /// [`ResolvedName::PropositionalVariable`] at `inst.identifier`'s own span (not `inst.span`, the
-/// whole `name(args)` node) — see [`docs/name_resolution.md`](../../../../docs/name_resolution.md):
-/// unlike an action/process name, a PRES equation is never overloaded, so the equation table's
-/// single match is the answer. Mirrors `crate::pbes::check::check_prop_var_inst`.
+/// whole `name(args)` node): unlike an action/process name, a PRES equation is never overloaded,
+/// so the equation table's single match is the answer. Mirrors `crate::pbes::check::check_prop_var_inst`.
 fn check_prop_var_inst(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
     scope: &Scope,
-    variable_spans: &VariableSpans,
     inst: &PropVarInst,
     typing: &mut TypingInfo,
 ) -> Result<(), PresError> {
@@ -210,7 +211,7 @@ fn check_prop_var_inst(
     }
 
     for (arg, (_, sort)) in inst.arguments.iter().zip(params) {
-        check_expression_against::<PresError>(data, scope, variable_spans, arg, *sort, typing)?;
+        check_expression_against::<PresError>(data, scope, arg, *sort, typing)?;
     }
     Ok(())
 }
