@@ -28,6 +28,14 @@ impl Span {
         Span { start, end }
     }
 
+    /// Moves both endpoints forward by `delta` — rebasing a span produced by parsing a file's text
+    /// alone into the [SourceMap]-wide offset space, in place of padding that text with `delta`
+    /// leading bytes before parsing it.
+    pub fn shift(&mut self, delta: usize) {
+        self.start += delta;
+        self.end += delta;
+    }
+
     /// The 1-based (line, column) of `self.start` within `source`, counted in
     /// `char`s rather than bytes so the column lines up under multi-byte
     /// UTF-8 text.

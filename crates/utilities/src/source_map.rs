@@ -96,9 +96,6 @@ impl SourceMap {
     /// [`crate::Span`] produced while parsing that file's text alone has
     /// `start`/`end` offset by this amount from what pest reported; subtracting
     /// it back off recovers a span local to that file's own text.
-    ///
-    /// Padding a file's text with this many leading bytes before handing it to
-    /// pest.
     pub fn base_offset(&self, id: SourceId) -> usize {
         self.files[id.value()].base
     }
