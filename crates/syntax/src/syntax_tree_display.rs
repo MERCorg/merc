@@ -610,7 +610,13 @@ impl fmt::Display for Quantifier {
 impl fmt::Display for ConstructorDecl {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.args.is_empty() {
-            write!(f, "{}", self.name.node)
+            write!(f, "{}", self.name.node)?;
+
+            if let Some(projection) = &self.projection {
+                write!(f, "?{}", projection.node)?;
+            }
+
+            Ok(())
         } else {
             write!(f, "{}(", self.name.node)?;
             for (i, (name, sort)) in self.args.iter().enumerate() {

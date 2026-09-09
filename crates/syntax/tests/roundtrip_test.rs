@@ -197,6 +197,20 @@ fn act_decl_with_args_prints_colon_hash() {
     UntypedProcessSpecification::parse(&printed).expect("printed form must reparse");
 }
 
+/// A nullary struct constructor's `?is_foo` recognizer was dropped when printing:
+/// `ConstructorDecl::fmt` returned early for the no-`args` case before checking
+/// `self.projection`, so e.g. `struct b1?is_b1 | b2?is_b2` reprinted without either
+/// recognizer, silently losing the generated `is_b1`/`is_b2` projection functions.
+#[test]
+fn nullary_struct_constructor_recognizer_is_printed() {
+    let spec = UntypedProcessSpecification::parse("sort D = struct b1?is_b1 | b2?is_b2;\ninit delta;")
+        .expect("struct with nullary-constructor recognizers should parse");
+    let printed = format!("{spec}");
+    assert!(printed.contains("b1?is_b1"), "recognizer on b1 must be printed:\n{printed}");
+    assert!(printed.contains("b2?is_b2"), "recognizer on b2 must be printed:\n{printed}");
+    UntypedProcessSpecification::parse(&printed).expect("printed form must reparse");
+}
+
 /// Property: for every generated AST, the printed form parses, and printing the
 /// reparsed AST yields exactly the same string (a fixpoint of `parse ∘ display`).
 /// This catches Display/grammar mismatches without depending on `PartialEq`
