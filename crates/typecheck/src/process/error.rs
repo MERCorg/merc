@@ -1,5 +1,6 @@
 //! Errors from whole-process-specification type checking ([`crate::ProcessSpecification`]).
 
+use merc_syntax::SourceMap;
 use merc_syntax::Span;
 
 use crate::InferenceError;
@@ -100,11 +101,11 @@ impl ProcessError {
     }
 
     /// Renders this error's message, followed by a caret-annotated source snippet, the same way
-    /// [`WellTypedError::render`]/[`InferenceError::render`] do. `source` must be the original
-    /// specification text this error was raised against.
-    pub fn render(&self, source: &str) -> String {
+    /// [`WellTypedError::render`]/[`InferenceError::render`] do. `sources` must contain the
+    /// original specification text this error was raised against.
+    pub fn render(&self, sources: &SourceMap) -> String {
         match self.span() {
-            Some(span) => format!("{self}\n{}", span.render(source)),
+            Some(span) => format!("{self}\n{}", span.render(sources)),
             None => self.to_string(),
         }
     }

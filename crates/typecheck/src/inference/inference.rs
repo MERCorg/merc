@@ -9,28 +9,28 @@ use merc_syntax::ComplexSort;
 use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
 use merc_syntax::EqnSpecId;
-use merc_syntax::EqnVarId;
 use merc_syntax::EquationId;
 use merc_syntax::IdDecl;
 use merc_syntax::Sort;
 use merc_syntax::SortExpression;
-use merc_syntax::SortExpressionKind;
+use merc_syntax::SourceMap;
 use merc_syntax::Span;
+use merc_syntax::TypeVarId;
 use merc_syntax::UntypedDataSpecification;
+use merc_syntax::VarId;
 use merc_utilities::TagIndex;
 
-use crate::BUILTIN_SCHEME_SIGNATURE;
 use crate::DisplaySortContext;
 use crate::InferSort;
 use crate::InferSortId;
-use crate::POLYMORPHIC_SIGNATURE;
-use crate::PolymorphicSignature;
+use crate::PolySortScheme;
 use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::Signature;
 use crate::SortInterner;
 use crate::TypeCheckContext;
 use crate::Unifier;
+use crate::build_builtin_scheme_signature;
 use crate::is_lowered;
 use crate::is_supported_binder_sort;
 use crate::number_generality;
@@ -89,12 +89,12 @@ pub(crate) struct EquationTyping {
     /// The identifier text of every `Id` node, keyed the same way as `names`.
     /// Only filled for [EquationRole::User], like `spans`.
     pub(crate) identifier_names: HashMap<ExprId, String>,
-    /// The declaration span of every `Resolved` node (a variable reference that names its own
+    /// The declaration [VarId] of every `Resolved` node (a variable reference that names its own
     /// binder), keyed the same way as `names`. Only filled for [EquationRole::User], like
     /// `spans`. Absent for a plain `Id` node resolving to [NameTarget::Variable] — e.g. an
     /// occurrence the upstream variable-resolution pass left unresolved because it names no
     /// binder in scope (rejected separately by [`NameTarget::Variable`]'s own lookup below).
-    pub(crate) declarations: HashMap<ExprId, Span>,
+    pub(crate) declarations: HashMap<ExprId, VarId>,
 }
 
 /// The errors of Phase-3 sort inference. `Clone` so a failure can be stored in
@@ -149,12 +149,12 @@ impl InferenceError {
     }
 
     /// Renders this error's message, followed by a caret-annotated source
-    /// snippet (see [Span::render]). `source` must be the original text the
-    /// error was raised against — the specification for an equation error, the
-    /// expression text for one raised by
+    /// snippet (see [Span::render]). `sources` must contain the original text
+    /// the error was raised against — the specification for an equation
+    /// error, the expression text for one raised by
     /// [`crate::DataSpecification::typecheck_expression`].
-    pub fn render(&self, source: &str) -> String {
-        format!("{self}\n{}", self.span().render(source))
+    pub fn render(&self, sources: &SourceMap) -> String {
+        format!("{self}\n{}", self.span().render(sources))
     }
 }
 
@@ -273,28 +273,25 @@ pub(crate) fn check_system_equations(
     Ok(())
 }
 
-/// Resolves the declared sort of one equation-block variable. The `System`
-/// role is unmemoized: nothing reads a system equation variable's sort back
-/// out later, unlike `DataSpecification::sort_of_equation_var` on the user side.
+/// Resolves the declared sort of one equation-block variable, identified by its own `var_id`. The
+/// `System` role is unmemoized: nothing reads a system equation variable's sort back out later,
+/// unlike `DataSpecification::sort_of_equation_var` on the user side.
 fn resolve_equation_variable_sort(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
     role: EquationRole,
-    eqn_spec_id: EqnSpecId,
-    var: &IdDecl<EqnVarId>,
+    var_id: VarId,
+    sort: &SortExpression,
 ) -> ResolvedSortId {
     match role {
-        EquationRole::User => {
-            let var_id = var.id.expect("assign_declaration_ids ran before check_equations");
-            query_sort_of_equation_var(ctx, spec, eqn_spec_id, var_id)
-        }
+        EquationRole::User => query_sort_of_equation_var(ctx, spec, var_id, sort),
         EquationRole::System => {
             let sort_ids = Arc::clone(
                 ctx.system_sort_ids
                     .as_ref()
                     .expect("resolve_system_signature_full ran before inference"),
             );
-            resolve_system_sort(ctx, spec, &sort_ids, &var.sort)
+            resolve_system_sort(ctx, spec, &sort_ids, sort)
                 .expect("resolve_system_signature_full already proved every system-equation sort resolves")
         }
     }
@@ -324,15 +321,19 @@ fn infer_equation(
     };
     let equation = &eqn_spec.equations[equation_id];
 
-    // `infer` takes a pre-resolved `(name, sort)` scope; resolve each equation variable's sort
-    // up front here.
-    let scope: Vec<(&str, ResolvedSortId)> = eqn_spec
+    // `infer` takes a pre-resolved `(declaration, sort)` scope; resolve each equation variable's
+    // sort up front here, keyed by its own `VarId` (assigned by `resolve_data_specification_variables`,
+    // for both roles — see `crate::data_specification`).
+    let declared_scope: Vec<(VarId, ResolvedSortId)> = eqn_spec
         .variables
         .iter()
         .map(|var| {
+            let var_id = var
+                .var_id
+                .expect("resolve_data_specification_variables ran before check_equations");
             (
-                var.identifier.as_str(),
-                resolve_equation_variable_sort(ctx, spec, role, eqn_spec_id, var),
+                var_id,
+                resolve_equation_variable_sort(ctx, spec, role, var_id, &var.sort),
             )
         })
         .collect();
@@ -343,8 +344,7 @@ fn infer_equation(
         system,
         role,
         eqn_spec_id,
-        &scope,
-        &[],
+        &declared_scope,
         Roots::Equation {
             condition: equation.condition.as_ref(),
             lhs: &equation.lhs,
@@ -386,14 +386,13 @@ pub(crate) fn infer_expression(
 /// argument, a `sum`/`dist` condition or time bound, a `PropVarInst` argument, or similar, each
 /// against its own already-known expected sort. `declared_scope` covers every global variable,
 /// process/PBES parameter, and `sum`/`dist`/quantifier binder in scope, keyed by each one's own
-/// declaration span (see [`infer`]'s doc comment) — none of which is an equation's `var` block, so
-/// [`infer_expression`]'s own closed-expression restriction doesn't apply here.
+/// declaration [VarId] (see [`infer`]'s doc comment).
 pub(crate) fn infer_expression_in_scope(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
     system: &UntypedDataSpecification,
     expr: &DataExpr,
-    declared_scope: &[(Span, ResolvedSortId)],
+    declared_scope: &[(VarId, ResolvedSortId)],
     expected: Option<ResolvedSortId>,
 ) -> Result<EquationTyping, InferenceError> {
     let roots = match expected {
@@ -408,7 +407,6 @@ pub(crate) fn infer_expression_in_scope(
         // Unused: the `User` role reads no per-group state, and a scope here is never an
         // equation's `var` block.
         EqnSpecId::new(0),
-        &[],
         declared_scope,
         roots,
         &|| expr.to_string(),
@@ -441,14 +439,12 @@ enum Roots<'a> {
 /// [infer_expression], and [infer_expression_in_scope]; `text` renders the whole input for
 /// diagnostics and `span` locates it in the source.
 ///
-/// `scope` is a pre-resolved `(name, sort)` list, resolved by the caller before this is called —
-/// used for an equation's own variables (see [infer_equation]), looked up by name.
-///
-/// `declared_scope` is a pre-resolved `(declaration span, sort)` list — used for a process/PBES
-/// scope (see [infer_expression_in_scope]/[crate::process]), looked up by a `Resolved` node's own
-/// declaration span rather than by name: [`crate::resolve_process_variables`]/
-/// [`crate::resolve_pbes_variables`] tie each such occurrence to its declaration. A caller
-/// supplies one of `scope`/`declared_scope` and leaves the other empty.
+/// `declared_scope` is a pre-resolved `(declaration VarId, sort)` list, resolved by the caller
+/// before this is called — an equation's own `var`-block variables (see [infer_equation]) and a
+/// process/PBES/PRES scope ([infer_expression_in_scope]/[crate::process]) alike, each looked up by
+/// a `Resolved` node's own declaration [VarId]: [`crate::resolve_data_specification_variables`]/
+/// [`crate::resolve_process_variables`]/[`crate::resolve_pbes_variables`] tie every such occurrence
+/// to its declaration during variable resolution, before inference ever runs.
 #[allow(clippy::too_many_arguments)]
 fn infer<'a>(
     ctx: &mut TypeCheckContext,
@@ -456,8 +452,7 @@ fn infer<'a>(
     system: &UntypedDataSpecification,
     role: EquationRole,
     eqn_spec_id: EqnSpecId,
-    scope: &'a [(&'a str, ResolvedSortId)],
-    declared_scope: &[(Span, ResolvedSortId)],
+    declared_scope: &[(VarId, ResolvedSortId)],
     roots: Roots<'a>,
     equation_text: &dyn Fn() -> String,
     equation_span: &Span,
@@ -466,30 +461,24 @@ fn infer<'a>(
 
     let mut unifier = Unifier::new();
 
-    // The in-scope variables shadow constructors and mappings on lookup; their declared sorts
-    // are concrete, so all uses of a variable share one node.
-    let mut variables = HashMap::new();
-    for &(name, sort) in scope {
-        let node = unifier.resolved_node(sort);
-        variables.insert(name, node);
-    }
-
-    // A `Resolved` node's own declaration span looks itself up here directly, without going
-    // through `variables` at all.
+    // A `Resolved` node's own declaration `VarId` looks itself up here directly.
     let mut declared_sorts = HashMap::new();
-    for (declaration, sort) in declared_scope {
-        let node = unifier.resolved_node(*sort);
-        declared_sorts.insert(declaration.clone(), node);
+    for &(declaration, sort) in declared_scope {
+        let node = unifier.resolved_node(sort);
+        declared_sorts.insert(declaration, node);
     }
 
     // The signatures are cloned out of the context (cheaply, behind `Arc`)
     // because the generator needs the context mutably: resolving a
     // comprehension's binder sort interns sorts and fills the sort-of-def
     // cache mid-walk.
-    let (signature, polymorphic): (Arc<Signature>, &'static PolymorphicSignature) = match role {
+    //
+    // `builtin_schemes` is the *only* remaining source of polymorphic
+    // overloads for the System role.
+    let (signature, builtin_schemes): (Arc<Signature>, Arc<HashMap<String, Vec<PolySortScheme>>>) = match role {
         EquationRole::User => (
             Arc::clone(ctx.signature.as_ref().expect("build_signature ran before inference")),
-            &POLYMORPHIC_SIGNATURE,
+            Arc::new(HashMap::new()),
         ),
         EquationRole::System => (
             Arc::clone(
@@ -497,7 +486,7 @@ fn infer<'a>(
                     .get(*eqn_spec_id)
                     .expect("resolve_system_signature_full ran before inference"),
             ),
-            &BUILTIN_SCHEME_SIGNATURE,
+            build_builtin_scheme_signature(ctx),
         ),
     };
     let system_signature = Arc::clone(
@@ -521,8 +510,7 @@ fn infer<'a>(
         sort_ids,
         signature,
         system_signature,
-        polymorphic,
-        variables,
+        builtin_schemes,
         declared_sorts,
         unifier: &mut unifier,
         expr_sorts: Vec::new(),
@@ -659,10 +647,9 @@ fn infer<'a>(
 
                 debug!("inference: solved '{}' at measure {:?}", equation_text(), best.measure);
                 if log::log_enabled!(log::Level::Debug) {
-                    for &(name, sort) in scope {
+                    for &(declaration, sort) in declared_scope {
                         trace!(
-                            "inference:   variable {}: {}",
-                            name,
+                            "inference:   variable {declaration:?}: {}",
                             DisplaySortContext::new(ctx, spec, system, sort)
                         );
                     }
@@ -858,11 +845,13 @@ struct ConstraintGenerator<'a> {
     signature: Arc<Signature>,
     /// Always the basic-sort system signature, regardless of `role`.
     system_signature: Arc<Signature>,
-    polymorphic: &'static PolymorphicSignature,
-    variables: HashMap<&'a str, InferSortId>,
-    /// A `Resolved` node's declaration span, mapped to its sort — the process/PBES counterpart of
-    /// `variables`, looked up directly instead of by name; see [`infer`]'s doc comment.
-    declared_sorts: HashMap<Span, InferSortId>,
+    /// The narrow comparison/`if`-only scheme table consulted alongside
+    /// `signature`'s own `schemes`; see [`infer`]'s construction of this
+    /// field for why it differs by role. Empty for the User role, since
+    /// `ctx.signature.schemes` already covers everything polymorphic.
+    builtin_schemes: Arc<HashMap<String, Vec<PolySortScheme>>>,
+    /// A `Resolved` node's declaration [VarId], mapped to its sort; see [`infer`]'s doc comment.
+    declared_sorts: HashMap<VarId, InferSortId>,
     unifier: &'a mut Unifier,
     /// The sort node of every expression, indexed by [ExprId].
     expr_sorts: Vec<InferSortId>,
@@ -880,10 +869,10 @@ struct ConstraintGenerator<'a> {
     /// filled when [Self::collect_typing_info]. Becomes
     /// [EquationTyping::identifier_names].
     expr_names: HashMap<ExprId, String>,
-    /// The declaration span of every `Resolved` node — a variable reference that names its own
-    /// binder (see `docs/name_resolution.md`) — keyed by its [ExprId]; only filled when
-    /// [Self::collect_typing_info]. Becomes [EquationTyping::declarations].
-    expr_declarations: HashMap<ExprId, Span>,
+    /// The declaration [VarId] of every `Resolved` node — a variable reference that names its own
+    /// binder — keyed by its [ExprId]; only filled when [Self::collect_typing_info]. Becomes
+    /// [EquationTyping::declarations].
+    expr_declarations: HashMap<ExprId, VarId>,
     /// Whether [Self::expr_spans]/[Self::expr_names] should be filled — i.e.
     /// whether `role` is [EquationRole::User]. Sampled once at construction.
     collect_typing_info: bool,
@@ -972,7 +961,7 @@ impl<'a> ConstraintGenerator<'a> {
         match &expr.node {
             DataExprKind::Id(name) => self.gen_name(id, node, name, None, &expr.span)?,
             DataExprKind::Resolved(name, declaration) => {
-                self.gen_name(id, node, name, Some(declaration), &expr.span)?
+                self.gen_name(id, node, name, Some(*declaration), &expr.span)?
             }
             DataExprKind::Number(value) => {
                 let kind = if value == "0" {
@@ -1045,16 +1034,14 @@ impl<'a> ConstraintGenerator<'a> {
                 let element = self.binder_sort(&variable.sort, &variable.identifier.span)?;
                 let element_node = self.unifier.resolved_node(element);
 
-                // The bound variable shadows an equation variable of the same
-                // name for the predicate only; it has no [ExprId] of its own,
-                // like the equation variables.
-                let name = variable.identifier.as_str();
-                let shadowed = self.variables.insert(name, element_node);
+                // The bound variable is in scope for the predicate only; it has no [ExprId] of
+                // its own, like every other binder here.
+                let var_id = variable
+                    .var_id
+                    .expect("resolve_data_specification_variables/resolve_process_variables/... ran before inference");
+                self.declared_sorts.insert(var_id, element_node);
                 let body = self.visit(predicate)?;
-                match shadowed {
-                    Some(previous) => self.variables.insert(name, previous),
-                    None => self.variables.remove(name),
-                };
+                self.declared_sorts.remove(&var_id);
 
                 self.constraints
                     .push(Constraint::Comprehension(Comprehension { body, node, element }));
@@ -1119,23 +1106,23 @@ impl<'a> ConstraintGenerator<'a> {
                 // So every right-hand side is visited first, and only
                 // then are the names shadowed as a batch.
                 // The bound variable's sort is the assignment's own inferred
-                // sort node, so it has no [ExprId] and no declared sort to
-                // resolve, unlike a comprehension/lambda/quantifier binder.
+                // sort node, so it has no [ExprId] of its own to resolve a
+                // declared sort against, unlike a comprehension/lambda/quantifier binder — its
+                // declared sort *is* that inferred node.
                 let mut bindings = Vec::with_capacity(assignments.len());
                 for assignment in assignments {
                     let value_node = self.visit(&assignment.expr)?;
-                    bindings.push((assignment.identifier.as_str(), value_node));
+                    let var_id = assignment.id.expect(
+                        "resolve_data_specification_variables/resolve_process_variables/... ran before inference",
+                    );
+                    bindings.push((var_id, value_node));
                 }
-                let mut shadowed = Vec::with_capacity(bindings.len());
-                for &(name, value_node) in &bindings {
-                    shadowed.push((name, self.variables.insert(name, value_node)));
+                for &(var_id, value_node) in &bindings {
+                    self.declared_sorts.insert(var_id, value_node);
                 }
                 let body_sort = self.visit(expr)?;
-                for (name, previous) in shadowed.into_iter().rev() {
-                    match previous {
-                        Some(previous) => self.variables.insert(name, previous),
-                        None => self.variables.remove(name),
-                    };
+                for &(var_id, _) in &bindings {
+                    self.declared_sorts.remove(&var_id);
                 }
                 self.bind_fresh(node, body_sort);
             }
@@ -1158,34 +1145,36 @@ impl<'a> ConstraintGenerator<'a> {
     }
 
     /// Resolves the declared sort of each of `variables` (rejecting an invalid
-    /// binder sort, see [Self::binder_sort]) and shadows it in
-    /// `self.variables` for the scope of `f`, restoring the previous bindings
-    /// (or removing them) afterwards — the multi-variable generalization of
-    /// the shadowing done inline for a comprehension's single bound variable.
-    /// Used by `lambda` and `forall`/`exists`, which declare their variables'
-    /// sorts, unlike a `whr` binding whose sort follows from its right-hand side.
+    /// binder sort, see [Self::binder_sort]) and registers it in `self.declared_sorts`, by each
+    /// variable's own [VarId], for the scope of `f`, removing the entries again afterwards.
+    /// Unlike a name-keyed scope this never needs to save/restore a shadowed binding: every
+    /// binder has its own `VarId`, so nested binders of the same name can never collide here —
+    /// the multi-variable generalization of the same insert/remove done inline for a
+    /// comprehension's single bound variable. Used by `lambda` and `forall`/`exists`, which
+    /// declare their variables' sorts, unlike a `whr` binding whose sort follows from its
+    /// right-hand side.
     fn with_binder_scope<T>(
         &mut self,
         variables: &'a [IdDecl],
         f: impl FnOnce(&mut Self, &[ResolvedSortId]) -> Result<T, GenFailure>,
     ) -> Result<T, GenFailure> {
         let mut sorts = Vec::with_capacity(variables.len());
-        let mut shadowed = Vec::with_capacity(variables.len());
+        let mut var_ids = Vec::with_capacity(variables.len());
         for variable in variables {
             let sort = self.binder_sort(&variable.sort, &variable.identifier.span)?;
             let node = self.unifier.resolved_node(sort);
-            let name = variable.identifier.as_str();
-            shadowed.push((name, self.variables.insert(name, node)));
+            let var_id = variable
+                .var_id
+                .expect("resolve_data_specification_variables/resolve_process_variables/... ran before inference");
+            self.declared_sorts.insert(var_id, node);
+            var_ids.push(var_id);
             sorts.push(sort);
         }
 
         let result = f(self, &sorts);
 
-        for (name, previous) in shadowed.into_iter().rev() {
-            match previous {
-                Some(previous) => self.variables.insert(name, previous),
-                None => self.variables.remove(name),
-            };
+        for var_id in var_ids {
+            self.declared_sorts.remove(&var_id);
         }
 
         result
@@ -1209,24 +1198,26 @@ impl<'a> ConstraintGenerator<'a> {
         })
     }
 
-    /// Resolves the candidates of a name: a `Resolved` node's own declaration (`declaration`, in
-    /// `self.declared_sorts`) shadows everything, then an in-scope binder introduced elsewhere in
-    /// this same expression (`self.variables`, by name — a `lambda`/`forall`/`exists`/
-    /// comprehension/`whr` binder, or an equation's own `var`-block variable), then the user
+    /// Resolves the candidates of a name: a `Resolved` node's own declaration (`declaration`, its
+    /// binder's own [VarId], looked up in `self.declared_sorts`) shadows everything — every
+    /// binder in scope, whether introduced elsewhere in this same expression (a
+    /// `lambda`/`forall`/`exists`/comprehension/`whr` binder) or outside it (an equation's own
+    /// `var`-block variable, a process/PBES/PRES parameter, a global) is registered there by
+    /// variable resolution or [Self::with_binder_scope] before this ever runs — then the user
     /// overloads joined by the system-defined overloads and the polymorphic built-in schemes (the
     /// container and function-update operations, the comparison operators and `if`), each
     /// instantiated fresh per occurrence.
     ///
     /// `declaration` is `Some` exactly when this occurrence is a `Resolved` node, carrying its
-    /// binder's own span (see `docs/name_resolution.md`); it is also always recorded (when
-    /// `Some`, regardless of which candidate `name` resolves to), becoming
+    /// binder's own [VarId]; it is also always recorded (when `Some`, regardless of which
+    /// candidate `name` resolves to), becoming
     /// `ResolvedName::Variable`'s `declaration` in `typing_info`.
     fn gen_name(
         &mut self,
         id: ExprId,
         node: InferSortId,
         name: &'a str,
-        declaration: Option<&Span>,
+        declaration: Option<VarId>,
         span: &Span,
     ) -> Result<(), GenFailure> {
         // Recorded before resolving which candidate `name` refers to; the disjunction case is
@@ -1234,50 +1225,41 @@ impl<'a> ConstraintGenerator<'a> {
         if self.collect_typing_info {
             self.expr_names.insert(id, name.to_string());
             if let Some(declaration) = declaration {
-                self.expr_declarations.insert(id, declaration.clone());
+                self.expr_declarations.insert(id, declaration);
             }
         }
 
-        if let Some(sort) = declaration.and_then(|declaration| self.declared_sorts.get(declaration)) {
+        if let Some(declaration) = declaration {
+            debug_assert!(
+                self.declared_sorts.contains_key(&declaration),
+                "{declaration:?} (occurrence {name:?}) was resolved to a `DataExprKind::Resolved` \
+                 by the variable-resolution pre-pass but has no entry in `declared_sorts` — \
+                 `checking::Scope`/`with_binder_scope` and the pre-pass have gone out of sync"
+            );
+        }
+
+        if let Some(sort) = declaration.and_then(|declaration| self.declared_sorts.get(&declaration)) {
             self.names.insert(id, NameTarget::Variable);
             self.bind_fresh(node, *sort);
             return Ok(());
         }
 
-        if let Some(&sort) = self.variables.get(name) {
-            self.names.insert(id, NameTarget::Variable);
-            self.bind_fresh(node, sort);
-            return Ok(());
-        }
-
         let mut disjuncts: Vec<(NameTarget, InferSortId)> = Vec::new();
-        let push_signature = |signature: &Signature, disjuncts: &mut Vec<_>, unifier: &mut Unifier| {
-            for overloads in [signature.constructors.get(name), signature.mappings.get(name)]
-                .into_iter()
-                .flatten()
-            {
-                for &overload in overloads {
-                    let target = NameTarget::Op { sort: overload };
-                    // The user and system specifications may declare the same
-                    // symbol; a duplicate disjunct would misreport ambiguity.
-                    if !disjuncts.iter().any(|(existing, _)| *existing == target) {
-                        disjuncts.push((target, unifier.resolved_node(overload)));
-                    }
-                }
-            }
-        };
+        let signature = Arc::clone(&self.signature);
+        let system_signature = Arc::clone(&self.system_signature);
+        self.push_signature_disjuncts(&signature, name, &mut disjuncts);
+        self.push_signature_disjuncts(&system_signature, name, &mut disjuncts);
 
-        push_signature(&self.signature, &mut disjuncts, self.unifier);
-        push_signature(&self.system_signature, &mut disjuncts, self.unifier);
-
-        // The polymorphic built-ins exist for every element sort, so they are
-        // schemes: the container and function-update operations (`in`, `#`,
-        // `|>`, `head`, ...) and the comparison operators and `if` alike. Each
-        // template overload is instantiated with fresh variables per occurrence,
-        // mirroring mCRL2's polymorphic symbol table; Phase-4 lowering recovers
-        // the concrete operation from the name and the inferred sort.
-        for overload in self.polymorphic.ops.get(name).into_iter().flatten() {
-            let instance = self.template_instance(overload);
+        // The comparison operators and `if` are not in either signature above
+        // for the System role (see `builtin_schemes`'s doc comment); for the
+        // User role this is always empty, since `self.signature.schemes`
+        // (part of `ctx.signature`, pushed above) already covers everything
+        // polymorphic. Each scheme overload is instantiated with fresh
+        // variables per occurrence, mirroring mCRL2's polymorphic symbol
+        // table; Phase-4 lowering recovers the concrete operation from the
+        // name and the inferred sort.
+        for scheme in self.builtin_schemes.clone().get(name).into_iter().flatten() {
+            let instance = self.instantiate_scheme(scheme.sort, &mut HashMap::new());
             disjuncts.push((NameTarget::Builtin, instance));
         }
 
@@ -1303,63 +1285,67 @@ impl<'a> ConstraintGenerator<'a> {
         }
     }
 
-    /// A fresh instance of a template overload: every sort variable (a
-    /// `Reference` node of the uninstantiated template, i.e. `S` or `T`)
-    /// becomes one fresh unification variable, shared between its occurrences.
-    fn template_instance(&mut self, sort: &SortExpression) -> InferSortId {
-        let mut variables = HashMap::new();
-        self.template_node(sort, &mut variables)
-    }
-
-    fn template_node(&mut self, sort: &SortExpression, variables: &mut HashMap<String, InferSortId>) -> InferSortId {
-        match &sort.node {
-            SortExpressionKind::Simple(sort) => {
-                let resolved = self.ctx.sorts.primitive(*sort);
-                self.unifier.resolved_node(resolved)
+    /// Pushes every overload of `name` found in `signature` — ground
+    /// (`constructors`/`mappings`) and polymorphic (`schemes`) alike — onto
+    /// `disjuncts`. `signature` is taken by value (an `Arc` clone, cheap) so
+    /// this can call [Self::instantiate_scheme] (which needs `&mut self`)
+    /// without borrowing `self.signature`/`self.system_signature` for the
+    /// duration.
+    fn push_signature_disjuncts(
+        &mut self,
+        signature: &Arc<Signature>,
+        name: &str,
+        disjuncts: &mut Vec<(NameTarget, InferSortId)>,
+    ) {
+        for overloads in [signature.constructors.get(name), signature.mappings.get(name)]
+            .into_iter()
+            .flatten()
+        {
+            for &overload in overloads {
+                let target = NameTarget::Op { sort: overload };
+                // The user and system specifications may declare the same
+                // symbol; a duplicate disjunct would misreport ambiguity.
+                if !disjuncts.iter().any(|(existing, _)| *existing == target) {
+                    disjuncts.push((target, self.unifier.resolved_node(overload)));
+                }
             }
-            SortExpressionKind::Complex(op, subsort) => {
-                let subsort = self.template_node(subsort, variables);
-                self.unifier.generic(*op, subsort)
-            }
-            SortExpressionKind::Function { domain, range } => {
-                let mut parameters = Vec::new();
-                self.template_domain(domain, variables, &mut parameters);
-                let range = self.template_node(range, variables);
-                self.unifier.function(parameters, range)
-            }
-            SortExpressionKind::FlattenedFunction { domain, range } => {
-                let parameters = domain
-                    .iter()
-                    .map(|parameter| self.template_node(parameter, variables))
-                    .collect();
-                let range = self.template_node(range, variables);
-                self.unifier.function(parameters, range)
-            }
-            SortExpressionKind::Reference(name) => *variables
-                .entry(name.clone())
-                .or_insert_with(|| self.unifier.fresh_var()),
-            SortExpressionKind::Resolved(_, _)
-            | SortExpressionKind::Struct { .. }
-            | SortExpressionKind::Product { .. } => {
-                unreachable!("the templates declare only primitive, container, function and variable sorts")
-            }
+        }
+        for scheme in signature.schemes.get(name).into_iter().flatten() {
+            let instance = self.instantiate_scheme(scheme.sort, &mut HashMap::new());
+            disjuncts.push((NameTarget::Builtin, instance));
         }
     }
 
-    /// Instantiates the leaves of a `Product` domain spine in declaration
-    /// order, the template counterpart of `resolve_function_domain`.
-    fn template_domain(
+    /// A fresh instance of a scheme's already-*interned* sort: every bound
+    /// [`ResolvedSort::Var`] it mentions becomes one fresh unification
+    /// variable, shared between its occurrences within this one
+    /// instantiation — this is what lets `S` mean "the same `S`" on both
+    /// sides of a use like `in: S # List(S) -> Bool`. Unlike the syntax-tree
+    /// walk this replaces, there is no separate `Reference`/name-keyed path
+    /// any more: every polymorphic template now declares its variable(s)
+    /// with a real `type_var` block (see `docs/polymorphism.md`), so `sort`
+    /// can only ever contain `Var`, never a name to match by string.
+    fn instantiate_scheme(
         &mut self,
-        sort: &SortExpression,
-        variables: &mut HashMap<String, InferSortId>,
-        domain: &mut Vec<InferSortId>,
-    ) {
-        match &sort.node {
-            SortExpressionKind::Product { lhs, rhs } => {
-                self.template_domain(lhs, variables, domain);
-                self.template_domain(rhs, variables, domain);
+        sort: ResolvedSortId,
+        type_vars: &mut HashMap<TypeVarId, InferSortId>,
+    ) -> InferSortId {
+        match self.ctx.sorts.get(sort).clone() {
+            ResolvedSort::Var(id) => *type_vars.entry(id).or_insert_with(|| self.unifier.fresh_var()),
+            ResolvedSort::Generic { op, subsort } => {
+                let subsort = self.instantiate_scheme(subsort, type_vars);
+                self.unifier.generic(op, subsort)
             }
-            _ => domain.push(self.template_node(sort, variables)),
+            ResolvedSort::Function { domain, range } => {
+                let domain = domain
+                    .iter()
+                    .map(|&sort| self.instantiate_scheme(sort, type_vars))
+                    .collect();
+                let range = self.instantiate_scheme(range, type_vars);
+                self.unifier.function(domain, range)
+            }
+            // Already ground — no variable can occur any deeper.
+            ResolvedSort::Unit | ResolvedSort::Primitive(_) | ResolvedSort::Def(_) => self.unifier.resolved_node(sort),
         }
     }
 }

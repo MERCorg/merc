@@ -1,5 +1,6 @@
 use std::hash::Hash;
 
+use merc_utilities::IdAllocator;
 use merc_utilities::Span;
 use merc_utilities::TagIndex;
 
@@ -38,12 +39,30 @@ pub struct EquationTag;
 /// The index type for a single equation, local to its enclosing `EqnSpec`.
 pub type EquationId = TagIndex<usize, EquationTag>;
 
-/// A unique type for equation variable declarations.
-pub struct EqnVarTag;
+/// A unique type for variable-binder occurrences.
+pub struct VarTag;
 
-/// The index type for a variable in an equation block, local to its enclosing
-/// [EqnSpec]. Assigned during declaration-id resolution.
-pub type EqnVarId = TagIndex<usize, EqnVarTag>;
+/// The index type assigned to every variable binder during variable resolution, spec-wide.
+pub type VarId = TagIndex<usize, VarTag>;
+
+/// Hands out fresh, spec-wide [VarId]s during variable resolution.
+pub type VarIdAllocator = IdAllocator<VarTag>;
+
+/// A unique type for a state-formula fixpoint-variable (`mu X`/`nu X`) binder.
+pub struct StateVarTag;
+
+/// The index type assigned to every fixpoint-variable binder during variable resolution,
+/// spec-wide, mirroring [VarId] for the propositional namespace.
+pub type StateVarId = TagIndex<usize, StateVarTag>;
+
+/// Hands out fresh, spec-wide [StateVarId]s during variable resolution.
+pub type StateVarIdAllocator = IdAllocator<StateVarTag>;
+
+/// A unique type for a bound sort (type) variable.
+pub struct TypeVarTag;
+
+/// The index type for a bound sort variable.
+pub type TypeVarId = TagIndex<usize, TypeVarTag>;
 
 /// A complete mCRL2 process specification.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
@@ -55,6 +74,19 @@ pub struct UntypedProcessSpecification {
     pub init: Option<ProcessExpr>,
 }
 
+impl UntypedProcessSpecification {
+    /// Merges another process specification's declarations into this one.
+    ///
+    /// `other.init` is discarded: the importing file's own `init` always wins.
+    /// A file meant to be imported would not usually declare one anyway.
+    pub fn merge(&mut self, other: &UntypedProcessSpecification) {
+        self.data_specification.merge(&other.data_specification);
+        self.global_variables.extend_from_slice(&other.global_variables);
+        self.action_declarations.extend_from_slice(&other.action_declarations);
+        self.process_declarations.extend_from_slice(&other.process_declarations);
+    }
+}
+
 /// An mCRL2 data specification.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub struct UntypedDataSpecification {
@@ -62,6 +94,7 @@ pub struct UntypedDataSpecification {
     pub constructor_declarations: Vec<IdDecl<ConstructorId>>,
     pub map_declarations: Vec<IdDecl<MapId>>,
     pub equation_declarations: Vec<EqnSpec>,
+    pub type_var_declarations: Vec<TypeVarDecl>,
 }
 
 impl UntypedDataSpecification {
@@ -71,6 +104,7 @@ impl UntypedDataSpecification {
             && self.constructor_declarations.is_empty()
             && self.map_declarations.is_empty()
             && self.equation_declarations.is_empty()
+            && self.type_var_declarations.is_empty()
     }
 
     /// Merges another data specification into the current one.
@@ -81,6 +115,30 @@ impl UntypedDataSpecification {
         self.map_declarations.extend_from_slice(&other_spec.map_declarations);
         self.equation_declarations
             .extend_from_slice(&other_spec.equation_declarations);
+        self.type_var_declarations
+            .extend_from_slice(&other_spec.type_var_declarations);
+    }
+}
+
+/// A bound sort (type) variable's own declaration, introduced by a `type_var` block.
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct TypeVarDecl {
+    /// The type variable's own name (`S`).
+    pub identifier: String,
+    /// Where the type variable is declared.
+    pub span: Span,
+    /// Unique ID assigned to this declaration during name resolution.
+    pub id: Option<TypeVarId>,
+}
+
+impl TypeVarDecl {
+    /// Creates a new type variable declaration with the given identifier and span.
+    pub fn new(identifier: String, span: Span) -> Self {
+        TypeVarDecl {
+            identifier,
+            span,
+            id: None,
+        }
     }
 }
 
@@ -173,6 +231,10 @@ pub struct IdDecl<Id = DefId> {
     pub sort: SortExpression,
     /// Unique ID assigned to this declaration during name/id resolution.
     pub id: Option<Id>,
+    /// Assigned during variable resolution when this declaration is a variable binder (every
+    /// site except a constructor/map declaration, which isn't a variable); `None` otherwise. See
+    /// [VarId].
+    pub var_id: Option<VarId>,
 }
 
 impl<Id> IdDecl<Id> {
@@ -183,6 +245,7 @@ impl<Id> IdDecl<Id> {
             identifier: Spanned { node: identifier, span },
             sort,
             id: None,
+            var_id: None,
         }
     }
 
@@ -192,6 +255,7 @@ impl<Id> IdDecl<Id> {
             identifier: self.identifier,
             sort: self.sort,
             id: None,
+            var_id: self.var_id,
         }
     }
 }
@@ -214,6 +278,11 @@ pub enum SortExpressionKind {
     },
     /// Reference to a named sort
     Reference(String),
+    /// A bound sort (type) variable, such as the `S` in a container spec.
+    TypeVar(String),
+    /// A bound sort (type) variable after name resolution has assigned its
+    /// [TypeVarId], mirroring how [Reference] becomes [Resolved].
+    ResolvedTypeVar(TypeVarId),
     /// Built-in simple sort
     Simple(Sort),
     /// Parameterized complex sort
@@ -305,7 +374,7 @@ impl SortDecl {
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct EqnSpecData {
-    pub variables: Vec<IdDecl<EqnVarId>>,
+    pub variables: Vec<IdDecl>,
     pub equations: Vec<EqnDecl>,
     /// Unique ID assigned to this block during declaration-id resolution.
     pub id: Option<EqnSpecId>,
@@ -390,9 +459,9 @@ pub enum DataExprBinaryOp {
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub enum DataExprKind {
     Id(String),
-    /// A variable reference paired with its declaring binder's own span: not this
-    /// occurrence's span.
-    Resolved(String, Span),
+    /// A variable reference paired with its declaring binder's own [VarId]: not this
+    /// occurrence's identity.
+    Resolved(String, VarId),
     Number(String), // Is string because the number can be any size.
     Bool(bool),
     Application {
@@ -474,6 +543,9 @@ pub struct DataExprUpdate {
 pub struct AssignmentData {
     pub identifier: String,
     pub expr: DataExpr,
+    /// Assigned during variable resolution when this assignment is a `whr` binding (a new
+    /// variable, in scope for the body).
+    pub id: Option<VarId>,
 }
 
 /// A process-instantiation assignment (`x = e`, as in `P(x = 1)`), paired with the source [Span]
@@ -492,7 +564,12 @@ impl Assignment {
     /// Creates a new assignment with the given identifier and expression, with a default (empty)
     /// span.
     pub fn new(identifier: String, expr: DataExpr) -> Self {
-        AssignmentData { identifier, expr }.spanned(Span::default())
+        AssignmentData {
+            identifier,
+            expr,
+            id: None,
+        }
+        .spanned(Span::default())
     }
 }
 
@@ -619,6 +696,8 @@ pub struct StateVarDecl {
     pub identifier: String,
     pub arguments: Vec<StateVarAssignment>,
     pub span: Span,
+    /// Assigned during variable resolution; see [StateVarId].
+    pub id: Option<StateVarId>,
 }
 
 impl StateVarDecl {
@@ -628,6 +707,7 @@ impl StateVarDecl {
             identifier,
             arguments,
             span: Span::default(),
+            id: None,
         }
     }
 }
@@ -638,6 +718,8 @@ pub struct StateVarAssignment {
     pub identifier: Spanned<String>,
     pub sort: SortExpression,
     pub expr: DataExpr,
+    /// Assigned during variable resolution; see [VarId].
+    pub id: Option<VarId>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
@@ -658,8 +740,8 @@ pub enum StateFrmKind {
     /// `yaled` or `yaled@t`; the optional time is `None` for a bare `yaled`.
     Yaled(Option<DataExpr>),
     Id(String, Vec<DataExpr>),
-    /// A fixpoint-variable reference resolved to its declaring `mu`/`nu`.
-    Resolved(String, Vec<DataExpr>, Span),
+    /// A fixpoint-variable reference resolved to its declaring `mu`/`nu`'s own [StateVarId].
+    Resolved(String, Vec<DataExpr>, StateVarId),
     DataValExprLeftMult(DataExpr, Box<StateFrm>),
     DataValExprRightMult(Box<StateFrm>, DataExpr),
     DataValExpr(DataExpr),

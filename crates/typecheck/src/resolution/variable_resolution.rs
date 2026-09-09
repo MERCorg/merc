@@ -1,20 +1,4 @@
-//! Resolves *variable* references — as opposed to constructor/mapping/action/process names, which
-//! are not context-free (see `docs/name_resolution.md`) — before type checking runs: in a process
-//! specification's `proc` bodies/`init`, a PBES's or PRES's equation bodies/`init`, a state
-//! formula, and a data specification's own `var`-block equations.
-//!
-//! A variable occurrence's binder — `sum`/`dist`, a process's own parameters, a PBES
-//! quantifier/equation parameter, a PRES `inf`/`sup`/`sum`/equation parameter, a state formula's
-//! `forall`/`exists`/`inf`/`sup`/`sum`/fixpoint-variable parameter — is decided purely by lexical
-//! scoping over the untyped syntax tree, with no dependency on inferred sorts (unlike overloaded
-//! constructor/mapping resolution, or the arity-based action-vs-process disambiguation
-//! `check_action_or_process` performs). This pass therefore needs no [`crate::DataSpecification`]
-//! and cannot fail: a name not found in scope is left as a plain `Id`, and `inference.rs`'s
-//! overload/`UndeclaredName` machinery is responsible for rejecting it if it turns out to be
-//! undeclared.
-//!
-//! [`DataExprKind::Id`] resolves to [`DataExprKind::Resolved`] the same way a sort's
-//! `Reference` resolves to `Resolved` in `resolution::name_resolution::resolve_sort_id`.
+use std::collections::HashMap;
 
 use merc_syntax::ActFrm;
 use merc_syntax::ActFrmKind;
@@ -33,74 +17,106 @@ use merc_syntax::RegFrmKind;
 use merc_syntax::Span;
 use merc_syntax::StateFrm;
 use merc_syntax::StateFrmKind;
+use merc_syntax::StateVarId;
+use merc_syntax::StateVarIdAllocator;
 use merc_syntax::UntypedDataSpecification;
 use merc_syntax::UntypedPbes;
 use merc_syntax::UntypedPres;
 use merc_syntax::UntypedProcessSpecification;
 use merc_syntax::UntypedStateFrmSpec;
+use merc_syntax::VarId;
+use merc_syntax::VarIdAllocator;
+
+/// Every binder's own [VarId], paired with the span of the identifier it declares.
+pub(crate) type VariableSpans = HashMap<VarId, Span>;
+
+/// Resolves every context-free variable reference in a standalone expression's
+/// own local binders: every binder `expr` declares is local to `expr` itself,
+/// so resolution starts from an empty [Scope], exactly as it would for a fresh
+/// `var`-block-less equation.
+pub(crate) fn resolve_data_expr_variables(expr: &mut DataExpr) -> VariableSpans {
+    let mut ids = VarIdAllocator::default();
+    let mut scope = Scope::default();
+    let mut spans = VariableSpans::new();
+    resolve_in_data_expr(expr, &mut scope, &mut ids, &mut spans);
+    spans
+}
 
 /// Resolves every context-free variable reference in `spec`'s own `var`-block equations.
-pub(crate) fn resolve_data_specification_variables(spec: &mut UntypedDataSpecification) {
+pub(crate) fn resolve_data_specification_variables(spec: &mut UntypedDataSpecification) -> VariableSpans {
+    let mut ids = VarIdAllocator::default();
+    let mut spans = VariableSpans::new();
+
     for eqn_spec in &mut spec.equation_declarations {
-        let mut scope = Scope::from_declarations(&eqn_spec.variables);
+        let mut scope = Scope::from_declarations(&mut eqn_spec.variables, &mut ids, &mut spans);
 
         for equation in &mut eqn_spec.equations {
             if let Some(condition) = &mut equation.condition {
-                resolve_in_data_expr(condition, &mut scope);
+                resolve_in_data_expr(condition, &mut scope, &mut ids, &mut spans);
             }
 
-            resolve_in_data_expr(&mut equation.lhs, &mut scope);
-            resolve_in_data_expr(&mut equation.rhs, &mut scope);
+            resolve_in_data_expr(&mut equation.lhs, &mut scope, &mut ids, &mut spans);
+            resolve_in_data_expr(&mut equation.rhs, &mut scope, &mut ids, &mut spans);
         }
     }
+    spans
 }
 
 /// Resolves every context-free variable reference in `spec`'s `proc` bodies and `init`.
-pub(crate) fn resolve_process_variables(spec: &mut UntypedProcessSpecification) {
-    let globals = Scope::from_declarations(&spec.global_variables);
+pub(crate) fn resolve_process_variables(spec: &mut UntypedProcessSpecification) -> VariableSpans {
+    let mut ids = VarIdAllocator::default();
+    let mut spans = VariableSpans::new();
+    let globals = Scope::from_declarations(&mut spec.global_variables, &mut ids, &mut spans);
 
     for proc_decl in &mut spec.process_declarations {
         // A process's own parameters shadow a global variable of the same name.
         let mut scope = globals.clone();
-        scope.push_declarations(&proc_decl.params);
-        resolve_in_process_expr(&mut proc_decl.body, &mut scope);
+        scope.push_declarations(&mut proc_decl.params, &mut ids, &mut spans);
+        resolve_in_process_expr(&mut proc_decl.body, &mut scope, &mut ids, &mut spans);
     }
 
     if let Some(init) = &mut spec.init {
         // `init` sits outside every process's own parameter scope — only globals apply.
         let mut scope = globals.clone();
-        resolve_in_process_expr(init, &mut scope);
+        resolve_in_process_expr(init, &mut scope, &mut ids, &mut spans);
     }
+    spans
 }
 
 /// Resolves every context-free variable reference in `pbes`'s equation bodies and `init`.
-pub(crate) fn resolve_pbes_variables(pbes: &mut UntypedPbes) {
-    let globals = Scope::from_declarations(&pbes.global_variables);
+pub(crate) fn resolve_pbes_variables(pbes: &mut UntypedPbes) -> VariableSpans {
+    let mut ids = VarIdAllocator::default();
+    let mut spans = VariableSpans::new();
+    let globals = Scope::from_declarations(&mut pbes.global_variables, &mut ids, &mut spans);
 
     for equation in &mut pbes.equations {
         let mut scope = globals.clone();
-        scope.push_declarations(&equation.variable.parameters);
-        resolve_in_pbes_expr(&mut equation.formula, &mut scope);
+        scope.push_declarations(&mut equation.variable.parameters, &mut ids, &mut spans);
+        resolve_in_pbes_expr(&mut equation.formula, &mut scope, &mut ids, &mut spans);
     }
 
     // `init` sits outside every equation's own parameter scope — only globals apply.
     let mut scope = globals.clone();
-    resolve_in_prop_var_inst(&mut pbes.init, &mut scope);
+    resolve_in_prop_var_inst(&mut pbes.init, &mut scope, &mut ids, &mut spans);
+    spans
 }
 
 /// Resolves every context-free variable reference in `pres`'s equation bodies and `init`.
-pub(crate) fn resolve_pres_variables(pres: &mut UntypedPres) {
-    let globals = Scope::from_declarations(&pres.global_variables);
+pub(crate) fn resolve_pres_variables(pres: &mut UntypedPres) -> VariableSpans {
+    let mut ids = VarIdAllocator::default();
+    let mut spans = VariableSpans::new();
+    let globals = Scope::from_declarations(&mut pres.global_variables, &mut ids, &mut spans);
 
     for equation in &mut pres.equations {
         let mut scope = globals.clone();
-        scope.push_declarations(&equation.variable.parameters);
-        resolve_in_pres_expr(&mut equation.formula, &mut scope);
+        scope.push_declarations(&mut equation.variable.parameters, &mut ids, &mut spans);
+        resolve_in_pres_expr(&mut equation.formula, &mut scope, &mut ids, &mut spans);
     }
 
     // `init` sits outside every equation's own parameter scope — only globals apply.
     let mut scope = globals.clone();
-    resolve_in_prop_var_inst(&mut pres.init, &mut scope);
+    resolve_in_prop_var_inst(&mut pres.init, &mut scope, &mut ids, &mut spans);
+    spans
 }
 
 /// Resolves every context-free variable reference in `spec`'s state formula: a
@@ -108,64 +124,85 @@ pub(crate) fn resolve_pres_variables(pres: &mut UntypedPres) {
 /// action-formula `forall`/`exists` binder nested inside a `<...>`/`[...]` modality, and — in a
 /// second, separate namespace threaded alongside the first — a fixpoint-variable *name* itself
 /// (`StateFrmKind::Id`'s reference to an enclosing `mu X(...)`/`nu X(...)`), rewritten to
-/// [`StateFrmKind::Resolved`] exactly like [`DataExprKind::Id`] resolves to
-/// [`DataExprKind::Resolved`]. A state formula specification has no `glob` block, so both scopes
-/// start empty — unlike
+/// [`StateFrmKind::Resolved`] much like [`DataExprKind::Id`] resolves to [`DataExprKind::Resolved`],
+/// keyed by that binder's own [`StateVarId`] rather than [`VarId`]: a fixpoint variable is a
+/// propositional variable, not a data variable, so it gets its own id namespace and its own
+/// [`StateVarIdAllocator`] rather than sharing `VarId`'s counter (mirroring why `VarId` and `DefId`
+/// don't share a counter either). A state formula specification has no `glob` block, so both
+/// scopes start empty — unlike
 /// [`resolve_process_variables`]/[`resolve_pbes_variables`]/[`resolve_pres_variables`], there is no
 /// outer scope to seed.
 ///
 /// This pass only decides *which* enclosing binder a name refers to; a fixpoint variable's own
 /// *parameter sorts* still aren't known here.
-pub(crate) fn resolve_modal_variables(spec: &mut UntypedStateFrmSpec) {
+pub(crate) fn resolve_modal_variables(spec: &mut UntypedStateFrmSpec) -> VariableSpans {
+    let mut ids = VarIdAllocator::default();
+    let mut state_var_ids = StateVarIdAllocator::default();
     let mut scope = Scope::default();
-    let mut state_vars = Scope::default();
-    resolve_in_state_frm(&mut spec.formula, &mut scope, &mut state_vars);
+    let mut state_vars = FixpointScope::default();
+    let mut spans = VariableSpans::new();
+    resolve_in_state_frm(
+        &mut spec.formula,
+        &mut scope,
+        &mut state_vars,
+        &mut ids,
+        &mut state_var_ids,
+        &mut spans,
+    );
+    spans
 }
 
-fn resolve_in_state_frm(formula: &mut StateFrm, scope: &mut Scope, state_vars: &mut Scope) {
+fn resolve_in_state_frm(
+    formula: &mut StateFrm,
+    scope: &mut Scope,
+    state_vars: &mut FixpointScope,
+    ids: &mut VarIdAllocator,
+    state_var_ids: &mut StateVarIdAllocator,
+    spans: &mut VariableSpans,
+) {
     match &mut formula.node {
         StateFrmKind::True | StateFrmKind::False => {}
         StateFrmKind::Delay(time) | StateFrmKind::Yaled(time) => {
             if let Some(time) = time {
-                resolve_in_data_expr(time, scope);
+                resolve_in_data_expr(time, scope, ids, spans);
             }
         }
         StateFrmKind::Id(name, arguments) => {
             for argument in arguments.iter_mut() {
-                resolve_in_data_expr(argument, scope);
+                resolve_in_data_expr(argument, scope, ids, spans);
             }
             if let Some(declaration) = state_vars.resolve(name) {
-                formula.node = StateFrmKind::Resolved(name.clone(), std::mem::take(arguments), declaration.clone());
+                formula.node = StateFrmKind::Resolved(name.clone(), std::mem::take(arguments), declaration);
             }
         }
         // Already resolved (this pass never runs twice on the same tree, but treating it as a
         // leaf keeps the rewrite idempotent, the same way `DataExprKind::Resolved` does).
         StateFrmKind::Resolved(_, arguments, _) => {
             for argument in arguments.iter_mut() {
-                resolve_in_data_expr(argument, scope);
+                resolve_in_data_expr(argument, scope, ids, spans);
             }
         }
-        StateFrmKind::DataValExpr(data_expr) => resolve_in_data_expr(data_expr, scope),
+        StateFrmKind::DataValExpr(data_expr) => resolve_in_data_expr(data_expr, scope, ids, spans),
         StateFrmKind::DataValExprLeftMult(constant, expr) => {
-            resolve_in_data_expr(constant, scope);
-            resolve_in_state_frm(expr, scope, state_vars);
+            resolve_in_data_expr(constant, scope, ids, spans);
+            resolve_in_state_frm(expr, scope, state_vars, ids, state_var_ids, spans);
         }
         StateFrmKind::DataValExprRightMult(expr, constant) => {
-            resolve_in_state_frm(expr, scope, state_vars);
-            resolve_in_data_expr(constant, scope);
+            resolve_in_state_frm(expr, scope, state_vars, ids, state_var_ids, spans);
+            resolve_in_data_expr(constant, scope, ids, spans);
         }
         StateFrmKind::Modality { formula, expr, .. } => {
-            resolve_in_reg_frm(formula, scope);
-            resolve_in_state_frm(expr, scope, state_vars);
+            resolve_in_reg_frm(formula, scope, ids, spans);
+            resolve_in_state_frm(expr, scope, state_vars, ids, state_var_ids, spans);
         }
-        StateFrmKind::Unary { expr, .. } => resolve_in_state_frm(expr, scope, state_vars),
+        StateFrmKind::Unary { expr, .. } => resolve_in_state_frm(expr, scope, state_vars, ids, state_var_ids, spans),
         StateFrmKind::Binary { lhs, rhs, .. } => {
-            resolve_in_state_frm(lhs, scope, state_vars);
-            resolve_in_state_frm(rhs, scope, state_vars);
+            resolve_in_state_frm(lhs, scope, state_vars, ids, state_var_ids, spans);
+            resolve_in_state_frm(rhs, scope, state_vars, ids, state_var_ids, spans);
         }
         StateFrmKind::Quantifier { variables, body, .. } | StateFrmKind::Bound { variables, body, .. } => {
-            let pushed = scope.push_declarations(variables);
-            resolve_in_state_frm(body, scope, state_vars);
+            let pushed = scope.push_declarations(variables, ids, spans);
+            resolve_in_state_frm(body, scope, state_vars, ids, state_var_ids, spans);
             scope.pop(pushed);
         }
         StateFrmKind::FixedPoint { variable, body, .. } => {
@@ -173,90 +210,116 @@ fn resolve_in_state_frm(formula: &mut StateFrm, scope: &mut Scope, state_vars: &
             // the parameter it initializes (and any sibling parameter) isn't bound yet, mirroring
             // `resolve_in_process_expr`'s treatment of an instantiation's assignment value.
             for argument in &mut variable.arguments {
-                resolve_in_data_expr(&mut argument.expr, scope);
+                resolve_in_data_expr(&mut argument.expr, scope, ids, spans);
             }
             let pushed = variable.arguments.len();
-            for argument in &variable.arguments {
-                scope.push(argument.identifier.node.clone(), argument.identifier.span.clone());
+            for argument in &mut variable.arguments {
+                argument.id = Some(scope.declare(
+                    argument.identifier.node.clone(),
+                    argument.identifier.span.clone(),
+                    ids,
+                    spans,
+                ));
             }
             // The fixpoint variable's own name is in scope for its body only (it may itself
             // shadow an outer variable of the same name, `mu X. nu X. ...`).
-            state_vars.push(variable.identifier.clone(), variable.span.clone());
-            resolve_in_state_frm(body, scope, state_vars);
+            let state_var_id = state_var_ids.alloc();
+            variable.id = Some(state_var_id);
+            state_vars.push(variable.identifier.clone(), state_var_id);
+            resolve_in_state_frm(body, scope, state_vars, ids, state_var_ids, spans);
             state_vars.pop(1);
             scope.pop(pushed);
         }
     }
 }
 
-fn resolve_in_reg_frm(formula: &mut RegFrm, scope: &mut Scope) {
+fn resolve_in_reg_frm(formula: &mut RegFrm, scope: &mut Scope, ids: &mut VarIdAllocator, spans: &mut VariableSpans) {
     match &mut formula.node {
-        RegFrmKind::Action(action) => resolve_in_act_frm(action, scope),
-        RegFrmKind::Iteration(inner) | RegFrmKind::Plus(inner) => resolve_in_reg_frm(inner, scope),
+        RegFrmKind::Action(action) => resolve_in_act_frm(action, scope, ids, spans),
+        RegFrmKind::Iteration(inner) | RegFrmKind::Plus(inner) => resolve_in_reg_frm(inner, scope, ids, spans),
         RegFrmKind::Sequence { lhs, rhs } | RegFrmKind::Choice { lhs, rhs } => {
-            resolve_in_reg_frm(lhs, scope);
-            resolve_in_reg_frm(rhs, scope);
+            resolve_in_reg_frm(lhs, scope, ids, spans);
+            resolve_in_reg_frm(rhs, scope, ids, spans);
         }
     }
 }
 
-fn resolve_in_act_frm(formula: &mut ActFrm, scope: &mut Scope) {
+fn resolve_in_act_frm(formula: &mut ActFrm, scope: &mut Scope, ids: &mut VarIdAllocator, spans: &mut VariableSpans) {
     match &mut formula.node {
         ActFrmKind::True | ActFrmKind::False => {}
         ActFrmKind::MultAct(multi_action) => {
             for action in &mut multi_action.actions {
                 for argument in &mut action.args {
-                    resolve_in_data_expr(argument, scope);
+                    resolve_in_data_expr(argument, scope, ids, spans);
                 }
             }
         }
-        ActFrmKind::DataExprVal(data_expr) => resolve_in_data_expr(data_expr, scope),
-        ActFrmKind::Negation(inner) => resolve_in_act_frm(inner, scope),
+        ActFrmKind::DataExprVal(data_expr) => resolve_in_data_expr(data_expr, scope, ids, spans),
+        ActFrmKind::Negation(inner) => resolve_in_act_frm(inner, scope, ids, spans),
         ActFrmKind::Quantifier { variables, body, .. } => {
-            let pushed = scope.push_declarations(variables);
-            resolve_in_act_frm(body, scope);
+            let pushed = scope.push_declarations(variables, ids, spans);
+            resolve_in_act_frm(body, scope, ids, spans);
             scope.pop(pushed);
         }
         ActFrmKind::Binary { lhs, rhs, .. } => {
-            resolve_in_act_frm(lhs, scope);
-            resolve_in_act_frm(rhs, scope);
+            resolve_in_act_frm(lhs, scope, ids, spans);
+            resolve_in_act_frm(rhs, scope, ids, spans);
         }
     }
 }
 
-/// The binders currently in scope, each paired with its declaration's span so two occurrences of
-/// the same binder keep comparing equal once rewritten to [`DataExprKind::Resolved`]. Lexical
-/// scoping is stack-shaped: a subtree's own binders are pushed before descending into it and
-/// [`Scope::pop`]ped back off once that subtree is done, so a later binder of the same name
-/// shadows an earlier one without disturbing it.
+/// The binders currently in scope, each paired with its declaration's own [VarId] so two
+/// occurrences of the same binder keep comparing equal once rewritten to
+/// [`DataExprKind::Resolved`]. Lexical scoping is stack-shaped: a subtree's own binders are
+/// pushed before descending into it and [`Scope::pop`]ped back off once that subtree is done, so
+/// a later binder of the same name shadows an earlier one without disturbing it.
 #[derive(Clone, Default)]
-struct Scope(Vec<(String, Span)>);
+struct Scope(Vec<(String, VarId)>);
 
 impl Scope {
-    /// Builds a scope from a binder's own declarations.
-    fn from_declarations<Id>(variables: &[IdDecl<Id>]) -> Self {
-        Scope(
-            variables
-                .iter()
-                .map(|decl| (decl.identifier.node.clone(), decl.identifier.span.clone()))
-                .collect(),
-        )
+    /// Builds a scope from a binder's own declarations, assigning each a fresh [VarId].
+    fn from_declarations<Id>(
+        variables: &mut [IdDecl<Id>],
+        ids: &mut VarIdAllocator,
+        spans: &mut VariableSpans,
+    ) -> Self {
+        let mut scope = Scope::default();
+        scope.push_declarations(variables, ids, spans);
+        scope
     }
 
-    /// Pushes each declaration in `variables` onto the scope, returning how many were pushed so
-    /// the caller can [`Scope::pop`] them back off once its subtree is done.
-    fn push_declarations<Id>(&mut self, variables: &[IdDecl<Id>]) -> usize {
-        for variable in variables {
-            self.0
-                .push((variable.identifier.node.clone(), variable.identifier.span.clone()));
+    /// Pushes each declaration in `variables` onto the scope, assigning it a fresh [VarId] (also
+    /// written back onto the declaration itself) and recording its own identifier span into
+    /// `spans` (see [`VariableSpans`]), and returns how many were pushed so the caller can
+    /// [`Scope::pop`] them back off once its subtree is done.
+    fn push_declarations<Id>(
+        &mut self,
+        variables: &mut [IdDecl<Id>],
+        ids: &mut VarIdAllocator,
+        spans: &mut VariableSpans,
+    ) -> usize {
+        for variable in variables.iter_mut() {
+            variable.var_id = Some(self.declare(
+                variable.identifier.node.clone(),
+                variable.identifier.span.clone(),
+                ids,
+                spans,
+            ));
         }
         variables.len()
     }
 
-    /// Pushes a single `(name, span)` binding directly, for a binder that isn't itself an
-    /// `IdDecl` (a `whr` assignment's identifier).
-    fn push(&mut self, name: String, span: Span) {
-        self.0.push((name, span));
+    /// Declares a single binder: allocates it a fresh [VarId], records its identifier's span into
+    /// `spans` (see [`VariableSpans`]), and pushes `name` onto the scope under that id. This is
+    /// what [`Scope::push_declarations`] does per-element for an `IdDecl`; every binder that isn't
+    /// itself an `IdDecl` (a fixpoint variable's own parameter, a `whr` assignment's identifier)
+    /// goes through this one method too, so "allocate a VarId for a binder" has exactly one place
+    /// that does it instead of each such site reimplementing alloc-record-push by hand.
+    fn declare(&mut self, name: String, span: Span, ids: &mut VarIdAllocator, spans: &mut VariableSpans) -> VarId {
+        let var_id = ids.alloc();
+        spans.insert(var_id, span);
+        self.0.push((name, var_id));
+        var_id
     }
 
     /// Drops the `count` most recently pushed bindings, restoring the scope to what it was
@@ -266,32 +329,57 @@ impl Scope {
     }
 
     /// The innermost binder named `name`, if one is in scope.
-    fn resolve(&self, name: &str) -> Option<&Span> {
+    fn resolve(&self, name: &str) -> Option<VarId> {
         self.0
             .iter()
             .rev()
             .find(|(bound, _)| bound == name)
-            .map(|(_, span)| span)
+            .map(|&(_, var_id)| var_id)
     }
 }
 
-fn resolve_in_process_expr(expr: &mut ProcessExpr, scope: &mut Scope) {
+/// The fixpoint-variable names currently in scope, in the second, [`StateVarId`]-keyed namespace
+/// [`resolve_modal_variables`] documents — kept as a distinct type from [Scope] so the two
+/// namespaces can't be mixed up by accident.
+#[derive(Default)]
+struct FixpointScope(Vec<(String, StateVarId)>);
+
+impl FixpointScope {
+    fn push(&mut self, name: String, id: StateVarId) {
+        self.0.push((name, id));
+    }
+
+    fn pop(&mut self, count: usize) {
+        self.0.truncate(self.0.len() - count);
+    }
+
+    fn resolve(&self, name: &str) -> Option<StateVarId> {
+        self.0.iter().rev().find(|(bound, _)| bound == name).map(|&(_, id)| id)
+    }
+}
+
+fn resolve_in_process_expr(
+    expr: &mut ProcessExpr,
+    scope: &mut Scope,
+    ids: &mut VarIdAllocator,
+    spans: &mut VariableSpans,
+) {
     match &mut expr.node {
         ProcessExprKind::Delta | ProcessExprKind::Tau => {}
         ProcessExprKind::Action(_, args) => {
             for arg in args {
-                resolve_in_data_expr(arg, scope);
+                resolve_in_data_expr(arg, scope, ids, spans);
             }
         }
         ProcessExprKind::Id(_, assignments) => {
             // Only the assignment's *value* is a context-free variable read.
             for assignment in assignments {
-                resolve_in_data_expr(&mut assignment.expr, scope);
+                resolve_in_data_expr(&mut assignment.expr, scope, ids, spans);
             }
         }
         ProcessExprKind::Sum { variables, operand } => {
-            let pushed = scope.push_declarations(variables);
-            resolve_in_process_expr(operand, scope);
+            let pushed = scope.push_declarations(variables, ids, spans);
+            resolve_in_process_expr(operand, scope, ids, spans);
             scope.pop(pushed);
         }
         ProcessExprKind::Dist {
@@ -299,96 +387,101 @@ fn resolve_in_process_expr(expr: &mut ProcessExpr, scope: &mut Scope) {
             expr: weight,
             operand,
         } => {
-            let pushed = scope.push_declarations(variables);
+            let pushed = scope.push_declarations(variables, ids, spans);
             // `dist`'s weight is resolved with its own bound variables already in scope.
-            resolve_in_data_expr(weight, scope);
-            resolve_in_process_expr(operand, scope);
+            resolve_in_data_expr(weight, scope, ids, spans);
+            resolve_in_process_expr(operand, scope, ids, spans);
             scope.pop(pushed);
         }
         ProcessExprKind::Binary { lhs, rhs, .. } => {
-            resolve_in_process_expr(lhs, scope);
-            resolve_in_process_expr(rhs, scope);
+            resolve_in_process_expr(lhs, scope, ids, spans);
+            resolve_in_process_expr(rhs, scope, ids, spans);
         }
         ProcessExprKind::Hide { operand, .. }
         | ProcessExprKind::Rename { operand, .. }
         | ProcessExprKind::Allow { operand, .. }
         | ProcessExprKind::Block { operand, .. }
-        | ProcessExprKind::Comm { operand, .. } => resolve_in_process_expr(operand, scope),
+        | ProcessExprKind::Comm { operand, .. } => resolve_in_process_expr(operand, scope, ids, spans),
         ProcessExprKind::Condition { condition, then, else_ } => {
-            resolve_in_data_expr(condition, scope);
-            resolve_in_process_expr(then, scope);
+            resolve_in_data_expr(condition, scope, ids, spans);
+            resolve_in_process_expr(then, scope, ids, spans);
             if let Some(else_) = else_ {
-                resolve_in_process_expr(else_, scope);
+                resolve_in_process_expr(else_, scope, ids, spans);
             }
         }
         ProcessExprKind::At { expr, operand } => {
-            resolve_in_process_expr(expr, scope);
-            resolve_in_data_expr(operand, scope);
+            resolve_in_process_expr(expr, scope, ids, spans);
+            resolve_in_data_expr(operand, scope, ids, spans);
         }
     }
 }
 
-fn resolve_in_pbes_expr(expr: &mut PbesExpr, scope: &mut Scope) {
+fn resolve_in_pbes_expr(expr: &mut PbesExpr, scope: &mut Scope, ids: &mut VarIdAllocator, spans: &mut VariableSpans) {
     match &mut expr.node {
         PbesExprKind::True | PbesExprKind::False => {}
-        PbesExprKind::DataValExpr(data_expr) => resolve_in_data_expr(data_expr, scope),
-        PbesExprKind::PropVarInst(inst) => resolve_in_prop_var_inst(inst, scope),
-        PbesExprKind::Negation(inner) => resolve_in_pbes_expr(inner, scope),
+        PbesExprKind::DataValExpr(data_expr) => resolve_in_data_expr(data_expr, scope, ids, spans),
+        PbesExprKind::PropVarInst(inst) => resolve_in_prop_var_inst(inst, scope, ids, spans),
+        PbesExprKind::Negation(inner) => resolve_in_pbes_expr(inner, scope, ids, spans),
         PbesExprKind::Binary { lhs, rhs, .. } => {
-            resolve_in_pbes_expr(lhs, scope);
-            resolve_in_pbes_expr(rhs, scope);
+            resolve_in_pbes_expr(lhs, scope, ids, spans);
+            resolve_in_pbes_expr(rhs, scope, ids, spans);
         }
         PbesExprKind::Quantifier { variables, body, .. } => {
-            let pushed = scope.push_declarations(variables);
-            resolve_in_pbes_expr(body, scope);
+            let pushed = scope.push_declarations(variables, ids, spans);
+            resolve_in_pbes_expr(body, scope, ids, spans);
             scope.pop(pushed);
         }
     }
 }
 
-fn resolve_in_pres_expr(expr: &mut PresExpr, scope: &mut Scope) {
+fn resolve_in_pres_expr(expr: &mut PresExpr, scope: &mut Scope, ids: &mut VarIdAllocator, spans: &mut VariableSpans) {
     match &mut expr.node {
         PresExprKind::True | PresExprKind::False => {}
-        PresExprKind::DataValExpr(data_expr) => resolve_in_data_expr(data_expr, scope),
-        PresExprKind::PropVarInst(inst) => resolve_in_prop_var_inst(inst, scope),
-        PresExprKind::Negation(inner) => resolve_in_pres_expr(inner, scope),
+        PresExprKind::DataValExpr(data_expr) => resolve_in_data_expr(data_expr, scope, ids, spans),
+        PresExprKind::PropVarInst(inst) => resolve_in_prop_var_inst(inst, scope, ids, spans),
+        PresExprKind::Negation(inner) => resolve_in_pres_expr(inner, scope, ids, spans),
         PresExprKind::Binary { lhs, rhs, .. } => {
-            resolve_in_pres_expr(lhs, scope);
-            resolve_in_pres_expr(rhs, scope);
+            resolve_in_pres_expr(lhs, scope, ids, spans);
+            resolve_in_pres_expr(rhs, scope, ids, spans);
         }
-        PresExprKind::Equal { body, .. } => resolve_in_pres_expr(body, scope),
+        PresExprKind::Equal { body, .. } => resolve_in_pres_expr(body, scope, ids, spans),
         PresExprKind::Condition { lhs, then, else_, .. } => {
-            resolve_in_pres_expr(lhs, scope);
-            resolve_in_pres_expr(then, scope);
-            resolve_in_pres_expr(else_, scope);
+            resolve_in_pres_expr(lhs, scope, ids, spans);
+            resolve_in_pres_expr(then, scope, ids, spans);
+            resolve_in_pres_expr(else_, scope, ids, spans);
         }
         PresExprKind::RightConstantMultiply { expr, constant }
         | PresExprKind::LeftConstantMultiply { expr, constant } => {
-            resolve_in_data_expr(constant, scope);
-            resolve_in_pres_expr(expr, scope);
+            resolve_in_data_expr(constant, scope, ids, spans);
+            resolve_in_pres_expr(expr, scope, ids, spans);
         }
         PresExprKind::Bound { variables, expr, .. } => {
-            let pushed = scope.push_declarations(variables);
-            resolve_in_pres_expr(expr, scope);
+            let pushed = scope.push_declarations(variables, ids, spans);
+            resolve_in_pres_expr(expr, scope, ids, spans);
             scope.pop(pushed);
         }
     }
 }
 
-fn resolve_in_prop_var_inst(inst: &mut PropVarInst, scope: &mut Scope) {
+fn resolve_in_prop_var_inst(
+    inst: &mut PropVarInst,
+    scope: &mut Scope,
+    ids: &mut VarIdAllocator,
+    spans: &mut VariableSpans,
+) {
     for argument in &mut inst.arguments {
-        resolve_in_data_expr(argument, scope);
+        resolve_in_data_expr(argument, scope, ids, spans);
     }
 }
 
-/// Rewrites every `Id(name)` in `expr` found in `scope` into `Resolved(name, declaration span)`,
-/// extending `scope` for the data-level binders it descends through (`lambda`, a quantifier, a
-/// set/bag comprehension, `whr`).
-fn resolve_in_data_expr(expr: &mut DataExpr, scope: &mut Scope) {
+/// Rewrites every `Id(name)` in `expr` found in `scope` into `Resolved(name, VarId)`, extending
+/// `scope` (and allocating from `ids`) for the data-level binders it descends through (`lambda`, a
+/// quantifier, a set/bag comprehension, `whr`).
+fn resolve_in_data_expr(expr: &mut DataExpr, scope: &mut Scope, ids: &mut VarIdAllocator, spans: &mut VariableSpans) {
     match &mut expr.node {
         DataExprKind::Id(name) => {
             if let Some(declaration) = scope.resolve(name) {
-                expr.node = DataExprKind::Resolved(name.clone(), declaration.clone());
+                expr.node = DataExprKind::Resolved(name.clone(), declaration);
             }
         }
         DataExprKind::Resolved(_, _)
@@ -398,53 +491,53 @@ fn resolve_in_data_expr(expr: &mut DataExpr, scope: &mut Scope) {
         | DataExprKind::EmptySet
         | DataExprKind::EmptyBag => {}
         DataExprKind::Application { function, arguments } => {
-            resolve_in_data_expr(function, scope);
+            resolve_in_data_expr(function, scope, ids, spans);
             for argument in arguments {
-                resolve_in_data_expr(argument, scope);
+                resolve_in_data_expr(argument, scope, ids, spans);
             }
         }
         DataExprKind::List(elements) | DataExprKind::Set(elements) => {
             for element in elements {
-                resolve_in_data_expr(element, scope);
+                resolve_in_data_expr(element, scope, ids, spans);
             }
         }
         DataExprKind::Bag(elements) => {
             for element in elements {
-                resolve_in_data_expr(&mut element.expr, scope);
-                resolve_in_data_expr(&mut element.multiplicity, scope);
+                resolve_in_data_expr(&mut element.expr, scope, ids, spans);
+                resolve_in_data_expr(&mut element.multiplicity, scope, ids, spans);
             }
         }
         DataExprKind::SetBagComp { variable, predicate } => {
-            let pushed = scope.push_declarations(std::slice::from_ref(variable));
-            resolve_in_data_expr(predicate, scope);
+            let pushed = scope.push_declarations(std::slice::from_mut(variable), ids, spans);
+            resolve_in_data_expr(predicate, scope, ids, spans);
             scope.pop(pushed);
         }
         DataExprKind::Lambda { variables, body } | DataExprKind::Quantifier { variables, body, .. } => {
-            let pushed = scope.push_declarations(variables);
-            resolve_in_data_expr(body, scope);
+            let pushed = scope.push_declarations(variables, ids, spans);
+            resolve_in_data_expr(body, scope, ids, spans);
             scope.pop(pushed);
         }
-        DataExprKind::Unary { expr, .. } => resolve_in_data_expr(expr, scope),
+        DataExprKind::Unary { expr, .. } => resolve_in_data_expr(expr, scope, ids, spans),
         DataExprKind::Binary { lhs, rhs, .. } => {
-            resolve_in_data_expr(lhs, scope);
-            resolve_in_data_expr(rhs, scope);
+            resolve_in_data_expr(lhs, scope, ids, spans);
+            resolve_in_data_expr(rhs, scope, ids, spans);
         }
         DataExprKind::FunctionUpdate { expr, update } => {
-            resolve_in_data_expr(expr, scope);
-            resolve_in_data_expr(&mut update.expr, scope);
-            resolve_in_data_expr(&mut update.update, scope);
+            resolve_in_data_expr(expr, scope, ids, spans);
+            resolve_in_data_expr(&mut update.expr, scope, ids, spans);
+            resolve_in_data_expr(&mut update.update, scope, ids, spans);
         }
         DataExprKind::Whr { expr, assignments } => {
             // Each assignment's right-hand side is resolved in the *outer* scope — bindings
             // don't see each other, only the body does.
             for assignment in assignments.iter_mut() {
-                resolve_in_data_expr(&mut assignment.expr, scope);
+                resolve_in_data_expr(&mut assignment.expr, scope, ids, spans);
             }
             let pushed = assignments.len();
-            for assignment in assignments.iter() {
-                scope.push(assignment.identifier.clone(), assignment.span.clone());
+            for assignment in assignments.iter_mut() {
+                assignment.id = Some(scope.declare(assignment.identifier.clone(), assignment.span.clone(), ids, spans));
             }
-            resolve_in_data_expr(expr, scope);
+            resolve_in_data_expr(expr, scope, ids, spans);
             scope.pop(pushed);
         }
     }
@@ -456,25 +549,18 @@ mod tests {
     use merc_syntax::PbesExprKind;
     use merc_syntax::PresExprKind;
     use merc_syntax::ProcessExprKind;
+    use merc_syntax::StateFrmKind;
     use merc_syntax::UntypedDataSpecification;
     use merc_syntax::UntypedPbes;
     use merc_syntax::UntypedPres;
     use merc_syntax::UntypedProcessSpecification;
+    use merc_syntax::UntypedStateFrmSpec;
 
     use super::resolve_data_specification_variables;
+    use super::resolve_modal_variables;
     use super::resolve_pbes_variables;
     use super::resolve_pres_variables;
     use super::resolve_process_variables;
-
-    /// The declaration span of `name`, located via `locate`'s first occurrence in `text` (an
-    /// `IdDecl`'s own span covers only its identifier — not the `: Sort` that follows it — so
-    /// `locate` only pins down where to look, `name`'s own length determines the span's width).
-    fn decl_span(text: &str, locate: &str, name: &str) -> (usize, usize) {
-        let start = text
-            .find(locate)
-            .unwrap_or_else(|| panic!("'{locate}' not found in '{text}'"));
-        (start, start + name.len())
-    }
 
     #[test]
     fn test_action_argument_resolves_to_process_parameter() {
@@ -482,13 +568,15 @@ mod tests {
         let mut spec = UntypedProcessSpecification::parse(text).unwrap();
         resolve_process_variables(&mut spec);
 
+        let declared = spec.process_declarations[0].params[0]
+            .var_id
+            .expect("the parameter was assigned a VarId");
         let ProcessExprKind::Action(_, args) = &spec.process_declarations[0].body.node else {
             panic!("expected an Action body");
         };
-        let (start, end) = decl_span(text, "n: Nat", "n");
         assert!(matches!(
             &args[0].node,
-            DataExprKind::Resolved(name, span) if name == "n" && span.start == start && span.end == end
+            DataExprKind::Resolved(name, var_id) if name == "n" && *var_id == declared
         ));
     }
 
@@ -498,16 +586,16 @@ mod tests {
         let mut spec = UntypedProcessSpecification::parse(text).unwrap();
         resolve_process_variables(&mut spec);
 
-        let ProcessExprKind::Sum { operand, .. } = &spec.process_declarations[0].body.node else {
+        let ProcessExprKind::Sum { variables, operand } = &spec.process_declarations[0].body.node else {
             panic!("expected a Sum body");
         };
+        let declared = variables[0].var_id.expect("the binder was assigned a VarId");
         let ProcessExprKind::Action(_, args) = &operand.node else {
             panic!("expected an Action operand");
         };
-        let (start, end) = decl_span(text, "x: Nat", "x");
         assert!(matches!(
             &args[0].node,
-            DataExprKind::Resolved(name, span) if name == "x" && span.start == start && span.end == end
+            DataExprKind::Resolved(name, var_id) if name == "x" && *var_id == declared
         ));
     }
 
@@ -517,16 +605,21 @@ mod tests {
         let mut spec = UntypedProcessSpecification::parse(text).unwrap();
         resolve_process_variables(&mut spec);
 
-        let ProcessExprKind::Dist { expr: weight, .. } = &spec.process_declarations[0].body.node else {
+        let ProcessExprKind::Dist {
+            variables,
+            expr: weight,
+            ..
+        } = &spec.process_declarations[0].body.node
+        else {
             panic!("expected a Dist body");
         };
+        let declared = variables[0].var_id.expect("the binder was assigned a VarId");
         let DataExprKind::Binary { rhs, .. } = &weight.node else {
             panic!("expected a Binary (division) weight, got {:?}", weight.node);
         };
-        let (start, end) = decl_span(text, "x: Pos", "x");
         assert!(matches!(
             &rhs.node,
-            DataExprKind::Resolved(name, span) if name == "x" && span.start == start && span.end == end
+            DataExprKind::Resolved(name, var_id) if name == "x" && *var_id == declared
         ));
     }
 
@@ -536,16 +629,18 @@ mod tests {
         let mut spec = UntypedProcessSpecification::parse(text).unwrap();
         resolve_process_variables(&mut spec);
 
+        let declared = spec.process_declarations[0].params[0]
+            .var_id
+            .expect("the parameter was assigned a VarId");
         let ProcessExprKind::Id(_, assignments) = &spec.process_declarations[0].body.node else {
             panic!("expected an Id (instantiation) body");
         };
         // The key `n` is a plain `String` field (`AssignmentData::identifier`), never touched by
         // this pass; only the value `n` (the expression) is a `DataExpr` and gets resolved.
         assert_eq!(assignments[0].identifier, "n");
-        let (start, end) = decl_span(text, "n: Nat", "n");
         assert!(matches!(
             &assignments[0].expr.node,
-            DataExprKind::Resolved(name, span) if name == "n" && span.start == start && span.end == end
+            DataExprKind::Resolved(name, var_id) if name == "n" && *var_id == declared
         ));
     }
 
@@ -555,25 +650,30 @@ mod tests {
         let mut spec = UntypedProcessSpecification::parse(text).unwrap();
         resolve_process_variables(&mut spec);
 
+        let n_declared = spec.process_declarations[0].params[0]
+            .var_id
+            .expect("the parameter was assigned a VarId");
         let ProcessExprKind::Action(_, args) = &spec.process_declarations[0].body.node else {
             panic!("expected an Action body");
         };
-        let DataExprKind::Quantifier { body, .. } = &args[0].node else {
+        let DataExprKind::Quantifier { variables, body, .. } = &args[0].node else {
             panic!("expected a Quantifier argument");
         };
+        let x_declared = variables[0].var_id.expect("the binder was assigned a VarId");
         let DataExprKind::Binary { lhs, rhs, .. } = &body.node else {
             panic!("expected a Binary (==) body");
         };
-        let (x_start, x_end) = decl_span(text, "x: Nat", "x");
         assert!(matches!(
             &lhs.node,
-            DataExprKind::Resolved(name, span) if name == "x" && span.start == x_start && span.end == x_end
+            DataExprKind::Resolved(name, var_id) if name == "x" && *var_id == x_declared
         ));
-        let (n_start, n_end) = decl_span(text, "n: Nat", "n");
         assert!(matches!(
             &rhs.node,
-            DataExprKind::Resolved(name, span) if name == "n" && span.start == n_start && span.end == n_end
+            DataExprKind::Resolved(name, var_id) if name == "n" && *var_id == n_declared
         ));
+        // The process parameter and the nested quantifier binder are distinct binders and must
+        // never share an id, even though each is the "first" binder of its own construct.
+        assert_ne!(n_declared, x_declared);
     }
 
     #[test]
@@ -596,16 +696,18 @@ mod tests {
         let mut pbes = UntypedPbes::parse(text).unwrap();
         resolve_pbes_variables(&mut pbes);
 
+        let declared = pbes.equations[0].variable.parameters[0]
+            .var_id
+            .expect("the parameter was assigned a VarId");
         let PbesExprKind::Binary { rhs, .. } = &pbes.equations[0].formula.node else {
             panic!("expected a Binary (||) formula");
         };
         let PbesExprKind::PropVarInst(inst) = &rhs.node else {
             panic!("expected a PropVarInst");
         };
-        let (start, end) = decl_span(text, "n: Nat", "n");
         assert!(matches!(
             &inst.arguments[0].node,
-            DataExprKind::Resolved(name, span) if name == "n" && span.start == start && span.end == end
+            DataExprKind::Resolved(name, var_id) if name == "n" && *var_id == declared
         ));
     }
 
@@ -615,19 +717,19 @@ mod tests {
         let mut pbes = UntypedPbes::parse(text).unwrap();
         resolve_pbes_variables(&mut pbes);
 
-        let PbesExprKind::Quantifier { body, .. } = &pbes.equations[0].formula.node else {
+        let PbesExprKind::Quantifier { variables, body, .. } = &pbes.equations[0].formula.node else {
             panic!("expected a Quantifier formula");
         };
+        let declared = variables[0].var_id.expect("the binder was assigned a VarId");
         let PbesExprKind::DataValExpr(data_expr) = &body.node else {
             panic!("expected a DataValExpr body");
         };
         let DataExprKind::Binary { lhs, .. } = &data_expr.node else {
             panic!("expected a Binary (==) expression");
         };
-        let (start, end) = decl_span(text, "n: Nat", "n");
         assert!(matches!(
             &lhs.node,
-            DataExprKind::Resolved(name, span) if name == "n" && span.start == start && span.end == end
+            DataExprKind::Resolved(name, var_id) if name == "n" && *var_id == declared
         ));
     }
 
@@ -637,10 +739,12 @@ mod tests {
         let mut pbes = UntypedPbes::parse(text).unwrap();
         resolve_pbes_variables(&mut pbes);
 
-        let (start, end) = decl_span(text, "g: Nat", "g");
+        let declared = pbes.global_variables[0]
+            .var_id
+            .expect("the global was assigned a VarId");
         assert!(matches!(
             &pbes.init.arguments[0].node,
-            DataExprKind::Resolved(name, span) if name == "g" && span.start == start && span.end == end
+            DataExprKind::Resolved(name, var_id) if name == "g" && *var_id == declared
         ));
     }
 
@@ -650,16 +754,18 @@ mod tests {
         let mut pres = UntypedPres::parse(text).unwrap();
         resolve_pres_variables(&mut pres);
 
+        let declared = pres.equations[0].variable.parameters[0]
+            .var_id
+            .expect("the parameter was assigned a VarId");
         let PresExprKind::Binary { rhs, .. } = &pres.equations[0].formula.node else {
             panic!("expected a Binary (||) formula");
         };
         let PresExprKind::PropVarInst(inst) = &rhs.node else {
             panic!("expected a PropVarInst");
         };
-        let (start, end) = decl_span(text, "n: Nat", "n");
         assert!(matches!(
             &inst.arguments[0].node,
-            DataExprKind::Resolved(name, span) if name == "n" && span.start == start && span.end == end
+            DataExprKind::Resolved(name, var_id) if name == "n" && *var_id == declared
         ));
     }
 
@@ -669,16 +775,16 @@ mod tests {
         let mut pres = UntypedPres::parse(text).unwrap();
         resolve_pres_variables(&mut pres);
 
-        let PresExprKind::Bound { expr, .. } = &pres.equations[0].formula.node else {
+        let PresExprKind::Bound { variables, expr, .. } = &pres.equations[0].formula.node else {
             panic!("expected a Bound formula");
         };
+        let declared = variables[0].var_id.expect("the binder was assigned a VarId");
         let PresExprKind::DataValExpr(data_expr) = &expr.node else {
             panic!("expected a DataValExpr body");
         };
-        let (start, end) = decl_span(text, "n: Nat", "n");
         assert!(matches!(
             &data_expr.node,
-            DataExprKind::Resolved(name, span) if name == "n" && span.start == start && span.end == end
+            DataExprKind::Resolved(name, var_id) if name == "n" && *var_id == declared
         ));
     }
 
@@ -688,13 +794,15 @@ mod tests {
         let mut pres = UntypedPres::parse(text).unwrap();
         resolve_pres_variables(&mut pres);
 
+        let declared = pres.equations[0].variable.parameters[0]
+            .var_id
+            .expect("the parameter was assigned a VarId");
         let PresExprKind::LeftConstantMultiply { constant, .. } = &pres.equations[0].formula.node else {
             panic!("expected a LeftConstantMultiply formula");
         };
-        let (start, end) = decl_span(text, "n: Nat", "n");
         assert!(matches!(
             &constant.node,
-            DataExprKind::Resolved(name, span) if name == "n" && span.start == start && span.end == end
+            DataExprKind::Resolved(name, var_id) if name == "n" && *var_id == declared
         ));
     }
 
@@ -704,10 +812,12 @@ mod tests {
         let mut pres = UntypedPres::parse(text).unwrap();
         resolve_pres_variables(&mut pres);
 
-        let (start, end) = decl_span(text, "g: Nat", "g");
+        let declared = pres.global_variables[0]
+            .var_id
+            .expect("the global was assigned a VarId");
         assert!(matches!(
             &pres.init.arguments[0].node,
-            DataExprKind::Resolved(name, span) if name == "g" && span.start == start && span.end == end
+            DataExprKind::Resolved(name, var_id) if name == "g" && *var_id == declared
         ));
     }
 
@@ -717,16 +827,18 @@ mod tests {
         let mut spec = UntypedDataSpecification::parse(text).unwrap();
         resolve_data_specification_variables(&mut spec);
 
+        let declared = spec.equation_declarations[0].variables[0]
+            .var_id
+            .expect("the var-block variable was assigned a VarId");
         let equation = &spec.equation_declarations[0].equations[0];
-        let (start, end) = decl_span(text, "x: Nat", "x");
         assert!(matches!(
             &equation.lhs.node,
             DataExprKind::Application { arguments, .. }
-                if matches!(&arguments[0].node, DataExprKind::Resolved(name, span) if name == "x" && span.start == start && span.end == end)
+                if matches!(&arguments[0].node, DataExprKind::Resolved(name, var_id) if name == "x" && *var_id == declared)
         ));
         assert!(matches!(
             &equation.rhs.node,
-            DataExprKind::Resolved(name, span) if name == "x" && span.start == start && span.end == end
+            DataExprKind::Resolved(name, var_id) if name == "x" && *var_id == declared
         ));
     }
 
@@ -736,12 +848,14 @@ mod tests {
         let mut spec = UntypedDataSpecification::parse(text).unwrap();
         resolve_data_specification_variables(&mut spec);
 
+        let declared = spec.equation_declarations[0].variables[0]
+            .var_id
+            .expect("the var-block variable was assigned a VarId");
         let equation = &spec.equation_declarations[0].equations[0];
-        let (start, end) = decl_span(text, "x: Bool", "x");
         let condition = equation.condition.as_ref().expect("expected a condition");
         assert!(matches!(
             &condition.node,
-            DataExprKind::Resolved(name, span) if name == "x" && span.start == start && span.end == end
+            DataExprKind::Resolved(name, var_id) if name == "x" && *var_id == declared
         ));
     }
 
@@ -753,12 +867,70 @@ mod tests {
 
         // `y` isn't declared in the first block; it's a separate `var` block's own variable, so
         // this pass leaves it as-is when scoped to the first block. Only checking the second
-        // block resolves correctly is the interesting assertion here.
+        // block resolves correctly, and that the two blocks' variables never share an id, are the
+        // interesting assertions here.
+        let x_declared = spec.equation_declarations[0].variables[0].var_id.unwrap();
+        let y_declared = spec.equation_declarations[1].variables[0]
+            .var_id
+            .expect("the second block's variable was assigned a VarId");
+        assert_ne!(x_declared, y_declared);
         let second = &spec.equation_declarations[1].equations[0];
-        let (start, end) = decl_span(text, "y: Bool", "y");
         assert!(matches!(
             &second.rhs.node,
-            DataExprKind::Resolved(name, span) if name == "y" && span.start == start && span.end == end
+            DataExprKind::Resolved(name, var_id) if name == "y" && *var_id == y_declared
+        ));
+    }
+
+    #[test]
+    fn test_fixed_point_variable_resolves_to_its_own_binder() {
+        let text = "mu X(n: Nat = 0) . val(n) || X(n)";
+        let mut spec = UntypedStateFrmSpec::parse(text).unwrap();
+        resolve_modal_variables(&mut spec);
+
+        let StateFrmKind::FixedPoint { variable, body, .. } = &spec.formula.node else {
+            panic!("expected a FixedPoint formula");
+        };
+        let declared = variable.id.expect("the fixpoint variable was assigned a StateVarId");
+        let StateFrmKind::Binary { rhs, .. } = &body.node else {
+            panic!("expected a Binary (||) body");
+        };
+        assert!(matches!(
+            &rhs.node,
+            StateFrmKind::Resolved(name, _, id) if name == "X" && *id == declared
+        ));
+    }
+
+    #[test]
+    fn test_nested_fixed_point_variables_of_the_same_name_do_not_share_an_id() {
+        // The inner, parameter-less `X` refers to the *inner* `nu X`, shadowing the outer `mu X`
+        // of the same name — the two binders must never share a StateVarId.
+        let text = "mu X(n: Nat = 0) . [true](nu X. X)";
+        let mut spec = UntypedStateFrmSpec::parse(text).unwrap();
+        resolve_modal_variables(&mut spec);
+
+        let StateFrmKind::FixedPoint {
+            variable: outer, body, ..
+        } = &spec.formula.node
+        else {
+            panic!("expected an outer FixedPoint formula");
+        };
+        let outer_declared = outer.id.expect("the outer fixpoint variable was assigned a StateVarId");
+        let StateFrmKind::Modality { expr, .. } = &body.node else {
+            panic!("expected a Modality body");
+        };
+        let StateFrmKind::FixedPoint {
+            variable: inner,
+            body: inner_body,
+            ..
+        } = &expr.node
+        else {
+            panic!("expected a nested FixedPoint formula");
+        };
+        let inner_declared = inner.id.expect("the inner fixpoint variable was assigned a StateVarId");
+        assert_ne!(outer_declared, inner_declared);
+        assert!(matches!(
+            &inner_body.node,
+            StateFrmKind::Resolved(name, _, id) if name == "X" && *id == inner_declared
         ));
     }
 }

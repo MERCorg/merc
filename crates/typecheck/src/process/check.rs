@@ -14,6 +14,7 @@ use merc_syntax::ProcessExprKind;
 use merc_syntax::Rename;
 use merc_syntax::Span;
 use merc_syntax::UntypedProcessSpecification;
+use merc_syntax::VarId;
 
 use crate::DataSpecification;
 use crate::DisplaySortContext;
@@ -24,7 +25,7 @@ use crate::checking::Scope;
 use crate::checking::check_expression_against;
 use crate::checking::collect_binder_sorts;
 use crate::declared_span;
-use crate::lsp_info;
+use crate::typing_info;
 
 use super::ProcessError;
 use super::process_specification::DeclarationTables;
@@ -42,26 +43,32 @@ pub(super) fn check_process_specification(
 
     for decl in &spec.action_declarations {
         for sort in &decl.args {
-            lsp_info::collect_sort_name_references(sort, &mut sort_references);
+            typing_info::collect_sort_name_references(sort, &mut sort_references);
         }
     }
     for decl in &spec.process_declarations {
         for param in &decl.params {
-            lsp_info::collect_sort_name_references(&param.sort, &mut sort_references);
+            typing_info::collect_sort_name_references(&param.sort, &mut sort_references);
         }
     }
     for decl in &spec.global_variables {
-        lsp_info::collect_sort_name_references(&decl.sort, &mut sort_references);
+        typing_info::collect_sort_name_references(&decl.sort, &mut sort_references);
     }
 
-    let globals: Vec<(Span, ResolvedSortId)> = spec
+    let globals: Vec<(VarId, ResolvedSortId, Span)> = spec
         .global_variables
         .iter()
         .zip(&tables.global_sorts)
-        .map(|(decl, &sort)| (decl.identifier.span.clone(), sort))
+        .map(|(decl, &sort)| {
+            (
+                decl.var_id.expect("resolve_process_variables ran before checking"),
+                sort,
+                decl.identifier.span.clone(),
+            )
+        })
         .collect();
     for (decl, &sort) in spec.global_variables.iter().zip(&tables.global_sorts) {
-        lsp_info::push_binder_declaration(
+        typing_info::push_binder_declaration(
             data,
             &mut typing,
             decl.identifier.span.clone(),
@@ -73,15 +80,15 @@ pub(super) fn check_process_specification(
     for (proc_decl, params) in spec.process_declarations.iter().zip(&tables.process_params) {
         let mut scope = globals.clone();
         // A process's own parameters are in scope throughout its body.
-        scope.extend(
-            proc_decl
-                .params
-                .iter()
-                .zip(params)
-                .map(|(decl, &(_, sort))| (decl.identifier.span.clone(), sort)),
-        );
+        scope.extend(proc_decl.params.iter().zip(params).map(|(decl, &(_, sort))| {
+            (
+                decl.var_id.expect("resolve_process_variables ran before checking"),
+                sort,
+                decl.identifier.span.clone(),
+            )
+        }));
         for (decl, &(_, sort)) in proc_decl.params.iter().zip(params) {
-            lsp_info::push_binder_declaration(
+            typing_info::push_binder_declaration(
                 data,
                 &mut typing,
                 decl.identifier.span.clone(),
@@ -99,7 +106,7 @@ pub(super) fn check_process_specification(
         check_process_expr(data, tables, &scope, init, &mut typing)?;
     }
 
-    lsp_info::push_sort_references(data, &sort_references, &mut typing);
+    typing_info::push_sort_references(data, &sort_references, &mut typing);
     Ok(typing)
 }
 
@@ -108,7 +115,7 @@ pub(super) fn check_process_specification(
 fn collect_scope(
     data: &mut DataSpecification,
     expr: &ProcessExpr,
-    scope: &mut Vec<(Span, ResolvedSortId)>,
+    scope: &mut Vec<(VarId, ResolvedSortId, Span)>,
     sort_references: &mut Vec<(Span, String)>,
     typing: &mut TypingInfo,
 ) -> Result<(), ProcessError> {
@@ -244,7 +251,7 @@ enum Candidate {
 /// must never reach `typing`, since it would otherwise misreport a sort for the wrong overload at
 /// the same span. On success, also pushes a [`ResolvedName::Action`]/[`ResolvedName::Process`] at
 /// `name`'s own span (not `span`, the whole `name(args)` node) — the winning candidate identifies
-/// exactly which declaration `name` names, the same way `lsp_info::resolved_name` already picks
+/// exactly which declaration `name` names, the same way `typing_info::resolved_name` already picks
 /// a `Constructor`/`Mapping` declaration by its resolved overload.
 fn check_action_or_process(
     data: &mut DataSpecification,

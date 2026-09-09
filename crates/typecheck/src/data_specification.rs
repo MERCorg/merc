@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::convert::Infallible;
+use std::fmt::Write as _;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -12,14 +13,15 @@ use merc_syntax::ConstructorId;
 use merc_syntax::DataExpr;
 use merc_syntax::DefId;
 use merc_syntax::EqnSpecId;
-use merc_syntax::EqnVarId;
 use merc_syntax::EquationId;
 use merc_syntax::MapId;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SourceMap;
 use merc_syntax::Span;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedDataSpecification;
+use merc_syntax::VarId;
 
 use crate::AliasError;
 use crate::EquationTyping;
@@ -28,6 +30,7 @@ use crate::NumberEncoding;
 use crate::Signature;
 use crate::TypeCheckContext;
 use crate::TypingInfo;
+use crate::VariableSpans;
 use crate::WellTypedError;
 use crate::apply_sorts_in_data_expr;
 use crate::apply_sorts_in_spec;
@@ -51,16 +54,19 @@ use crate::lower_data_expr;
 use crate::lower_data_expressions;
 use crate::lower_data_specification;
 use crate::lower_expression;
-use crate::lsp_info;
 use crate::merge_signatures;
 use crate::normalize_sorts;
+use crate::resolve_data_expr_variables;
 use crate::resolve_data_specification_variables;
 use crate::resolve_sort;
 use crate::resolve_sort_id;
 use crate::resolve_sort_ids;
 use crate::resolve_system_signature;
 use crate::resolve_system_signature_full;
+use crate::resolve_type_var_ids;
 use crate::structured_sort_equations;
+use crate::typed_equation_string;
+use crate::typing_info;
 
 /// A type checked and well-typed data specification.
 ///
@@ -77,20 +83,39 @@ pub struct DataSpecification {
     encoding: NumberEncoding,
     /// Every sort-name reference in `spec`'s own declarations.
     sort_references: Vec<(Span, String)>,
+    /// Every `var`-block-declared equation variable's own [`VarId`], paired with its declaring
+    /// identifier's span — see [`VariableSpans`]. Scoped to `spec`'s own equation-variable
+    /// numbering: never valid for a `VarId` from a process/PBES/PRES/modal specification built on
+    /// top of this one, which allocates from its own separate counter (see the module doc comment
+    /// on [`crate::resolve_process_variables`] and friends).
+    variable_spans: VariableSpans,
 }
 
 impl DataSpecification {
-    /// Create a completed well-typed data specification from an untyped data
-    /// specification, using the default number encoding.
+    /// Type checks `spec` against a fresh, throwaway [`SourceMap`], using the default number
+    /// encoding. See [`Self::from_untyped_with`].
+    ///
+    /// Prefer [`Self::from_untyped_with`] with a real `sources` (e.g. the one
+    /// `UntypedDataSpecification::parse_with_imports` built) when `spec` came from a file on disk
+    /// that may itself `%import` other specifications, or when a caller downstream needs to
+    /// render a span into `spec`'s system-defined content — this entry point's own throwaway
+    /// `SourceMap` is discarded on return.
     pub fn from_untyped(spec: UntypedDataSpecification) -> Result<Self, WellTypedError> {
-        Self::from_untyped_with(spec, NumberEncoding::default())
+        Self::from_untyped_with(spec, NumberEncoding::default(), &mut SourceMap::new())
     }
 
     /// Create a completed well-typed data specification from an untyped data
     /// specification, using `encoding` to represent the numeric sorts.
+    ///
+    /// `sources` accumulates the system-defined (Appendix-B) content this generates as virtual
+    /// documents — pass the `SourceMap` `spec` was parsed (and, if applicable, `%import`-resolved)
+    /// against so every span, whether from `spec`'s own text, something it imports, or Appendix B,
+    /// renders correctly against one shared offset space; pass a fresh one if nothing else needs
+    /// to share it.
     pub fn from_untyped_with(
         mut spec: UntypedDataSpecification,
         encoding: NumberEncoding,
+        sources: &mut SourceMap,
     ) -> Result<Self, WellTypedError> {
         debug!(
             "typecheck: starting on {} sort, {} constructor, {} map and {} equation declaration(s)",
@@ -102,7 +127,7 @@ impl DataSpecification {
 
         // Ties every equation-variable occurrence to its own `var`-block
         // declaration span.
-        resolve_data_specification_variables(&mut spec);
+        let variable_spans = resolve_data_specification_variables(&mut spec);
 
         // Hoist anonymous structured sorts into fresh named declarations.
         hoist_anonymous_structs(&mut spec);
@@ -115,6 +140,10 @@ impl DataSpecification {
             Ok(flatten_function_sorts(sort))
         })
         .expect("The inner function never fails");
+
+        // Assign ids to `type_var` declarations and resolve every `TypeVar` node to its id.
+        let type_vars = resolve_type_var_ids(&mut spec)?;
+        debug!("typecheck: resolved {} type variable name(s)", type_vars.len());
 
         let sorts = resolve_sort_ids(&mut spec)?;
         debug!("typecheck: resolved {} sort name(s)", sorts.len());
@@ -154,7 +183,7 @@ impl DataSpecification {
         debug!("typecheck: signature checks passed");
 
         // Every sort-name reference `spec`'s own declarations make.
-        let sort_references = lsp_info::collect_data_specification_sort_references(&spec);
+        let sort_references = typing_info::collect_data_specification_sort_references(&spec);
         debug!("typecheck: collected {} sort-name reference(s)", sort_references.len());
 
         // Expand aliases to a canonical form now that they are known to be
@@ -175,11 +204,11 @@ impl DataSpecification {
         // that the specification uses. The container sorts are deliberately
         // excluded such that type checking can be done on their polymorphic
         // definitions.
-        let basics = basic_sort_data_specification(encoding);
+        let basics = basic_sort_data_specification(sources, encoding);
         check_no_system_function_redeclaration(&spec, &basics)?;
         debug!("typecheck: no user declaration redeclares a system function");
 
-        let (mut system, mut groups) = build_system_defined_specification(&spec, basics.clone(), encoding);
+        let (mut system, mut groups) = build_system_defined_specification(sources, &spec, basics.clone(), encoding);
 
         // The defining equations of each structured sort (Appendix B.10) join
         // the system-defined part, appended after every group above so those
@@ -191,7 +220,7 @@ impl DataSpecification {
         let mut struct_ranges: Vec<(Range<usize>, HashSet<String>, HashSet<String>)> = Vec::new();
         for constructors in &structs {
             let start = system.equation_declarations.len();
-            system.merge(&structured_sort_equations(constructors).map_err(WellTypedError::Custom)?);
+            system.merge(&structured_sort_equations(sources, constructors).map_err(WellTypedError::Custom)?);
             let end = system.equation_declarations.len();
             let constructor_names: HashSet<String> = constructors.iter().map(|c| c.name.node.clone()).collect();
             let mapping_names: HashSet<String> = constructors
@@ -235,8 +264,11 @@ impl DataSpecification {
         // Must happen before the sanity check below and before `self.system` is
         // stored, so every equation this specification ever lowers is covered by
         // both.
-        let (mut system, new_groups) = extend_system_with_inferred_sorts(&context, &spec, &system, encoding);
+        let (mut system, new_groups) = extend_system_with_inferred_sorts(sources, &context, &spec, &system, encoding);
         groups.extend(new_groups);
+
+        // Ties every system equation's own variable occurrences to its `var`-block declaration.
+        resolve_data_specification_variables(&mut system);
 
         // Unconditional in every build (not a debug_assert!): silently trusting
         // a malformed generated spec in release would leave a rewrite spec
@@ -285,6 +317,7 @@ impl DataSpecification {
             context,
             encoding,
             sort_references,
+            variable_spans,
         })
     }
 
@@ -322,6 +355,11 @@ impl DataSpecification {
     /// The resolved sort of the constructor declaration with the given
     /// [ConstructorId]. Requires `id` to be a valid constructor id from this
     /// specification; panics if called before `from_untyped` has completed.
+    ///
+    /// Only ever safe for a *user* declaration's id: every one of those has its sort resolved
+    /// unconditionally during `from_untyped`, whether or not anything actually references it. A
+    /// system-defined declaration's id is not resolved this way at all — see
+    /// [`TypeCheckContext::system_symbol_spans`]'s doc comment for where that comes from instead.
     pub(crate) fn sort_of_constructor(&self, id: ConstructorId) -> crate::ResolvedSortId {
         self.context
             .sort_of_constructor
@@ -333,6 +371,8 @@ impl DataSpecification {
     /// The resolved sort of the map declaration with the given [MapId].
     /// Requires `id` to be a valid map id from this specification; panics if
     /// called before `from_untyped` has completed.
+    ///
+    /// See [`Self::sort_of_constructor`]'s doc comment: safe only for a *user* declaration's id.
     pub(crate) fn sort_of_map(&self, id: MapId) -> crate::ResolvedSortId {
         self.context
             .sort_of_map
@@ -341,15 +381,15 @@ impl DataSpecification {
             .expect("map sorts are all resolved during from_untyped")
     }
 
-    /// The resolved sort of the `var_id`-th variable in the equation block
-    /// identified by `eqn_spec_id`. Requires both ids to be valid from this
-    /// specification; panics if called before `from_untyped` has completed.
+    /// The resolved sort of the equation `var`-block variable identified by `var_id`. Requires
+    /// `var_id` to be valid from this specification; panics if called before `from_untyped` has
+    /// completed.
     // Currently exercised by tests only.
     #[allow(dead_code)]
-    pub(crate) fn sort_of_equation_var(&self, eqn_spec_id: EqnSpecId, var_id: EqnVarId) -> crate::ResolvedSortId {
+    pub(crate) fn sort_of_equation_var(&self, var_id: VarId) -> crate::ResolvedSortId {
         self.context
             .sort_of_equation_var
-            .get(&(eqn_spec_id, var_id))
+            .get(&var_id)
             .copied()
             .expect("equation variable sorts are all resolved during from_untyped")
     }
@@ -388,6 +428,66 @@ impl DataSpecification {
     /// this is a pure read-only replay.
     pub fn lower_data_specification(&self) -> Mcrl2DataSpecification {
         lower_data_specification(&self.context, &self.spec, &self.system, self.encoding)
+    }
+
+    /// Renders `self.data_specification()` the same way its own `Display` does
+    /// except each equation's own sub-expressions are annotated with their
+    /// resolved sort (`expr:Sort`) rather than left implicit.
+    pub fn to_typed_string(&self) -> String {
+        let spec = &self.spec;
+        let mut out = String::new();
+
+        if !spec.type_var_declarations.is_empty() {
+            out.push_str("type_var\n");
+            for decl in &spec.type_var_declarations {
+                let _ = writeln!(out, "   {};", decl.identifier);
+            }
+            out.push('\n');
+        }
+        if !spec.sort_declarations.is_empty() {
+            out.push_str("sort\n");
+            for decl in &spec.sort_declarations {
+                let _ = writeln!(out, "   {decl};");
+            }
+            out.push('\n');
+        }
+        if !spec.constructor_declarations.is_empty() {
+            out.push_str("cons\n");
+            for decl in &spec.constructor_declarations {
+                let _ = writeln!(out, "   {decl};");
+            }
+            out.push('\n');
+        }
+        if !spec.map_declarations.is_empty() {
+            out.push_str("map\n");
+            for decl in &spec.map_declarations {
+                let _ = writeln!(out, "   {decl};");
+            }
+            out.push('\n');
+        }
+
+        for eqn_spec in &spec.equation_declarations {
+            if !eqn_spec.node.variables.is_empty() {
+                out.push_str("var\n");
+                for decl in &eqn_spec.node.variables {
+                    let _ = writeln!(out, "   {decl};");
+                }
+            }
+
+            out.push_str("eqn\n");
+            let eqn_spec_id = eqn_spec
+                .node
+                .id
+                .expect("assign_declaration_ids ran during from_untyped");
+            for equation in &eqn_spec.node.equations {
+                let equation_id = equation.id.expect("assign_declaration_ids ran during from_untyped");
+                let typing = self.equation_typing((eqn_spec_id, equation_id));
+                let text = typed_equation_string(equation, &self.context, &self.spec, &self.system, typing);
+                let _ = writeln!(out, "   {text};");
+            }
+        }
+
+        out
     }
 
     /// Type checks a single data expression against this specification and
@@ -429,13 +529,17 @@ impl DataSpecification {
         &mut self,
         expr: &DataExpr,
     ) -> Result<(DataExpression, TypingInfo), InferenceError> {
+        // Ties every local binder this.
+        let mut expr = expr.clone();
+        let variable_spans = resolve_data_expr_variables(&mut expr);
+
         // The built-in operator nodes (`x + y`, `[x, y]`, `f[x -> y]`) become
         // applications first, exactly as `from_untyped_with` does for the
         // equations: inference and lowering both require a lowered expression.
-        let lowered_expr = lower_data_expr(expr.clone());
+        let lowered_expr = lower_data_expr(expr);
 
         let typing = infer_expression(&mut self.context, &self.spec, &self.system, &lowered_expr)?;
-        let info = lsp_info::build(self, &typing);
+        let info = typing_info::build(self, &typing, &variable_spans);
 
         let lowered = lower_expression(
             &self.context,
@@ -463,7 +567,11 @@ impl DataSpecification {
         if let Some(cached) = self.context.equation_typing_info.get(&key) {
             return (**cached).clone();
         }
-        let info = Arc::new(lsp_info::build(self, self.equation_typing(key)));
+        let info = Arc::new(typing_info::build(
+            self,
+            self.equation_typing(key),
+            &self.variable_spans,
+        ));
         self.context.equation_typing_info.insert(key, Arc::clone(&info));
         (*info).clone()
     }
@@ -502,7 +610,7 @@ impl DataSpecification {
         for key in keys {
             info.merge(self.equation_typing_info(key));
         }
-        lsp_info::push_sort_references(self, &self.sort_references, &mut info);
+        typing_info::push_sort_references(self, &self.sort_references, &mut info);
         self.context.whole_typing_info = Some(Arc::new(info.clone()));
         info
     }
@@ -1048,6 +1156,73 @@ mod tests {
             reflexivity,
             "struct A's own 'a == a = true' equation must survive, unambiguously: {:#?}",
             equation_strings(&mcrl2)
+        );
+    }
+
+    /// Tests that `to_typed_string` correctly annotates every sub-expression
+    /// with its resolved sort.
+    #[test]
+    #[cfg_attr(miri, ignore)] // Test is too slow under miri
+    fn test_to_typed_string_annotates_every_subexpression() {
+        let spec = DataSpecification::from_untyped(
+            UntypedDataSpecification::parse(
+                "sort Signal; Message;
+                 map AssocReq: Nat -> Message;
+                     signal: Signal -> Message;
+                     sig_AssocReq: Nat -> Signal;
+                 var t: Nat;
+                 eqn AssocReq(t) = signal(sig_AssocReq(t));",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            spec.to_typed_string(),
+            "sort\n\
+             \u{20}  Signal;\n\
+             \u{20}  Message;\n\
+             \n\
+             map\n\
+             \u{20}  AssocReq: (Nat -> Message);\n\
+             \u{20}  signal: (Signal -> Message);\n\
+             \u{20}  sig_AssocReq: (Nat -> Signal);\n\
+             \n\
+             var\n\
+             \u{20}  t: Nat;\n\
+             eqn\n\
+             \u{20}  AssocReq(t: Nat): (Nat -> Message) = \
+             signal(sig_AssocReq(t: Nat): (Nat -> Signal)): (Signal -> Message);\n"
+        );
+    }
+
+    /// As above, over the polymorphic comparison/`if` schemes and an implicit `Pos -> Nat`
+    /// upcast: every operator's own resolved overload is visible, not just the equation's
+    /// declared result.
+    #[test]
+    #[cfg_attr(miri, ignore)] // Test is too slow under miri
+    fn test_to_typed_string_shows_the_resolved_overload_of_a_polymorphic_operator() {
+        let spec = DataSpecification::from_untyped(
+            UntypedDataSpecification::parse(
+                "map f: Nat -> Bool;
+                 var i: Nat;
+                 eqn f(i) = if(i == 1, true, false);",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            spec.to_typed_string(),
+            "map\n\
+             \u{20}  f: (Nat -> Bool);\n\
+             \n\
+             var\n\
+             \u{20}  i: Nat;\n\
+             eqn\n\
+             \u{20}  f(i: Nat): (Nat -> Bool) = \
+             if(==(i: Nat, 1: Pos): (Nat # Nat -> Bool), true: Bool, false: Bool): \
+             (Bool # Bool # Bool -> Bool);\n"
         );
     }
 }

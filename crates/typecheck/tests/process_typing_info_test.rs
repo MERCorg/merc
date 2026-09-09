@@ -54,37 +54,55 @@ fn test_action_argument_hover_reports_declared_sort() {
     assert_eq!(hover("act a: Nat; proc P(n: Nat) = a(n); init P(1);", "n);"), "Nat");
 }
 
-/// The declaration span carried by a `Variable` resolution points at the process's own
-/// parameter declaration, not the occurrence — the actual goto-definition target.
+/// The declaration span carried by a `Variable` resolution is the actual goto-definition
+/// target: stable and shared across every occurrence of the process's own parameter, including
+/// the self-same occurrence's own re-reference.
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
-fn test_action_argument_goto_def_declaration_points_at_process_parameter() {
-    let text = "act a: Nat; proc P(n: Nat) = a(n); init P(1);";
-    let name = resolved_name_at(text, "n);");
-    let ResolvedName::Variable { name, declaration } = &name else {
-        panic!("expected a Variable resolution, got {name:?}");
+fn test_action_argument_goto_def_declaration_is_shared_across_occurrences_of_process_parameter() {
+    let text = "act a: Nat; proc P(n: Nat) = a(n) + a(n); init P(1);";
+    let ResolvedName::Variable {
+        name: first_name,
+        declaration: first,
+    } = resolved_name_at(text, "n) +")
+    else {
+        panic!("expected a Variable resolution");
     };
-    assert_eq!(name, "n");
-    let declaration = declaration
-        .clone()
-        .expect("a process parameter has a real declaration span");
-    assert_eq!(&text[declaration.start..declaration.end], "n");
+    let ResolvedName::Variable {
+        name: second_name,
+        declaration: second,
+    } = resolved_name_at(text, "n);")
+    else {
+        panic!("expected a Variable resolution");
+    };
+    assert_eq!(first_name, "n");
+    assert_eq!(second_name, "n");
+    let first = first.expect("a process parameter has a real declaration");
+    let second = second.expect("a process parameter has a real declaration");
+    assert_eq!(first, second, "both occurrences refer to the same process parameter");
 }
 
-/// A `sum`-bound variable's declaration span points at the `sum` binder itself, not the
-/// process's parameter list.
+/// A `sum`-bound variable's declaration is likewise stable and shared across its own occurrences,
+/// distinct from the process's parameter list.
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
-fn test_sum_bound_variable_goto_def_declaration_points_at_binder() {
-    let text = "act a: Nat; proc P = sum x: Nat . a(x); init P;";
-    let name = resolved_name_at(text, "x);");
-    let ResolvedName::Variable { declaration, .. } = &name else {
-        panic!("expected a Variable resolution, got {name:?}");
+fn test_sum_bound_variable_goto_def_declaration_is_shared_across_occurrences() {
+    // `sum` binds only its own operand, not a whole `+`-chain (see
+    // `test_every_branch_of_a_choice_chain_contributes_typing`), so both occurrences of `x` must
+    // sit inside the same operand for both to be in scope.
+    let text = "act a: Nat # Nat; proc P = sum x: Nat . a(x, x); init P;";
+    let ResolvedName::Variable { declaration: first, .. } = resolved_name_at(text, "x, x") else {
+        panic!("expected a Variable resolution");
     };
-    let declaration = declaration
-        .clone()
-        .expect("a sum-bound variable has a real declaration span");
-    assert_eq!(&text[declaration.start..declaration.end], "x");
+    let ResolvedName::Variable {
+        declaration: second, ..
+    } = resolved_name_at(text, "x);")
+    else {
+        panic!("expected a Variable resolution");
+    };
+    let first = first.expect("a sum-bound variable has a real declaration");
+    let second = second.expect("a sum-bound variable has a real declaration");
+    assert_eq!(first, second, "both occurrences refer to the same sum binder");
 }
 
 /// A `sum` binder's own declaration occurrence (`x` in `sum x: Nat . ...`, not a later use of it

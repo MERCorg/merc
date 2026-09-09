@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::hash::Hash;
@@ -6,13 +7,15 @@ use std::sync::Arc;
 use merc_syntax::ConstructorId;
 use merc_syntax::DefId;
 use merc_syntax::EqnSpecId;
-use merc_syntax::EqnVarId;
 use merc_syntax::EquationId;
 use merc_syntax::MapId;
+use merc_syntax::Span;
 use merc_syntax::UntypedDataSpecification;
+use merc_syntax::VarId;
 
 use crate::EquationTyping;
 use crate::InferenceError;
+use crate::PolySortScheme;
 use crate::ResolvedSortId;
 use crate::Signature;
 use crate::SortInterner;
@@ -33,8 +36,8 @@ pub(crate) struct TypeCheckContext {
     /// The memoized resolved sort of each map declaration, keyed by [MapId].
     /// Populated lazily by `query_sort_of_map`.
     pub(crate) sort_of_map: QueryCache<MapId, ResolvedSortId>,
-    /// The memoized resolved sort of each equation variable.
-    pub(crate) sort_of_equation_var: QueryCache<(EqnSpecId, EqnVarId), ResolvedSortId>,
+    /// The memoized resolved sort of each equation variable, keyed by its own [VarId].
+    pub(crate) sort_of_equation_var: QueryCache<VarId, ResolvedSortId>,
 
     /// The signature of the specification.
     pub(crate) signature: Option<Arc<Signature>>,
@@ -49,6 +52,11 @@ pub(crate) struct TypeCheckContext {
     /// The system-internal sort name table, needed to resolve a `Reference`
     /// sort (e.g. `@NatPair`) while checking a system equation.
     pub(crate) system_sort_ids: Option<Arc<HashMap<String, ResolvedSortId>>>,
+    /// The narrow polymorphic scheme table (comparison operators and `if`
+    /// only) a system equation's own body is checked against.
+    pub(crate) builtin_scheme_signature: Option<Arc<HashMap<String, Vec<PolySortScheme>>>>,
+    /// `(name, resolved sort) -> declaration span` for every system-defined constructor/mapping.
+    pub(crate) system_symbol_spans: HashMap<(String, ResolvedSortId), Span>,
 
     /// The memoized results of `query_equation_typing`, keyed by the id of the
     /// enclosing equation specification block and the equation's own id
@@ -73,8 +81,10 @@ impl TypeCheckContext {
             sort_of_equation_var: QueryCache::new(),
             signature: None,
             system_signature: None,
+            builtin_scheme_signature: None,
             system_equation_signature_by_group: Vec::new(),
             system_sort_ids: None,
+            system_symbol_spans: HashMap::new(),
             equation_typing: QueryCache::new(),
             system_equation_typing: QueryCache::new(),
             equation_typing_info: QueryCache::new(),
@@ -155,6 +165,20 @@ impl TypeCheckContext {
             .sort_declarations
             .get(system_index)
             .map(|decl| decl.identifier.as_str())
+    }
+
+    /// As [`Self::sort_name`], but falls back to a synthesized `@sort_N` placeholder instead of
+    /// `None` when `def` is out of range.
+    pub(crate) fn sort_display_name<'a>(
+        &'a self,
+        spec: &'a UntypedDataSpecification,
+        system: &'a UntypedDataSpecification,
+        def: DefId,
+    ) -> Cow<'a, str> {
+        match self.sort_name(spec, system, def) {
+            Some(name) => Cow::Borrowed(name),
+            None => Cow::Owned(format!("@sort_{}", def.value())),
+        }
     }
 }
 

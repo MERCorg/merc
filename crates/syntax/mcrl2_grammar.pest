@@ -46,13 +46,13 @@ IdInfixList = { IdInfix ~ ( "," ~ IdInfix )* }
 Number = @{ ASCII_DIGIT+ }
 
 /// Parsing an mCRL2 specification
-MCRL2Spec = { SOI ~ (ActSpec | ConsSpec | EqnSpec | GlobVarSpec | ProcSpec | Init | MapSpec | SortSpec)* ~ EOI } 
+MCRL2Spec = { SOI ~ (ActSpec | ConsSpec | EqnSpec | GlobVarSpec | ProcSpec | Init | MapSpec | SortSpec | TypeVarSpec)* ~ EOI }
 
 /// Parsing an mCRL2 specification
 DataSpec = { SOI ~ DataSpecBody ~ EOI }
 
 /// The declarations of a data specification, without its own `SOI`/`EOI`.
-DataSpecBody = { (ConsSpec | EqnSpec | MapSpec | SortSpec)* }
+DataSpecBody = { (ConsSpec | EqnSpec | MapSpec | SortSpec | TypeVarSpec)* }
 
 /// Action specification
 ActSpec = { "act" ~ ActDecl+ }
@@ -374,7 +374,10 @@ IdsDecl = { IdInfixList ~ ":" ~ SortExpr }
 ConsSpec = { "cons" ~ ( IdsDecl ~ ";" )+ }
 
 /// Declaration of mappings
-MapSpec = { "map" ~ ( IdsDecl ~ ";" )+ }    
+MapSpec = { "map" ~ ( IdsDecl ~ ";" )+ }
+
+/// Declaration of a block's bound sort (type) variables.
+TypeVarSpec = { "type_var" ~ ( IdList ~ ";" )+ }
 
 /// Declaration of global variables
 GlobVarSpec = { "glob" ~ ( VarsDeclList ~ ";" )+ }                     
@@ -406,6 +409,7 @@ StateFrmSpecElt = {
     | MapSpec                                                      // Map specification
     | EqnSpec                                                      // Equation specification
     | ActSpec                                                      // Action specification
+    | TypeVarSpec                                                  // Bound sort (type) variable specification
 }
 
 StateFrm = { StateFrmPrefix* ~ StateFrmPrimary ~ StateFrmPostfix* ~ (StateFrmInfix ~ StateFrmPrefix* ~ StateFrmPrimary ~ StateFrmPostfix*)*}
@@ -557,7 +561,7 @@ StateVarAssignmentList = { StateVarAssignment ~ ( "," ~ StateVarAssignment )* }
 //
   
 /// Action rename specification
-ActionRenameSpec = { SOI ~ (SortSpec | ConsSpec | MapSpec | EqnSpec | ActSpec | ActionRenameRuleSpec)+ ~ EOI }
+ActionRenameSpec = { SOI ~ (SortSpec | ConsSpec | MapSpec | EqnSpec | ActSpec | ActionRenameRuleSpec | TypeVarSpec)+ ~ EOI }
 
 /// Action rename rule section
 ActionRenameRuleSpec = { VarSpec? ~ "rename" ~ ActionRenameRule+ }      
@@ -649,12 +653,13 @@ PresExprPrefix = _{
       PresExprInf
     | PresExprSup
     | PresExprSum
-    | PbesExprNegation
+    | PresExprNegation
     | PresExprLeftConstantMultiply
 }
     PresExprInf = { "inf" ~ VarsDeclList ~ "." }
     PresExprSup = { "sup" ~ VarsDeclList ~ "." }
     PresExprSum = { "sum" ~ VarsDeclList ~ "." }
+    PresExprNegation = { "-" }
     PresExprLeftConstantMultiply = { DataValExpr ~ "*" }
 
 PresExprInfix = _{

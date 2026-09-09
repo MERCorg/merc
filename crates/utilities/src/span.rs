@@ -4,6 +4,8 @@ use std::hash::Hasher;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
+use crate::SourceMap;
+
 /// Source location information, spanning from start to end in the source text.
 #[derive(Clone, Default, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub struct Span {
@@ -21,6 +23,19 @@ impl From<pest::Span<'_>> for Span {
 }
 
 impl Span {
+    /// Creates a span covering the byte range `[start, end)`.
+    pub fn new(start: usize, end: usize) -> Self {
+        Span { start, end }
+    }
+
+    /// Moves both endpoints forward by `delta` — rebasing a span produced by parsing a file's text
+    /// alone into the [SourceMap]-wide offset space, in place of padding that text with `delta`
+    /// leading bytes before parsing it.
+    pub fn shift(&mut self, delta: usize) {
+        self.start += delta;
+        self.end += delta;
+    }
+
     /// The 1-based (line, column) of `self.start` within `source`, counted in
     /// `char`s rather than bytes so the column lines up under multi-byte
     /// UTF-8 text.
@@ -38,9 +53,9 @@ impl Span {
         (line, col)
     }
 
-    /// Renders this span against its `source` text as a caret-annotated
-    /// snippet, in the `-->`/`|`/`^^^` style `pest` and `rustc` diagnostics
-    /// use, so parser errors and later-pass errors (type errors, …) read
+    /// Renders this span against `sources` as a caret-annotated snippet, in
+    /// the `-->`/`|`/`^^^` style `pest` and `rustc` diagnostics use, so
+    /// parser errors and later-pass errors (type errors, …) read
     /// consistently:
     ///
     /// ```text
@@ -50,22 +65,39 @@ impl Span {
     ///   |         ^^^^^^^^^^
     /// ```
     ///
+    /// `self.start` is looked up in `sources` (a global byte offset shared
+    /// across every loaded file, see [SourceMap]) to find which file it
+    /// falls into; the header names that file ahead of `line:col` only once
+    /// more than one file is loaded, so a single-file `SourceMap` renders
+    /// exactly as a bare source string did before spans became
+    /// multi-document aware.
+    ///
     /// A span crossing a newline is underlined only up to the end of its
     /// first line; an out-of-range span (e.g. [Span::default] on a synthetic
-    /// node) renders against the start of `source`.
-    pub fn render(&self, source: &str) -> String {
-        let (line, col) = self.start_line_col(source);
+    /// node) renders against the start of its file.
+    pub fn render(&self, sources: &SourceMap) -> String {
+        let id = sources.lookup(self.start);
+        let base = sources.base_offset(id);
+        let source = sources.text(id);
+        let local = Span::new(self.start.saturating_sub(base), self.end.saturating_sub(base));
+
+        let (line, col) = local.start_line_col(source);
         let line_text = source.lines().nth(line - 1).unwrap_or("");
 
         let span_len = source
-            .get(self.start..self.end.max(self.start))
+            .get(local.start..local.end.max(local.start))
             .map_or(1, |text| text.chars().count())
             .max(1);
         let underline_len = span_len.min(line_text.chars().count().saturating_sub(col - 1).max(1));
 
         let gutter = " ".repeat(line.to_string().len());
+        let location = if sources.file_count() > 1 {
+            format!("{}:{line}:{col}", sources.path(id))
+        } else {
+            format!("{line}:{col}")
+        };
         format!(
-            "{gutter}--> {line}:{col}\n{gutter} |\n{line} | {line_text}\n{gutter} | {}{}",
+            "{gutter}--> {location}\n{gutter} |\n{line} | {line_text}\n{gutter} | {}{}",
             " ".repeat(col - 1),
             "^".repeat(underline_len),
         )
@@ -155,6 +187,15 @@ impl<T: Hash> Hash for Spanned<T> {
 #[cfg(test)]
 mod tests {
     use super::Span;
+    use crate::SourceMap;
+
+    /// A single-file [SourceMap] wrapping `source`, for tests that only care about rendering
+    /// against one document (where offsets equal the local, base-0 offsets pest reports).
+    fn single(source: &str) -> SourceMap {
+        let mut sources = SourceMap::new();
+        sources.add_text("<test>", source);
+        sources
+    }
 
     #[test]
     fn test_start_line_col_first_line() {
@@ -192,7 +233,7 @@ mod tests {
             end: start + "undeclared".len(),
         };
         assert_eq!(
-            span.render(source),
+            span.render(&single(source)),
             " --> 1:9\n  |\n1 | eqn f = undeclared;\n  |         ^^^^^^^^^^"
         );
     }
@@ -206,7 +247,7 @@ mod tests {
             end: start + "undeclared".len(),
         };
         assert_eq!(
-            span.render(source),
+            span.render(&single(source)),
             " --> 3:9\n  |\n3 | eqn f = undeclared;\n  |         ^^^^^^^^^^"
         );
     }
@@ -221,13 +262,39 @@ mod tests {
             start,
             end: source.len(),
         };
-        assert_eq!(span.render(source), " --> 1:9\n  |\n1 | eqn f = x\n  |         ^");
+        assert_eq!(
+            span.render(&single(source)),
+            " --> 1:9\n  |\n1 | eqn f = x\n  |         ^"
+        );
     }
 
     #[test]
     fn test_render_default_span_points_at_source_start() {
         let source = "eqn f = 1;";
         let span = Span::default();
-        assert_eq!(span.render(source), " --> 1:1\n  |\n1 | eqn f = 1;\n  | ^");
+        assert_eq!(span.render(&single(source)), " --> 1:1\n  |\n1 | eqn f = 1;\n  | ^");
+    }
+
+    #[test]
+    fn test_render_names_the_file_once_multiple_are_loaded() {
+        let mut sources = SourceMap::new();
+        let _first = sources.add_text("a.mcrl2", "sort D;");
+        let second = sources.add_text("b.mcrl2", "sort E;");
+
+        let span_in_first = Span { start: 5, end: 6 };
+        assert_eq!(
+            span_in_first.render(&sources),
+            " --> a.mcrl2:1:6\n  |\n1 | sort D;\n  |      ^"
+        );
+
+        let base = sources.base_offset(second);
+        let span_in_second = Span {
+            start: base + 5,
+            end: base + 6,
+        };
+        assert_eq!(
+            span_in_second.render(&sources),
+            " --> b.mcrl2:1:6\n  |\n1 | sort E;\n  |      ^"
+        );
     }
 }

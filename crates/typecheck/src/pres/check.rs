@@ -8,6 +8,7 @@ use merc_syntax::PresExprKind;
 use merc_syntax::PropVarInst;
 use merc_syntax::Span;
 use merc_syntax::UntypedPres;
+use merc_syntax::VarId;
 
 use crate::DataSpecification;
 use crate::ResolvedName;
@@ -17,7 +18,7 @@ use crate::checking::Scope;
 use crate::checking::check_expression_against;
 use crate::checking::collect_binder_sorts;
 use crate::declared_span;
-use crate::lsp_info;
+use crate::typing_info;
 
 use super::PresError;
 use super::pres_specification::DeclarationTables;
@@ -34,22 +35,28 @@ pub(super) fn check_pres_specification(
     let mut sort_references = Vec::new();
 
     for decl in &spec.global_variables {
-        lsp_info::collect_sort_name_references(&decl.sort, &mut sort_references);
+        typing_info::collect_sort_name_references(&decl.sort, &mut sort_references);
     }
     for eqn in &spec.equations {
         for param in &eqn.variable.parameters {
-            lsp_info::collect_sort_name_references(&param.sort, &mut sort_references);
+            typing_info::collect_sort_name_references(&param.sort, &mut sort_references);
         }
     }
 
-    let globals: Vec<(Span, ResolvedSortId)> = spec
+    let globals: Vec<(VarId, ResolvedSortId, Span)> = spec
         .global_variables
         .iter()
         .zip(&tables.global_sorts)
-        .map(|(decl, &sort)| (decl.identifier.span.clone(), sort))
+        .map(|(decl, &sort)| {
+            (
+                decl.var_id.expect("resolve_pres_variables ran before checking"),
+                sort,
+                decl.identifier.span.clone(),
+            )
+        })
         .collect();
     for (decl, &sort) in spec.global_variables.iter().zip(&tables.global_sorts) {
-        lsp_info::push_binder_declaration(
+        typing_info::push_binder_declaration(
             data,
             &mut typing,
             decl.identifier.span.clone(),
@@ -61,15 +68,15 @@ pub(super) fn check_pres_specification(
     for (eqn, params) in spec.equations.iter().zip(&tables.equation_params) {
         let mut scope = globals.clone();
         // An equation's own parameters are in scope throughout its formula.
-        scope.extend(
-            eqn.variable
-                .parameters
-                .iter()
-                .zip(params)
-                .map(|(decl, &(_, sort))| (decl.identifier.span.clone(), sort)),
-        );
+        scope.extend(eqn.variable.parameters.iter().zip(params).map(|(decl, &(_, sort))| {
+            (
+                decl.var_id.expect("resolve_pres_variables ran before checking"),
+                sort,
+                decl.identifier.span.clone(),
+            )
+        }));
         for (decl, &(_, sort)) in eqn.variable.parameters.iter().zip(params) {
-            lsp_info::push_binder_declaration(
+            typing_info::push_binder_declaration(
                 data,
                 &mut typing,
                 decl.identifier.span.clone(),
@@ -85,7 +92,7 @@ pub(super) fn check_pres_specification(
     // scope = globals only, since it sits outside every equation's own parameter scope.
     check_prop_var_inst(data, tables, &globals, &spec.init, &mut typing)?;
 
-    lsp_info::push_sort_references(data, &sort_references, &mut typing);
+    typing_info::push_sort_references(data, &sort_references, &mut typing);
     Ok(typing)
 }
 
@@ -94,7 +101,7 @@ pub(super) fn check_pres_specification(
 fn collect_scope(
     data: &mut DataSpecification,
     expr: &PresExpr,
-    scope: &mut Vec<(Span, ResolvedSortId)>,
+    scope: &mut Vec<(VarId, ResolvedSortId, Span)>,
     sort_references: &mut Vec<(Span, String)>,
     typing: &mut TypingInfo,
 ) -> Result<(), PresError> {
@@ -170,9 +177,8 @@ fn check_pres_expr(
 /// missing), checks its argument count against the declared parameter count (`ArityMismatch`), and
 /// checks each argument against its parameter's sort. On success, also pushes a
 /// [`ResolvedName::PropositionalVariable`] at `inst.identifier`'s own span (not `inst.span`, the
-/// whole `name(args)` node) — see [`docs/name_resolution.md`](../../../../docs/name_resolution.md):
-/// unlike an action/process name, a PRES equation is never overloaded, so the equation table's
-/// single match is the answer. Mirrors `crate::pbes::check::check_prop_var_inst`.
+/// whole `name(args)` node): unlike an action/process name, a PRES equation is never overloaded,
+/// so the equation table's single match is the answer. Mirrors `crate::pbes::check::check_prop_var_inst`.
 fn check_prop_var_inst(
     data: &mut DataSpecification,
     tables: &DeclarationTables,

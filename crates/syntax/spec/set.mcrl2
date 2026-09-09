@@ -8,6 +8,8 @@
 %
 % Specification of the Set data sort.
 
+type_var S;
+
 cons @set: (S -> Bool) # FSet(S) -> Set(S);
 % I think that @setfset and @setcomp should not be part of the rewrite system, but
 % become part of the internal generation of set representations. JFG

@@ -1,5 +1,6 @@
 //! Errors from whole-PBES-specification type checking ([`crate::PbesSpecification`]).
 
+use merc_syntax::SourceMap;
 use merc_syntax::Span;
 
 use crate::InferenceError;
@@ -62,11 +63,11 @@ impl PbesError {
     }
 
     /// Renders this error's message, followed by a caret-annotated source snippet, the same way
-    /// [`crate::ProcessError::render`] does. `source` must be the original specification text this
-    /// error was raised against.
-    pub fn render(&self, source: &str) -> String {
+    /// [`crate::ProcessError::render`] does. `sources` must contain the original specification
+    /// text this error was raised against.
+    pub fn render(&self, sources: &SourceMap) -> String {
         match self.span() {
-            Some(span) => format!("{self}\n{}", span.render(source)),
+            Some(span) => format!("{self}\n{}", span.render(sources)),
             None => self.to_string(),
         }
     }

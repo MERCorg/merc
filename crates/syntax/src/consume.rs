@@ -30,7 +30,6 @@ use crate::Eq;
 use crate::EqnDecl;
 use crate::EqnSpec;
 use crate::EqnSpecData;
-use crate::EqnVarId;
 use crate::FixedPointOperator;
 use crate::IdDecl;
 use crate::MapId;
@@ -59,12 +58,14 @@ use crate::StateFrm;
 use crate::StateFrmKind;
 use crate::StateVarAssignment;
 use crate::StateVarDecl;
+use crate::TypeVarDecl;
 use crate::UntypedActionRenameSpec;
 use crate::UntypedDataSpecification;
 use crate::UntypedPbes;
 use crate::UntypedPres;
 use crate::UntypedProcessSpecification;
 use crate::UntypedStateFrmSpec;
+use crate::bind_type_vars;
 use crate::parse_actfrm;
 use crate::parse_dataexpr;
 use crate::parse_pbesexpr;
@@ -97,6 +98,7 @@ impl Mcrl2Parser {
         let mut global_variables = Vec::new();
         let mut process_declarations = Vec::new();
         let mut sort_declarations = Vec::new();
+        let mut type_var_declarations = Vec::new();
 
         let mut init = None;
 
@@ -123,6 +125,9 @@ impl Mcrl2Parser {
                 Rule::SortSpec => {
                     sort_declarations.append(&mut Mcrl2Parser::SortSpec(child)?);
                 }
+                Rule::TypeVarSpec => {
+                    type_var_declarations.append(&mut Mcrl2Parser::TypeVarSpec(child)?);
+                }
                 Rule::Init => {
                     if init.is_some() {
                         return Err(Error::new_from_span(
@@ -145,12 +150,14 @@ impl Mcrl2Parser {
             }
         }
 
-        let data_specification = UntypedDataSpecification {
+        let mut data_specification = UntypedDataSpecification {
             map_declarations,
             constructor_declarations,
             equation_declarations,
             sort_declarations,
+            type_var_declarations,
         };
+        bind_type_vars(&mut data_specification);
 
         Ok(UntypedProcessSpecification {
             data_specification,
@@ -450,6 +457,7 @@ impl Mcrl2Parser {
         let mut equation_declarations = Vec::new();
         let mut constructor_declarations = Vec::new();
         let mut sort_declarations = Vec::new();
+        let mut type_var_declarations = Vec::new();
 
         for child in spec.into_children() {
             match child.as_rule() {
@@ -465,18 +473,25 @@ impl Mcrl2Parser {
                 Rule::SortSpec => {
                     sort_declarations.append(&mut Mcrl2Parser::SortSpec(child)?);
                 }
+                Rule::TypeVarSpec => {
+                    type_var_declarations.append(&mut Mcrl2Parser::TypeVarSpec(child)?);
+                }
                 _ => {
                     unimplemented!("Unexpected rule: {:?}", child.as_rule());
                 }
             }
         }
 
-        Ok(UntypedDataSpecification {
+        let mut data_specification = UntypedDataSpecification {
             map_declarations,
             equation_declarations,
             constructor_declarations,
             sort_declarations,
-        })
+            type_var_declarations,
+        };
+        bind_type_vars(&mut data_specification);
+
+        Ok(data_specification)
     }
 
     pub fn ActionRenameSpec(spec: ParseNode) -> ParseResult<UntypedActionRenameSpec> {
@@ -484,6 +499,7 @@ impl Mcrl2Parser {
         let mut equation_declarations = Vec::new();
         let mut constructor_declarations = Vec::new();
         let mut sort_declarations = Vec::new();
+        let mut type_var_declarations = Vec::new();
         let mut action_declarations = Vec::new();
         let mut rename_declarations = Vec::new();
 
@@ -501,6 +517,9 @@ impl Mcrl2Parser {
                 Rule::SortSpec => {
                     sort_declarations.append(&mut Mcrl2Parser::SortSpec(child)?);
                 }
+                Rule::TypeVarSpec => {
+                    type_var_declarations.append(&mut Mcrl2Parser::TypeVarSpec(child)?);
+                }
                 Rule::ActSpec => {
                     action_declarations.append(&mut Mcrl2Parser::ActSpec(child)?);
                 }
@@ -517,12 +536,14 @@ impl Mcrl2Parser {
             }
         }
 
-        let data_specification = UntypedDataSpecification {
+        let mut data_specification = UntypedDataSpecification {
             map_declarations,
             equation_declarations,
             constructor_declarations,
             sort_declarations,
+            type_var_declarations,
         };
+        bind_type_vars(&mut data_specification);
 
         Ok(UntypedActionRenameSpec {
             data_specification,
@@ -569,6 +590,14 @@ impl Mcrl2Parser {
             [IdList(ids)] => {
                 Ok(ids.into_iter().map(|(identifier, span)| SortDecl::new(identifier, None, span)).collect())
             },
+        )
+    }
+
+    fn TypeVarSpec(spec: ParseNode) -> ParseResult<Vec<TypeVarDecl>> {
+        match_nodes!(spec.into_children();
+            [IdList(ids)..] => {
+                Ok(ids.flatten().map(|(identifier, span)| TypeVarDecl::new(identifier, span)).collect())
+            }
         )
     }
 
@@ -728,7 +757,7 @@ impl Mcrl2Parser {
     pub(crate) fn Assignment(assignment: ParseNode) -> ParseResult<Assignment> {
         match_nodes!(assignment.into_children();
             [IdAt(identifier), DataExpr(expr)] => {
-                Ok(AssignmentData { identifier: identifier.node, expr }.spanned(identifier.span))
+                Ok(AssignmentData { identifier: identifier.node, expr, id: None }.spanned(identifier.span))
             },
         )
     }
@@ -1309,6 +1338,7 @@ impl Mcrl2Parser {
         let mut equation_declarations = Vec::new();
         let mut constructor_declarations = Vec::new();
         let mut sort_declarations = Vec::new();
+        let mut type_var_declarations = Vec::new();
         let mut action_declarations = Vec::new();
 
         let mut form_spec = None;
@@ -1333,6 +1363,9 @@ impl Mcrl2Parser {
                         }
                         Rule::SortSpec => {
                             sort_declarations.append(&mut Mcrl2Parser::SortSpec(element)?);
+                        }
+                        Rule::TypeVarSpec => {
+                            type_var_declarations.append(&mut Mcrl2Parser::TypeVarSpec(element)?);
                         }
                         Rule::ActSpec => {
                             action_declarations.append(&mut Mcrl2Parser::ActSpec(element)?);
@@ -1374,12 +1407,14 @@ impl Mcrl2Parser {
             }
         }
 
-        let data_specification = UntypedDataSpecification {
+        let mut data_specification = UntypedDataSpecification {
             map_declarations,
             equation_declarations,
             constructor_declarations,
             sort_declarations,
+            type_var_declarations,
         };
+        bind_type_vars(&mut data_specification);
 
         Ok(UntypedStateFrmSpec {
             data_specification,
@@ -1480,7 +1515,7 @@ impl Mcrl2Parser {
         match_nodes!(spec.into_children();
             [VarSpec(variables), EqnDecl(decls)..] => {
                 ids.push(EqnSpecData {
-                    variables: variables.into_iter().map(|v| v.retag::<EqnVarId>()).collect(),
+                    variables,
                     equations: decls.collect(),
                     id: None,
                 }.spanned(span.into()));
@@ -1521,6 +1556,7 @@ impl Mcrl2Parser {
                     identifier: identifier.node,
                     arguments,
                     span: span.into(),
+                    id: None,
                 })
             },
             [Id(identifier)] => {
@@ -1528,6 +1564,7 @@ impl Mcrl2Parser {
                     identifier: identifier.node,
                     arguments: Vec::new(),
                     span: span.into(),
+                    id: None,
                 })
             }
         )
@@ -1544,7 +1581,7 @@ impl Mcrl2Parser {
     fn StateVarAssignment(input: ParseNode) -> ParseResult<StateVarAssignment> {
         match_nodes!(input.into_children();
             [Id(identifier), SortExpr(sort), DataExpr(expr)] => {
-                Ok(StateVarAssignment { identifier, sort, expr })
+                Ok(StateVarAssignment { identifier, sort, expr, id: None })
             }
         )
     }

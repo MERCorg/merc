@@ -2,16 +2,44 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use merc_syntax::Span;
+use merc_syntax::TypeVarId;
 use merc_syntax::UntypedDataSpecification;
 
+use crate::BUILTIN_SCHEME_TEMPLATE;
+use crate::CONTAINER_TEMPLATES;
 use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::TypeCheckContext;
 use crate::WellTypedError;
+use crate::build_polymorphic_schemes;
 use crate::check_products_within_domains;
 use crate::query_sort_of_constructor;
 use crate::query_sort_of_map;
 use crate::target_sort;
+
+/// A polymorphic overload: `sort` is a [ResolvedSortId] built by [`resolve_sort`](crate::resolve_sort)
+/// from a template's own declaration, so it may mention [`ResolvedSort::Var`]
+/// at any depth wherever the declaration mentions one of `vars`. Two
+/// occurrences of the same bound variable within `sort` share the same
+/// [TypeVarId] and so the same `Var` node — this is what makes `S` mean "the
+/// same `S`" on both sides of a scheme like `in: S # List(S) -> Bool`.
+///
+/// Not a ground overload: using one requires instantiating it
+/// (`ConstraintGenerator::instantiate_scheme`), substituting each variable in
+/// `vars` for a fresh unification variable, shared across its occurrences
+/// within that one instantiation.
+#[derive(Clone, Debug)]
+pub(crate) struct PolySortScheme {
+    /// Not yet read anywhere: instantiation (`ConstraintGenerator::instantiate_scheme`)
+    /// currently discovers a scheme's bound variables structurally, by
+    /// walking `sort` and instantiating every `Var` it finds, rather than by
+    /// consulting this list. It is kept for the next step of
+    /// `docs/polymorphism.md`'s migration plan (checking each template's own
+    /// equations once, with these variables held rigid), which does need it.
+    #[allow(dead_code)]
+    pub(crate) vars: Vec<TypeVarId>,
+    pub(crate) sort: ResolvedSortId,
+}
 
 /// The (S, C, M) signature of a specification (Definition 15.1.5): the resolved
 /// overload set of every constructor and mapping name, the lookup table for
@@ -20,9 +48,20 @@ use crate::target_sort;
 /// A symbol is a name together with its sort, so a name maps to one
 /// [ResolvedSortId] per overload; duplicate declarations of the same symbol
 /// collapse into one entry.
+///
+/// `schemes` is a separate, name-keyed table of polymorphic overloads
+/// (containers, function-update, comparisons/`if`) — not split by
+/// constructor/mapping, since nothing downstream needs that distinction for a
+/// scheme (there is no [`merc_syntax::ConstructorId`]/[`merc_syntax::MapId`]
+/// for synthesized template content to carry). Empty for every `Signature`
+/// except the one merged into `ctx.signature` and the small per-role table
+/// built for a system equation's own comparison/`if` lookup — see
+/// `build_polymorphic_schemes`.
+#[derive(Default)]
 pub(crate) struct Signature {
     pub(crate) constructors: HashMap<String, Vec<ResolvedSortId>>,
     pub(crate) mappings: HashMap<String, Vec<ResolvedSortId>>,
+    pub(crate) schemes: HashMap<String, Vec<PolySortScheme>>,
 }
 
 /// Computes the signature of `spec` and stores it on `ctx`, running the
@@ -64,10 +103,7 @@ fn compute_signature(ctx: &mut TypeCheckContext, spec: &UntypedDataSpecification
         check_products_within_domains(sort)?;
     }
 
-    let mut signature = Signature {
-        constructors: HashMap::new(),
-        mappings: HashMap::new(),
-    };
+    let mut signature = Signature::default();
 
     // Zero-arity constructors/mappings are keyed by *name* only, so a second
     // declaration under any different sort is rejected.
@@ -136,6 +172,17 @@ fn compute_signature(ctx: &mut TypeCheckContext, spec: &UntypedDataSpecification
         check_constant_name(&mut constants, ctx, &decl.identifier, decl.identifier.span.clone(), id)?;
         push_overload(signature.mappings.entry(decl.identifier.node.clone()).or_default(), id);
     }
+
+    // The polymorphic built-ins — containers, function-update, comparisons
+    // and `if` — join the same one signature as real scheme entries, so
+    // inference has exactly one table to look a name up in. User
+    // declarations never carry a `type_var` block (see
+    // `docs/polymorphism.md`'s "Open questions"), so this never collides
+    // with the loops above; it only *adds* names.
+    signature.schemes = build_polymorphic_schemes(
+        ctx,
+        CONTAINER_TEMPLATES.all().into_iter().chain([&*BUILTIN_SCHEME_TEMPLATE]),
+    );
 
     Ok(signature)
 }

@@ -1,16 +1,17 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
 use merc_syntax::DefId;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::TypeVarId;
 use merc_syntax::UntypedDataSpecification;
 
 use crate::BUILTIN_SCHEME_TEMPLATE;
 use crate::CONTAINER_TEMPLATES;
+use crate::PolySortScheme;
 use crate::ResolvedSortId;
 use crate::Signature;
 use crate::SystemEquationGroup;
@@ -19,6 +20,7 @@ use crate::WellTypedError;
 use crate::is_basic_sort_name;
 use crate::push_overload;
 use crate::query_sort_of_def;
+use crate::resolve_sort;
 
 /// Resolves the constructor and mapping declarations of the *basic-sort* part
 /// of the system-defined specification onto the interned sort lattice.
@@ -43,10 +45,7 @@ pub(crate) fn resolve_system_signature(
 ) -> Result<(), WellTypedError> {
     let sort_ids = build_system_sort_ids(ctx, user_spec, system);
 
-    let mut signature = Signature {
-        constructors: HashMap::new(),
-        mappings: HashMap::new(),
-    };
+    let mut signature = Signature::default();
 
     for decl in &system.constructor_declarations {
         let id = resolve_system_sort(ctx, user_spec, &sort_ids, &decl.sort)?;
@@ -54,10 +53,14 @@ pub(crate) fn resolve_system_signature(
             signature.constructors.entry(decl.identifier.node.clone()).or_default(),
             id,
         );
+        ctx.system_symbol_spans
+            .insert((decl.identifier.node.clone(), id), decl.identifier.span.clone());
     }
     for decl in &system.map_declarations {
         let id = resolve_system_sort(ctx, user_spec, &sort_ids, &decl.sort)?;
         push_overload(signature.mappings.entry(decl.identifier.node.clone()).or_default(), id);
+        ctx.system_symbol_spans
+            .insert((decl.identifier.node.clone(), id), decl.identifier.span.clone());
     }
 
     ctx.system_signature = Some(Arc::new(signature));
@@ -102,24 +105,26 @@ pub(crate) fn resolve_system_signature_full(
     let ambient = Arc::new(Signature {
         constructors: basics.constructors.clone(),
         mappings: basics.mappings.clone(),
+        schemes: basics.schemes.clone(),
     });
 
     let mut by_group = vec![Arc::clone(&ambient); system.equation_declarations.len()];
     for group in groups {
-        let mut signature = Signature {
-            constructors: HashMap::new(),
-            mappings: HashMap::new(),
-        };
+        let mut signature = Signature::default();
         for decl in &group.declarations.constructor_declarations {
             let id = resolve_system_sort(ctx, user_spec, &sort_ids, &decl.sort)?;
             push_overload(
                 signature.constructors.entry(decl.identifier.node.clone()).or_default(),
                 id,
             );
+            ctx.system_symbol_spans
+                .insert((decl.identifier.node.clone(), id), decl.identifier.span.clone());
         }
         for decl in &group.declarations.map_declarations {
             let id = resolve_system_sort(ctx, user_spec, &sort_ids, &decl.sort)?;
             push_overload(signature.mappings.entry(decl.identifier.node.clone()).or_default(), id);
+            ctx.system_symbol_spans
+                .insert((decl.identifier.node.clone(), id), decl.identifier.span.clone());
         }
         let group_signature = Arc::new(merge_signatures(&signature, &ambient));
         for slot in &mut by_group[group.equation_range.clone()] {
@@ -235,10 +240,7 @@ pub(crate) fn filter_signature(
     constructor_names: &std::collections::HashSet<String>,
     mapping_names: &std::collections::HashSet<String>,
 ) -> Signature {
-    let mut filtered = Signature {
-        constructors: HashMap::new(),
-        mappings: HashMap::new(),
-    };
+    let mut filtered = Signature::default();
     for name in constructor_names {
         if let Some(overloads) = signature.constructors.get(name) {
             filtered.constructors.insert(name.clone(), overloads.clone());
@@ -252,11 +254,14 @@ pub(crate) fn filter_signature(
     filtered
 }
 
-/// The union of `a` and `b`'s overload sets, per name.
+/// The union of `a` and `b`'s overload sets, per name — ground overloads
+/// deduplicated by id, scheme overloads simply concatenated (two schemes
+/// never denote the same overload the way a ground redeclaration can).
 pub(crate) fn merge_signatures(a: &Signature, b: &Signature) -> Signature {
     let mut merged = Signature {
         constructors: a.constructors.clone(),
         mappings: a.mappings.clone(),
+        schemes: a.schemes.clone(),
     };
     for (name, overloads) in &b.constructors {
         let entry = merged.constructors.entry(name.clone()).or_default();
@@ -270,65 +275,104 @@ pub(crate) fn merge_signatures(a: &Signature, b: &Signature) -> Signature {
             push_overload(entry, id);
         }
     }
+    for (name, schemes) in &b.schemes {
+        merged
+            .schemes
+            .entry(name.clone())
+            .or_default()
+            .extend(schemes.iter().cloned());
+    }
     merged
 }
 
-/// The polymorphic signature of the built-in operators that exist for *every*
-/// sort: the container and function-update operations, plus the comparison
-/// operators and `if`. For each name, the overload sorts as written in the
-/// templates, with the sort variables (`S`, `T`) still unresolved `Reference`
-/// nodes.
+/// Builds one [PolySortScheme] per constructor/mapping declaration of each
+/// `template` in `templates`, keyed by name, via [`resolve_sort`] against the
+/// template's own (self-contained) spec — legal because every occurrence of
+/// the template's own `type_var` block interns to the same [ResolvedSort::Var],
+/// on the same footing as any other lattice element.
 ///
-/// Inference looks a name up here and instantiates the variables fresh per
-/// occurrence (`template_instance`), mirroring mCRL2's built-in polymorphic
-/// symbol table. This one mechanism covers `|>` and `==` alike — the comparison
-/// operators and `if` are just further schemes, carried by
-/// [BUILTIN_SCHEME_TEMPLATE]. Their per-sort instantiations are deliberately
-/// *not* part of the resolved system signature: listing an operation both ways
-/// would misreport ambiguity.
-pub(crate) struct PolymorphicSignature {
-    pub(crate) ops: HashMap<String, Vec<SortExpression>>,
-}
-
-/// The [PolymorphicSignature] of the bundled container templates and the
-/// built-in schemes: the constructor and mapping declarations of each, collected
-/// once.
-pub(crate) static POLYMORPHIC_SIGNATURE: LazyLock<PolymorphicSignature> = LazyLock::new(|| {
-    let mut ops: HashMap<String, Vec<SortExpression>> = HashMap::new();
-    for template in CONTAINER_TEMPLATES.all() {
-        collect_overloads(&mut ops, template);
-    }
-    // The comparison operators and `if` are polymorphic in exactly the same way
-    // as the container operations, so they join the same table rather than a
-    // separate, hand-written scheme instantiation.
-    collect_overloads(&mut ops, &BUILTIN_SCHEME_TEMPLATE);
-    PolymorphicSignature { ops }
-});
-
-/// [POLYMORPHIC_SIGNATURE] without the six container templates, for checking a
-/// system equation's body: the container operations are already covered
-/// concretely by that equation's group signature, so re-adding them as a
-/// polymorphic fallback would misreport ambiguity.
-pub(crate) static BUILTIN_SCHEME_SIGNATURE: LazyLock<PolymorphicSignature> = LazyLock::new(|| {
-    let mut ops: HashMap<String, Vec<SortExpression>> = HashMap::new();
-    collect_overloads(&mut ops, &BUILTIN_SCHEME_TEMPLATE);
-    PolymorphicSignature { ops }
-});
-
-/// Collects the constructor and mapping declarations of `spec` into `ops`,
-/// keyed by name, dropping an overload sort already recorded for that name.
-fn collect_overloads(ops: &mut HashMap<String, Vec<SortExpression>>, spec: &UntypedDataSpecification) {
-    for (identifier, sort) in spec
-        .constructor_declarations
-        .iter()
-        .map(|decl| (&decl.identifier, &decl.sort))
-        .chain(spec.map_declarations.iter().map(|decl| (&decl.identifier, &decl.sort)))
-    {
-        let overloads = ops.entry(identifier.node.clone()).or_default();
-        if !overloads.contains(sort) {
-            overloads.push(sort.clone());
+/// Safe to call with any of [CONTAINER_TEMPLATES]/[BUILTIN_SCHEME_TEMPLATE]:
+/// none of them contains a `Resolved(_, DefId)` node or a nominal `sort X;`
+/// declaration (only `type_var`, primitive, container and function sorts), so
+/// there is no `DefId` to resolve and hence no risk of it being looked up
+/// against the wrong spec's `sort_declarations`.
+///
+/// This is the one shared mechanism behind both `ctx.signature`'s `schemes`
+/// (containers, function-update and the comparison/`if` builtins, for the
+/// user-facing lookup — see `build_signature`) and
+/// [`build_builtin_scheme_signature`]'s narrower table (the comparison/`if`
+/// builtins only, for a system equation's own lookup).
+pub(crate) fn build_polymorphic_schemes<'a>(
+    ctx: &mut TypeCheckContext,
+    templates: impl IntoIterator<Item = &'a UntypedDataSpecification>,
+) -> HashMap<String, Vec<PolySortScheme>> {
+    let mut schemes: HashMap<String, Vec<PolySortScheme>> = HashMap::new();
+    for template in templates {
+        let vars: Vec<TypeVarId> = template
+            .type_var_declarations
+            .iter()
+            .filter_map(|decl| decl.id)
+            .collect();
+        for (identifier, sort) in template
+            .constructor_declarations
+            .iter()
+            .map(|decl| (&decl.identifier, &decl.sort))
+            .chain(
+                template
+                    .map_declarations
+                    .iter()
+                    .map(|decl| (&decl.identifier, &decl.sort)),
+            )
+        {
+            let resolved = resolve_sort(ctx, template, sort);
+            schemes
+                .entry(identifier.node.clone())
+                .or_default()
+                .push(PolySortScheme {
+                    vars: vars.clone(),
+                    sort: resolved,
+                });
         }
     }
+    schemes
+}
+
+/// The narrow scheme table a system equation's own body is checked against:
+/// the comparison operators and `if` only, built once and cached on `ctx`.
+/// Deliberately excludes the container/function-update templates — a system
+/// equation's primary signature (`ctx.system_equation_signature_by_group`)
+/// already covers the container operations concretely for its own group, so
+/// re-adding them here as a polymorphic fallback would misreport ambiguity.
+pub(crate) fn build_builtin_scheme_signature(ctx: &mut TypeCheckContext) -> Arc<HashMap<String, Vec<PolySortScheme>>> {
+    if ctx.builtin_scheme_signature.is_none() {
+        let schemes = build_polymorphic_schemes(ctx, std::iter::once(&*BUILTIN_SCHEME_TEMPLATE));
+        ctx.builtin_scheme_signature = Some(Arc::new(schemes));
+    }
+    Arc::clone(
+        ctx.builtin_scheme_signature
+            .as_ref()
+            .expect("just computed above if it wasn't already"),
+    )
+}
+
+/// The reserved names of every polymorphic built-in operator (containers,
+/// function-update, comparisons/`if`) — a user `cons`/`map` declaration may
+/// not redeclare any of them, regardless of its own sort. Derived directly
+/// from the templates rather than from `ctx.signature`'s schemes, since this
+/// check runs early in the pipeline, well before a `TypeCheckContext` (and so
+/// a `Signature`) exists.
+pub(crate) fn polymorphic_operator_names() -> impl Iterator<Item = &'static str> {
+    CONTAINER_TEMPLATES
+        .all()
+        .into_iter()
+        .flat_map(|template| {
+            template
+                .constructor_declarations
+                .iter()
+                .map(|decl| decl.identifier.as_str())
+                .chain(template.map_declarations.iter().map(|decl| decl.identifier.as_str()))
+        })
+        .chain(crate::builtin_scheme_names())
 }
 
 /// The system-defined counterpart of `resolve_sort`. It differs in two ways:
@@ -386,6 +430,15 @@ pub(crate) fn resolve_system_sort(
                 )),
             }
         }
+        SortExpressionKind::TypeVar(_) => {
+            unreachable!("a template's `type_var` block is resolved once, up front, before it is ever cached")
+        }
+        SortExpressionKind::ResolvedTypeVar(_) => unreachable!(
+            "a container/function-update template does declare its own sort variable(s) with a \
+             `type_var` block now (see the unifying-polymorphism design), but `replace_sort` always \
+             substitutes every ResolvedTypeVar node for a concrete sort before the result is ever \
+             merged into `system` — resolve_system_sort only ever runs on that already-substituted copy"
+        ),
         SortExpressionKind::Struct { .. } => unreachable!("the system-defined specification has no structured sorts"),
         SortExpressionKind::Product { .. } => {
             unreachable!("product sorts cannot occur outside a function domain")
@@ -418,6 +471,7 @@ mod tests {
     use merc_syntax::ComplexSort;
     use merc_syntax::DefId;
     use merc_syntax::Sort;
+    use merc_syntax::SourceMap;
     use merc_syntax::UntypedDataSpecification;
 
     use crate::DataSpecification;
@@ -435,9 +489,15 @@ mod tests {
     /// Type checks `text` and resolves the basic-sort system signature in a
     /// fresh context, as `DataSpecification::from_untyped` does.
     fn resolve(text: &str) -> (DataSpecification, TypeCheckContext) {
-        let spec = DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap()).unwrap();
+        let mut sources = SourceMap::new();
+        let spec = DataSpecification::from_untyped_with(
+            UntypedDataSpecification::parse(text).unwrap(),
+            NumberEncoding::default(),
+            &mut sources,
+        )
+        .unwrap();
         let mut ctx = TypeCheckContext::new();
-        let basics = basic_sort_data_specification(NumberEncoding::Binary);
+        let basics = basic_sort_data_specification(&mut sources, NumberEncoding::Binary);
         resolve_system_signature(&mut ctx, spec.data_specification(), &basics).unwrap();
         (spec, ctx)
     }
@@ -577,7 +637,7 @@ mod tests {
 
         let mut ctx = TypeCheckContext::new();
         crate::build_signature(&mut ctx, &user_spec).unwrap();
-        let basics = crate::basic_sort_data_specification(crate::NumberEncoding::Binary);
+        let basics = crate::basic_sort_data_specification(&mut SourceMap::new(), crate::NumberEncoding::Binary);
         resolve_system_signature(&mut ctx, &user_spec, &basics).unwrap();
         match resolve_system_signature_full(&mut ctx, &user_spec, &broken, &[]) {
             Err(WellTypedError::Custom(err)) => assert!(err.to_string().contains('S'), "{err}"),
@@ -590,11 +650,11 @@ mod tests {
     fn test_merge_signatures_unions_overloads_by_name() {
         let a = Signature {
             constructors: HashMap::from([("c".to_string(), vec![ResolvedSortId::new(0)])]),
-            mappings: HashMap::new(),
+            ..Signature::default()
         };
         let b = Signature {
             constructors: HashMap::from([("@cPair".to_string(), vec![ResolvedSortId::new(1)])]),
-            mappings: HashMap::new(),
+            ..Signature::default()
         };
         let merged = merge_signatures(&a, &b);
         assert!(merged.constructors.contains_key("c"));

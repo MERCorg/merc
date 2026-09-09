@@ -2,8 +2,10 @@
 //! checked [`DataSpecification`].
 
 use merc_syntax::DataExpr;
+use merc_syntax::SourceMap;
 use merc_syntax::UntypedDataSpecification;
 use merc_typecheck::DataSpecification;
+use merc_typecheck::NumberEncoding;
 use merc_typecheck::ResolvedName;
 use merc_typecheck::TypingInfo;
 
@@ -78,7 +80,13 @@ fn test_hovering_a_numeric_operator_resolves_to_its_system_mapping() {
     // as Set/Bag union/difference/intersection through that scheme, but a concrete numeric use
     // like this one resolves to the more specific system-defined declaration instead.
     match resolved_name_at("map f: Nat; eqn f = 1 + 1;", "+") {
-        ResolvedName::SystemDefined { name } => assert_eq!(name, "+"),
+        ResolvedName::SystemDefined { name, declaration } => {
+            assert_eq!(name, "+");
+            assert!(
+                declaration.is_some(),
+                "a system-defined mapping should carry a real span since Milestone 3"
+            );
+        }
         other => panic!("expected a SystemDefined resolution for '+', got {other:?}"),
     }
 }
@@ -228,10 +236,62 @@ fn test_duplicate_declaration_resolves_to_the_first() {
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_system_defined_symbol_reports_no_user_declaration() {
-    // `succ` is an Appendix-B mapping with no user declaration to point at.
+    // `succ` is an Appendix-B mapping with no *user* declaration to point at, but it does carry a
+    // real span into its own bundled template (`nat.mcrl2`) since Milestone 3.
     match resolved_name_at("map f: Nat; eqn f = succ(0);", "succ") {
-        ResolvedName::SystemDefined { name } => assert_eq!(name, "succ"),
+        ResolvedName::SystemDefined { name, declaration } => {
+            assert_eq!(name, "succ");
+            assert!(declaration.is_some());
+        }
         other => panic!("expected a SystemDefined resolution, got {other:?}"),
+    }
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_a_built_in_sort_reference_now_resolves_to_its_appendix_b_declaration() {
+    // Before Milestone 3, a reference to a `Simple` built-in sort like `Nat` had nothing to
+    // resolve to at all (no `ResolvedName` was ever pushed for it) — it now resolves the same way
+    // a system-defined constructor/mapping does, with a real span into its own bundled template.
+    let text = "map f: Nat;";
+    let untyped = UntypedDataSpecification::parse(text).expect("the specification should parse");
+    let mut sources = SourceMap::new();
+    let mut spec = DataSpecification::from_untyped_with(untyped, NumberEncoding::default(), &mut sources)
+        .expect("the specification should type check");
+    let typing = spec.typing_info();
+
+    let offset = text.find("Nat").unwrap();
+    match typing.at_offset(offset).and_then(|node| node.name.clone()) {
+        Some(ResolvedName::SystemDefined { name, declaration }) => {
+            assert_eq!(name, "Nat");
+            let declaration = declaration.expect("a built-in sort should carry a real declaration span");
+            let rendered = declaration.render(&sources);
+            assert!(
+                rendered.contains("nat.mcrl2"),
+                "expected Nat's declaration to render against its own bundled template, got: {rendered}"
+            );
+        }
+        other => panic!("expected a SystemDefined resolution for 'Nat', got {other:?}"),
+    }
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_a_container_sort_keyword_resolves_with_no_declaration() {
+    // Unlike a `Simple` built-in sort (`Nat`, above), a `Complex` container keyword (`List`,
+    // `Set`, `FSet`, `FBag`, `Bag`) has no single declaration site.
+    let text = "sort D; map f: List(D) -> Bool;";
+    // "List(" is unique to the keyword itself, not its nested subsort `D` (see the sibling test
+    // just below, which resolves the `D)` occurrence instead).
+    match resolved_name_at(text, "List(") {
+        ResolvedName::SystemDefined { name, declaration } => {
+            assert_eq!(name, "List");
+            assert!(
+                declaration.is_none(),
+                "a container keyword has no declaration site to point at"
+            );
+        }
+        other => panic!("expected a SystemDefined resolution for 'List', got {other:?}"),
     }
 }
 
@@ -314,13 +374,19 @@ fn test_lambda_binder_sort_goto_def_resolves_to_its_declaration() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
-fn test_reference_to_a_built_in_sort_has_no_typed_node_at_all() {
-    // `Bool` parses straight to a dedicated sort kind, never a named reference — see
-    // `ResolvedName::Sort`'s doc comment — so there is no node here at all, not even one with
-    // `name: None`: a `map` signature isn't part of any checked `DataExpr` on its own.
+fn test_reference_to_a_built_in_sort_now_resolves_to_a_system_defined_node() {
+    // `Bool` parses straight to a dedicated sort kind, never a named `Reference`/`Resolved` — see
+    // `ResolvedName::Sort`'s doc comment.
     let text = "map f: Bool; eqn f = true;";
     let offset = text.find("Bool").unwrap();
-    assert!(typing_for(text).at_offset(offset).is_none());
+    match resolved_name_at(text, "Bool") {
+        ResolvedName::SystemDefined { name, declaration } => {
+            assert_eq!(name, "Bool");
+            assert!(declaration.is_some());
+        }
+        other => panic!("expected a SystemDefined resolution for 'Bool', got {other:?}"),
+    }
+    assert!(typing_for(text).at_offset(offset).is_some());
 }
 
 #[test]
@@ -340,7 +406,10 @@ fn test_typecheck_expression_with_typing_returns_a_typing_over_the_expression() 
     // system-defined overload (see test_hovering_a_numeric_operator_resolves_to_its_system_mapping).
     let offset = "1 + 1".find('+').unwrap();
     match info.at_offset(offset).and_then(|node| node.name.clone()) {
-        Some(ResolvedName::SystemDefined { name }) => assert_eq!(name, "+"),
+        Some(ResolvedName::SystemDefined { name, declaration }) => {
+            assert_eq!(name, "+");
+            assert!(declaration.is_some());
+        }
         other => panic!("expected a SystemDefined resolution for '+', got {other:?}"),
     }
 }

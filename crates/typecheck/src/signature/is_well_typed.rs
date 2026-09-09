@@ -5,6 +5,7 @@ use thiserror::Error;
 
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SourceMap;
 use merc_syntax::Span;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedDataSpecification;
@@ -129,6 +130,12 @@ pub enum WellTypedError {
 
     #[error("Undefined sort: '{}'", sort)]
     UndefinedSort { sort: String, span: Span },
+
+    #[error("Duplicate type variable declaration: '{}'", type_var)]
+    DuplicateTypeVarDeclaration { type_var: String, span: Span },
+
+    #[error("Undefined type variable: '{}'", type_var)]
+    UndefinedTypeVar { type_var: String, span: Span },
 }
 
 impl WellTypedError {
@@ -148,18 +155,20 @@ impl WellTypedError {
             | WellTypedError::AliasCycle { span, .. }
             | WellTypedError::RecursiveAliasThroughFunctionSort { span, .. }
             | WellTypedError::DuplicateSortDeclaration { span, .. }
-            | WellTypedError::UndefinedSort { span, .. } => Some(span),
+            | WellTypedError::UndefinedSort { span, .. }
+            | WellTypedError::DuplicateTypeVarDeclaration { span, .. }
+            | WellTypedError::UndefinedTypeVar { span, .. } => Some(span),
             WellTypedError::Custom(_) => None,
         }
     }
 
     /// Renders this error's message, followed by a caret-annotated source
     /// snippet (see [merc_syntax::Span::render]) when a span is available.
-    /// `source` must be the original specification text the error was raised
-    /// against.
-    pub fn render(&self, source: &str) -> String {
+    /// `sources` must contain the original specification text the error was
+    /// raised against.
+    pub fn render(&self, sources: &SourceMap) -> String {
         match self.span() {
-            Some(span) => format!("{self}\n{}", span.render(source)),
+            Some(span) => format!("{self}\n{}", span.render(sources)),
             None => self.to_string(),
         }
     }

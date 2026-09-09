@@ -8,6 +8,8 @@
 %
 % Specification of the Bag data sort.
 
+type_var S;
+
 cons @bag: (S -> Nat) # FBag(S) -> Bag(S);
 map  @bagfbag: FBag(S) -> Bag(S);
      @bagcomp: (S -> Nat) -> Bag(S);

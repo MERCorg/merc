@@ -8,6 +8,7 @@ use merc_syntax::PbesExprKind;
 use merc_syntax::PropVarInst;
 use merc_syntax::Span;
 use merc_syntax::UntypedPbes;
+use merc_syntax::VarId;
 
 use crate::DataSpecification;
 use crate::ResolvedName;
@@ -17,7 +18,7 @@ use crate::checking::Scope;
 use crate::checking::check_expression_against;
 use crate::checking::collect_binder_sorts;
 use crate::declared_span;
-use crate::lsp_info;
+use crate::typing_info;
 
 use super::PbesError;
 use super::pbes_specification::DeclarationTables;
@@ -34,22 +35,28 @@ pub(super) fn check_pbes_specification(
     let mut sort_references = Vec::new();
 
     for decl in &spec.global_variables {
-        lsp_info::collect_sort_name_references(&decl.sort, &mut sort_references);
+        typing_info::collect_sort_name_references(&decl.sort, &mut sort_references);
     }
     for eqn in &spec.equations {
         for param in &eqn.variable.parameters {
-            lsp_info::collect_sort_name_references(&param.sort, &mut sort_references);
+            typing_info::collect_sort_name_references(&param.sort, &mut sort_references);
         }
     }
 
-    let globals: Vec<(Span, ResolvedSortId)> = spec
+    let globals: Vec<(VarId, ResolvedSortId, Span)> = spec
         .global_variables
         .iter()
         .zip(&tables.global_sorts)
-        .map(|(decl, &sort)| (decl.identifier.span.clone(), sort))
+        .map(|(decl, &sort)| {
+            (
+                decl.var_id.expect("resolve_pbes_variables ran before checking"),
+                sort,
+                decl.identifier.span.clone(),
+            )
+        })
         .collect();
     for (decl, &sort) in spec.global_variables.iter().zip(&tables.global_sorts) {
-        lsp_info::push_binder_declaration(
+        typing_info::push_binder_declaration(
             data,
             &mut typing,
             decl.identifier.span.clone(),
@@ -61,15 +68,15 @@ pub(super) fn check_pbes_specification(
     for (eqn, params) in spec.equations.iter().zip(&tables.equation_params) {
         let mut scope = globals.clone();
         // An equation's own parameters are in scope throughout its formula.
-        scope.extend(
-            eqn.variable
-                .parameters
-                .iter()
-                .zip(params)
-                .map(|(decl, &(_, sort))| (decl.identifier.span.clone(), sort)),
-        );
+        scope.extend(eqn.variable.parameters.iter().zip(params).map(|(decl, &(_, sort))| {
+            (
+                decl.var_id.expect("resolve_pbes_variables ran before checking"),
+                sort,
+                decl.identifier.span.clone(),
+            )
+        }));
         for (decl, &(_, sort)) in eqn.variable.parameters.iter().zip(params) {
-            lsp_info::push_binder_declaration(
+            typing_info::push_binder_declaration(
                 data,
                 &mut typing,
                 decl.identifier.span.clone(),
@@ -85,7 +92,7 @@ pub(super) fn check_pbes_specification(
     // scope = globals only, since it sits outside every equation's own parameter scope.
     check_prop_var_inst(data, tables, &globals, &spec.init, &mut typing)?;
 
-    lsp_info::push_sort_references(data, &sort_references, &mut typing);
+    typing_info::push_sort_references(data, &sort_references, &mut typing);
     Ok(typing)
 }
 
@@ -93,7 +100,7 @@ pub(super) fn check_pbes_specification(
 fn collect_scope(
     data: &mut DataSpecification,
     expr: &PbesExpr,
-    scope: &mut Vec<(Span, ResolvedSortId)>,
+    scope: &mut Vec<(VarId, ResolvedSortId, Span)>,
     sort_references: &mut Vec<(Span, String)>,
     typing: &mut TypingInfo,
 ) -> Result<(), PbesError> {

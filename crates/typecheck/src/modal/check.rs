@@ -3,8 +3,8 @@
 //! action-formula level nested inside a `<...>`/ `[...]` modality.
 //!
 //! To resolve a state variable's sort, the checker uses the `state_vars` stack,
-//! which pairs each fixpoint variable's declaration span with its declared
-//! parameter sorts.
+//! which pairs each fixpoint variable's own [`StateVarId`] with its declaring
+//! span (for reporting) and its declared parameter sorts.
 
 use std::collections::HashSet;
 
@@ -18,7 +18,9 @@ use merc_syntax::Span;
 use merc_syntax::StateFrm;
 use merc_syntax::StateFrmKind;
 use merc_syntax::StateVarDecl;
+use merc_syntax::StateVarId;
 use merc_syntax::UntypedStateFrmSpec;
+use merc_syntax::VarId;
 
 use crate::DataSpecification;
 use crate::ResolvedName;
@@ -28,17 +30,18 @@ use crate::checking::Scope;
 use crate::checking::check_expression_against;
 use crate::checking::collect_binder_sorts;
 use crate::declared_span;
-use crate::lsp_info;
+use crate::typing_info;
 
 use super::ModalError;
 use super::modal_specification::DeclarationTables;
 use super::modal_specification::resolve_declared_sort;
 
-/// One fixpoint variable currently in scope: its declaring `StateVarDecl`'s own span — matching a
-/// `StateFrmKind::Resolved` occurrence's declaration span, the same way `Id`/`Action`'s own
-/// whole-node span stands in for a per-identifier span it doesn't otherwise have — paired with its
-/// declared parameter sorts (in order).
-type StateVarStack = Vec<(Span, Vec<ResolvedSortId>)>;
+/// One fixpoint variable currently in scope: its own [`StateVarId`] — matching a
+/// `StateFrmKind::Resolved` occurrence's own declaration field, assigned by
+/// `resolve_modal_variables` — paired with its declaring `StateVarDecl`'s own span (kept only for
+/// [`ResolvedName::StateVariable::declaration`], the same way `ConstructorId`/`MapId` keep a
+/// separately-derived span alongside their id) and its declared parameter sorts (in order).
+type StateVarStack = Vec<(StateVarId, Span, Vec<ResolvedSortId>)>;
 
 /// Checks a state formula specification against the declared sorts, returning the merged typing
 /// information.
@@ -52,7 +55,7 @@ pub(super) fn check_modal_specification(
 
     for decl in &spec.action_declarations {
         for sort in &decl.args {
-            lsp_info::collect_sort_name_references(sort, &mut sort_references);
+            typing_info::collect_sort_name_references(sort, &mut sort_references);
         }
     }
 
@@ -62,7 +65,7 @@ pub(super) fn check_modal_specification(
     let mut state_vars = StateVarStack::new();
     check_state_formula(data, tables, &scope, &mut state_vars, &spec.formula, &mut typing)?;
 
-    lsp_info::push_sort_references(data, &sort_references, &mut typing);
+    typing_info::push_sort_references(data, &sort_references, &mut typing);
     Ok(typing)
 }
 
@@ -76,7 +79,7 @@ pub(super) fn check_modal_specification(
 fn collect_scope(
     data: &mut DataSpecification,
     formula: &StateFrm,
-    scope: &mut Vec<(Span, ResolvedSortId)>,
+    scope: &mut Vec<(VarId, ResolvedSortId, Span)>,
     sort_references: &mut Vec<(Span, String)>,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
@@ -106,16 +109,17 @@ fn collect_scope(
         }
         StateFrmKind::FixedPoint { variable, body, .. } => {
             for argument in &variable.arguments {
-                lsp_info::collect_sort_name_references(&argument.sort, sort_references);
+                typing_info::collect_sort_name_references(&argument.sort, sort_references);
                 let sort = resolve_declared_sort(data, &argument.sort)?;
-                lsp_info::push_binder_declaration(
+                typing_info::push_binder_declaration(
                     data,
                     typing,
                     argument.identifier.span.clone(),
                     argument.identifier.node.clone(),
                     sort,
                 );
-                scope.push((argument.identifier.span.clone(), sort));
+                let var_id = argument.id.expect("resolve_modal_variables ran before checking");
+                scope.push((var_id, sort, argument.identifier.span.clone()));
             }
             collect_scope(data, body, scope, sort_references, typing)
         }
@@ -125,7 +129,7 @@ fn collect_scope(
 fn collect_scope_regfrm(
     data: &mut DataSpecification,
     formula: &RegFrm,
-    scope: &mut Vec<(Span, ResolvedSortId)>,
+    scope: &mut Vec<(VarId, ResolvedSortId, Span)>,
     sort_references: &mut Vec<(Span, String)>,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
@@ -144,7 +148,7 @@ fn collect_scope_regfrm(
 fn collect_scope_actfrm(
     data: &mut DataSpecification,
     formula: &ActFrm,
-    scope: &mut Vec<(Span, ResolvedSortId)>,
+    scope: &mut Vec<(VarId, ResolvedSortId, Span)>,
     sort_references: &mut Vec<(Span, String)>,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
@@ -194,7 +198,7 @@ fn check_state_formula(
             scope,
             name,
             arguments,
-            declaration,
+            *declaration,
             &formula.span,
             typing,
         ),
@@ -261,7 +265,8 @@ fn check_fixed_point(
         params.push(sort);
     }
 
-    state_vars.push((variable.span.clone(), params));
+    let state_var_id = variable.id.expect("resolve_modal_variables ran before checking");
+    state_vars.push((state_var_id, variable.span.clone(), params));
     let result = check_state_formula(data, tables, scope, state_vars, body, typing);
     state_vars.pop();
     result
@@ -270,8 +275,8 @@ fn check_fixed_point(
 /// Type-checks an already-[`resolved`](StateFrmKind::Resolved) `name(args)` reference against its
 /// enclosing fixpoint variable's declared parameter sorts, found in `state_vars` by matching
 /// `declaration` — not `name`: shadowing is already resolved, by `resolve_modal_variables`, into
-/// the exact declaring span this occurrence carries. Checks the argument count (`ArityMismatch`)
-/// and each argument against its parameter's sort. On success, also pushes a
+/// the exact declaring [`StateVarId`] this occurrence carries. Checks the argument count
+/// (`ArityMismatch`) and each argument against its parameter's sort. On success, also pushes a
 /// [`ResolvedName::StateVariable`] at `span` (the whole `name(args)`/bare `name` node — see
 /// `StateFrmKind::Id`'s doc comment for why there is no narrower span available here).
 fn check_state_var_inst(
@@ -280,25 +285,21 @@ fn check_state_var_inst(
     scope: &Scope,
     name: &str,
     arguments: &[DataExpr],
-    declaration: &Span,
+    declaration: StateVarId,
     span: &Span,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
-    let (_, params) = state_vars
-        .iter()
-        .rev()
-        .find(|(declared, _)| declared == declaration)
-        .expect(
-            "a `StateFrmKind::Resolved` occurrence's declaration span always matches an \
-             enclosing `FixedPoint` pushed onto `state_vars` by `check_fixed_point`, since \
+    let (_, decl_span, params) = state_vars.iter().rev().find(|(id, _, _)| *id == declaration).expect(
+        "a `StateFrmKind::Resolved` occurrence's declaration always matches an enclosing \
+             `FixedPoint` pushed onto `state_vars` by `check_fixed_point`, since \
              `resolve_modal_variables` only ever resolves a name against a genuinely enclosing \
              binder",
-        );
+    );
     typing.push(
         span.clone(),
         ResolvedName::StateVariable {
             name: name.to_string(),
-            declaration: declared_span(declaration),
+            declaration: declared_span(decl_span),
         },
     );
 
