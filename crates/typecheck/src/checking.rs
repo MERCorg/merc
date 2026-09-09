@@ -21,7 +21,7 @@ use crate::typing_info;
 /// Every declaration reachable from the `proc` body/PBES equation currently being checked —
 /// global variables, that declaration's own parameters, and every `sum`/`dist`/quantifier binder
 /// anywhere in it — keyed by each declaration's own [VarId].
-pub(crate) type Scope = [(VarId, ResolvedSortId)];
+pub(crate) type Scope = [(VarId, ResolvedSortId, Span)];
 
 /// Prepares a raw expression for inference: resolves its embedded binder sorts (see
 /// [`DataSpecification::resolve_expression_binder_sorts`]) and lowers it, exactly as
@@ -44,7 +44,6 @@ where
 pub(crate) fn check_expression_against<E>(
     data: &mut DataSpecification,
     scope: &Scope,
-    variable_spans: &VariableSpans,
     expr: &DataExpr,
     expected: ResolvedSortId,
     typing: &mut TypingInfo,
@@ -53,9 +52,16 @@ where
     E: From<WellTypedError> + From<InferenceError>,
 {
     let lowered = prepare_expression::<E>(data, expr)?;
+    // `infer_expression_in_scope` only needs each binder's sort, not its span.
+    let declared_scope: Vec<(VarId, ResolvedSortId)> = scope.iter().map(|&(id, sort, _)| (id, sort)).collect();
     let (ctx, spec, system) = data.context_and_specs_mut();
-    let equation_typing = infer_expression_in_scope(ctx, spec, system, &lowered, scope, Some(expected))?;
-    typing.merge(typing_info::build(data, &equation_typing, variable_spans));
+    let equation_typing = infer_expression_in_scope(ctx, spec, system, &lowered, &declared_scope, Some(expected))?;
+    // `scope` covers every binder declared *outside* `expr` (see `Scope`'s doc comment); `expr`
+    // may also introduce its own `lambda`/quantifier/comprehension/`whr` binders, not part of
+    // `scope` at all, so those are collected separately, straight off `expr`'s own tree.
+    let mut variable_spans: VariableSpans = scope.iter().map(|&(id, _, ref span)| (id, span.clone())).collect();
+    typing_info::collect_data_expr_variable_declarations(expr, &mut variable_spans);
+    typing.merge(typing_info::build(data, &equation_typing, &variable_spans));
     Ok(())
 }
 
@@ -65,7 +71,7 @@ where
 /// [`typing_info::push_binder_declaration`]).
 pub(crate) fn collect_binder_sorts<E>(
     data: &mut DataSpecification,
-    scope: &mut Vec<(VarId, ResolvedSortId)>,
+    scope: &mut Vec<(VarId, ResolvedSortId, Span)>,
     sort_references: &mut Vec<(Span, String)>,
     typing: &mut TypingInfo,
     variables: &[IdDecl],
@@ -84,7 +90,7 @@ pub(crate) fn collect_binder_sorts<E>(
         let var_id = var
             .var_id
             .expect("resolve_process_variables/resolve_pbes_variables/... ran before checking");
-        scope.push((var_id, sort));
+        scope.push((var_id, sort, var.identifier.span.clone()));
     }
     Ok(())
 }
