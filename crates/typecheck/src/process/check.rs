@@ -69,7 +69,7 @@ pub(super) fn check_process_specification(
         })
         .collect();
     for (decl, &sort) in spec.global_variables.iter().zip(&tables.global_sorts) {
-        lsp_info::push_binder_declaration(
+        typing_info::push_binder_declaration(
             data,
             &mut typing,
             decl.identifier.span.clone(),
@@ -88,7 +88,7 @@ pub(super) fn check_process_specification(
             )
         }));
         for (decl, &(_, sort)) in proc_decl.params.iter().zip(params) {
-            lsp_info::push_binder_declaration(
+            typing_info::push_binder_declaration(
                 data,
                 &mut typing,
                 decl.identifier.span.clone(),

@@ -121,7 +121,7 @@ fn collect_scope(
             for argument in &variable.arguments {
                 typing_info::collect_sort_name_references(&argument.sort, sort_references);
                 let sort = resolve_declared_sort(data, &argument.sort)?;
-                lsp_info::push_binder_declaration(
+                typing_info::push_binder_declaration(
                     data,
                     typing,
                     argument.identifier.span.clone(),

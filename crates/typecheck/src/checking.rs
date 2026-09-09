@@ -62,7 +62,7 @@ where
 /// Collects the sorts of the given binder variables, extending the current
 /// scope and recording sort references, and records each variable's own declaration occurrence so
 /// it can be hovered/go-to-definition'd the same as a use of it (see
-/// [`lsp_info::push_binder_declaration`]).
+/// [`typing_info::push_binder_declaration`]).
 pub(crate) fn collect_binder_sorts<E>(
     data: &mut DataSpecification,
     scope: &mut Vec<(VarId, ResolvedSortId)>,
@@ -74,7 +74,7 @@ pub(crate) fn collect_binder_sorts<E>(
     for var in variables {
         typing_info::collect_sort_name_references(&var.sort, sort_references);
         let sort = resolve(data, &var.sort)?;
-        lsp_info::push_binder_declaration(
+        typing_info::push_binder_declaration(
             data,
             typing,
             var.identifier.span.clone(),

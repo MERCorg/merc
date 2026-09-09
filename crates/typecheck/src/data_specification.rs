@@ -54,7 +54,6 @@ use crate::lower_data_expr;
 use crate::lower_data_expressions;
 use crate::lower_data_specification;
 use crate::lower_expression;
-use crate::typing_info;
 use crate::merge_signatures;
 use crate::normalize_sorts;
 use crate::resolve_data_expr_variables;
@@ -67,6 +66,7 @@ use crate::resolve_system_signature_full;
 use crate::resolve_type_var_ids;
 use crate::structured_sort_equations;
 use crate::typed_equation_string;
+use crate::typing_info;
 
 /// A type checked and well-typed data specification.
 ///
@@ -567,7 +567,11 @@ impl DataSpecification {
         if let Some(cached) = self.context.equation_typing_info.get(&key) {
             return (**cached).clone();
         }
-        let info = Arc::new(typing_info::build(self, self.equation_typing(key), &self.variable_spans));
+        let info = Arc::new(typing_info::build(
+            self,
+            self.equation_typing(key),
+            &self.variable_spans,
+        ));
         self.context.equation_typing_info.insert(key, Arc::clone(&info));
         (*info).clone()
     }

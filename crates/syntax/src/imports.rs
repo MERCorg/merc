@@ -502,10 +502,10 @@ mod tests {
         // `%import "common.mcrl2"` line — the only one it can actually edit — not at
         // `common.mcrl2`'s nested directive.
         let main_text = "%import \"common.mcrl2\"\ninit delta;\n";
-        let dir = temp_project(&[(
-            "main.mcrl2",
-            main_text,
-        ), ("common.mcrl2", "%import \"missing.mcrl2\"\n")]);
+        let dir = temp_project(&[
+            ("main.mcrl2", main_text),
+            ("common.mcrl2", "%import \"missing.mcrl2\"\n"),
+        ]);
 
         let mut sources = SourceMap::new();
         let error = UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
