@@ -7,6 +7,7 @@ use merc_syntax::PresEquation;
 use merc_syntax::PropVarInst;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SourceMap;
 use merc_syntax::Span;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedPres;
@@ -46,7 +47,10 @@ impl PresSpecification {
         crate::resolve_pres_variables(&mut spec);
 
         let data_spec = std::mem::take(&mut spec.data_specification);
-        let mut data = DataSpecification::from_untyped_with(data_spec, encoding)?;
+        // See `modal_specification.rs`'s equivalent call: a PRES is not (yet) part of
+        // the shared, file-based `%import` pipeline, so its embedded data
+        // specification gets its own, throwaway `SourceMap`.
+        let mut data = DataSpecification::from_untyped_with(data_spec, encoding, &mut SourceMap::new())?;
 
         let tables = DeclarationTables::build(&mut data, &spec)?;
         let typing = check::check_pres_specification(&mut data, &tables, &spec)?;

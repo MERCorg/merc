@@ -17,6 +17,7 @@ use merc_syntax::PbesEquation;
 use merc_syntax::PropVarInst;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SourceMap;
 use merc_syntax::Span;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedPbes;
@@ -57,7 +58,7 @@ impl PbesSpecification {
         crate::resolve_pbes_variables(&mut spec);
 
         let data_spec = std::mem::take(&mut spec.data_specification);
-        let mut data = DataSpecification::from_untyped_with(data_spec, encoding)?;
+        let mut data = DataSpecification::from_untyped_with(data_spec, encoding, &mut SourceMap::new())?;
 
         let tables = DeclarationTables::build(&mut data, &spec)?;
         let typing = check::check_pbes_specification(&mut data, &tables, &spec)?;

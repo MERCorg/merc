@@ -61,10 +61,18 @@ fn test_action_argument_hover_reports_declared_sort() {
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_action_argument_goto_def_declaration_is_shared_across_occurrences_of_process_parameter() {
     let text = "act a: Nat; proc P(n: Nat) = a(n) + a(n); init P(1);";
-    let ResolvedName::Variable { name: first_name, declaration: first } = resolved_name_at(text, "n) +") else {
+    let ResolvedName::Variable {
+        name: first_name,
+        declaration: first,
+    } = resolved_name_at(text, "n) +")
+    else {
         panic!("expected a Variable resolution");
     };
-    let ResolvedName::Variable { name: second_name, declaration: second } = resolved_name_at(text, "n);") else {
+    let ResolvedName::Variable {
+        name: second_name,
+        declaration: second,
+    } = resolved_name_at(text, "n);")
+    else {
         panic!("expected a Variable resolution");
     };
     assert_eq!(first_name, "n");
@@ -86,7 +94,10 @@ fn test_sum_bound_variable_goto_def_declaration_is_shared_across_occurrences() {
     let ResolvedName::Variable { declaration: first, .. } = resolved_name_at(text, "x, x") else {
         panic!("expected a Variable resolution");
     };
-    let ResolvedName::Variable { declaration: second, .. } = resolved_name_at(text, "x);") else {
+    let ResolvedName::Variable {
+        declaration: second, ..
+    } = resolved_name_at(text, "x);")
+    else {
         panic!("expected a Variable resolution");
     };
     let first = first.expect("a sum-bound variable has a real declaration");

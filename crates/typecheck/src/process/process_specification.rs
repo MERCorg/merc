@@ -11,6 +11,7 @@ use merc_syntax::ProcDecl;
 use merc_syntax::ProcessExpr;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SourceMap;
 use merc_syntax::Span;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedProcessSpecification;
@@ -38,17 +39,28 @@ pub struct ProcessSpecification {
 }
 
 impl ProcessSpecification {
-    /// Type checks `spec`, using the default number encoding. See [`Self::from_untyped_with`].
+    /// Type checks `spec` against a fresh, throwaway [`SourceMap`], using the default number
+    /// encoding. See [`Self::from_untyped_with`].
+    ///
+    /// Prefer [`Self::from_untyped_with`] with a real `sources`.
     pub fn from_untyped(spec: UntypedProcessSpecification) -> Result<Self, ProcessError> {
-        Self::from_untyped_with(spec, NumberEncoding::default())
+        Self::from_untyped_with(spec, NumberEncoding::default(), &mut SourceMap::new())
     }
 
     /// Type checks `spec`: its data specification first (exactly as
     /// [`DataSpecification::from_untyped_with`] does), then its action declarations' argument
     /// sorts, its global variables, and every `proc` body and `init` against them.
+    ///
+    /// `sources` accumulates the system-defined ("Appendix B") content this generates, the same
+    /// way [`DataSpecification::from_untyped_with`]'s own `sources` parameter does — pass the
+    /// `SourceMap` `spec` was parsed (and, if applicable, `%import`-resolved) against so every
+    /// span, whether from `spec`'s own text, something it imports, or Appendix B, renders
+    /// correctly against one shared offset space; pass a fresh one if nothing else needs to share
+    /// it.
     pub fn from_untyped_with(
         mut spec: UntypedProcessSpecification,
         encoding: NumberEncoding,
+        sources: &mut SourceMap,
     ) -> Result<Self, ProcessError> {
         // Semantic-aware disambiguation first.
         disambiguation::disambiguate_process_specification(&mut spec);
@@ -58,7 +70,7 @@ impl ProcessSpecification {
         crate::resolve_process_variables(&mut spec);
 
         let data_spec = std::mem::take(&mut spec.data_specification);
-        let mut data = DataSpecification::from_untyped_with(data_spec, encoding)?;
+        let mut data = DataSpecification::from_untyped_with(data_spec, encoding, sources)?;
 
         let tables = DeclarationTables::build(&mut data, &spec)?;
         let typing = check::check_process_specification(&mut data, &tables, &spec)?;

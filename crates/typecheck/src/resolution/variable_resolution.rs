@@ -124,7 +124,13 @@ pub(crate) fn resolve_modal_variables(spec: &mut UntypedStateFrmSpec) {
     let mut state_var_ids = StateVarIdAllocator::default();
     let mut scope = Scope::default();
     let mut state_vars = FixpointScope::default();
-    resolve_in_state_frm(&mut spec.formula, &mut scope, &mut state_vars, &mut ids, &mut state_var_ids);
+    resolve_in_state_frm(
+        &mut spec.formula,
+        &mut scope,
+        &mut state_vars,
+        &mut ids,
+        &mut state_var_ids,
+    );
 }
 
 fn resolve_in_state_frm(
@@ -305,11 +311,7 @@ impl FixpointScope {
     }
 
     fn resolve(&self, name: &str) -> Option<StateVarId> {
-        self.0
-            .iter()
-            .rev()
-            .find(|(bound, _)| bound == name)
-            .map(|&(_, id)| id)
+        self.0.iter().rev().find(|(bound, _)| bound == name).map(|&(_, id)| id)
     }
 }
 
@@ -552,7 +554,11 @@ mod tests {
         let mut spec = UntypedProcessSpecification::parse(text).unwrap();
         resolve_process_variables(&mut spec);
 
-        let ProcessExprKind::Dist { variables, expr: weight, .. } = &spec.process_declarations[0].body.node
+        let ProcessExprKind::Dist {
+            variables,
+            expr: weight,
+            ..
+        } = &spec.process_declarations[0].body.node
         else {
             panic!("expected a Dist body");
         };
@@ -682,7 +688,9 @@ mod tests {
         let mut pbes = UntypedPbes::parse(text).unwrap();
         resolve_pbes_variables(&mut pbes);
 
-        let declared = pbes.global_variables[0].var_id.expect("the global was assigned a VarId");
+        let declared = pbes.global_variables[0]
+            .var_id
+            .expect("the global was assigned a VarId");
         assert!(matches!(
             &pbes.init.arguments[0].node,
             DataExprKind::Resolved(name, var_id) if name == "g" && *var_id == declared
@@ -753,7 +761,9 @@ mod tests {
         let mut pres = UntypedPres::parse(text).unwrap();
         resolve_pres_variables(&mut pres);
 
-        let declared = pres.global_variables[0].var_id.expect("the global was assigned a VarId");
+        let declared = pres.global_variables[0]
+            .var_id
+            .expect("the global was assigned a VarId");
         assert!(matches!(
             &pres.init.arguments[0].node,
             DataExprKind::Resolved(name, var_id) if name == "g" && *var_id == declared
@@ -847,14 +857,22 @@ mod tests {
         let mut spec = UntypedStateFrmSpec::parse(text).unwrap();
         resolve_modal_variables(&mut spec);
 
-        let StateFrmKind::FixedPoint { variable: outer, body, .. } = &spec.formula.node else {
+        let StateFrmKind::FixedPoint {
+            variable: outer, body, ..
+        } = &spec.formula.node
+        else {
             panic!("expected an outer FixedPoint formula");
         };
         let outer_declared = outer.id.expect("the outer fixpoint variable was assigned a StateVarId");
         let StateFrmKind::Modality { expr, .. } = &body.node else {
             panic!("expected a Modality body");
         };
-        let StateFrmKind::FixedPoint { variable: inner, body: inner_body, .. } = &expr.node else {
+        let StateFrmKind::FixedPoint {
+            variable: inner,
+            body: inner_body,
+            ..
+        } = &expr.node
+        else {
             panic!("expected a nested FixedPoint formula");
         };
         let inner_declared = inner.id.expect("the inner fixpoint variable was assigned a StateVarId");

@@ -28,6 +28,7 @@ use mcrl2::DataSpecification;
 use mcrl2::merc_aterm_to_mcrl2;
 use merc_aterm::Term as MercTerm;
 use merc_data::Mcrl2DataSpecification;
+use merc_syntax::SourceMap;
 use merc_syntax::UntypedDataSpecification;
 use merc_typecheck::DataSpecification as TypecheckedSpec;
 use merc_typecheck::NumberEncoding;
@@ -37,14 +38,11 @@ use rand::RngExt;
 
 /// Run the full merc typecheck + lowering pipeline on `text`.
 ///
-/// The oracle is built with machine numbers enabled, so number literals are
-/// digit chains (`@most_significant_digitNat(0)`) rather than the Appendix-B
-/// binary constructors (`@c0`). merc must be asked for the same encoding or
-/// the two sides are not comparable.
+/// mCRL2 always uses the machine numbers, so enable the same default encoding.
 fn lower(text: &str) -> Mcrl2DataSpecification {
     let untyped = UntypedDataSpecification::parse(text).expect("merc parse failed");
-    let typed =
-        TypecheckedSpec::from_untyped_with(untyped, NumberEncoding::MachineWord).expect("merc typecheck failed");
+    let typed = TypecheckedSpec::from_untyped_with(untyped, NumberEncoding::MachineWord, &mut SourceMap::new())
+        .expect("merc typecheck failed");
     typed.lower_data_specification()
 }
 

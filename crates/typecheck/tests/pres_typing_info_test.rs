@@ -59,10 +59,18 @@ fn test_prop_var_inst_argument_hover_reports_declared_sort() {
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_prop_var_inst_self_recursive_argument_goto_def_declaration_matches_parameter() {
     let text = "pres nu X(n: Nat) = val(n) || X(n); init X(0);";
-    let ResolvedName::Variable { name: first_name, declaration: first } = resolved_name_at(text, "n) ||") else {
+    let ResolvedName::Variable {
+        name: first_name,
+        declaration: first,
+    } = resolved_name_at(text, "n) ||")
+    else {
         panic!("expected a Variable resolution");
     };
-    let ResolvedName::Variable { name: second_name, declaration: second } = resolved_name_at(text, "n);") else {
+    let ResolvedName::Variable {
+        name: second_name,
+        declaration: second,
+    } = resolved_name_at(text, "n);")
+    else {
         panic!("expected a Variable resolution");
     };
     assert_eq!(first_name, "n");
@@ -81,7 +89,10 @@ fn test_bound_variable_goto_def_declaration_is_shared_across_occurrences() {
     let ResolvedName::Variable { declaration: first, .. } = resolved_name_at(text, "n) ||") else {
         panic!("expected a Variable resolution");
     };
-    let ResolvedName::Variable { declaration: second, .. } = resolved_name_at(text, "n); init") else {
+    let ResolvedName::Variable {
+        declaration: second, ..
+    } = resolved_name_at(text, "n); init")
+    else {
         panic!("expected a Variable resolution");
     };
     let first = first.expect("a sum-bound variable has a real declaration");

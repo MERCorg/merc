@@ -18,8 +18,8 @@ fn lower(spec_text: &str, expr_text: &str) -> String {
 #[track_caller]
 fn lower_with(spec_text: &str, expr_text: &str, encoding: NumberEncoding) -> String {
     let untyped = UntypedDataSpecification::parse(spec_text).expect("the specification should parse");
-    let mut spec =
-        DataSpecification::from_untyped_with(untyped, encoding).expect("the specification should type check");
+    let mut spec = DataSpecification::from_untyped_with(untyped, encoding, &mut SourceMap::new())
+        .expect("the specification should type check");
     let expr = DataExpr::parse(expr_text).expect("the expression should parse");
 
     spec.typecheck_expression(&expr)

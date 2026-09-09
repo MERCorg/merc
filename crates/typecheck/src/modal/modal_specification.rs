@@ -4,6 +4,7 @@ use std::ops::ControlFlow;
 use merc_syntax::ActDecl;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SourceMap;
 use merc_syntax::Span;
 use merc_syntax::StateFrm;
 use merc_syntax::Traverse;
@@ -29,21 +30,39 @@ pub struct ModalSpecification {
 }
 
 impl ModalSpecification {
-    /// Type checks `spec`, using the default number encoding. See [`Self::from_untyped_with`].
+    /// Type checks `spec` against a fresh, throwaway [`SourceMap`], using the default number
+    /// encoding. See [`Self::from_untyped_with`].
+    ///
+    /// Prefer [`Self::from_untyped_with`] with a real `sources` (e.g. the one
+    /// `UntypedStateFrmSpec::parse_with_imports` built) when `spec` came from a file on disk that
+    /// may itself `%import` a process specification — this entry point's own throwaway
+    /// `SourceMap` is discarded on return, so any span into `spec`'s system-defined content would
+    /// no longer render against anything afterward.
     pub fn from_untyped(spec: UntypedStateFrmSpec) -> Result<Self, ModalError> {
-        Self::from_untyped_with(spec, NumberEncoding::default())
+        Self::from_untyped_with(spec, NumberEncoding::default(), &mut SourceMap::new())
     }
 
     /// Type checks `spec`: its data specification first (exactly as
     /// [`DataSpecification::from_untyped_with`] does), then its `act` declarations' argument
     /// sorts, and finally the formula itself against them.
-    pub fn from_untyped_with(mut spec: UntypedStateFrmSpec, encoding: NumberEncoding) -> Result<Self, ModalError> {
+    ///
+    /// `sources` accumulates the system-defined ("Appendix B") content this generates, the same
+    /// way [`DataSpecification::from_untyped_with`]'s own `sources` parameter does — pass the
+    /// `SourceMap` `spec` was parsed (and, if applicable, `%import`-resolved) against so every
+    /// span, whether from `spec`'s own text, something it imports, or Appendix B, renders
+    /// correctly against one shared offset space; pass a fresh one if nothing else needs to share
+    /// it.
+    pub fn from_untyped_with(
+        mut spec: UntypedStateFrmSpec,
+        encoding: NumberEncoding,
+        sources: &mut SourceMap,
+    ) -> Result<Self, ModalError> {
         // A pure syntactic pass, before anything else needs `spec` — see
         // `resolution::variable_resolution`.
         crate::resolve_modal_variables(&mut spec);
 
         let data_spec = std::mem::take(&mut spec.data_specification);
-        let mut data = DataSpecification::from_untyped_with(data_spec, encoding)?;
+        let mut data = DataSpecification::from_untyped_with(data_spec, encoding, sources)?;
 
         let tables = DeclarationTables::build(&mut data, &spec)?;
         let typing = check::check_modal_specification(&mut data, &tables, &spec)?;

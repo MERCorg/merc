@@ -219,6 +219,7 @@ pub(crate) fn is_supported_binder_sort(sort: &SortExpression) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use merc_syntax::SourceMap;
     use merc_syntax::UntypedDataSpecification;
 
     use crate::DataSpecification;
@@ -235,7 +236,7 @@ mod tests {
         )
         .unwrap();
 
-        match DataSpecification::from_untyped(spec) {
+        match DataSpecification::from_untyped(spec, &mut SourceMap::new()) {
             Err(WellTypedError::ConstructorForBasicSort { constructor, sort, .. })
                 if constructor == "f" && sort == "Nat" => {}
             Err(other) => panic!("Unexpected error {:?}", other),
@@ -256,7 +257,7 @@ mod tests {
             "map f: Nat -> Bool; var n: Nat; n: Bool; eqn f(n) = true;",
         ] {
             let spec = UntypedDataSpecification::parse(text).unwrap();
-            match DataSpecification::from_untyped(spec) {
+            match DataSpecification::from_untyped(spec, &mut SourceMap::new()) {
                 Err(WellTypedError::DuplicateEquationVariable { variable, .. }) if variable == "n" => {}
                 Err(other) => panic!("Unexpected error {:?}", other),
                 _ => panic!("Expected from_untyped to fail"),
@@ -275,7 +276,7 @@ mod tests {
         )
         .unwrap();
 
-        DataSpecification::from_untyped(spec).expect("a sort without constructors is assumed non-empty");
+        DataSpecification::from_untyped(spec, &mut SourceMap::new()).expect("a sort without constructors is assumed non-empty");
     }
 
     #[test]
@@ -288,7 +289,7 @@ mod tests {
             "map f: Nat; var x: Nat # Nat; eqn f = 0;",
             "map f: ((Pos # Pos) -> Bool) -> (Nat # Nat);",
         ] {
-            match DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap()) {
+            match DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap(), &mut SourceMap::new()) {
                 Err(WellTypedError::ProductSortOutsideFunctionDomain { .. }) => {}
                 Err(other) => panic!("unexpected error {other:?} for {text}"),
                 Ok(_) => panic!("expected {text} to be rejected"),
@@ -305,7 +306,7 @@ mod tests {
             "map f: (Pos # Pos) # Pos -> Bool;",
             "map f: ((Pos # Pos) -> Bool) -> Bool;",
         ] {
-            DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap())
+            DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap(), &mut SourceMap::new())
                 .unwrap_or_else(|err| panic!("expected {text} to typecheck, got {err}"));
         }
     }

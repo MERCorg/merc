@@ -264,10 +264,7 @@ mod tests {
     fn test_render_default_span_points_at_source_start() {
         let source = "eqn f = 1;";
         let span = Span::default();
-        assert_eq!(
-            span.render(&single(source)),
-            " --> 1:1\n  |\n1 | eqn f = 1;\n  | ^"
-        );
+        assert_eq!(span.render(&single(source)), " --> 1:1\n  |\n1 | eqn f = 1;\n  | ^");
     }
 
     #[test]
