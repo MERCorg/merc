@@ -157,11 +157,7 @@ impl fmt::Display for DisplaySortContext<'_> {
                 write!(f, "{} -> {}", domain.join(" # "), self.sub(*range))
             }
             ResolvedSort::Def(def) => {
-                if let Some(name) = self.ctx.sort_name(self.spec, self.system, *def) {
-                    write!(f, "{name}")
-                } else {
-                    write!(f, "@sort_{}", **def)
-                }
+                write!(f, "{}", self.ctx.sort_display_name(self.spec, self.system, *def))
             }
             // Debug logging only (per this struct's doc comment).
             ResolvedSort::Var(id) => write!(f, "@S_{id}"),
@@ -182,6 +178,17 @@ fn primitive_partial_cmp(lhs: Sort, rhs: Sort) -> Option<Ordering> {
     } else {
         None
     }
+}
+
+/// Panics: neither `Unit` nor `Var` ever denotes a data-expression's own resolved sort — `Unit`
+/// has no surface syntax (only an action's result uses it, see [`ResolvedSort::Unit`]'s own doc)
+/// and every bound type variable is instantiated to a fresh unification variable
+/// (`ConstraintGenerator::instantiate_scheme`) before Phase-3 solving ever produces a final
+/// [`ResolvedSortId`] — so a renderer of an already-resolved *value* sort should never reach
+/// either. Shared by the two structural recursions over [`ResolvedSort`] that only ever render a
+/// value sort: `crate::typing_info::sort_expression` and `crate::ir::mcrl2_lowering::lower_sort`.
+pub(crate) fn unreachable_not_a_value_sort(variant: &str) -> ! {
+    unreachable!("{variant} never denotes a data-expression's own resolved sort")
 }
 
 /// Returns whether the container constructor is `Set` or `FSet`.

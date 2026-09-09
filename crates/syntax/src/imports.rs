@@ -13,6 +13,7 @@ use merc_utilities::SourceMap;
 use merc_utilities::Span;
 use merc_utilities::Spanned;
 
+use crate::OffsetSpans;
 use crate::Rule;
 use crate::UntypedDataSpecification;
 use crate::UntypedProcessSpecification;
@@ -149,9 +150,10 @@ fn parse_import_line(trimmed: &str, base: usize) -> Option<ImportDirective> {
 }
 
 /// Implemented by every untyped AST that `%import` can compose.
-trait ImportMergeable: Sized {
-    /// Parses one file's complete, already-padded text as this type.
-    fn parse_padded(text: &str) -> Result<Self, MercError>;
+trait ImportMergeable: Sized + OffsetSpans {
+    /// Parses one file's complete text, at its own zero-based offsets — [`Self::offset_spans`]
+    /// rebases the result into the shared space afterwards, so this never sees padded text.
+    fn parse_own_text(text: &str) -> Result<Self, MercError>;
 
     /// Merges an *imported* file's declarations into `self`, ahead of anything `self` already
     /// holds. Used for every file reached via a `%import` directive, however deeply nested.
@@ -167,7 +169,7 @@ trait ImportMergeable: Sized {
 }
 
 impl ImportMergeable for UntypedDataSpecification {
-    fn parse_padded(text: &str) -> Result<Self, MercError> {
+    fn parse_own_text(text: &str) -> Result<Self, MercError> {
         UntypedDataSpecification::parse(text)
     }
 
@@ -177,7 +179,7 @@ impl ImportMergeable for UntypedDataSpecification {
 }
 
 impl ImportMergeable for UntypedProcessSpecification {
-    fn parse_padded(text: &str) -> Result<Self, MercError> {
+    fn parse_own_text(text: &str) -> Result<Self, MercError> {
         UntypedProcessSpecification::parse(text)
     }
 
@@ -258,7 +260,7 @@ impl<'a, T: ImportMergeable> Resolver<'a, T> {
         };
         // The file's text is registered — and so its base offset into the shared, global byte
         // space fixed — *before* it (or anything it imports) is parsed, which is what lets the
-        // padding trick below stand in for a per-node span-rebasing pass.
+        // offset pass below rebase this file's own, zero-based spans into that space.
         let base = self.sources.base_offset(source_id);
         let text = self.sources.text(source_id).to_string();
 
@@ -277,15 +279,13 @@ impl<'a, T: ImportMergeable> Resolver<'a, T> {
             })?;
         }
 
-        // Padding `text` with `base` leading spaces before parsing makes every byte offset pest
-        // reports already correct in the shared, global space.
-        let padded = " ".repeat(base) + &text;
-        let file_spec = T::parse_padded(&padded).map_err(|error| {
+        let mut file_spec = T::parse_own_text(&text).map_err(|error| {
             MercError::from(ImportError::Parse {
                 path: path.to_path_buf(),
                 cause: error,
             })
         })?;
+        file_spec.offset_spans(base);
         if is_root {
             output.merge_own(&file_spec);
         } else {
@@ -355,7 +355,7 @@ impl UntypedStateFrmSpec {
     ) -> Result<(UntypedStateFrmSpec, SourceId), MercError> {
         let root_id = sources.add_text(root_path.display().to_string(), text.to_string());
         // Registered (and so base-offset-fixed) before anything it imports is parsed, same
-        // padding-trick precondition `Resolver::load` relies on for every other file kind.
+        // offset-rebasing precondition `Resolver::load` relies on for every other file kind.
         let base = sources.base_offset(root_id);
         let text = sources.text(root_id).to_string();
 
@@ -374,13 +374,13 @@ impl UntypedStateFrmSpec {
             })?;
         }
 
-        let padded = " ".repeat(base) + &text;
-        let mut spec = UntypedStateFrmSpec::parse(&padded).map_err(|error| {
+        let mut spec = UntypedStateFrmSpec::parse(&text).map_err(|error| {
             MercError::from(ImportError::Parse {
                 path: root_path.to_path_buf(),
                 cause: error,
             })
         })?;
+        spec.offset_spans(base);
 
         // `imported` was built the same way `Resolver::load` builds up a file's own accumulator.
         imported.data_specification.merge(&spec.data_specification);
