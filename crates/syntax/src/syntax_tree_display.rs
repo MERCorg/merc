@@ -14,12 +14,14 @@ use crate::Assignment;
 use crate::Bound;
 use crate::CommExpr;
 use crate::ComplexSort;
+use crate::Condition;
 use crate::ConstructorDecl;
 use crate::DataExpr;
 use crate::DataExprBinaryOp;
 use crate::DataExprKind;
 use crate::DataExprUnaryOp;
 use crate::DataExprUpdate;
+use crate::Eq;
 use crate::EqnDecl;
 use crate::EqnSpec;
 use crate::FixedPointOperator;
@@ -31,6 +33,10 @@ use crate::PbesEquation;
 use crate::PbesExpr;
 use crate::PbesExprBinaryOp;
 use crate::PbesExprKind;
+use crate::PresEquation;
+use crate::PresExpr;
+use crate::PresExprBinaryOp;
+use crate::PresExprKind;
 use crate::ProcDecl;
 use crate::ProcExprBinaryOp;
 use crate::ProcessExpr;
@@ -53,6 +59,7 @@ use crate::StateVarAssignment;
 use crate::StateVarDecl;
 use crate::UntypedDataSpecification;
 use crate::UntypedPbes;
+use crate::UntypedPres;
 use crate::UntypedProcessSpecification;
 use crate::UntypedStateFrmSpec;
 
@@ -254,6 +261,93 @@ impl fmt::Display for PbesExprBinaryOp {
             PbesExprBinaryOp::Conjunction => write!(f, "&&"),
             PbesExprBinaryOp::Disjunction => write!(f, "||"),
             PbesExprBinaryOp::Implies => write!(f, "=>"),
+        }
+    }
+}
+
+impl fmt::Display for UntypedPres {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f, "{}", self.data_specification)?;
+        writeln!(f)?;
+        if !self.global_variables.is_empty() {
+            writeln!(f, "glob")?;
+            for var_decl in &self.global_variables {
+                writeln!(f, "   {var_decl};")?;
+            }
+
+            writeln!(f)?;
+        }
+        writeln!(f)?;
+
+        if !self.equations.is_empty() {
+            writeln!(f, "pres")?;
+            for equation in &self.equations {
+                writeln!(f, "   {equation};")?;
+            }
+        }
+
+        writeln!(f, "init {};", self.init)
+    }
+}
+
+impl fmt::Display for PresEquation {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} {} = {}", self.operator, self.variable, self.formula)
+    }
+}
+
+impl fmt::Display for Eq {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Eq::EqInf => write!(f, "eqinf"),
+            Eq::EqnInf => write!(f, "eqninf"),
+        }
+    }
+}
+
+impl fmt::Display for Condition {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Condition::Condsm => write!(f, "condsm"),
+            Condition::Condeq => write!(f, "condeq"),
+        }
+    }
+}
+
+impl fmt::Display for PresExprBinaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            PresExprBinaryOp::Conjunction => write!(f, "&&"),
+            PresExprBinaryOp::Disjunction => write!(f, "||"),
+            PresExprBinaryOp::Implies => write!(f, "=>"),
+            PresExprBinaryOp::Add => write!(f, "+"),
+        }
+    }
+}
+
+impl fmt::Display for PresExpr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match &self.node {
+            PresExprKind::True => write!(f, "true"),
+            PresExprKind::False => write!(f, "false"),
+            PresExprKind::PropVarInst(instance) => write!(f, "{instance}"),
+            PresExprKind::DataValExpr(data_expr) => write!(f, "val({data_expr})"),
+            PresExprKind::Negation(expr) => write!(f, "(- {expr})"),
+            PresExprKind::Binary { op, lhs, rhs } => write!(f, "({lhs} {op} {rhs})"),
+            PresExprKind::Bound { op, variables, expr } => {
+                write!(f, "({} {} . {})", op, variables.iter().format(", "), expr)
+            }
+            PresExprKind::Equal { eq, body } => write!(f, "{eq}({body})"),
+            PresExprKind::Condition {
+                condition,
+                lhs,
+                then,
+                else_,
+            } => {
+                write!(f, "{condition}({lhs}, {then}, {else_})")
+            }
+            PresExprKind::LeftConstantMultiply { constant, expr } => write!(f, "(val({constant}) * {expr})"),
+            PresExprKind::RightConstantMultiply { expr, constant } => write!(f, "({expr} * val({constant}))"),
         }
     }
 }
