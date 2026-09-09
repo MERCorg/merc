@@ -8,17 +8,18 @@ use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SourceMap;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedDataSpecification;
 
 use crate::NumberEncoding;
-use crate::POLYMORPHIC_SIGNATURE;
 use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::TypeCheckContext;
 use crate::WellTypedError;
 use crate::is_supported_binder_sort;
 use crate::lower_data_expressions;
+use crate::polymorphic_operator_names;
 use crate::standard_sort;
 
 /// One element-sort-scoped group of generated Appendix-B content, and the
@@ -56,6 +57,7 @@ fn container_group_key(sort: &SortExpression) -> SortExpression {
 /// `result` is deterministic across runs; callers must also pass `worklist`
 /// in a deterministic order for the same reason.
 fn group_and_merge(
+    sources: &mut SourceMap,
     result: &mut UntypedDataSpecification,
     mut worklist: Vec<SortExpression>,
     seen: &HashSet<SortExpression>,
@@ -67,7 +69,7 @@ fn group_and_merge(
         if !seen.insert(sort.clone()) {
             continue;
         }
-        let generated = standard_sort(&sort, encoding);
+        let generated = standard_sort(sources, &sort, encoding);
         collect_system_sorts_in_spec(&generated, &mut worklist, false);
         generated_by_sort.push((sort, generated));
     }
@@ -117,6 +119,7 @@ fn group_and_merge(
 /// Returns the merged specification alongside the [SystemEquationGroup]s its
 /// content was generated in.
 pub(crate) fn build_system_defined_specification(
+    sources: &mut SourceMap,
     spec: &UntypedDataSpecification,
     basics: UntypedDataSpecification,
     encoding: NumberEncoding,
@@ -127,7 +130,7 @@ pub(crate) fn build_system_defined_specification(
     // Seed from the user specification, including its function sorts.
     collect_system_sorts_in_spec(spec, &mut worklist, true);
 
-    let groups = group_and_merge(&mut result, worklist, &HashSet::new(), encoding);
+    let groups = group_and_merge(sources, &mut result, worklist, &HashSet::new(), encoding);
 
     (result, groups)
 }
@@ -143,6 +146,7 @@ pub(crate) fn build_system_defined_specification(
 /// function sorts (`@is_not_an_update: (S -> T) -> Bool`), which would not
 /// terminate here.
 fn expand_container_sorts(
+    sources: &mut SourceMap,
     mut worklist: Vec<SortExpression>,
     seen: &mut HashSet<SortExpression>,
     encoding: NumberEncoding,
@@ -153,7 +157,7 @@ fn expand_container_sorts(
             continue;
         }
 
-        let generated = standard_sort(&sort, encoding);
+        let generated = standard_sort(sources, &sort, encoding);
         collect_system_sorts_in_spec(&generated, &mut worklist, false);
         on_generated(&generated);
     }
@@ -180,6 +184,7 @@ fn expand_container_sorts(
 /// [crate::DataSpecification::lower_data_specification] may be) keeps
 /// producing the same result from the same inputs.
 pub(crate) fn extend_system_with_inferred_sorts(
+    sources: &mut SourceMap,
     ctx: &TypeCheckContext,
     spec: &UntypedDataSpecification,
     system: &UntypedDataSpecification,
@@ -191,7 +196,7 @@ pub(crate) fn extend_system_with_inferred_sorts(
     let mut seen: HashSet<SortExpression> = HashSet::new();
     let mut covered = Vec::new();
     collect_system_sorts_in_spec(spec, &mut covered, true);
-    expand_container_sorts(covered, &mut seen, encoding, |_| {});
+    expand_container_sorts(sources, covered, &mut seen, encoding, |_| {});
 
     // Every container sort that shows up as the inferred sort of some
     // expression node in a well-typed equation, not already covered above.
@@ -216,7 +221,7 @@ pub(crate) fn extend_system_with_inferred_sorts(
     // `DataSpecification::from_untyped` does for the syntactically-collected
     // part); already-lowered content passes through unchanged since lowering
     // is idempotent.
-    let groups = group_and_merge(&mut result, worklist, &seen, encoding);
+    let groups = group_and_merge(sources, &mut result, worklist, &seen, encoding);
     lower_data_expressions(&mut result);
     (result, groups)
 }
@@ -236,6 +241,11 @@ fn resolved_sort_to_syntax(
     id: ResolvedSortId,
 ) -> Option<SortExpression> {
     match ctx.sorts.get(id) {
+        // Never a data sort, like `Unit`: a bound type variable is always
+        // instantiated to a fresh unification variable before Phase-3
+        // solving produces a node's final ResolvedSortId, so this case does
+        // not happen for a sort inference actually produced either.
+        ResolvedSort::Var(_) => None,
         ResolvedSort::Unit => None,
         ResolvedSort::Primitive(sort) => Some(SortExpressionKind::Simple(*sort).into()),
         ResolvedSort::Generic { op, subsort } => {
@@ -278,11 +288,16 @@ pub(crate) fn check_no_system_function_redeclaration(
     );
     reserved.extend(basics.map_declarations.iter().map(|decl| decl.identifier.as_str()));
     // The container/function-update operations *and* the comparison operators
-    // and `if` are all polymorphic built-ins, so they share one table.
-    reserved.extend(POLYMORPHIC_SIGNATURE.ops.keys().map(String::as_str));
+    // and `if` are all polymorphic built-ins, so they share one reserved-name
+    // source. Kept as its own set (rather than merged into `reserved`): its
+    // names are `'static` (drawn from the bundled templates), while
+    // `reserved`'s are borrowed from `basics`, and unifying the two into one
+    // `HashSet` type would force every borrow in this function to be
+    // `'static` too.
+    let reserved_polymorphic: HashSet<&'static str> = polymorphic_operator_names().collect();
 
     for decl in &spec.constructor_declarations {
-        if reserved.contains(decl.identifier.as_str()) {
+        if reserved.contains(decl.identifier.as_str()) || reserved_polymorphic.contains(decl.identifier.as_str()) {
             return Err(WellTypedError::SystemFunctionRedeclared {
                 name: decl.identifier.node.clone(),
                 span: decl.identifier.span.clone(),
@@ -290,7 +305,7 @@ pub(crate) fn check_no_system_function_redeclaration(
         }
     }
     for decl in &spec.map_declarations {
-        if reserved.contains(decl.identifier.as_str()) {
+        if reserved.contains(decl.identifier.as_str()) || reserved_polymorphic.contains(decl.identifier.as_str()) {
             return Err(WellTypedError::SystemFunctionRedeclared {
                 name: decl.identifier.node.clone(),
                 span: decl.identifier.span.clone(),
@@ -416,6 +431,7 @@ fn collect_system_sorts(sort: &SortExpression, out: &mut Vec<SortExpression>, in
 mod tests {
     use merc_syntax::ComplexSort;
     use merc_syntax::SortExpressionKind;
+    use merc_syntax::SourceMap;
     use merc_syntax::UntypedDataSpecification;
 
     use super::build_system_defined_specification;
@@ -441,8 +457,10 @@ mod tests {
     }
 
     fn system_spec(text: &str) -> UntypedDataSpecification {
-        let basics = basic_sort_data_specification(NumberEncoding::Binary);
+        let mut sources = SourceMap::new();
+        let basics = basic_sort_data_specification(&mut sources, NumberEncoding::Binary);
         build_system_defined_specification(
+            &mut sources,
             &UntypedDataSpecification::parse(text).unwrap(),
             basics,
             NumberEncoding::Binary,

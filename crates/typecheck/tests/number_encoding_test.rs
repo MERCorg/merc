@@ -2,6 +2,7 @@
 //! specification pulled in for the numeric sorts and the representation numeric
 //! literals are lowered to.
 
+use merc_syntax::SourceMap;
 use merc_syntax::UntypedDataSpecification;
 use merc_typecheck::DataSpecification;
 use merc_typecheck::NumberEncoding;
@@ -10,7 +11,7 @@ use merc_typecheck::NumberEncoding;
 #[track_caller]
 fn typed(text: &str, encoding: NumberEncoding) -> DataSpecification {
     let untyped = UntypedDataSpecification::parse(text).expect("the specification should parse");
-    DataSpecification::from_untyped_with(untyped, encoding)
+    DataSpecification::from_untyped_with(untyped, encoding, &mut SourceMap::new())
         .unwrap_or_else(|error| panic!("{encoding:?} should type check:\n{text}\nerror: {error:?}"))
 }
 

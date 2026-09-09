@@ -289,16 +289,12 @@ fn check_state_var_inst(
     span: &Span,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
-    let (_, decl_span, params) = state_vars
-        .iter()
-        .rev()
-        .find(|(id, _, _)| *id == declaration)
-        .expect(
-            "a `StateFrmKind::Resolved` occurrence's declaration always matches an enclosing \
+    let (_, decl_span, params) = state_vars.iter().rev().find(|(id, _, _)| *id == declaration).expect(
+        "a `StateFrmKind::Resolved` occurrence's declaration always matches an enclosing \
              `FixedPoint` pushed onto `state_vars` by `check_fixed_point`, since \
              `resolve_modal_variables` only ever resolves a name against a genuinely enclosing \
              binder",
-        );
+    );
     typing.push(
         span.clone(),
         ResolvedName::StateVariable {

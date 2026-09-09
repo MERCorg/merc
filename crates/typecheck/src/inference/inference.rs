@@ -331,7 +331,10 @@ fn infer_equation(
             let var_id = var
                 .var_id
                 .expect("resolve_data_specification_variables ran before check_equations");
-            (var_id, resolve_equation_variable_sort(ctx, spec, role, var_id, &var.sort))
+            (
+                var_id,
+                resolve_equation_variable_sort(ctx, spec, role, var_id, &var.sort),
+            )
         })
         .collect();
 
@@ -1109,9 +1112,9 @@ impl<'a> ConstraintGenerator<'a> {
                 let mut bindings = Vec::with_capacity(assignments.len());
                 for assignment in assignments {
                     let value_node = self.visit(&assignment.expr)?;
-                    let var_id = assignment
-                        .id
-                        .expect("resolve_data_specification_variables/resolve_process_variables/... ran before inference");
+                    let var_id = assignment.id.expect(
+                        "resolve_data_specification_variables/resolve_process_variables/... ran before inference",
+                    );
                     bindings.push((var_id, value_node));
                 }
                 for &(var_id, value_node) in &bindings {
@@ -1747,7 +1750,6 @@ mod tests {
     use merc_syntax::ComplexSort;
     use merc_syntax::EqnSpecId;
     use merc_syntax::EquationId;
-    use merc_syntax::SourceMap;
     use merc_syntax::UntypedDataSpecification;
 
     use crate::DataSpecification;
@@ -1760,12 +1762,12 @@ mod tests {
     use crate::WellTypedError;
 
     fn typed(text: &str) -> DataSpecification {
-        DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap(), &mut SourceMap::new())
+        DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap())
             .unwrap_or_else(|err| panic!("expected {text} to typecheck, got {err}"))
     }
 
     fn inference_error(text: &str) -> InferenceError {
-        match DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap(), &mut SourceMap::new()) {
+        match DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap()) {
             Err(WellTypedError::Inference(error)) => error,
             Err(other) => panic!("expected an inference error for {text}, got {other}"),
             Ok(_) => panic!("expected {text} to be rejected"),

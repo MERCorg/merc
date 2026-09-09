@@ -59,7 +59,12 @@ pub(super) fn check_process_specification(
         .global_variables
         .iter()
         .zip(&tables.global_sorts)
-        .map(|(decl, &sort)| (decl.var_id.expect("resolve_process_variables ran before checking"), sort))
+        .map(|(decl, &sort)| {
+            (
+                decl.var_id.expect("resolve_process_variables ran before checking"),
+                sort,
+            )
+        })
         .collect();
     for (decl, &sort) in spec.global_variables.iter().zip(&tables.global_sorts) {
         lsp_info::push_binder_declaration(
@@ -75,7 +80,10 @@ pub(super) fn check_process_specification(
         let mut scope = globals.clone();
         // A process's own parameters are in scope throughout its body.
         scope.extend(proc_decl.params.iter().zip(params).map(|(decl, &(_, sort))| {
-            (decl.var_id.expect("resolve_process_variables ran before checking"), sort)
+            (
+                decl.var_id.expect("resolve_process_variables ran before checking"),
+                sort,
+            )
         }));
         for (decl, &(_, sort)) in proc_decl.params.iter().zip(params) {
             lsp_info::push_binder_declaration(

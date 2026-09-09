@@ -31,7 +31,10 @@ pub(crate) fn resolve_type_var_ids(spec: &mut UntypedDataSpecification) -> Resul
 
     for (i, decl) in spec.type_var_declarations.iter_mut().enumerate() {
         decl.id = Some(TypeVarId::new(i));
-        debug!("resolve_type_var_ids: type variable '{}' declared as id {i}", decl.identifier);
+        debug!(
+            "resolve_type_var_ids: type variable '{}' declared as id {i}",
+            decl.identifier
+        );
 
         if !vars.insert(decl.identifier.clone()).1 {
             return Err(WellTypedError::DuplicateTypeVarDeclaration {

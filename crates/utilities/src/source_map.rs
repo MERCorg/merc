@@ -110,7 +110,7 @@ struct SourceFile {
     /// The name shown in rendered diagnostics: a real (relative or absolute) path, or a
     /// synthetic name for text with no file behind it (e.g. `"<builtin>/list.mcrl2"`).
     name: String,
-    
+
     /// The file's full text.
     text: String,
 

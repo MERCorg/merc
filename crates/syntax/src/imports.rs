@@ -88,7 +88,7 @@ trait ImportMergeable: Sized {
     fn merge_imported(&mut self, other: &Self);
 
     /// As [Self::merge_imported], but for the root file's own parse.
-    /// 
+    ///
     /// Can be used to merge the root file's own declarations in the same way as
     /// imported files.
     fn merge_own(&mut self, other: &Self) {
@@ -158,7 +158,12 @@ impl<'a, T: ImportMergeable> Resolver<'a, T> {
     ///
     /// `text_override`, when given, is used as `path`'s own text instead of reading `path` from
     /// disk.
-    fn load_with_text(&mut self, path: &Path, text_override: Option<&str>, output: &mut T) -> Result<SourceId, MercError> {
+    fn load_with_text(
+        &mut self,
+        path: &Path,
+        text_override: Option<&str>,
+        output: &mut T,
+    ) -> Result<SourceId, MercError> {
         let canonical = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
 
         if let Some(&id) = self.merged.get(&canonical) {
@@ -244,7 +249,7 @@ impl UntypedProcessSpecification {
     /// and every process (or data) specification it (transitively) `%import`s are parsed and
     /// merged into one [UntypedProcessSpecification], with the same span/`sources`/cycle/diamond
     /// guarantees.
-    /// 
+    ///
     /// `text` is `root_path`'s own text, used as-is rather than re-read from disk.
     pub fn parse_with_imports(
         root_path: &Path,
@@ -265,7 +270,11 @@ impl UntypedStateFrmSpec {
     ///
     /// `text` is `root_path`'s own text, used as-is rather than re-read from
     /// disk.
-    pub fn parse_with_imports(root_path: &Path, text: &str, sources: &mut SourceMap) -> Result<(UntypedStateFrmSpec, SourceId), MercError> {
+    pub fn parse_with_imports(
+        root_path: &Path,
+        text: &str,
+        sources: &mut SourceMap,
+    ) -> Result<(UntypedStateFrmSpec, SourceId), MercError> {
         let root_id = sources.add_text(root_path.display().to_string(), text.to_string());
         // Registered (and so base-offset-fixed) before anything it imports is parsed, same
         // padding-trick precondition `Resolver::load` relies on for every other file kind.
@@ -284,11 +293,14 @@ impl UntypedStateFrmSpec {
         }
 
         let padded = " ".repeat(base) + &text;
-        let mut spec = UntypedStateFrmSpec::parse(&padded).map_err(|error| format!("in {}:\n{error}", root_path.display()))?;
+        let mut spec =
+            UntypedStateFrmSpec::parse(&padded).map_err(|error| format!("in {}:\n{error}", root_path.display()))?;
 
         // `imported` was built the same way `Resolver::load` builds up a file's own accumulator.
         imported.data_specification.merge(&spec.data_specification);
-        imported.action_declarations.extend_from_slice(&spec.action_declarations);
+        imported
+            .action_declarations
+            .extend_from_slice(&spec.action_declarations);
         spec.data_specification = imported.data_specification;
         spec.action_declarations = imported.action_declarations;
 
@@ -409,10 +421,7 @@ mod tests {
         let error = UntypedDataSpecification::parse_with_imports(&dir.path().join("a.mcrl2"), &mut sources)
             .expect_err("a cyclic import must be rejected");
 
-        assert!(
-            error.to_string().contains("import cycle detected"),
-            "got: {error}"
-        );
+        assert!(error.to_string().contains("import cycle detected"), "got: {error}");
     }
 
     #[test]
@@ -423,10 +432,7 @@ mod tests {
         let error = UntypedDataSpecification::parse_with_imports(&dir.path().join("a.mcrl2"), &mut sources)
             .expect_err("a file importing itself must be rejected");
 
-        assert!(
-            error.to_string().contains("import cycle detected"),
-            "got: {error}"
-        );
+        assert!(error.to_string().contains("import cycle detected"), "got: {error}");
     }
 
     #[test]
@@ -471,10 +477,7 @@ mod tests {
     #[test]
     fn test_process_spec_parse_with_imports_gives_every_declaration_a_span_rendering_against_its_own_file() {
         let main_text = "%import \"common.mcrl2\"\ninit a;\n";
-        let dir = temp_project(&[
-            ("main.mcrl2", main_text),
-            ("common.mcrl2", "act a;\n"),
-        ]);
+        let dir = temp_project(&[("main.mcrl2", main_text), ("common.mcrl2", "act a;\n")]);
 
         let mut sources = SourceMap::new();
         let (spec, _root_id) =
@@ -494,10 +497,7 @@ mod tests {
         // A file being imported is free to carry an `init` of its own (`MCRL2Spec`'s `Init` is
         // optional either way) — it must never override the importing file's own.
         let main_text = "%import \"common.mcrl2\"\nact b;\ninit b;\n";
-        let dir = temp_project(&[
-            ("main.mcrl2", main_text),
-            ("common.mcrl2", "act a;\ninit a;\n"),
-        ]);
+        let dir = temp_project(&[("main.mcrl2", main_text), ("common.mcrl2", "act a;\ninit a;\n")]);
 
         let mut sources = SourceMap::new();
         let (spec, _root_id) =
@@ -513,10 +513,7 @@ mod tests {
     #[test]
     fn test_modal_spec_parse_with_imports_pulls_in_action_declarations() {
         let formula_text = "%import \"common.mcrl2\"\nform nu X . [a]X;\n";
-        let dir = temp_project(&[
-            ("formula.mcf", formula_text),
-            ("common.mcrl2", "act a;\n"),
-        ]);
+        let dir = temp_project(&[("formula.mcf", formula_text), ("common.mcrl2", "act a;\n")]);
 
         let mut sources = SourceMap::new();
         let (spec, _root_id) =
@@ -530,10 +527,7 @@ mod tests {
     #[test]
     fn test_modal_spec_parse_with_imports_gives_the_imported_action_a_span_rendering_against_its_own_file() {
         let formula_text = "%import \"common.mcrl2\"\nform nu X . [a]X;\n";
-        let dir = temp_project(&[
-            ("formula.mcf", formula_text),
-            ("common.mcrl2", "act a;\n"),
-        ]);
+        let dir = temp_project(&[("formula.mcf", formula_text), ("common.mcrl2", "act a;\n")]);
 
         let mut sources = SourceMap::new();
         let (spec, _root_id) =
@@ -554,7 +548,8 @@ mod tests {
         let dir = temp_project(&[("formula.mcf", formula_text)]);
 
         let mut sources = SourceMap::new();
-        let error = UntypedStateFrmSpec::parse_with_imports(&dir.path().join("formula.mcf"), formula_text, &mut sources);
+        let error =
+            UntypedStateFrmSpec::parse_with_imports(&dir.path().join("formula.mcf"), formula_text, &mut sources);
 
         assert!(error.is_err());
     }
