@@ -41,6 +41,7 @@ use std::collections::HashMap;
 use std::convert::Infallible;
 use std::ops::ControlFlow;
 
+use merc_syntax::ComplexSort;
 use merc_syntax::ConstructorId;
 use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
@@ -60,6 +61,7 @@ use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::TypeCheckContext;
 use crate::VariableSpans;
+use crate::unreachable_not_a_value_sort;
 
 /// The typing of a document's data specification (or of one expression checked via
 /// [`DataSpecification::typecheck_expression_with_typing`]): one [`TypedNode`] per checked
@@ -413,40 +415,31 @@ pub(crate) fn declared_span(span: &Span) -> Option<Span> {
     (*span != Span::default()).then(|| span.clone())
 }
 
-// ─── sort-name references (`ResolvedName::Sort`) ────────────────────────────
-//
-// Everything below gathers the raw material [`push_sort_references`] turns into
-// [`ResolvedName::Sort`] nodes. Two-phase, because a sort-name occurrence can live in either of
-// two places with very different lifetimes:
-//
-// - Inside the data specification's own declarations (`cons`/`map` signatures, a `var`-block, a
-//   sort alias's own right-hand side, an equation's own `lambda`/quantifier/comprehension binder)
-//   — [`collect_data_specification_sort_references`] gathers these, and *must* run before
-//   [`crate::normalize_sorts`] rewrites the tree in place (an alias reference is replaced by its
-//   own expansion, discarding both the reference's span and its name — see this module's caveat
-//   on why a resolved sort's span can't be trusted). [`crate::DataSpecification::from_untyped_with`]
-//   calls this at exactly the right point in its own pipeline and stashes the raw `(span, name)`
-//   pairs on `self` for [`crate::DataSpecification::typing_info`] to resolve once the
-//   specification (and its declaration spans, which normalization never touches) is final.
-// - Inside a process/PBES/PRES specification's own declarations (`act`/`proc` signatures, `glob`
-//   variables, every `sum`/`dist`/quantifier/`inf`/`sup` binder) — these live in a syntax tree
-//   `DataSpecification::from_untyped_with` never touches at all, so they can be gathered any time
-//   after parsing; `crate::checking::collect_binder_sorts` and each of
-//   `process`/`pbes`/`pres`'s own `check_*_specification` do so directly, once the whole
-//   specification (and so its final declaration spans) is available.
-
-/// Every `Reference`/`Resolved`/`Simple` leaf reachable in `sort`, appended to `out` as `(its own
-/// occurrence span, name)`. `sort`'s compound kinds (`Product`, `Function`, `FlattenedFunction`,
-/// `Complex`, `Struct`) are walked via [`Traverse`] until a named leaf is reached.
+/// Everything below gathers the raw material [`push_sort_references`] turns into
+/// [`ResolvedName::Sort`] nodes. Two-phase, because a sort-name occurrence can live in either of
+/// two places with very different lifetimes:
 ///
-/// `Simple` (`Bool`, `Nat`, `Pos`, `Int`, `Real`) resolves through [`push_sort_references`]'s
-/// system-defined fallback, never through a user's own `sort_declarations` — each names its own
-/// top-level `sort` declaration in the corresponding `crates/syntax/spec/*.mcrl2` template (e.g.
-/// `sort Nat;` in `nat.mcrl2`), always present in `system_defined_specification()` regardless of
-/// which basic sorts a specification actually uses. `Complex` (`List`, `Set`, …) has no such
-/// declaration in its own template (a container's grammar production needs no `sort` line the way
-/// a `Simple` one does) and so still has nothing to report here — seeing its own name resolve
-/// silently (see [`push_sort_references`]) rather than being collected as a dead end.
+/// - Inside the data specification's own declarations (`cons`/`map` signatures, a `var`-block, a
+///   sort alias's own right-hand side, an equation's own `lambda`/quantifier/comprehension binder)
+///   — [`collect_data_specification_sort_references`] gathers these, and *must* run before
+///   [`crate::normalize_sorts`] rewrites the tree in place (an alias reference is replaced by its
+///   own expansion, discarding both the reference's span and its name — see this module's caveat
+///   on why a resolved sort's span can't be trusted). [`crate::DataSpecification::from_untyped_with`]
+///   calls this at exactly the right point in its own pipeline and stashes the raw `(span, name)`
+///   pairs on `self` for [`crate::DataSpecification::typing_info`] to resolve once the
+///   specification (and its declaration spans, which normalization never touches) is final.
+/// - Inside a process/PBES/PRES specification's own declarations (`act`/`proc` signatures, `glob`
+///   variables, every `sum`/`dist`/quantifier/`inf`/`sup` binder) — these live in a syntax tree
+///   `DataSpecification::from_untyped_with` never touches at all, so they can be gathered any time
+///   after parsing; `crate::checking::collect_binder_sorts` and each of
+///   `process`/`pbes`/`pres`'s own `check_*_specification` do so directly, once the whole
+///   specification (and so its final declaration spans) is available.
+///
+/// Every `Reference`/`Resolved`/`Simple`/`Complex` leaf reachable in `sort`, appended to `out` as
+/// `(its own occurrence span, name)`. `sort`'s other compound kinds (`Product`, `Function`,
+/// `FlattenedFunction`, `Struct`) are walked via [`Traverse`] until a named leaf is reached;
+/// `Complex`'s own subsort (`D` in `List(D)`) is one such leaf the recursion reaches on its own,
+/// once this function returns [`ControlFlow::Continue`] for the `Complex` node itself.
 pub(crate) fn collect_sort_name_references(sort: &SortExpression, out: &mut Vec<(Span, String)>) {
     sort.visit::<Infallible, _>(|node| {
         match &node.node {
@@ -455,6 +448,14 @@ pub(crate) fn collect_sort_name_references(sort: &SortExpression, out: &mut Vec<
             }
             SortExpressionKind::Simple(sort) => {
                 out.push((node.span.clone(), sort.to_string()));
+            }
+            SortExpressionKind::Complex(complex_sort, _) => {
+                let keyword = complex_sort.to_string();
+                let span = Span {
+                    start: node.span.start,
+                    end: node.span.start + keyword.len(),
+                };
+                out.push((span, keyword));
             }
             _ => {}
         }
@@ -499,12 +500,48 @@ pub(crate) fn collect_data_specification_sort_references(spec: &UntypedDataSpeci
     out
 }
 
+/// Every `lambda`/quantifier/comprehension/`whr` binder's own [`VarId`] and declaring span inside
+/// `expr`, inserted into `out`. These are exactly the binders a checked `DataExpr` can introduce
+/// *itself* — as opposed to a `sum`/`dist`/PBES-PRES-modal-quantifier binder declared *outside*
+/// it, which `checking::Scope` already carries a span for — so this is the only source
+/// `checking::check_expression_against` has for such a binder's declaration span.
+pub(crate) fn collect_data_expr_variable_declarations(expr: &DataExpr, out: &mut VariableSpans) {
+    expr.visit::<Infallible, _>(|node| {
+        match &node.node {
+            DataExprKind::Lambda { variables, .. } | DataExprKind::Quantifier { variables, .. } => {
+                for var in variables {
+                    let var_id = var.var_id.expect("resolve_data_expr_variables/... ran before checking");
+                    out.insert(var_id, var.identifier.span.clone());
+                }
+            }
+            DataExprKind::SetBagComp { variable, .. } => {
+                let var_id = variable
+                    .var_id
+                    .expect("resolve_data_expr_variables/... ran before checking");
+                out.insert(var_id, variable.identifier.span.clone());
+            }
+            DataExprKind::Whr { assignments, .. } => {
+                for assignment in assignments {
+                    let var_id = assignment
+                        .id
+                        .expect("resolve_data_expr_variables/... ran before checking");
+                    out.insert(var_id, assignment.span.clone());
+                }
+            }
+            _ => {}
+        }
+        ControlFlow::Continue(())
+    });
+}
+
 /// Every `lambda`/quantifier/comprehension binder's declared sort inside `expr`, appended to
 /// `out`. `Traverse` recurses into `expr`'s own `DataExpr` children for free; only the binder's
-/// own `sort` (an `IdDecl`, a different node type) needs handling at each matching node — mirrors
-/// `docs/name_resolution.md`'s pending TODO to consolidate this with
-/// `checking::collect_binder_sorts`, the equivalent walk for a `sum`/`dist`/quantifier binder
-/// *outside* the data specification.
+/// own `sort` (an `IdDecl`, a different node type) needs handling at each matching node. This is
+/// the data-expression half of the same "gather every sort-name occurrence" job
+/// `checking::collect_binder_sorts` does for a `sum`/`dist`/quantifier binder *outside* the data
+/// specification (see this section's own doc comment); the two stay separate because they walk
+/// different AST shapes at different points in the pipeline, not because the underlying task
+/// differs.
 fn collect_data_expr_sort_references(expr: &DataExpr, out: &mut Vec<(Span, String)>) {
     expr.visit::<Infallible, _>(|node| {
         match &node.node {
@@ -520,20 +557,17 @@ fn collect_data_expr_sort_references(expr: &DataExpr, out: &mut Vec<(Span, Strin
     });
 }
 
-/// Resolves each `(occurrence span, sort name)` pair in `references` against `spec`'s own sort
-/// declarations first, falling back to `system_defined_specification()`'s (a `Simple` built-in
-/// like `Nat` never matches the former, only the latter — see [`collect_sort_name_references`]),
-/// pushing [`ResolvedName::Sort`]/[`ResolvedName::SystemDefined`] respectively into `typing` for
-/// each. A name matching neither is silently skipped, never pushed with `declaration: None`: a
-/// name genuinely missing from both means the specification didn't actually type check (this
-/// function's callers only ever run once it did) — see `declared_span`'s own doc comment for the
-/// one legitimate `None` case, a synthesized declaration with no real source location, which is
-/// still pushed (just with a `None` declaration) rather than treated as missing.
+/// Resolves each `(occurrence span, sort name)` pair in `references` against
+/// `spec`'s own sort declarations first, falling back to
+/// `system_defined_specification()`'s (a `Simple` built-in like `Nat` never
+/// matches the former, only the latter — see [`collect_sort_name_references`]),
+/// pushing [`ResolvedName::Sort`]/[`ResolvedName::SystemDefined`] respectively
+/// into `typing` for each.
 ///
-/// A sort name is never overloaded (mCRL2 has one flat sort namespace), so — unlike
-/// [`DeclarationIndex`] — this only needs two plain `name -> declaration span` maps, built fresh
-/// per call; a caller pushing many references in one batch (every entry point today does) still
-/// pays for it only once.
+/// A sort name is never overloaded, so — unlike [`DeclarationIndex`] — this
+/// only needs two plain `name -> declaration span` maps, built fresh per call;
+/// a caller pushing many references in one batch (every entry point today does)
+/// still pays for it only once.
 pub(crate) fn push_sort_references(spec: &DataSpecification, references: &[(Span, String)], typing: &mut TypingInfo) {
     if references.is_empty() {
         return;
@@ -569,8 +603,32 @@ pub(crate) fn push_sort_references(spec: &DataSpecification, references: &[(Span
                     declaration,
                 },
             );
+        } else if is_complex_sort_keyword(name) {
+            typing.push(
+                span.clone(),
+                ResolvedName::SystemDefined {
+                    name: name.clone(),
+                    declaration: None,
+                },
+            );
         }
     }
+}
+
+/// Whether `name` is one of mCRL2's five built-in container sorts — matched against
+/// [`ComplexSort`]'s own [`Display`](std::fmt::Display) rendering (the same one
+/// [`collect_sort_name_references`] uses to produce `name` in the first place) rather than a
+/// separately hand-maintained string list, so the two can't drift.
+fn is_complex_sort_keyword(name: &str) -> bool {
+    [
+        ComplexSort::List,
+        ComplexSort::Set,
+        ComplexSort::FSet,
+        ComplexSort::FBag,
+        ComplexSort::Bag,
+    ]
+    .iter()
+    .any(|op| op.to_string() == name)
 }
 
 /// Records a binder's own declaration occurrence.
@@ -610,10 +668,7 @@ fn sort_expression(
     id: ResolvedSortId,
 ) -> SortExpression {
     match ctx.sorts.get(id) {
-        ResolvedSort::Unit => unreachable!(
-            "Unit is only used for the sort of an action, never a data-expression sort, and \
-             sort_expression only ever renders the sort of a data expression"
-        ),
+        ResolvedSort::Unit => unreachable_not_a_value_sort("Unit"),
         ResolvedSort::Primitive(sort) => SortExpressionKind::Simple(*sort).into(),
         ResolvedSort::Generic { op, subsort } => {
             SortExpressionKind::Complex(*op, Box::new(sort_expression(ctx, spec, system, *subsort))).into()
@@ -627,15 +682,9 @@ fn sort_expression(
         }
         .into(),
         ResolvedSort::Def(def) => {
-            let name = ctx
-                .sort_name(spec, system, *def)
-                .map(str::to_string)
-                .unwrap_or_else(|| format!("@sort_{}", def.value()));
+            let name = ctx.sort_display_name(spec, system, *def).into_owned();
             SortExpressionKind::Resolved(name, *def).into()
         }
-        ResolvedSort::Var(_) => unreachable!(
-            "a bound type variable is always instantiated to a fresh unification variable before \
-             Phase-3 solving produces a node's final ResolvedSortId, so sort_expression never renders one"
-        ),
+        ResolvedSort::Var(_) => unreachable_not_a_value_sort("Var"),
     }
 }
