@@ -1,6 +1,6 @@
-use std::collections::HashSet;
-
 use std::cmp::Ordering;
+#[cfg(test)]
+use std::collections::HashSet;
 use std::fmt;
 
 use merc_io::LargeFormatter;
@@ -28,9 +28,6 @@ use oxidd_core::util::num::F64;
 use oxidd_rules_ldd::LDDTerminal;
 use rustc_hash::FxBuildHasher;
 use rustc_hash::FxHashMap;
-
-/// The BDD representing the support variables of a BDD function.
-pub type BDDSupport = BDDFunction;
 
 /// Result of [`approx_satcount`], either an exact integer count or an f64 approximation.
 ///
@@ -106,7 +103,8 @@ pub fn approx_satcount(bdd: &BDDFunction, vars: VarNo, cache: &mut SatCountCache
 /// variables are irrelevant or don't care, formally:
 ///
 /// > support(f) = { x_i | exists x_0, ..., x_{i-1}, x_{i+1}, ..., x_n : f(x_0, ..., x_{i-1}, true, x_{i+1}, ..., x_n) != f(x_0, ..., x_{i-1}, false, x_{i+1}, ..., x_n) }
-pub fn support(manager_ref: &BDDManagerRef, function: &BDDFunction) -> Result<Vec<VarNo>, OutOfMemory> {
+#[cfg(test)]
+pub(crate) fn support(manager_ref: &BDDManagerRef, function: &BDDFunction) -> Result<Vec<VarNo>, OutOfMemory> {
     let mut result = HashSet::new();
     manager_ref.with_manager_shared(|manager| {
         support_edge(manager, function.as_edge(manager).borrowed(), &mut result);
@@ -115,6 +113,7 @@ pub fn support(manager_ref: &BDDManagerRef, function: &BDDFunction) -> Result<Ve
 }
 
 /// Recursive implementation of [support].
+#[cfg(test)]
 fn support_edge<'id>(
     manager: &<BDDFunction as Function>::Manager<'id>,
     function: Borrowed<EdgeOfFunc<'id, BDDFunction>>,

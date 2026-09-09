@@ -49,7 +49,7 @@ thread_local! {
     pub static THREAD_TERM_POOL: ThreadTermPool = ThreadTermPool::new();
 }
 
-/// Per-thread term pool managing local protection sets for interaction with the [GlobalTermPool].
+/// Per-thread term pool managing local protection sets for interaction with the global term pool.
 pub struct ThreadTermPool {
     /// Contains all the protection sets for this thread.
     protection_sets: Arc<UnsafeCell<SharedTermProtection>>,

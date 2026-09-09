@@ -166,7 +166,7 @@ impl Symbol {
         }
     }
 
-    /// Returns the root index, i.e., the index in the protection set. See [crate::storage::SharedTermProtection].
+    /// Returns the root index, i.e., the index in the thread's protection set.
     pub fn root(&self) -> ProtectionIndex {
         self.root
     }

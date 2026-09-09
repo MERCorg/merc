@@ -47,6 +47,7 @@ where
 }
 
 /// Returns the number of states reachable from the given state of the LTS.
+#[cfg(test)]
 pub(crate) fn num_reachable_states<L: LTS>(lts: &L, state: StateIndex) -> usize {
     let mut count = 0;
     reachability(lts, state, |_| true, |_| count += 1);

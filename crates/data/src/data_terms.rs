@@ -214,17 +214,17 @@ pub(crate) fn is_basic_sort<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
     DATA_SYMBOLS.with_borrow(|ds| ds.is_basic_sort(term))
 }
 
-/// See [DataSymbols::is_function_sort].
+/// Returns true iff the given term is a function (`SortArrow`) sort.
 pub fn is_function_sort<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
     DATA_SYMBOLS.with_borrow(|ds| ds.is_function_sort(term))
 }
 
-/// See [DataSymbols::is_container_sort].
+/// Returns true iff the given term is a container (`SortCons`) sort.
 pub fn is_container_sort<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
     DATA_SYMBOLS.with_borrow(|ds| ds.is_container_sort(term))
 }
 
-/// See [DataSymbols::is_data_variable].
+/// Returns true iff the given term is a data variable.
 pub fn is_data_variable<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
     DATA_SYMBOLS.with_borrow(|ds| ds.is_data_variable(term))
 }
@@ -234,27 +234,27 @@ pub(crate) fn is_data_expression<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
     DATA_SYMBOLS.with_borrow_mut(|ds| ds.is_data_expression(term))
 }
 
-/// See [DataSymbols::is_data_function_symbol].
+/// Returns true iff the given term is a data function symbol.
 pub fn is_data_function_symbol<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
     DATA_SYMBOLS.with_borrow(|ds| ds.is_data_function_symbol(term))
 }
 
-/// See [DataSymbols::is_data_machine_number].
+/// Returns true iff the given term is a data machine number.
 pub fn is_data_machine_number<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
     DATA_SYMBOLS.with_borrow(|ds| ds.is_data_machine_number(term))
 }
 
-/// See [DataSymbols::is_data_where_clause].
+/// Returns true iff the given term is a data where clause.
 pub fn is_data_where_clause<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
     DATA_SYMBOLS.with_borrow(|ds| ds.is_data_where_clause(term))
 }
 
-/// See [DataSymbols::is_data_binder].
+/// Returns true iff the given term is a data abstraction (binder).
 pub fn is_data_binder<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
     DATA_SYMBOLS.with_borrow(|ds| ds.is_data_binder(term))
 }
 
-/// See [DataSymbols::is_data_application].
+/// Returns true iff the given term is a data application.
 pub fn is_data_application<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
     DATA_SYMBOLS.with_borrow_mut(|ds| ds.is_data_application(term))
 }

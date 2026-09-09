@@ -19,7 +19,6 @@ mod random_vector_set;
 pub(crate) use bdd::*;
 pub(crate) use dependency_graph::*;
 pub(crate) use ldd::*;
-pub(crate) use symbolic_lps::*;
 pub(crate) use util::*;
 
 #[cfg(test)]
@@ -45,6 +44,7 @@ pub use io::SymFormat;
 pub use io::guess_format_from_extension;
 pub use ldd::ExplorationStrategy;
 pub use ldd::LddDisplay;
+pub use ldd::LddDot;
 pub use ldd::ReachabilityOptions;
 pub use ldd::ReachabilityResult;
 pub use ldd::SylvanTransitionGroup;

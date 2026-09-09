@@ -35,10 +35,9 @@ use crate::Thin;
 /// that must be kept valid, so duplication goes through the unsafe
 /// [`StablePointer::copy`].
 ///
-/// The pointer is stored type-erased ([`Thin`]) so a handle is always a single
-/// machine word, even when `T` is a slice DST whose native pointer would be
-/// wide. The slice length is reconstructed from the pointee on deref via
-/// [`Erasable`].
+/// The pointer is stored type-erased so a handle is always a single machine
+/// word, even when `T` is a slice DST whose native pointer would be wide. The
+/// slice length is reconstructed from the pointee on deref via [`Erasable`].
 #[repr(C)]
 pub struct StablePointer<T: ?Sized + Erasable> {
     /// The thin, type-erased pointer to the element. Guaranteed non-null.

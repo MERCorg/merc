@@ -393,8 +393,7 @@ mod inner {
         /// Builds a machine number data expression wrapping `value`.
         ///
         /// A machine number is stored as a raw [`merc_aterm::ATermInt`]; the
-        /// `u64` value is reinterpreted as the platform integer bit pattern,
-        /// the inverse of [`MachineNumber::value`].
+        /// `u64` value is reinterpreted as the platform integer bit pattern.
         #[merc_ignore]
         pub fn new(value: u64) -> MachineNumber {
             MachineNumber {

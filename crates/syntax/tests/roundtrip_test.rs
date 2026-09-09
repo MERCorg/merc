@@ -206,8 +206,14 @@ fn nullary_struct_constructor_recognizer_is_printed() {
     let spec = UntypedProcessSpecification::parse("sort D = struct b1?is_b1 | b2?is_b2;\ninit delta;")
         .expect("struct with nullary-constructor recognizers should parse");
     let printed = format!("{spec}");
-    assert!(printed.contains("b1?is_b1"), "recognizer on b1 must be printed:\n{printed}");
-    assert!(printed.contains("b2?is_b2"), "recognizer on b2 must be printed:\n{printed}");
+    assert!(
+        printed.contains("b1?is_b1"),
+        "recognizer on b1 must be printed:\n{printed}"
+    );
+    assert!(
+        printed.contains("b2?is_b2"),
+        "recognizer on b2 must be printed:\n{printed}"
+    );
     UntypedProcessSpecification::parse(&printed).expect("printed form must reparse");
 }
 

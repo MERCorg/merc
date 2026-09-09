@@ -231,9 +231,6 @@ impl<L: TransitionLabel, B: LtsBuilder<L> + Send> ConcurrentLtsBuilder<L> for Mu
 /// Transitions can be added with `add_transition`, and once all transitions
 /// have been added, the labelled transition system can be constructed with
 /// `finish`. An initial state can also be specified during finalization.
-/// `finish(.., true)` additionally removes duplicate transitions; see
-/// [`LtsBuilderMem::remove_duplicates`] for how it does so without ever fully
-/// decompressing the accumulated transitions or sorting them globally.
 pub struct LtsBuilderMem<L> {
     transition_from: ByteCompressedVec<StateIndex>,
     transition_labels: ByteCompressedVec<LabelIndex>,
@@ -321,8 +318,7 @@ impl<L: TransitionLabel> LtsBuilderMem<L> {
     /// Finalizes the builder and returns the constructed labelled transition system.
     ///
     /// If `remove_duplicates` is true, duplicate `(from, label, to)` transitions are
-    /// removed first. See [`LtsBuilderMem::remove_duplicates`] for how this is done
-    /// without fully decompressing the accumulated transitions.
+    /// removed first.
     pub fn finish(&mut self, initial_state: StateIndex, remove_duplicates: bool) -> LabelledTransitionSystem<L> {
         if remove_duplicates {
             self.remove_duplicates();
