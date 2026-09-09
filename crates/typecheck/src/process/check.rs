@@ -60,6 +60,15 @@ pub(super) fn check_process_specification(
         .zip(&tables.global_sorts)
         .map(|(decl, &sort)| (decl.identifier.span.clone(), sort))
         .collect();
+    for (decl, &sort) in spec.global_variables.iter().zip(&tables.global_sorts) {
+        lsp_info::push_binder_declaration(
+            data,
+            &mut typing,
+            decl.identifier.span.clone(),
+            decl.identifier.node.clone(),
+            sort,
+        );
+    }
 
     for (proc_decl, params) in spec.process_declarations.iter().zip(&tables.process_params) {
         let mut scope = globals.clone();
@@ -71,13 +80,22 @@ pub(super) fn check_process_specification(
                 .zip(params)
                 .map(|(decl, &(_, sort))| (decl.identifier.span.clone(), sort)),
         );
-        collect_scope(data, &proc_decl.body, &mut scope, &mut sort_references)?;
+        for (decl, &(_, sort)) in proc_decl.params.iter().zip(params) {
+            lsp_info::push_binder_declaration(
+                data,
+                &mut typing,
+                decl.identifier.span.clone(),
+                decl.identifier.node.clone(),
+                sort,
+            );
+        }
+        collect_scope(data, &proc_decl.body, &mut scope, &mut sort_references, &mut typing)?;
         check_process_expr(data, tables, &scope, &proc_decl.body, &mut typing)?;
     }
 
     if let Some(init) = &spec.init {
         let mut scope = globals.clone();
-        collect_scope(data, init, &mut scope, &mut sort_references)?;
+        collect_scope(data, init, &mut scope, &mut sort_references, &mut typing)?;
         check_process_expr(data, tables, &scope, init, &mut typing)?;
     }
 
@@ -92,34 +110,35 @@ fn collect_scope(
     expr: &ProcessExpr,
     scope: &mut Vec<(Span, ResolvedSortId)>,
     sort_references: &mut Vec<(Span, String)>,
+    typing: &mut TypingInfo,
 ) -> Result<(), ProcessError> {
     match &expr.node {
         ProcessExprKind::Delta | ProcessExprKind::Tau | ProcessExprKind::Action(..) | ProcessExprKind::Id(..) => Ok(()),
         ProcessExprKind::Sum { variables, operand } => {
-            collect_binder_sorts(data, scope, sort_references, variables, resolve_declared_sort)?;
-            collect_scope(data, operand, scope, sort_references)
+            collect_binder_sorts(data, scope, sort_references, typing, variables, resolve_declared_sort)?;
+            collect_scope(data, operand, scope, sort_references, typing)
         }
         ProcessExprKind::Dist { variables, operand, .. } => {
-            collect_binder_sorts(data, scope, sort_references, variables, resolve_declared_sort)?;
-            collect_scope(data, operand, scope, sort_references)
+            collect_binder_sorts(data, scope, sort_references, typing, variables, resolve_declared_sort)?;
+            collect_scope(data, operand, scope, sort_references, typing)
         }
         ProcessExprKind::Binary { lhs, rhs, .. } => {
-            collect_scope(data, lhs, scope, sort_references)?;
-            collect_scope(data, rhs, scope, sort_references)
+            collect_scope(data, lhs, scope, sort_references, typing)?;
+            collect_scope(data, rhs, scope, sort_references, typing)
         }
         ProcessExprKind::Condition { then, else_, .. } => {
-            collect_scope(data, then, scope, sort_references)?;
+            collect_scope(data, then, scope, sort_references, typing)?;
             match else_ {
-                Some(else_) => collect_scope(data, else_, scope, sort_references),
+                Some(else_) => collect_scope(data, else_, scope, sort_references, typing),
                 None => Ok(()),
             }
         }
-        ProcessExprKind::At { expr, .. } => collect_scope(data, expr, scope, sort_references),
+        ProcessExprKind::At { expr, .. } => collect_scope(data, expr, scope, sort_references, typing),
         ProcessExprKind::Hide { operand, .. }
         | ProcessExprKind::Block { operand, .. }
         | ProcessExprKind::Allow { operand, .. }
         | ProcessExprKind::Comm { operand, .. }
-        | ProcessExprKind::Rename { operand, .. } => collect_scope(data, operand, scope, sort_references),
+        | ProcessExprKind::Rename { operand, .. } => collect_scope(data, operand, scope, sort_references, typing),
     }
 }
 

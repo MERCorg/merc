@@ -57,7 +57,7 @@ pub(super) fn check_modal_specification(
     }
 
     let mut scope = Vec::new();
-    collect_scope(data, &spec.formula, &mut scope, &mut sort_references)?;
+    collect_scope(data, &spec.formula, &mut scope, &mut sort_references, &mut typing)?;
 
     let mut state_vars = StateVarStack::new();
     check_state_formula(data, tables, &scope, &mut state_vars, &spec.formula, &mut typing)?;
@@ -78,6 +78,7 @@ fn collect_scope(
     formula: &StateFrm,
     scope: &mut Vec<(Span, ResolvedSortId)>,
     sort_references: &mut Vec<(Span, String)>,
+    typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
     match &formula.node {
         StateFrmKind::True
@@ -88,28 +89,35 @@ fn collect_scope(
         | StateFrmKind::Resolved(_, _, _)
         | StateFrmKind::DataValExpr(_) => Ok(()),
         StateFrmKind::DataValExprLeftMult(_, expr) | StateFrmKind::DataValExprRightMult(expr, _) => {
-            collect_scope(data, expr, scope, sort_references)
+            collect_scope(data, expr, scope, sort_references, typing)
         }
         StateFrmKind::Modality { formula, expr, .. } => {
-            collect_scope_regfrm(data, formula, scope, sort_references)?;
-            collect_scope(data, expr, scope, sort_references)
+            collect_scope_regfrm(data, formula, scope, sort_references, typing)?;
+            collect_scope(data, expr, scope, sort_references, typing)
         }
-        StateFrmKind::Unary { expr, .. } => collect_scope(data, expr, scope, sort_references),
+        StateFrmKind::Unary { expr, .. } => collect_scope(data, expr, scope, sort_references, typing),
         StateFrmKind::Binary { lhs, rhs, .. } => {
-            collect_scope(data, lhs, scope, sort_references)?;
-            collect_scope(data, rhs, scope, sort_references)
+            collect_scope(data, lhs, scope, sort_references, typing)?;
+            collect_scope(data, rhs, scope, sort_references, typing)
         }
         StateFrmKind::Quantifier { variables, body, .. } | StateFrmKind::Bound { variables, body, .. } => {
-            collect_binder_sorts(data, scope, sort_references, variables, resolve_declared_sort)?;
-            collect_scope(data, body, scope, sort_references)
+            collect_binder_sorts(data, scope, sort_references, typing, variables, resolve_declared_sort)?;
+            collect_scope(data, body, scope, sort_references, typing)
         }
         StateFrmKind::FixedPoint { variable, body, .. } => {
             for argument in &variable.arguments {
                 lsp_info::collect_sort_name_references(&argument.sort, sort_references);
                 let sort = resolve_declared_sort(data, &argument.sort)?;
+                lsp_info::push_binder_declaration(
+                    data,
+                    typing,
+                    argument.identifier.span.clone(),
+                    argument.identifier.node.clone(),
+                    sort,
+                );
                 scope.push((argument.identifier.span.clone(), sort));
             }
-            collect_scope(data, body, scope, sort_references)
+            collect_scope(data, body, scope, sort_references, typing)
         }
     }
 }
@@ -119,15 +127,16 @@ fn collect_scope_regfrm(
     formula: &RegFrm,
     scope: &mut Vec<(Span, ResolvedSortId)>,
     sort_references: &mut Vec<(Span, String)>,
+    typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
     match &formula.node {
-        RegFrmKind::Action(action) => collect_scope_actfrm(data, action, scope, sort_references),
+        RegFrmKind::Action(action) => collect_scope_actfrm(data, action, scope, sort_references, typing),
         RegFrmKind::Iteration(inner) | RegFrmKind::Plus(inner) => {
-            collect_scope_regfrm(data, inner, scope, sort_references)
+            collect_scope_regfrm(data, inner, scope, sort_references, typing)
         }
         RegFrmKind::Sequence { lhs, rhs } | RegFrmKind::Choice { lhs, rhs } => {
-            collect_scope_regfrm(data, lhs, scope, sort_references)?;
-            collect_scope_regfrm(data, rhs, scope, sort_references)
+            collect_scope_regfrm(data, lhs, scope, sort_references, typing)?;
+            collect_scope_regfrm(data, rhs, scope, sort_references, typing)
         }
     }
 }
@@ -137,17 +146,18 @@ fn collect_scope_actfrm(
     formula: &ActFrm,
     scope: &mut Vec<(Span, ResolvedSortId)>,
     sort_references: &mut Vec<(Span, String)>,
+    typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
     match &formula.node {
         ActFrmKind::True | ActFrmKind::False | ActFrmKind::MultAct(_) | ActFrmKind::DataExprVal(_) => Ok(()),
-        ActFrmKind::Negation(inner) => collect_scope_actfrm(data, inner, scope, sort_references),
+        ActFrmKind::Negation(inner) => collect_scope_actfrm(data, inner, scope, sort_references, typing),
         ActFrmKind::Quantifier { variables, body, .. } => {
-            collect_binder_sorts(data, scope, sort_references, variables, resolve_declared_sort)?;
-            collect_scope_actfrm(data, body, scope, sort_references)
+            collect_binder_sorts(data, scope, sort_references, typing, variables, resolve_declared_sort)?;
+            collect_scope_actfrm(data, body, scope, sort_references, typing)
         }
         ActFrmKind::Binary { lhs, rhs, .. } => {
-            collect_scope_actfrm(data, lhs, scope, sort_references)?;
-            collect_scope_actfrm(data, rhs, scope, sort_references)
+            collect_scope_actfrm(data, lhs, scope, sort_references, typing)?;
+            collect_scope_actfrm(data, rhs, scope, sort_references, typing)
         }
     }
 }

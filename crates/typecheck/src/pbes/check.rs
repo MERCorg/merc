@@ -48,6 +48,15 @@ pub(super) fn check_pbes_specification(
         .zip(&tables.global_sorts)
         .map(|(decl, &sort)| (decl.identifier.span.clone(), sort))
         .collect();
+    for (decl, &sort) in spec.global_variables.iter().zip(&tables.global_sorts) {
+        lsp_info::push_binder_declaration(
+            data,
+            &mut typing,
+            decl.identifier.span.clone(),
+            decl.identifier.node.clone(),
+            sort,
+        );
+    }
 
     for (eqn, params) in spec.equations.iter().zip(&tables.equation_params) {
         let mut scope = globals.clone();
@@ -59,7 +68,16 @@ pub(super) fn check_pbes_specification(
                 .zip(params)
                 .map(|(decl, &(_, sort))| (decl.identifier.span.clone(), sort)),
         );
-        collect_scope(data, &eqn.formula, &mut scope, &mut sort_references)?;
+        for (decl, &(_, sort)) in eqn.variable.parameters.iter().zip(params) {
+            lsp_info::push_binder_declaration(
+                data,
+                &mut typing,
+                decl.identifier.span.clone(),
+                decl.identifier.node.clone(),
+                sort,
+            );
+        }
+        collect_scope(data, &eqn.formula, &mut scope, &mut sort_references, &mut typing)?;
         check_pbes_expr(data, tables, &scope, &eqn.formula, &mut typing)?;
     }
 
@@ -77,19 +95,20 @@ fn collect_scope(
     expr: &PbesExpr,
     scope: &mut Vec<(Span, ResolvedSortId)>,
     sort_references: &mut Vec<(Span, String)>,
+    typing: &mut TypingInfo,
 ) -> Result<(), PbesError> {
     match &expr.node {
         PbesExprKind::True | PbesExprKind::False | PbesExprKind::DataValExpr(_) | PbesExprKind::PropVarInst(_) => {
             Ok(())
         }
-        PbesExprKind::Negation(inner) => collect_scope(data, inner, scope, sort_references),
+        PbesExprKind::Negation(inner) => collect_scope(data, inner, scope, sort_references, typing),
         PbesExprKind::Binary { lhs, rhs, .. } => {
-            collect_scope(data, lhs, scope, sort_references)?;
-            collect_scope(data, rhs, scope, sort_references)
+            collect_scope(data, lhs, scope, sort_references, typing)?;
+            collect_scope(data, rhs, scope, sort_references, typing)
         }
         PbesExprKind::Quantifier { variables, body, .. } => {
-            collect_binder_sorts(data, scope, sort_references, variables, resolve_declared_sort)?;
-            collect_scope(data, body, scope, sort_references)
+            collect_binder_sorts(data, scope, sort_references, typing, variables, resolve_declared_sort)?;
+            collect_scope(data, body, scope, sort_references, typing)
         }
     }
 }

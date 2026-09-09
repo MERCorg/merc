@@ -57,17 +57,27 @@ where
 }
 
 /// Collects the sorts of the given binder variables, extending the current
-/// scope and recording sort references.
+/// scope and recording sort references, and records each variable's own declaration occurrence so
+/// it can be hovered/go-to-definition'd the same as a use of it (see
+/// [`lsp_info::push_binder_declaration`]).
 pub(crate) fn collect_binder_sorts<E>(
     data: &mut DataSpecification,
     scope: &mut Vec<(Span, ResolvedSortId)>,
     sort_references: &mut Vec<(Span, String)>,
+    typing: &mut TypingInfo,
     variables: &[IdDecl],
     mut resolve: impl FnMut(&mut DataSpecification, &SortExpression) -> Result<ResolvedSortId, E>,
 ) -> Result<(), E> {
     for var in variables {
         lsp_info::collect_sort_name_references(&var.sort, sort_references);
         let sort = resolve(data, &var.sort)?;
+        lsp_info::push_binder_declaration(
+            data,
+            typing,
+            var.identifier.span.clone(),
+            var.identifier.node.clone(),
+            sort,
+        );
         scope.push((var.identifier.span.clone(), sort));
     }
     Ok(())

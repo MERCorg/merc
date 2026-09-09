@@ -48,6 +48,15 @@ pub(super) fn check_pres_specification(
         .zip(&tables.global_sorts)
         .map(|(decl, &sort)| (decl.identifier.span.clone(), sort))
         .collect();
+    for (decl, &sort) in spec.global_variables.iter().zip(&tables.global_sorts) {
+        lsp_info::push_binder_declaration(
+            data,
+            &mut typing,
+            decl.identifier.span.clone(),
+            decl.identifier.node.clone(),
+            sort,
+        );
+    }
 
     for (eqn, params) in spec.equations.iter().zip(&tables.equation_params) {
         let mut scope = globals.clone();
@@ -59,7 +68,16 @@ pub(super) fn check_pres_specification(
                 .zip(params)
                 .map(|(decl, &(_, sort))| (decl.identifier.span.clone(), sort)),
         );
-        collect_scope(data, &eqn.formula, &mut scope, &mut sort_references)?;
+        for (decl, &(_, sort)) in eqn.variable.parameters.iter().zip(params) {
+            lsp_info::push_binder_declaration(
+                data,
+                &mut typing,
+                decl.identifier.span.clone(),
+                decl.identifier.node.clone(),
+                sort,
+            );
+        }
+        collect_scope(data, &eqn.formula, &mut scope, &mut sort_references, &mut typing)?;
         check_pres_expr(data, tables, &scope, &eqn.formula, &mut typing)?;
     }
 
@@ -78,28 +96,29 @@ fn collect_scope(
     expr: &PresExpr,
     scope: &mut Vec<(Span, ResolvedSortId)>,
     sort_references: &mut Vec<(Span, String)>,
+    typing: &mut TypingInfo,
 ) -> Result<(), PresError> {
     match &expr.node {
         PresExprKind::True | PresExprKind::False | PresExprKind::DataValExpr(_) | PresExprKind::PropVarInst(_) => {
             Ok(())
         }
-        PresExprKind::Negation(inner) => collect_scope(data, inner, scope, sort_references),
+        PresExprKind::Negation(inner) => collect_scope(data, inner, scope, sort_references, typing),
         PresExprKind::Binary { lhs, rhs, .. } => {
-            collect_scope(data, lhs, scope, sort_references)?;
-            collect_scope(data, rhs, scope, sort_references)
+            collect_scope(data, lhs, scope, sort_references, typing)?;
+            collect_scope(data, rhs, scope, sort_references, typing)
         }
-        PresExprKind::Equal { body, .. } => collect_scope(data, body, scope, sort_references),
+        PresExprKind::Equal { body, .. } => collect_scope(data, body, scope, sort_references, typing),
         PresExprKind::Condition { lhs, then, else_, .. } => {
-            collect_scope(data, lhs, scope, sort_references)?;
-            collect_scope(data, then, scope, sort_references)?;
-            collect_scope(data, else_, scope, sort_references)
+            collect_scope(data, lhs, scope, sort_references, typing)?;
+            collect_scope(data, then, scope, sort_references, typing)?;
+            collect_scope(data, else_, scope, sort_references, typing)
         }
         PresExprKind::RightConstantMultiply { expr, .. } | PresExprKind::LeftConstantMultiply { expr, .. } => {
-            collect_scope(data, expr, scope, sort_references)
+            collect_scope(data, expr, scope, sort_references, typing)
         }
         PresExprKind::Bound { variables, expr, .. } => {
-            collect_binder_sorts(data, scope, sort_references, variables, resolve_declared_sort)?;
-            collect_scope(data, expr, scope, sort_references)
+            collect_binder_sorts(data, scope, sort_references, typing, variables, resolve_declared_sort)?;
+            collect_scope(data, expr, scope, sort_references, typing)
         }
     }
 }

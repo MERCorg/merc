@@ -252,6 +252,16 @@ impl TypingInfo {
             name: Some(name),
         });
     }
+
+    /// As [`Self::push`], but also records a sort — used for a binder's own declaration
+    /// occurrence.
+    pub(crate) fn push_typed(&mut self, span: Span, sort: Option<SortExpression>, name: ResolvedName) {
+        self.nodes.push(TypedNode {
+            span,
+            sort,
+            name: Some(name),
+        });
+    }
 }
 
 /// Builds the [`TypingInfo`] for `typing`, the already-computed Phase-3 result of one equation or
@@ -505,6 +515,30 @@ pub(crate) fn push_sort_references(spec: &DataSpecification, references: &[(Span
             );
         }
     }
+}
+
+/// Records a binder's own declaration occurrence.
+pub(crate) fn push_binder_declaration(
+    data: &DataSpecification,
+    typing: &mut TypingInfo,
+    span: Span,
+    name: String,
+    sort: ResolvedSortId,
+) {
+    let sort = sort_expression(
+        data.context(),
+        data.data_specification(),
+        data.system_defined_specification(),
+        sort,
+    );
+    typing.push_typed(
+        span.clone(),
+        Some(sort),
+        ResolvedName::Variable {
+            name,
+            declaration: Some(span),
+        },
+    );
 }
 
 /// Rebuilds `id` as a [`SortExpression`], so it can be displayed via its existing
