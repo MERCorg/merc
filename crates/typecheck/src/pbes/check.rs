@@ -52,7 +52,7 @@ pub(super) fn check_pbes_specification(
         .map(|(decl, &sort)| (decl.var_id.expect("resolve_pbes_variables ran before checking"), sort))
         .collect();
     for (decl, &sort) in spec.global_variables.iter().zip(&tables.global_sorts) {
-        lsp_info::push_binder_declaration(
+        typing_info::push_binder_declaration(
             data,
             &mut typing,
             decl.identifier.span.clone(),
@@ -64,11 +64,15 @@ pub(super) fn check_pbes_specification(
     for (eqn, params) in spec.equations.iter().zip(&tables.equation_params) {
         let mut scope = globals.clone();
         // An equation's own parameters are in scope throughout its formula.
-        scope.extend(eqn.variable.parameters.iter().zip(params).map(|(decl, &(_, sort))| {
-            (decl.var_id.expect("resolve_pbes_variables ran before checking"), sort)
-        }));
+        scope.extend(
+            eqn.variable
+                .parameters
+                .iter()
+                .zip(params)
+                .map(|(decl, &(_, sort))| (decl.var_id.expect("resolve_pbes_variables ran before checking"), sort)),
+        );
         for (decl, &(_, sort)) in eqn.variable.parameters.iter().zip(params) {
-            lsp_info::push_binder_declaration(
+            typing_info::push_binder_declaration(
                 data,
                 &mut typing,
                 decl.identifier.span.clone(),
