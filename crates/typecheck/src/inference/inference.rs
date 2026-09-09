@@ -870,8 +870,8 @@ struct ConstraintGenerator<'a> {
     /// [EquationTyping::identifier_names].
     expr_names: HashMap<ExprId, String>,
     /// The declaration [VarId] of every `Resolved` node — a variable reference that names its own
-    /// binder (see `docs/name_resolution.md`) — keyed by its [ExprId]; only filled when
-    /// [Self::collect_typing_info]. Becomes [EquationTyping::declarations].
+    /// binder — keyed by its [ExprId]; only filled when [Self::collect_typing_info]. Becomes
+    /// [EquationTyping::declarations].
     expr_declarations: HashMap<ExprId, VarId>,
     /// Whether [Self::expr_spans]/[Self::expr_names] should be filled — i.e.
     /// whether `role` is [EquationRole::User]. Sampled once at construction.
@@ -1209,8 +1209,8 @@ impl<'a> ConstraintGenerator<'a> {
     /// instantiated fresh per occurrence.
     ///
     /// `declaration` is `Some` exactly when this occurrence is a `Resolved` node, carrying its
-    /// binder's own [VarId] (see `docs/name_resolution.md`); it is also always recorded (when
-    /// `Some`, regardless of which candidate `name` resolves to), becoming
+    /// binder's own [VarId]; it is also always recorded (when `Some`, regardless of which
+    /// candidate `name` resolves to), becoming
     /// `ResolvedName::Variable`'s `declaration` in `typing_info`.
     fn gen_name(
         &mut self,

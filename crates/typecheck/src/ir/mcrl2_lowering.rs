@@ -35,6 +35,7 @@ use crate::NumberEncoding;
 use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::TypeCheckContext;
+use crate::unreachable_not_a_value_sort;
 
 /// The mCRL2 name of a basic sort, matching the literal `SortId` names the
 /// binary aterm format uses.
@@ -139,13 +140,10 @@ fn container_coerce(term: DataExpression, op: ComplexSort, element: DataSortExpr
 /// Converts an inferred, interned sort into the aterm `SortExpression` the
 /// binary format uses: `Primitive`/`Generic`/`Function` recurse structurally
 /// onto `BasicSort`/`SortCons`/`SortArrow`, and `Def` resolves to its declared
-/// name via [TypeCheckContext::sort_name] — a user sort from `spec`, a
-/// system-internal sort from `system`, or a bare index as a last resort (the
-/// name derivation mirrors [crate::DisplaySortContext]'s: a nominal sort's
-/// identity *is* its declared name for the binary schema).
-///
-/// `Unit` never reaches this function: it is only used for the sort of an
-/// action, never a data-expression sort.
+/// name via [TypeCheckContext::sort_display_name] — a user sort from `spec`, a
+/// system-internal sort from `system`, or a synthesized placeholder as a last
+/// resort: a nominal sort's identity *is* its declared name for the binary
+/// schema.
 #[allow(dead_code)]
 pub(crate) fn lower_sort(
     ctx: &TypeCheckContext,
@@ -154,9 +152,7 @@ pub(crate) fn lower_sort(
     id: ResolvedSortId,
 ) -> DataSortExpression {
     match ctx.sorts.get(id) {
-        ResolvedSort::Unit => {
-            unreachable!("Unit is only used for the sort of an action, never a data-expression sort")
-        }
+        ResolvedSort::Unit => unreachable_not_a_value_sort("Unit"),
         ResolvedSort::Primitive(sort) => BasicSort::new(primitive_name(*sort)).into(),
         ResolvedSort::Generic { op, subsort } => {
             SortCons::new(container_kind(*op), lower_sort(ctx, spec, system, *subsort)).into()
@@ -166,15 +162,8 @@ pub(crate) fn lower_sort(
                 domain.iter().map(|&sort| lower_sort(ctx, spec, system, sort)).collect();
             SortArrow::new(&domain, lower_sort(ctx, spec, system, *range)).into()
         }
-        ResolvedSort::Def(def) => {
-            let name = ctx.sort_name(spec, system, *def).unwrap_or("@sort_unknown");
-            BasicSort::new(name).into()
-        }
-        ResolvedSort::Var(_) => unreachable!(
-            "a bound type variable denotes a scheme, not a ground sort: it is always instantiated \
-             to a fresh unification variable (ConstraintGenerator::instantiate_scheme) before Phase-3 \
-             solving ever produces a ResolvedSortId, so one can never reach lowering"
-        ),
+        ResolvedSort::Def(def) => BasicSort::new(ctx.sort_display_name(spec, system, *def).as_ref()).into(),
+        ResolvedSort::Var(_) => unreachable_not_a_value_sort("Var"),
     }
 }
 
