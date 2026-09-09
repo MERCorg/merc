@@ -20,7 +20,7 @@ use super::PresError;
 use super::check;
 
 /// A type-checked mCRL2 PRES.
-/// 
+///
 /// Does not check PRES well-formedness properties like monotonicity of
 /// propositional variables.
 pub struct PresSpecification {
