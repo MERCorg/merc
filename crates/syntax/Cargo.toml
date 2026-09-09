@@ -30,6 +30,7 @@ log.workspace = true
 pest_derive.workspace = true
 pest.workspace = true
 rand.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 indoc.workspace = true
