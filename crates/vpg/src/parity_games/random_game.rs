@@ -1,21 +1,33 @@
-use oxidd::BooleanFunction;
-use oxidd::Manager;
-use oxidd::ManagerRef;
-use oxidd::bdd::BDDFunction;
-use oxidd::bdd::BDDManagerRef;
 use rand::Rng;
-
-use merc_symbolic::random_bdd;
-use merc_utilities::MercError;
 use rand::RngExt;
 
-use crate::PG;
 use crate::ParityGame;
 use crate::ParityGameBuilder;
 use crate::Player;
 use crate::Priority;
-use crate::VariabilityParityGame;
 use crate::VertexIndex;
+
+#[cfg(test)]
+use oxidd::BooleanFunction;
+#[cfg(test)]
+use oxidd::Manager;
+#[cfg(test)]
+use oxidd::ManagerRef;
+#[cfg(test)]
+use oxidd::bdd::BDDFunction;
+#[cfg(test)]
+use oxidd::bdd::BDDManagerRef;
+
+#[cfg(test)]
+use merc_symbolic::random_bdd;
+#[cfg(test)]
+use merc_utilities::MercError;
+
+#[cfg(test)]
+use crate::PG;
+#[cfg(test)]
+use crate::VariabilityParityGame;
+#[cfg(test)]
 use crate::make_vpg_total;
 
 /// Creates a random parity game with the given number of vertices, priorities, and outdegree.
@@ -48,8 +60,10 @@ pub fn random_parity_game<R: Rng>(
     builder.finish(make_total, true)
 }
 
-/// Creates a random parity game with the given number of vertices, priorities, and outdegree.
-pub fn random_variability_parity_game<R: Rng>(
+/// Creates a random variability parity game with the given number of vertices, priorities, and
+/// outdegree.
+#[cfg(test)]
+pub(crate) fn random_variability_parity_game<R: Rng>(
     manager_ref: &BDDManagerRef,
     rng: &mut R,
     make_total: bool,

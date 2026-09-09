@@ -37,8 +37,9 @@ use crate::VertexIndex;
 ///
 /// parity <num_of_vertices>;
 /// `<index> <priority> <owner> <outgoing_vertex>,<outgoing_vertex>,...;`
-/// Each outgoing edge is represented as `<to>|<configuration_set>`. For the
-/// format of the configuration set see [parse_configuration_set]
+/// Each outgoing edge is represented as `<to>|<configuration_set>`, where the configuration set
+/// is a string \<entry\>+\<entry\>+..., each entry a sequence of '-', '0', and '1' (don't care,
+/// false, true) with one character per boolean variable, in variable order.
 pub fn read_vpg<R: Read>(manager: &BDDManagerRef, reader: R) -> Result<VariabilityParityGame, MercError> {
     info!("Reading variability parity game in .vpg format...");
 

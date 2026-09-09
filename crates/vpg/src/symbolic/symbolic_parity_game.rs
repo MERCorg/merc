@@ -553,7 +553,7 @@ impl SymbolicParityGame {
         Ok(v.minus(&attracted)?)
     }
 
-    /// One-shot [`Self::control_predecessors`], with `outside` computed automatically as `v \
+    /// One-shot control-predecessors computation, with `outside` computed automatically as `v \
     /// u` and its strategy contribution discarded.
     pub fn control_predecessors_within(
         &self,

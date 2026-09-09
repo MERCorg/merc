@@ -253,7 +253,8 @@ pub struct PrioSubgame<'a, G: PG, P: Pred = Predecessors<'a>> {
 
 impl<'a, G: PG> PrioSubgame<'a, G, Predecessors<'a>> {
     /// Create a new sub-game induced by the given strategy on the given game.
-    pub fn new(game: &'a G, max_priority: Priority) -> PrioSubgame<'a, G, Predecessors<'a>> {
+    #[cfg(test)]
+    pub(crate) fn new(game: &'a G, max_priority: Priority) -> PrioSubgame<'a, G, Predecessors<'a>> {
         PrioSubgame::with_predecessors(game, max_priority, Predecessors::new(game))
     }
 }

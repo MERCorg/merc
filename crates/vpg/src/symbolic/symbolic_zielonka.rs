@@ -17,7 +17,7 @@ use crate::Repeat;
 use crate::SymbolicParityGame;
 use crate::symbolic::AttractorProgress;
 
-/// Progress reported by [`zielonka`]'s recursion.
+/// Progress reported by `zielonka`'s recursion.
 pub type RecursionProgress = TimeProgress<(usize, usize)>;
 
 /// The winning sets of both players in a symbolic parity game, indexed by [`Player::to_index`].

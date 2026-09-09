@@ -97,8 +97,8 @@ impl PGBuilder for () {
 ///
 /// Edges are stored in a pair of [`ByteCompressedVec`] columns rather than a
 /// `Vec<(VertexIndex, VertexIndex)>`, for the same reason `merc_lts::LtsBuilderMem`
-/// does: it keeps memory usage down for large games. See
-/// [`ParityGameBuilder::remove_duplicates`] for how deduplication avoids ever
+/// does: it keeps memory usage down for large games. Deduplication buckets edges by
+/// their `from` vertex and removes repeats within each bucket, which avoids ever
 /// sorting or permuting those columns. The per-vertex owner and priority arrays
 /// are stored in the same compact form that [`ParityGame`] itself uses, so
 /// [`ParityGameBuilder::finish`] can hand them over without a conversion.

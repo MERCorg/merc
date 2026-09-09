@@ -54,7 +54,7 @@ impl SafetyMode {
 }
 
 /// Solves as much of `epg.game.vertices()` as [`SymbolicParityGame::compute_total_graph`] and two
-/// plain [`zielonka`] calls, restricted to the *safe* vertices of each player, can resolve.
+/// plain `zielonka` calls, restricted to the *safe* vertices of each player, can resolve.
 ///
 /// Extends `partial_solution` rather than replacing it, and returns early once
 /// `epg.initial_vertex` is resolved; sound but not necessarily complete, so a real subset of
@@ -119,8 +119,9 @@ pub fn partial_solve(
 /// least one edge staying inside `U`, so `alpha` can simply choose to loop inside `U` forever
 /// (winning it outright, since `U` only ever contains vertices at `alpha`'s own parity).
 ///
-/// Uses [`SafetyMode::Safe`] — see [`detect_solitair_cycles_within_safe_vertices`] for the
-/// [`SafetyMode::Restricted`] variant.
+/// Folds `incomplete` directly into every attractor call — see
+/// [`detect_solitair_cycles_within_safe_vertices`] for the variant that instead restricts the
+/// whole search up front to the safe vertices of each player.
 pub fn detect_solitair_cycles(
     epg: &ExtendedParityGame,
     incomplete: &LDDFunction,
@@ -130,11 +131,12 @@ pub fn detect_solitair_cycles(
     detect_solitair_cycles_impl(epg, incomplete, false, partial_solution, attractor_progress)
 }
 
-/// Like [`detect_solitair_cycles`], but using [`SafetyMode::Restricted`]: restricts the whole
-/// search up front to [`SymbolicParityGame::safe_vertices`] instead of folding `incomplete`
-/// directly into every attractor call — see [`SafetyMode`]'s doc comment for why this finds the
-/// same dominion, at a higher up-front cost, rather than a different (cheaper or more
-/// conservative) one.
+/// Like [`detect_solitair_cycles`], but restricts the whole search up front to
+/// [`SymbolicParityGame::safe_vertices`] instead of folding `incomplete` directly into every
+/// attractor call. This finds the same dominion, at a higher up-front cost (two extra full
+/// `safe_vertices` attractor fixed points), rather than a different (cheaper or more
+/// conservative) one — see the "On-the-fly and partial solving" page on the merc-website
+/// developer docs for the derivation.
 pub fn detect_solitair_cycles_within_safe_vertices(
     epg: &ExtendedParityGame,
     incomplete: &LDDFunction,
@@ -202,8 +204,9 @@ fn detect_solitair_cycles_impl(
 /// [`detect_solitair_cycles`], `U` is not restricted to `alpha`'s own vertices, so an
 /// opponent-owned vertex only joins `U` once every one of its edges is proven to stay inside.
 ///
-/// Uses [`SafetyMode::Safe`] — see [`detect_forced_cycles_within_safe_vertices`] for the
-/// [`SafetyMode::Restricted`] variant.
+/// Folds `incomplete` directly into every attractor/control-predecessor call — see
+/// [`detect_forced_cycles_within_safe_vertices`] for the variant that instead restricts the whole
+/// search up front to the safe vertices of each player.
 pub fn detect_forced_cycles(
     epg: &ExtendedParityGame,
     incomplete: &LDDFunction,
@@ -213,8 +216,10 @@ pub fn detect_forced_cycles(
     detect_forced_cycles_impl(epg, incomplete, false, partial_solution, attractor_progress)
 }
 
-/// Like [`detect_forced_cycles`], but using [`SafetyMode::Restricted`] — see
-/// [`SafetyMode`]'s doc comment for what actually differs between the two.
+/// Like [`detect_forced_cycles`], but restricts the whole search up front to
+/// [`SymbolicParityGame::safe_vertices`] instead of folding `incomplete` directly into every
+/// attractor/control-predecessor call. This finds the same dominion, at a higher up-front cost,
+/// rather than a different (cheaper or more conservative) one.
 pub fn detect_forced_cycles_within_safe_vertices(
     epg: &ExtendedParityGame,
     incomplete: &LDDFunction,
