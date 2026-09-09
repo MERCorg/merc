@@ -1451,6 +1451,7 @@ dependencies = [
  "rand",
  "tempfile",
  "test-case",
+ "thiserror",
 ]
 
 [[package]]

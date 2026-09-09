@@ -6,12 +6,14 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 
+use merc_pest_consume::Error as PestError;
 use merc_utilities::MercError;
 use merc_utilities::SourceId;
 use merc_utilities::SourceMap;
 use merc_utilities::Span;
 use merc_utilities::Spanned;
 
+use crate::Rule;
 use crate::UntypedDataSpecification;
 use crate::UntypedProcessSpecification;
 use crate::UntypedStateFrmSpec;
@@ -25,28 +27,73 @@ pub struct ImportDirective {
     pub path_span: Span,
 }
 
-/// An `%import "relative/path"` directive whose target couldn't be resolved.
-#[derive(Debug)]
-pub struct ImportError {
-    /// The relative path exactly as written in the directive (`directive.node.path`), not the
-    /// path it was resolved against the importing file's directory to.
-    pub path: String,
-    /// Span of the failing directive's own quoted path, at the importing file's global (shared
-    /// [SourceMap]) offset.
-    pub span: Span,
-    /// The underlying failure's own message — another [ImportError]'s [Display](std::fmt::Display)
-    /// output, one level further down, when the failure is a transitively imported file's own
-    /// unresolved import rather than this directive's target itself.
-    message: String,
+/// A failure resolving the import graph rooted at one `parse_with_imports` call: an `%import`
+/// directive whose target couldn't be resolved, an import cycle, or a file (reached directly or
+/// transitively) that failed to parse.
+///
+/// Every variant keeps the failure's own underlying error structured — as the original
+/// [MercError] rather than a message rendered into a `String` — so a caller with access to the
+/// [SourceMap] (an LSP) can recover it via [MercError::downcast_ref] and build a precise
+/// diagnostic, instead of re-parsing formatted text. [ImportError::pest_error] does exactly that
+/// for a parse failure, however deeply nested behind [ImportError::Unresolved] layers it is.
+#[derive(Debug, thiserror::Error)]
+pub enum ImportError {
+    /// A `%import` directive's target couldn't be loaded: the file is missing or unreadable,
+    /// fails to parse ([ImportError::Parse]), or has an unresolved import of its own (another
+    /// [ImportError], one level further down).
+    #[error("cannot resolve %import \"{path}\": {cause}")]
+    Unresolved {
+        /// The relative path exactly as written in the directive (`directive.node.path`), not
+        /// the path it was resolved against the importing file's directory to.
+        path: String,
+        /// Span of the failing directive's own quoted path, at the importing file's global
+        /// (shared [SourceMap]) offset.
+        span: Span,
+        /// The underlying failure, kept as the original [MercError].
+        cause: MercError,
+    },
+
+    /// A cycle of `%import` directives, each importing the next, with no acyclic root.
+    #[error("import cycle detected:\n  {}", cycle.join("\n  imports "))]
+    Cycle {
+        /// The cyclic chain of canonicalized paths, outermost first, already rendered for
+        /// display (a caller wanting the raw paths back would need to re-canonicalize).
+        cycle: Vec<String>,
+    },
+
+    /// A file reached via `%import` (or the root file of the resolution itself) failed to parse.
+    #[error("in {}:\n{cause}", path.display())]
+    Parse {
+        path: PathBuf,
+        /// The parser's own [MercError].
+        cause: MercError,
+    },
 }
 
-impl std::fmt::Display for ImportError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "cannot resolve %import \"{}\": {}", self.path, self.message)
+impl ImportError {
+    /// The span of the failing `%import` directive itself. `None` for [ImportError::Cycle] and
+    /// [ImportError::Parse], neither of which is anchored to one particular directive.
+    pub fn span(&self) -> Option<&Span> {
+        match self {
+            ImportError::Unresolved { span, .. } => Some(span),
+            ImportError::Cycle { .. } | ImportError::Parse { .. } => None,
+        }
+    }
+
+    /// If this failure was ultimately a parse failure — reached directly or through any number
+    /// of nested [ImportError::Unresolved] layers — the pest parser's own error, carrying
+    /// line/column and expected-token information a caller can turn into a precise diagnostic.
+    /// `None` for a missing file, an I/O error, or an import cycle.
+    pub fn pest_error(&self) -> Option<&PestError<Rule>> {
+        match self {
+            ImportError::Parse { cause, .. } => cause.downcast_ref(),
+            ImportError::Unresolved { cause, .. } => {
+                cause.downcast_ref::<ImportError>().and_then(ImportError::pest_error)
+            }
+            ImportError::Cycle { .. } => None,
+        }
     }
 }
-
-impl std::error::Error for ImportError {}
 
 /// Scans `text` line by line for `%import "relative/path"` directives: a line,
 /// once its leading and trailing whitespace is trimmed, of the exact shape
@@ -198,9 +245,8 @@ impl<'a, T: ImportMergeable> Resolver<'a, T> {
                 .iter()
                 .chain(std::iter::once(&canonical))
                 .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-                .join("\n  imports ");
-            return Err(format!("import cycle detected:\n  {cycle}").into());
+                .collect::<Vec<_>>();
+            return Err(MercError::from(ImportError::Cycle { cycle }));
         }
 
         // A file is the *root* of this resolution exactly when nothing is on the stack yet.
@@ -223,10 +269,10 @@ impl<'a, T: ImportMergeable> Resolver<'a, T> {
             let import_path = directory.join(&directive.node.path);
             self.load(&import_path, output).map_err(|error| {
                 let span = Span::new(base + directive.span.start, base + directive.span.end);
-                MercError::from(ImportError {
+                MercError::from(ImportError::Unresolved {
                     path: directive.node.path.clone(),
                     span,
-                    message: error.to_string(),
+                    cause: error,
                 })
             })?;
         }
@@ -234,7 +280,12 @@ impl<'a, T: ImportMergeable> Resolver<'a, T> {
         // Padding `text` with `base` leading spaces before parsing makes every byte offset pest
         // reports already correct in the shared, global space.
         let padded = " ".repeat(base) + &text;
-        let file_spec = T::parse_padded(&padded).map_err(|error| format!("in {}:\n{error}", path.display()))?;
+        let file_spec = T::parse_padded(&padded).map_err(|error| {
+            MercError::from(ImportError::Parse {
+                path: path.to_path_buf(),
+                cause: error,
+            })
+        })?;
         if is_root {
             output.merge_own(&file_spec);
         } else {
@@ -315,17 +366,21 @@ impl UntypedStateFrmSpec {
             let import_path = directory.join(&directive.node.path);
             resolver.load(&import_path, &mut imported).map_err(|error| {
                 let span = Span::new(base + directive.span.start, base + directive.span.end);
-                MercError::from(ImportError {
+                MercError::from(ImportError::Unresolved {
                     path: directive.node.path.clone(),
                     span,
-                    message: error.to_string(),
+                    cause: error,
                 })
             })?;
         }
 
         let padded = " ".repeat(base) + &text;
-        let mut spec =
-            UntypedStateFrmSpec::parse(&padded).map_err(|error| format!("in {}:\n{error}", root_path.display()))?;
+        let mut spec = UntypedStateFrmSpec::parse(&padded).map_err(|error| {
+            MercError::from(ImportError::Parse {
+                path: root_path.to_path_buf(),
+                cause: error,
+            })
+        })?;
 
         // `imported` was built the same way `Resolver::load` builds up a file's own accumulator.
         imported.data_specification.merge(&spec.data_specification);
@@ -491,8 +546,11 @@ mod tests {
         let import_error = error
             .downcast_ref::<ImportError>()
             .expect("expected a structured ImportError");
-        assert_eq!(import_error.path, "missing.mcrl2");
-        assert_eq!(import_error.span, Span::new(0, text.find('\n').unwrap()));
+        let ImportError::Unresolved { path, .. } = import_error else {
+            panic!("expected ImportError::Unresolved, got: {import_error:?}");
+        };
+        assert_eq!(path, "missing.mcrl2");
+        assert_eq!(import_error.span(), Some(&Span::new(0, text.find('\n').unwrap())));
     }
 
     #[test]
@@ -514,11 +572,80 @@ mod tests {
         let import_error = error
             .downcast_ref::<ImportError>()
             .expect("expected a structured ImportError");
-        assert_eq!(import_error.path, "common.mcrl2");
-        assert_eq!(import_error.span, Span::new(0, main_text.find('\n').unwrap()));
+        let ImportError::Unresolved { path, .. } = import_error else {
+            panic!("expected ImportError::Unresolved, got: {import_error:?}");
+        };
+        assert_eq!(path, "common.mcrl2");
+        assert_eq!(import_error.span(), Some(&Span::new(0, main_text.find('\n').unwrap())));
         assert!(
             import_error.to_string().contains("missing.mcrl2"),
             "expected the nested failure to still be mentioned in the message, got: {import_error}"
+        );
+
+        // The nested failure is preserved structurally too: the transitively missing import's
+        // own `ImportError` is downcastable straight out of the outer one's `cause`, not just
+        // mentioned in the rendered message.
+        let ImportError::Unresolved { cause, .. } = import_error else {
+            unreachable!()
+        };
+        let nested = cause
+            .downcast_ref::<ImportError>()
+            .expect("expected the transitively missing import to also be a structured ImportError");
+        let ImportError::Unresolved { path, .. } = nested else {
+            panic!("expected ImportError::Unresolved, got: {nested:?}");
+        };
+        assert_eq!(path, "missing.mcrl2");
+    }
+
+    #[test]
+    fn test_parse_with_imports_reports_a_syntax_error_as_a_structured_pest_error() {
+        // A caller with access to the `SourceMap` (an LSP) needs the parser's own error object —
+        // not just a rendered "in <path>: <message>" string — to build a precise diagnostic
+        // (line/column, expected tokens) for a genuine grammar failure.
+        let dir = temp_project(&[("main.mcrl2", "sort D\n")]); // missing the trailing `;`
+
+        let mut sources = SourceMap::new();
+        let error = UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
+            .expect_err("a syntax error must fail parsing");
+
+        let import_error = error
+            .downcast_ref::<ImportError>()
+            .expect("expected a structured ImportError");
+        assert!(
+            matches!(import_error, ImportError::Parse { .. }),
+            "expected ImportError::Parse, got: {import_error:?}"
+        );
+        assert!(
+            import_error.pest_error().is_some(),
+            "expected the underlying pest error to be recoverable, got: {import_error:?}"
+        );
+    }
+
+    #[test]
+    fn test_parse_with_imports_recovers_a_transitively_imported_files_syntax_error() {
+        // The broken file here is reached only through `main.mcrl2`'s own `%import`, so the
+        // error surfaces wrapped in an `ImportError::Unresolved` layer — `pest_error` must still
+        // recover the parser's own error through that layer.
+        let dir = temp_project(&[
+            ("main.mcrl2", "%import \"common.mcrl2\"\nmap g: D;\n"),
+            ("common.mcrl2", "sort D\n"), // missing the trailing `;`
+        ]);
+
+        let mut sources = SourceMap::new();
+        let error = UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
+            .expect_err("a transitively broken import must fail");
+
+        let import_error = error
+            .downcast_ref::<ImportError>()
+            .expect("expected a structured ImportError");
+        assert!(
+            matches!(import_error, ImportError::Unresolved { .. }),
+            "expected ImportError::Unresolved, got: {import_error:?}"
+        );
+        assert!(
+            import_error.pest_error().is_some(),
+            "expected the transitively imported file's syntax error to be recoverable through \
+             the Unresolved layer, got: {import_error:?}"
         );
     }
 
