@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::hash::Hash;
@@ -164,6 +165,20 @@ impl TypeCheckContext {
             .sort_declarations
             .get(system_index)
             .map(|decl| decl.identifier.as_str())
+    }
+
+    /// As [`Self::sort_name`], but falls back to a synthesized `@sort_N` placeholder instead of
+    /// `None` when `def` is out of range.
+    pub(crate) fn sort_display_name<'a>(
+        &'a self,
+        spec: &'a UntypedDataSpecification,
+        system: &'a UntypedDataSpecification,
+        def: DefId,
+    ) -> Cow<'a, str> {
+        match self.sort_name(spec, system, def) {
+            Some(name) => Cow::Borrowed(name),
+            None => Cow::Owned(format!("@sort_{}", def.value())),
+        }
     }
 }
 

@@ -6,6 +6,7 @@ use indoc::formatdoc;
 
 use merc_syntax::ComplexSort;
 use merc_syntax::ConstructorDecl;
+use merc_syntax::OffsetSpans;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
 use merc_syntax::SourceMap;
@@ -32,10 +33,9 @@ pub(crate) fn parse_template_bare(text: &str) -> UntypedDataSpecification {
 }
 
 /// Registers `text` under `name` as a virtual source in `sources` (see
-/// [SourceMap::add_virtual]) and parses it padded to that registration's base
-/// offset, so every span pest reports already lands at the correct global
-/// offset — the same padding technique [merc_syntax::imports] uses for
-/// `%import`.
+/// [SourceMap::add_virtual]) and parses it, then shifts every span it produced
+/// into that registration's base offset — the same offsetting technique
+/// [merc_syntax::imports] uses for `%import`.
 fn parse_template(sources: &mut SourceMap, name: &str, text: &str) -> UntypedDataSpecification {
     parse_generated(sources, name, text).expect("the bundled templates parse")
 }
@@ -48,8 +48,8 @@ fn parse_template(sources: &mut SourceMap, name: &str, text: &str) -> UntypedDat
 fn parse_generated(sources: &mut SourceMap, name: &str, text: &str) -> Result<UntypedDataSpecification, MercError> {
     let id = sources.add_virtual(name, text.to_string());
     let base = sources.base_offset(id);
-    let padded = " ".repeat(base) + text;
-    let mut spec = UntypedDataSpecification::parse(&padded)?;
+    let mut spec = UntypedDataSpecification::parse(text)?;
+    spec.offset_spans(base);
     // As in `parse_template_bare`: resolves a template's own `type_var` block, if
     // it has one. Content this module generates itself (`multi_argument_function_update`,
     // `structured_sort_equations`) never declares one, so this is a no-op there.
@@ -57,34 +57,81 @@ fn parse_generated(sources: &mut SourceMap, name: &str, text: &str) -> Result<Un
     Ok(spec)
 }
 
+/// Registers `text` under `name` as a virtual source in `sources`, the same as [parse_template].
+fn register_bare_template(
+    sources: &mut SourceMap,
+    name: &str,
+    text: &'static str,
+    template: &UntypedDataSpecification,
+) -> UntypedDataSpecification {
+    let id = sources.add_virtual(name, text);
+    let base = sources.base_offset(id);
+    let mut spec = template.clone();
+    spec.offset_spans(base);
+    spec
+}
+
+/// The raw, uninstantiated basic-sort templates, parsed once and span shifted
+/// when necessary.
+struct BasicSortTemplates {
+    bool: UntypedDataSpecification,
+    pos: UntypedDataSpecification,
+    int: UntypedDataSpecification,
+    nat: UntypedDataSpecification,
+    real: UntypedDataSpecification,
+    machine_word: UntypedDataSpecification,
+    pos64: UntypedDataSpecification,
+    int64: UntypedDataSpecification,
+    nat64: UntypedDataSpecification,
+    real64: UntypedDataSpecification,
+}
+
+static BASIC_SORT_TEMPLATES: LazyLock<BasicSortTemplates> = LazyLock::new(|| BasicSortTemplates {
+    bool: parse_template_bare(include_str!("../../../syntax/spec/bool.mcrl2")),
+    pos: parse_template_bare(include_str!("../../../syntax/spec/pos.mcrl2")),
+    int: parse_template_bare(include_str!("../../../syntax/spec/int.mcrl2")),
+    nat: parse_template_bare(include_str!("../../../syntax/spec/nat.mcrl2")),
+    real: parse_template_bare(include_str!("../../../syntax/spec/real.mcrl2")),
+    machine_word: parse_template_bare(include_str!("../../../syntax/spec/machine_word.mcrl2")),
+    pos64: parse_template_bare(include_str!("../../../syntax/spec/pos64.mcrl2")),
+    int64: parse_template_bare(include_str!("../../../syntax/spec/int64.mcrl2")),
+    nat64: parse_template_bare(include_str!("../../../syntax/spec/nat64.mcrl2")),
+    real64: parse_template_bare(include_str!("../../../syntax/spec/real64.mcrl2")),
+});
+
 /// The merged specifications of the five basic sorts (Appendix B.1–B.7) in the
 /// recursive binary encoding, registered into `sources` as virtual documents.
 fn basic_sorts_binary(sources: &mut SourceMap) -> UntypedDataSpecification {
     let mut result = UntypedDataSpecification::default();
-    result.merge(&parse_template(
+    result.merge(&register_bare_template(
         sources,
         "<builtin>/bool.mcrl2",
         include_str!("../../../syntax/spec/bool.mcrl2"),
+        &BASIC_SORT_TEMPLATES.bool,
     ));
-    result.merge(&parse_template(
+    result.merge(&register_bare_template(
         sources,
         "<builtin>/pos.mcrl2",
         include_str!("../../../syntax/spec/pos.mcrl2"),
+        &BASIC_SORT_TEMPLATES.pos,
     ));
-    result.merge(&parse_template(
+    result.merge(&register_bare_template(
         sources,
         "<builtin>/int.mcrl2",
         include_str!("../../../syntax/spec/int.mcrl2"),
+        &BASIC_SORT_TEMPLATES.int,
     ));
-    result.merge(&parse_template(
+    result.merge(&register_bare_template(
         sources,
         "<builtin>/nat.mcrl2",
         include_str!("../../../syntax/spec/nat.mcrl2"),
+        &BASIC_SORT_TEMPLATES.nat,
     ));
-    result.merge(&parse_template(
+    result.merge(&register_bare_template(
         sources,
         "<builtin>/real.mcrl2",
         include_str!("../../../syntax/spec/real.mcrl2"),
+        &BASIC_SORT_TEMPLATES.real,
     ));
     result
 }
@@ -95,35 +142,41 @@ fn basic_sorts_binary(sources: &mut SourceMap) -> UntypedDataSpecification {
 /// `machine_word.mcrl2` declares.
 fn basic_sorts_machine_word(sources: &mut SourceMap) -> UntypedDataSpecification {
     let mut result = UntypedDataSpecification::default();
-    result.merge(&parse_template(
+    result.merge(&register_bare_template(
         sources,
         "<builtin>/bool.mcrl2",
         include_str!("../../../syntax/spec/bool.mcrl2"),
+        &BASIC_SORT_TEMPLATES.bool,
     ));
-    result.merge(&parse_template(
+    result.merge(&register_bare_template(
         sources,
         "<builtin>/machine_word.mcrl2",
         include_str!("../../../syntax/spec/machine_word.mcrl2"),
+        &BASIC_SORT_TEMPLATES.machine_word,
     ));
-    result.merge(&parse_template(
+    result.merge(&register_bare_template(
         sources,
         "<builtin>/pos64.mcrl2",
         include_str!("../../../syntax/spec/pos64.mcrl2"),
+        &BASIC_SORT_TEMPLATES.pos64,
     ));
-    result.merge(&parse_template(
+    result.merge(&register_bare_template(
         sources,
         "<builtin>/int64.mcrl2",
         include_str!("../../../syntax/spec/int64.mcrl2"),
+        &BASIC_SORT_TEMPLATES.int64,
     ));
-    result.merge(&parse_template(
+    result.merge(&register_bare_template(
         sources,
         "<builtin>/nat64.mcrl2",
         include_str!("../../../syntax/spec/nat64.mcrl2"),
+        &BASIC_SORT_TEMPLATES.nat64,
     ));
-    result.merge(&parse_template(
+    result.merge(&register_bare_template(
         sources,
         "<builtin>/real64.mcrl2",
         include_str!("../../../syntax/spec/real64.mcrl2"),
+        &BASIC_SORT_TEMPLATES.real64,
     ));
     result
 }
@@ -169,6 +222,18 @@ pub(crate) static CONTAINER_TEMPLATES: LazyLock<ContainerTemplates> = LazyLock::
     function_update: parse_template_bare(include_str!("../../../syntax/spec/function_update.mcrl2")),
 });
 
+/// As [CONTAINER_TEMPLATES], for the container templates whose equations are expressed in terms of
+/// the machine-word numeric sorts. `function_update` is left unparsed here — it mentions no
+/// numbers, so [container_templates_machine_word] shares [CONTAINER_TEMPLATES]'s copy instead.
+static CONTAINER_TEMPLATES_MACHINE_WORD: LazyLock<ContainerTemplates> = LazyLock::new(|| ContainerTemplates {
+    list: parse_template_bare(include_str!("../../../syntax/spec/list64.mcrl2")),
+    set: parse_template_bare(include_str!("../../../syntax/spec/set64.mcrl2")),
+    fset: parse_template_bare(include_str!("../../../syntax/spec/fset64.mcrl2")),
+    bag: parse_template_bare(include_str!("../../../syntax/spec/bag64.mcrl2")),
+    fbag: parse_template_bare(include_str!("../../../syntax/spec/fbag64.mcrl2")),
+    function_update: parse_template_bare(include_str!("../../../syntax/spec/function_update.mcrl2")),
+});
+
 /// The container templates in the recursive binary encoding, registered into
 /// `sources` as virtual documents — the content-producing counterpart of
 /// [CONTAINER_TEMPLATES], used wherever the result joins a [DataSpecification]'s
@@ -177,35 +242,41 @@ pub(crate) static CONTAINER_TEMPLATES: LazyLock<ContainerTemplates> = LazyLock::
 /// [DataSpecification]: crate::DataSpecification
 fn container_templates_binary(sources: &mut SourceMap) -> ContainerTemplates {
     ContainerTemplates {
-        list: parse_template(
+        list: register_bare_template(
             sources,
             "<builtin>/list.mcrl2",
             include_str!("../../../syntax/spec/list.mcrl2"),
+            &CONTAINER_TEMPLATES.list,
         ),
-        set: parse_template(
+        set: register_bare_template(
             sources,
             "<builtin>/set.mcrl2",
             include_str!("../../../syntax/spec/set.mcrl2"),
+            &CONTAINER_TEMPLATES.set,
         ),
-        fset: parse_template(
+        fset: register_bare_template(
             sources,
             "<builtin>/fset.mcrl2",
             include_str!("../../../syntax/spec/fset.mcrl2"),
+            &CONTAINER_TEMPLATES.fset,
         ),
-        bag: parse_template(
+        bag: register_bare_template(
             sources,
             "<builtin>/bag.mcrl2",
             include_str!("../../../syntax/spec/bag.mcrl2"),
+            &CONTAINER_TEMPLATES.bag,
         ),
-        fbag: parse_template(
+        fbag: register_bare_template(
             sources,
             "<builtin>/fbag.mcrl2",
             include_str!("../../../syntax/spec/fbag.mcrl2"),
+            &CONTAINER_TEMPLATES.fbag,
         ),
-        function_update: parse_template(
+        function_update: register_bare_template(
             sources,
             "<builtin>/function_update.mcrl2",
             include_str!("../../../syntax/spec/function_update.mcrl2"),
+            &CONTAINER_TEMPLATES.function_update,
         ),
     }
 }
@@ -215,35 +286,41 @@ fn container_templates_binary(sources: &mut SourceMap) -> ContainerTemplates {
 /// it is shared with the binary encoding.
 fn container_templates_machine_word(sources: &mut SourceMap) -> ContainerTemplates {
     ContainerTemplates {
-        list: parse_template(
+        list: register_bare_template(
             sources,
             "<builtin>/list64.mcrl2",
             include_str!("../../../syntax/spec/list64.mcrl2"),
+            &CONTAINER_TEMPLATES_MACHINE_WORD.list,
         ),
-        set: parse_template(
+        set: register_bare_template(
             sources,
             "<builtin>/set64.mcrl2",
             include_str!("../../../syntax/spec/set64.mcrl2"),
+            &CONTAINER_TEMPLATES_MACHINE_WORD.set,
         ),
-        fset: parse_template(
+        fset: register_bare_template(
             sources,
             "<builtin>/fset64.mcrl2",
             include_str!("../../../syntax/spec/fset64.mcrl2"),
+            &CONTAINER_TEMPLATES_MACHINE_WORD.fset,
         ),
-        bag: parse_template(
+        bag: register_bare_template(
             sources,
             "<builtin>/bag64.mcrl2",
             include_str!("../../../syntax/spec/bag64.mcrl2"),
+            &CONTAINER_TEMPLATES_MACHINE_WORD.bag,
         ),
-        fbag: parse_template(
+        fbag: register_bare_template(
             sources,
             "<builtin>/fbag64.mcrl2",
             include_str!("../../../syntax/spec/fbag64.mcrl2"),
+            &CONTAINER_TEMPLATES_MACHINE_WORD.fbag,
         ),
-        function_update: parse_template(
+        function_update: register_bare_template(
             sources,
             "<builtin>/function_update.mcrl2",
             include_str!("../../../syntax/spec/function_update.mcrl2"),
+            &CONTAINER_TEMPLATES.function_update,
         ),
     }
 }
