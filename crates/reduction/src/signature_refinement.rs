@@ -466,7 +466,6 @@ where
                 // (branching) Keep track of the signature for every block in the next partition.
                 state_to_key[state_index] = index;
 
-                trace!("State {state_index} signature {builder:?} index {index}");
                 index
             })
         {
@@ -507,14 +506,14 @@ where
             }
         }
 
-        trace!("Iteration {iteration} partition {partition}");
+        // trace!("Iteration {iteration} partition {partition}");
 
         iteration += 1;
 
         progress.print((iteration, partition.num_of_blocks()));
     }
 
-    trace!("Refinement partition {partition}");
+    // trace!("Refinement partition {partition}");
     partition
 }
 
