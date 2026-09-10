@@ -105,6 +105,47 @@ fn pres_specification_parses() {
     assert_eq!(pres.equations.len(), 2);
 }
 
+/// Test that PRES examples print and parse back to the same form.
+#[test]
+fn pres_examples_print_parse_fixpoint() {
+    let examples = [
+        "pres mu X = true; init X;",
+        "pres mu X = false; init X;",
+        "pres mu X = val(1); init X;",
+        "pres mu X = Y; nu Y = X; init Y;",
+        "pres mu X = eqinf(val(1)); init X;",
+        "pres mu X = eqninf(val(1)); init X;",
+        "pres mu X = condsm(val(1), val(2), val(3)); init X;",
+        "pres mu X = condeq(val(1), val(2), val(3)); init X;",
+        "pres mu X = -val(1); init X;",
+        "pres mu X = val(2) * val(1); init X;",
+        "pres mu X = val(1) * val(2); init X;",
+        "pres mu X = val(1) + val(2); init X;",
+        "pres mu X = val(1) => val(2); init X;",
+        "pres mu X = val(1) || val(2); init X;",
+        "pres mu X = val(1) && val(2); init X;",
+        "pres mu X(n: Nat) = inf n: Nat . val(n); init X(0);",
+        "pres mu X(n: Nat) = sup n: Nat . val(n); init X(0);",
+        "pres mu X(n: Nat) = sum n: Nat . val(n); init X(0);",
+        "pres \
+           mu X(n: Nat) = (val(n < 3) => X(n)) && eqinf(X(n)) + val(2) * X(n); \
+           nu Y = sup m: Nat . (Y + condsm(Y, Y, Y)); \
+         init X(0);",
+    ];
+
+    for input in examples {
+        let spec = UntypedPres::parse(input).unwrap_or_else(|e| panic!("failed to parse {input:?}: {e}"));
+        let printed = format!("{spec}");
+        let reparsed = UntypedPres::parse(&printed)
+            .unwrap_or_else(|e| panic!("printed PRES failed to reparse:\n{printed}\nerror: {e}"));
+        assert_eq!(
+            printed,
+            format!("{reparsed}"),
+            "PRES print/parse not a fixpoint for input {input:?}"
+        );
+    }
+}
+
 /// `visit_*` must return a `Break` value produced by a nested (non-root) node.
 #[test]
 fn visitor_breaks_from_nested_node() {

@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::ops::ControlFlow;
 
 use merc_syntax::ComplexSort;
-use merc_syntax::DefId;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SortId;
 use merc_syntax::Span;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedDataSpecification;
@@ -17,12 +17,12 @@ pub(crate) enum AliasError {
     /// sorts, so expanding it does not terminate. The cycle starts at the
     /// offending alias and lists the aliases visited along the way.
     #[error("alias cycle through {cycle:?}")]
-    Circular { cycle: Vec<DefId> },
+    Circular { cycle: Vec<SortId> },
     /// The alias reaches itself through a function sort, or a `Set` or `Bag`
     /// container, possibly via a structured sort. Such sorts have no sensible
     /// (cardinality-consistent) interpretation.
     #[error("sort {sort:?} is recursively defined via a function sort, or a set or a bag type container")]
-    ThroughFunctionSort { sort: DefId },
+    ThroughFunctionSort { sort: SortId },
 }
 
 /// Checks the alias declarations with two searches:
@@ -38,7 +38,7 @@ pub(crate) enum AliasError {
 ///
 /// Requires that all sort names in the specification have been resolved.
 pub(crate) fn check_aliases(spec: &UntypedDataSpecification) -> Result<(), (AliasError, Span)> {
-    let mut alias_map: HashMap<DefId, &SortExpression> = HashMap::new();
+    let mut alias_map: HashMap<SortId, &SortExpression> = HashMap::new();
     for sort_decl in &spec.sort_declarations {
         if let Some(alias) = &sort_decl.expr {
             alias_map.insert(sort_decl.id.expect("Name must have been resolved"), alias);
@@ -65,10 +65,10 @@ pub(crate) fn check_aliases(spec: &UntypedDataSpecification) -> Result<(), (Alia
 /// The circularity check: searches for `lhs` through aliases, containers and
 /// function sorts, stopping at structured sorts.
 fn check_circularity(
-    lhs: DefId,
+    lhs: SortId,
     rhs: &SortExpression,
-    visited: &mut Vec<DefId>,
-    alias_map: &HashMap<DefId, &SortExpression>,
+    visited: &mut Vec<SortId>,
+    alias_map: &HashMap<SortId, &SortExpression>,
 ) -> Result<(), AliasError> {
     rhs.visit_with::<(), (), AliasError, _>((), |expr, ()| match &expr.node {
         SortExpressionKind::Resolved(_, id) => {
@@ -101,11 +101,11 @@ fn check_circularity(
 /// Reports a loop only when a function sort or a `Set`/`Bag` container was
 /// passed along the way, indicated by the `is_function_like_sort` parameter.
 fn check_function_sort_loop(
-    lhs: DefId,
+    lhs: SortId,
     rhs: &SortExpression,
-    visited: &mut Vec<DefId>,
+    visited: &mut Vec<SortId>,
     is_function_like_sort: bool,
-    alias_map: &HashMap<DefId, &SortExpression>,
+    alias_map: &HashMap<SortId, &SortExpression>,
 ) -> Result<(), AliasError> {
     rhs.visit_with::<bool, (), AliasError, _>(is_function_like_sort, |expr, observed| match &expr.node {
         SortExpressionKind::Resolved(_, id) => {

@@ -46,8 +46,10 @@ use merc_syntax::ConstructorId;
 use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
 use merc_syntax::MapId;
+use merc_syntax::SortDecl;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SortId;
 use merc_syntax::Span;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedDataSpecification;
@@ -415,6 +417,15 @@ pub(crate) fn declared_span(span: &Span) -> Option<Span> {
     (*span != Span::default()).then(|| span.clone())
 }
 
+/// A single sort-name occurrence gathered by [`collect_sort_name_references`].
+pub(crate) struct SortReference {
+    pub(crate) span: Span,
+    pub(crate) name: String,
+    pub(crate) complex: Option<ComplexSort>,
+    /// The occurrence's own [`SortId`].
+    pub(crate) id: Option<SortId>,
+}
+
 /// Everything below gathers the raw material [`push_sort_references`] turns into
 /// [`ResolvedName::Sort`] nodes. Two-phase, because a sort-name occurrence can live in either of
 /// two places with very different lifetimes:
@@ -440,14 +451,32 @@ pub(crate) fn declared_span(span: &Span) -> Option<Span> {
 /// `FlattenedFunction`, `Struct`) are walked via [`Traverse`] until a named leaf is reached;
 /// `Complex`'s own subsort (`D` in `List(D)`) is one such leaf the recursion reaches on its own,
 /// once this function returns [`ControlFlow::Continue`] for the `Complex` node itself.
-pub(crate) fn collect_sort_name_references(sort: &SortExpression, out: &mut Vec<(Span, String)>) {
+pub(crate) fn collect_sort_name_references(sort: &SortExpression, out: &mut Vec<SortReference>) {
     sort.visit::<Infallible, _>(|node| {
         match &node.node {
-            SortExpressionKind::Reference(name) | SortExpressionKind::Resolved(name, _) => {
-                out.push((node.span.clone(), name.clone()));
+            SortExpressionKind::Reference(name) => {
+                out.push(SortReference {
+                    span: node.span.clone(),
+                    name: name.clone(),
+                    complex: None,
+                    id: None,
+                });
+            }
+            SortExpressionKind::Resolved(name, id) => {
+                out.push(SortReference {
+                    span: node.span.clone(),
+                    name: name.clone(),
+                    complex: None,
+                    id: Some(*id),
+                });
             }
             SortExpressionKind::Simple(sort) => {
-                out.push((node.span.clone(), sort.to_string()));
+                out.push(SortReference {
+                    span: node.span.clone(),
+                    name: sort.to_string(),
+                    complex: None,
+                    id: None,
+                });
             }
             SortExpressionKind::Complex(complex_sort, _) => {
                 let keyword = complex_sort.to_string();
@@ -455,7 +484,12 @@ pub(crate) fn collect_sort_name_references(sort: &SortExpression, out: &mut Vec<
                     start: node.span.start,
                     end: node.span.start + keyword.len(),
                 };
-                out.push((span, keyword));
+                out.push(SortReference {
+                    span,
+                    name: keyword,
+                    complex: Some(*complex_sort),
+                    id: None,
+                });
             }
             _ => {}
         }
@@ -472,7 +506,7 @@ pub(crate) fn collect_sort_name_references(sort: &SortExpression, out: &mut Vec<
 /// comment for where those are gathered instead.
 ///
 /// Must be called before [`crate::normalize_sorts`] — see this section's doc comment.
-pub(crate) fn collect_data_specification_sort_references(spec: &UntypedDataSpecification) -> Vec<(Span, String)> {
+pub(crate) fn collect_data_specification_sort_references(spec: &UntypedDataSpecification) -> Vec<SortReference> {
     let mut out = Vec::new();
 
     for expr in spec.sort_declarations.iter().filter_map(|decl| decl.expr.as_ref()) {
@@ -542,7 +576,7 @@ pub(crate) fn collect_data_expr_variable_declarations(expr: &DataExpr, out: &mut
 /// specification (see this section's own doc comment); the two stay separate because they walk
 /// different AST shapes at different points in the pipeline, not because the underlying task
 /// differs.
-fn collect_data_expr_sort_references(expr: &DataExpr, out: &mut Vec<(Span, String)>) {
+fn collect_data_expr_sort_references(expr: &DataExpr, out: &mut Vec<SortReference>) {
     expr.visit::<Infallible, _>(|node| {
         match &node.node {
             DataExprKind::Lambda { variables, .. } | DataExprKind::Quantifier { variables, .. } => {
@@ -557,55 +591,79 @@ fn collect_data_expr_sort_references(expr: &DataExpr, out: &mut Vec<(Span, Strin
     });
 }
 
-/// Resolves each `(occurrence span, sort name)` pair in `references` against
-/// `spec`'s own sort declarations first, falling back to
-/// `system_defined_specification()`'s (a `Simple` built-in like `Nat` never
-/// matches the former, only the latter — see [`collect_sort_name_references`]),
-/// pushing [`ResolvedName::Sort`]/[`ResolvedName::SystemDefined`] respectively
-/// into `typing` for each.
+/// `reference`'s own [`SortId`] declaration, and whether it names a user sort (from `spec`) or a
+/// system-internal one (from `system`) — mirrors [`crate::TypeCheckContext::sort_name`]'s
+/// dual-range lookup (a system sort's [`SortId`] continues the user sorts' own numbering), but
+/// returns the whole declaration rather than just its name, since [`push_sort_references`] needs
+/// the declaration's span.
+fn sort_declaration_by_id<'a>(
+    spec: &'a UntypedDataSpecification,
+    system: &'a UntypedDataSpecification,
+    id: SortId,
+) -> Option<(&'a SortDecl, bool)> {
+    if let Some(decl) = spec.sort_declarations.get(*id) {
+        return Some((decl, false));
+    }
+
+    let system_index = (*id).checked_sub(spec.sort_declarations.len())?;
+    system.sort_declarations.get(system_index).map(|decl| (decl, true))
+}
+
+/// Resolves each occurrence in `references` to its declaration and pushes
+/// [`ResolvedName::Sort`]/[`ResolvedName::SystemDefined`] into `typing`.
 ///
-/// A sort name is never overloaded, so — unlike [`DeclarationIndex`] — this
-/// only needs two plain `name -> declaration span` maps, built fresh per call;
-/// a caller pushing many references in one batch (every entry point today does)
-/// still pays for it only once.
-pub(crate) fn push_sort_references(spec: &DataSpecification, references: &[(Span, String)], typing: &mut TypingInfo) {
+/// Every occurrence is resolved the same way, through [`sort_declaration_by_id`]: a reference with
+/// its own [`SortReference::id`] (every already-`Resolved` occurrence) indexes straight into its
+/// declaration; a not-yet-resolved [`SortExpressionKind::Reference`] first looks its name up in
+/// `name_to_id` — built fresh per call, user declarations shadowing a same-named system one, the
+/// same precedence the old two-map version had — to find that same [`SortId`], and then goes
+/// through the identical lookup. A container-sort keyword (`List`, `Set`, …) is the only case with
+/// no [`SortId`] at all, so it's handled separately. A sort name is never overloaded, so — unlike
+/// [`DeclarationIndex`] — this only needs one plain `name -> id` map.
+pub(crate) fn push_sort_references(spec: &DataSpecification, references: &[SortReference], typing: &mut TypingInfo) {
     if references.is_empty() {
         return;
     }
 
-    let declared: HashMap<&str, Option<Span>> = spec
-        .data_specification()
-        .sort_declarations
-        .iter()
-        .map(|decl| (decl.identifier.as_str(), declared_span(&decl.span)))
-        .collect();
-    let system_declared: HashMap<&str, Option<Span>> = spec
-        .system_defined_specification()
-        .sort_declarations
-        .iter()
-        .map(|decl| (decl.identifier.as_str(), declared_span(&decl.span)))
-        .collect();
+    let mut name_to_id: HashMap<&str, SortId> = HashMap::new();
+    for (i, decl) in spec.data_specification().sort_declarations.iter().enumerate() {
+        name_to_id.entry(decl.identifier.as_str()).or_insert(SortId::new(i));
+    }
+    let user_sort_count = spec.data_specification().sort_declarations.len();
+    for (i, decl) in spec.system_defined_specification().sort_declarations.iter().enumerate() {
+        name_to_id
+            .entry(decl.identifier.as_str())
+            .or_insert(SortId::new(user_sort_count + i));
+    }
 
-    for (span, name) in references {
-        if let Some(declaration) = declared.get(name.as_str()).cloned() {
+    for reference in references {
+        let name = &reference.name;
+        let id = reference.id.or_else(|| name_to_id.get(name.as_str()).copied());
+
+        if let Some(id) = id
+            && let Some((decl, is_system)) =
+                sort_declaration_by_id(spec.data_specification(), spec.system_defined_specification(), id)
+        {
+            let declaration = declared_span(&decl.span);
             typing.push(
-                span.clone(),
-                ResolvedName::Sort {
-                    name: name.clone(),
-                    declaration,
+                reference.span.clone(),
+                if is_system {
+                    ResolvedName::SystemDefined {
+                        name: name.clone(),
+                        declaration,
+                    }
+                } else {
+                    ResolvedName::Sort {
+                        name: name.clone(),
+                        declaration,
+                    }
                 },
             );
-        } else if let Some(declaration) = system_declared.get(name.as_str()).cloned() {
+        } else if reference.complex.is_some() {
+            // A container-sort keyword (`List`, `Set`, …) never has a `sort` declaration of its
+            // own — see `SortReference`'s doc comment.
             typing.push(
-                span.clone(),
-                ResolvedName::SystemDefined {
-                    name: name.clone(),
-                    declaration,
-                },
-            );
-        } else if is_complex_sort_keyword(name) {
-            typing.push(
-                span.clone(),
+                reference.span.clone(),
                 ResolvedName::SystemDefined {
                     name: name.clone(),
                     declaration: None,
@@ -613,22 +671,6 @@ pub(crate) fn push_sort_references(spec: &DataSpecification, references: &[(Span
             );
         }
     }
-}
-
-/// Whether `name` is one of mCRL2's five built-in container sorts — matched against
-/// [`ComplexSort`]'s own [`Display`](std::fmt::Display) rendering (the same one
-/// [`collect_sort_name_references`] uses to produce `name` in the first place) rather than a
-/// separately hand-maintained string list, so the two can't drift.
-fn is_complex_sort_keyword(name: &str) -> bool {
-    [
-        ComplexSort::List,
-        ComplexSort::Set,
-        ComplexSort::FSet,
-        ComplexSort::FBag,
-        ComplexSort::Bag,
-    ]
-    .iter()
-    .any(|op| op.to_string() == name)
 }
 
 /// Records a binder's own declaration occurrence.
@@ -656,7 +698,7 @@ pub(crate) fn push_binder_declaration(
 }
 
 /// Rebuilds `id` as a [`SortExpression`], so it can be displayed via its existing
-/// [`std::fmt::Display`] impl and so a `Def` sort carries a `DefId` a consumer can use for sort
+/// [`std::fmt::Display`] impl and so a `Def` sort carries a `SortId` a consumer can use for sort
 /// go-to-definition. Mirrors [`crate::lower_sort`]'s structural recursion (same crate, targeting
 /// the binary aterm format instead of the AST's own sort type).
 ///

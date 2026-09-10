@@ -246,7 +246,7 @@ impl Hoister {
 /// B.10) for the system-defined specification.
 ///
 /// Runs after name resolution, so the generated sorts are already resolved and
-/// flattened, and the structured sort keeps its `DefId`.
+/// flattened, and the structured sort keeps its `SortId`.
 pub(crate) fn desugar_structured_sorts(spec: &mut UntypedDataSpecification) -> Vec<Vec<ConstructorDecl>> {
     let mut constructors: Vec<IdDecl<ConstructorId>> = Vec::new();
     let mut mappings: Vec<IdDecl<MapId>> = Vec::new();

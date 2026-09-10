@@ -313,7 +313,7 @@ fn infer_equation(
     equation_id: EquationId,
 ) -> Result<EquationTyping, InferenceError> {
     // `spec`/`system` are always the true user/system pair; `resolve_system_sort`
-    // resolves a `Resolved` sort's `DefId` against the *user* spec regardless of
+    // resolves a `Resolved` sort's `SortId` against the *user* spec regardless of
     // which spec holds the equation.
     let eqn_spec = match role {
         EquationRole::User => &spec.equation_declarations[eqn_spec_id],

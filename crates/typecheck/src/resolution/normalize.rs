@@ -3,9 +3,9 @@ use std::convert::Infallible;
 
 use log::debug;
 
-use merc_syntax::DefId;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SortId;
 use merc_syntax::Spanned;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedDataSpecification;
@@ -30,7 +30,7 @@ use crate::apply_sorts_in_spec;
 pub(crate) fn normalize_sorts(spec: &mut UntypedDataSpecification) {
     // Clone the alias right-hand sides so the rewrite can borrow `spec` mutably
     // while still consulting the alias map.
-    let alias_map: HashMap<DefId, SortExpression> = spec
+    let alias_map: HashMap<SortId, SortExpression> = spec
         .sort_declarations
         .iter()
         .filter_map(|decl| Some((decl.id.expect("Name must have been resolved"), decl.expr.clone()?)))
@@ -51,8 +51,8 @@ pub(crate) fn normalize_sorts(spec: &mut UntypedDataSpecification) {
 /// named representative instead of being unfolded forever.
 fn normalize_sort(
     sort: &SortExpression,
-    alias_map: &HashMap<DefId, SortExpression>,
-    visited: &mut Vec<DefId>,
+    alias_map: &HashMap<SortId, SortExpression>,
+    visited: &mut Vec<SortId>,
 ) -> SortExpression {
     sort.clone()
         .apply(|expr| -> Result<_, Infallible> {

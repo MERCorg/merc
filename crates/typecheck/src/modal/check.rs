@@ -80,7 +80,7 @@ fn collect_scope(
     data: &mut DataSpecification,
     formula: &StateFrm,
     scope: &mut Vec<(VarId, ResolvedSortId, Span)>,
-    sort_references: &mut Vec<(Span, String)>,
+    sort_references: &mut Vec<typing_info::SortReference>,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
     match &formula.node {
@@ -130,7 +130,7 @@ fn collect_scope_regfrm(
     data: &mut DataSpecification,
     formula: &RegFrm,
     scope: &mut Vec<(VarId, ResolvedSortId, Span)>,
-    sort_references: &mut Vec<(Span, String)>,
+    sort_references: &mut Vec<typing_info::SortReference>,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
     match &formula.node {
@@ -149,7 +149,7 @@ fn collect_scope_actfrm(
     data: &mut DataSpecification,
     formula: &ActFrm,
     scope: &mut Vec<(VarId, ResolvedSortId, Span)>,
-    sort_references: &mut Vec<(Span, String)>,
+    sort_references: &mut Vec<typing_info::SortReference>,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
     match &formula.node {

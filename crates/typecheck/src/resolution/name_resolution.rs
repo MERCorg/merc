@@ -6,12 +6,12 @@ use merc_collections::IndexedSet;
 use merc_syntax::ConstructorId;
 use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
-use merc_syntax::DefId;
 use merc_syntax::EqnSpecId;
 use merc_syntax::EquationId;
 use merc_syntax::MapId;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SortId;
 use merc_syntax::Traverse;
 use merc_syntax::TypeVarId;
 use merc_syntax::UntypedDataSpecification;
@@ -93,7 +93,7 @@ pub(crate) fn resolve_sort_ids(spec: &mut UntypedDataSpecification) -> Result<In
 
     // Assign unique IDs to all sort declarations
     for (i, sort) in spec.sort_declarations.iter_mut().enumerate() {
-        sort.id = Some(DefId::new(i));
+        sort.id = Some(SortId::new(i));
         debug!("resolve_sort_ids: sort '{}' declared as id {i}", sort.identifier);
 
         if !sorts.insert(sort.identifier.clone()).1 {
@@ -202,7 +202,7 @@ where
     })
 }
 
-/// Rewrites every `Reference` node of `sort` to `Resolved(name, DefId)` using
+/// Rewrites every `Reference` node of `sort` to `Resolved(name, SortId)` using
 /// the sort-name index built by [resolve_sort_ids], or fails on an undeclared name.
 ///
 /// `pub(crate)`: also used by [`crate::process`] to resolve an `act`/`proc`/`glob` sort
@@ -216,7 +216,7 @@ pub(crate) fn resolve_sort_id(
         if let SortExpressionKind::Reference(name) = &expr.node {
             if let Some(id) = resolved.index(name) {
                 return Ok(Some(
-                    SortExpressionKind::Resolved(name.clone(), DefId::new(*id)).spanned(expr.span.clone()),
+                    SortExpressionKind::Resolved(name.clone(), SortId::new(*id)).spanned(expr.span.clone()),
                 ));
             }
 
@@ -320,7 +320,7 @@ mod tests {
     }
 
     /// Constructor and map declarations get their own id, distinct from sort
-    /// [DefId]s, assigned after struct desugaring so the constructors it
+    /// [SortId]s, assigned after struct desugaring so the constructors it
     /// generates (`c1`, `c2`) are covered too. Equation specification blocks
     /// and the equations within them get an id as well, the latter local to
     /// its enclosing block.

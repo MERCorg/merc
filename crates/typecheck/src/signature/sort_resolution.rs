@@ -1,8 +1,8 @@
 use merc_syntax::ConstructorId;
-use merc_syntax::DefId;
 use merc_syntax::MapId;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SortId;
 use merc_syntax::UntypedDataSpecification;
 use merc_syntax::VarId;
 
@@ -136,13 +136,13 @@ fn resolve_function_domain(
 pub(crate) fn query_sort_of_def(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
-    def: DefId,
+    def: SortId,
 ) -> ResolvedSortId {
     debug_assert!(
         spec.sort_declarations
             .get(*def)
             .is_some_and(|decl| decl.id == Some(def)),
-        "DefId {def:?} does not originate from name resolution of this specification"
+        "SortId {def:?} does not originate from name resolution of this specification"
     );
 
     ctx.get_or_compute(
@@ -160,9 +160,9 @@ pub(crate) fn query_sort_of_def(
 mod tests {
     use merc_syntax::ComplexSort;
     use merc_syntax::ConstructorId;
-    use merc_syntax::DefId;
     use merc_syntax::MapId;
     use merc_syntax::Sort;
+    use merc_syntax::SortId;
     use merc_syntax::UntypedDataSpecification;
 
     use crate::DataSpecification;
@@ -235,7 +235,7 @@ mod tests {
         // A structured sort resolves to the nominal sort of its declaration,
         // and its desugared constructors target that same sort.
         let spec = typecheck("sort D = struct a | b; map f: D;");
-        let def = DefId::new(*spec.sorts().index("D").expect("D should be declared"));
+        let def = SortId::new(*spec.sorts().index("D").expect("D should be declared"));
         assert_eq!(*spec.context().sorts.get(mapping(&spec, 0)), ResolvedSort::Def(def));
         assert_eq!(spec.sort_of_constructor(ConstructorId::new(0)), mapping(&spec, 0));
     }
@@ -266,7 +266,7 @@ mod tests {
         // A directly-queried alias resolves to its expanded definition; the
         // second query is answered from the cache and yields the same id.
         let spec = typecheck("sort D = List(Nat); map f: D;");
-        let def = DefId::new(*spec.sorts().index("D").expect("D should be declared"));
+        let def = SortId::new(*spec.sorts().index("D").expect("D should be declared"));
 
         let mut ctx = TypeCheckContext::new();
         let first = query_sort_of_def(&mut ctx, spec.data_specification(), def);

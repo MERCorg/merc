@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::fmt;
 
 use merc_syntax::ComplexSort;
-use merc_syntax::DefId;
 use merc_syntax::Sort;
+use merc_syntax::SortId;
 use merc_syntax::TypeVarId;
 use merc_syntax::UntypedDataSpecification;
 use merc_utilities::TagIndex;
@@ -51,7 +51,7 @@ pub(crate) enum ResolvedSort {
     /// A user-defined (nominal) sort, identified by the declaration it resolves
     /// to. Two `Def` sorts are equal only when they refer to the same
     /// declaration, and otherwise incomparable.
-    Def(DefId),
+    Def(SortId),
     /// A bound type variable, scoped to the polymorphic specification that
     /// introduces it.
     Var(TypeVarId),
@@ -281,7 +281,7 @@ impl SortInterner {
     }
 
     /// Interns the nominal sort for the given declaration.
-    pub(crate) fn def(&mut self, def: DefId) -> ResolvedSortId {
+    pub(crate) fn def(&mut self, def: SortId) -> ResolvedSortId {
         self.intern(ResolvedSort::Def(def))
     }
 
@@ -450,7 +450,7 @@ mod tests {
     use std::cmp::Ordering::Less;
 
     use merc_syntax::ComplexSort;
-    use merc_syntax::DefId;
+    use merc_syntax::SortId;
 
     use crate::ResolvedSortId;
     use crate::SortInterner;
@@ -485,8 +485,8 @@ mod tests {
                 function_sort2,
                 function_sort3,
                 function_sort4,
-                def_sort1: c.def(DefId::new(0)),
-                def_sort2: c.def(DefId::new(1)),
+                def_sort1: c.def(SortId::new(0)),
+                def_sort2: c.def(SortId::new(1)),
                 fbag_sort1: c.generic(ComplexSort::FBag, function_sort2),
                 fbag_sort2: c.generic(ComplexSort::FBag, function_sort1),
                 bag_sort1: c.generic(ComplexSort::Bag, function_sort1),

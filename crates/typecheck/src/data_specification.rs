@@ -11,14 +11,13 @@ use merc_data::DataExpression;
 use merc_data::Mcrl2DataSpecification;
 use merc_syntax::ConstructorId;
 use merc_syntax::DataExpr;
-use merc_syntax::DefId;
 use merc_syntax::EqnSpecId;
 use merc_syntax::EquationId;
 use merc_syntax::MapId;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SortId;
 use merc_syntax::SourceMap;
-use merc_syntax::Span;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedDataSpecification;
 use merc_syntax::VarId;
@@ -70,7 +69,7 @@ use crate::typing_info;
 
 /// A type checked and well-typed data specification.
 ///
-/// Holds the resolved user declarations, the sort-name → [`DefId`] map assigned
+/// Holds the resolved user declarations, the sort-name → [`SortId`] map assigned
 /// during name resolution, and the system-defined (Appendix-B) declarations for
 /// the sorts that occur.
 pub struct DataSpecification {
@@ -82,7 +81,7 @@ pub struct DataSpecification {
 
     encoding: NumberEncoding,
     /// Every sort-name reference in `spec`'s own declarations.
-    sort_references: Vec<(Span, String)>,
+    sort_references: Vec<typing_info::SortReference>,
     /// Every `var`-block-declared equation variable's own [`VarId`], paired with its declaring
     /// identifier's span — see [`VariableSpans`]. Scoped to `spec`'s own equation-variable
     /// numbering: never valid for a `VarId` from a process/PBES/PRES/modal specification built on
@@ -149,7 +148,7 @@ impl DataSpecification {
         debug!("typecheck: resolved {} sort name(s)", sorts.len());
 
         check_aliases(&spec).map_err(|(err, span)| {
-            let name = |id: &DefId| sorts.get_by_index(**id).expect("The sort should be declared").clone();
+            let name = |id: &SortId| sorts.get_by_index(**id).expect("The sort should be declared").clone();
             match err {
                 AliasError::Circular { cycle } => WellTypedError::AliasCycle {
                     sorts: cycle.iter().map(name).collect(),
@@ -331,7 +330,7 @@ impl DataSpecification {
         &self.spec
     }
 
-    /// Maps each declared sort name to the [`DefId`] assigned during name
+    /// Maps each declared sort name to the [`SortId`] assigned during name
     /// resolution.
     pub fn sorts(&self) -> &IndexedSet<String> {
         &self.sorts
