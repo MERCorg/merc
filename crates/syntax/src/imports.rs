@@ -151,7 +151,7 @@ fn parse_import_line(trimmed: &str, base: usize) -> Option<ImportDirective> {
 
 /// Implemented by every untyped AST that `%import` can compose.
 trait ImportMergeable: Sized + OffsetSpans {
-    /// Parses one file's complete text, at its own zero-based offsets — [`Self::offset_spans`]
+    /// Parses one file's complete text, at its own zero-based offsets — [`OffsetSpans::offset_spans`]
     /// rebases the result into the shared space afterwards, so this never sees padded text.
     fn parse_own_text(text: &str) -> Result<Self, MercError>;
 

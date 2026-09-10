@@ -63,6 +63,57 @@ fn test_parse_ifthen() {
     }
 }
 
+/// `ProcExprNoIf` — the grammar rule bounding an if-then(-else)'s `then`/`else` branch — used to
+/// reuse the same infix operator set as a plain `ProcExpr`.
+#[test]
+fn test_ifthen_does_not_backtrack_exponentially_over_choice() {
+    use std::time::Duration;
+    use std::time::Instant;
+
+    use merc_syntax::ProcessExprKind;
+
+    // A plain `if` (no `<>`) must stop its `then` branch at `+`, leaving the next summand outside it.
+    let spec = UntypedProcessSpecification::parse("init true -> a + b;").expect("must parse");
+    match spec.init.expect("init is present").node {
+        ProcessExprKind::Binary { op, lhs, .. } => {
+            assert_eq!(op, merc_syntax::ProcExprBinaryOp::Choice);
+            assert!(
+                matches!(lhs.node, ProcessExprKind::Condition { .. }),
+                "`true -> a` must be the left-hand side of the choice, not swallow `+ b`"
+            );
+        }
+        other => panic!("expected `(true -> a) + b`, got {other:?}"),
+    }
+
+    // An if-then-else must likewise stop its `else` branch at `+`.
+    let spec = UntypedProcessSpecification::parse("init true -> a <> b + c;").expect("must parse");
+    match spec.init.expect("init is present").node {
+        ProcessExprKind::Binary { op, lhs, .. } => {
+            assert_eq!(op, merc_syntax::ProcExprBinaryOp::Choice);
+            assert!(
+                matches!(lhs.node, ProcessExprKind::Condition { else_: Some(_), .. }),
+                "`true -> a <> b` must be the left-hand side of the choice, not swallow `+ c`"
+            );
+        }
+        other => panic!("expected `(true -> a <> b) + c`, got {other:?}"),
+    }
+
+    // Many `+`-joined `sum ... . cond -> action` summands with no `<>` anywhere: exponential
+    // backtracking here previously made this take minutes even for ~25 summands.
+    let summands: Vec<String> = (0..40)
+        .map(|i| format!("sum x{i}: Bool. (x{i}) -> a{i}"))
+        .collect();
+    let spec = format!("init {};", summands.join(" + "));
+
+    let start = Instant::now();
+    UntypedProcessSpecification::parse(&spec).expect("must parse");
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "parsing 40 `+`-joined `sum ... . cond -> action` summands took {elapsed:?}, expected well under 1s"
+    );
+}
+
 #[test]
 fn test_parse_keywords() {
     let expr = "map or : Boolean # Boolean -> Boolean ;";

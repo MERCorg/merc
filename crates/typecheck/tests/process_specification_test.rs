@@ -406,3 +406,13 @@ fn test_unapplied_function_used_as_a_condition_is_rejected() {
     let error = check_err("map b: Nat -> Nat; init b -> tau <> delta;");
     assert!(matches!(error, ProcessError::Inference(_)), "got {error:?}");
 }
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_container_sort_used_only_in_action_parameter_is_accepted() {
+    // `List(Nat)` appears nowhere in the data specification itself — only as an `act` parameter
+    // sort. `DataSpecification::from_untyped_with` computes the data signature before `act`/`proc`
+    // declarations are even available to it, so a container-scheme filter keyed on what the data
+    // specification alone mentions must not exclude `List` here.
+    check_ok("act a: List(Nat); init a([1, 2, 3]);");
+}
