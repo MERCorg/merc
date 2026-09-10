@@ -5,10 +5,10 @@ use std::hash::Hash;
 use std::sync::Arc;
 
 use merc_syntax::ConstructorId;
-use merc_syntax::DefId;
 use merc_syntax::EqnSpecId;
 use merc_syntax::EquationId;
 use merc_syntax::MapId;
+use merc_syntax::SortId;
 use merc_syntax::Span;
 use merc_syntax::UntypedDataSpecification;
 use merc_syntax::VarId;
@@ -29,7 +29,7 @@ use crate::TypingInfo;
 pub(crate) struct TypeCheckContext {
     pub(crate) sorts: SortInterner,
 
-    pub(crate) sort_of_def: QueryCache<DefId, ResolvedSortId>,
+    pub(crate) sort_of_def: QueryCache<SortId, ResolvedSortId>,
     /// The memoized resolved sort of each constructor declaration, keyed by
     /// [ConstructorId]. Populated lazily by `query_sort_of_constructor`.
     pub(crate) sort_of_constructor: QueryCache<ConstructorId, ResolvedSortId>,
@@ -140,12 +140,12 @@ impl TypeCheckContext {
         Ok(value)
     }
 
-    /// The declared name of the sort that [DefId] `def` resolves to, whether a
+    /// The declared name of the sort that [SortId] `def` resolves to, whether a
     /// user sort (looked up in `spec`) or a system-internal one such as
     /// `@NatPair` (looked up in `system`), or `None` when it is out of range of
     /// both.
     ///
-    /// This is the single place aware that a system-internal `DefId` continues
+    /// This is the single place aware that a system-internal `SortId` continues
     /// the user sort numbering: it indexes `system.sort_declarations` offset by
     /// the user sort count, the layout `resolve_system_signature` establishes.
     /// The names are derived from the specifications on demand rather than
@@ -154,7 +154,7 @@ impl TypeCheckContext {
         &'a self,
         spec: &'a UntypedDataSpecification,
         system: &'a UntypedDataSpecification,
-        def: DefId,
+        def: SortId,
     ) -> Option<&'a str> {
         if let Some(decl) = spec.sort_declarations.get(*def) {
             return Some(&decl.identifier);
@@ -173,7 +173,7 @@ impl TypeCheckContext {
         &'a self,
         spec: &'a UntypedDataSpecification,
         system: &'a UntypedDataSpecification,
-        def: DefId,
+        def: SortId,
     ) -> Cow<'a, str> {
         match self.sort_name(spec, system, def) {
             Some(name) => Cow::Borrowed(name),
@@ -265,7 +265,7 @@ impl<K: Eq + Hash, V> Default for QueryCache<K, V> {
 mod tests {
     use std::cell::Cell;
 
-    use merc_syntax::DefId;
+    use merc_syntax::SortId;
 
     use crate::CyclicQuery;
     use crate::ResolvedSortId;
@@ -274,7 +274,7 @@ mod tests {
     #[test]
     fn test_get_or_compute_memoizes() {
         let mut ctx = TypeCheckContext::new();
-        let key = DefId::new(1);
+        let key = SortId::new(1);
         let calls = Cell::new(0);
 
         let compute = |_: &mut TypeCheckContext| {
@@ -300,7 +300,7 @@ mod tests {
     #[test]
     fn test_get_or_compute_detects_cycle() {
         let mut ctx = TypeCheckContext::new();
-        let key = DefId::new(1);
+        let key = SortId::new(1);
         let mut inner_result = None;
 
         ctx.get_or_compute(

@@ -72,7 +72,7 @@ where
 pub(crate) fn collect_binder_sorts<E>(
     data: &mut DataSpecification,
     scope: &mut Vec<(VarId, ResolvedSortId, Span)>,
-    sort_references: &mut Vec<(Span, String)>,
+    sort_references: &mut Vec<typing_info::SortReference>,
     typing: &mut TypingInfo,
     variables: &[IdDecl],
     mut resolve: impl FnMut(&mut DataSpecification, &SortExpression) -> Result<ResolvedSortId, E>,

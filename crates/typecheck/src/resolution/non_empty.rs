@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
-use merc_syntax::DefId;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SortId;
 use merc_syntax::UntypedDataSpecification;
 
 use crate::argument_sorts;
@@ -16,8 +16,8 @@ use crate::target_sort;
 /// constructor sort becomes non-empty as soon as it has a constructor all of
 /// whose argument sorts are non-empty. Built-in, container and function argument
 /// sorts are treated as non-empty.
-pub(crate) fn nonempty_sorts(spec: &UntypedDataSpecification) -> HashSet<DefId> {
-    let constructor_sorts: HashSet<DefId> = spec
+pub(crate) fn nonempty_sorts(spec: &UntypedDataSpecification) -> HashSet<SortId> {
+    let constructor_sorts: HashSet<SortId> = spec
         .constructor_declarations
         .iter()
         .filter_map(|constructor| match &target_sort(&constructor.sort).node {
@@ -26,7 +26,7 @@ pub(crate) fn nonempty_sorts(spec: &UntypedDataSpecification) -> HashSet<DefId> 
         })
         .collect();
 
-    let mut nonempty: HashSet<DefId> = spec
+    let mut nonempty: HashSet<SortId> = spec
         .sort_declarations
         .iter()
         .map(|declaration| declaration.id.expect("Name must have been resolved"))

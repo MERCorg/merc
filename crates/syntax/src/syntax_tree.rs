@@ -7,10 +7,10 @@ use merc_utilities::TagIndex;
 use crate::spanned::Spanned;
 
 /// A unique type for sort declarations.
-pub struct DefTag;
+pub struct SortTag;
 
 /// The index type for a sort declaration, assigned during name resolution.
-pub type DefId = TagIndex<usize, DefTag>;
+pub type SortId = TagIndex<usize, SortTag>;
 
 /// A unique type for constructor declarations.
 pub struct ConstructorTag;
@@ -220,11 +220,11 @@ impl PropVarInst {
 
 /// A declaration of an identifier with its sort.
 ///
-/// Reused for every "name: sort" binding in the grammar. It defaults to [DefId]
+/// Reused for every "name: sort" binding in the grammar. It defaults to [SortId]
 /// for the binder-like uses that never assign one, and is instantiated with
 /// [ConstructorId] or [MapId] where appropriate.
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Hash)]
-pub struct IdDecl<Id = DefId> {
+pub struct IdDecl<Id = SortId> {
     /// Identifier being declared.
     pub identifier: Spanned<String>,
     /// Sort expression for this identifier
@@ -288,7 +288,7 @@ pub enum SortExpressionKind {
     /// Parameterized complex sort
     Complex(ComplexSort, Box<SortExpression>),
     /// Resolved reference to a sort after name resolution
-    Resolved(String, DefId),
+    Resolved(String, SortId),
     /// Function sort (A_0 # ... # A_n -> B) after flattening (performed during name resolution)
     FlattenedFunction {
         domain: Vec<SortExpression>,
@@ -357,7 +357,7 @@ pub struct SortDecl {
     /// Where the sort is defined
     pub span: Span,
     /// Unique ID assigned to this declaration during name resolution.
-    pub id: Option<DefId>,
+    pub id: Option<SortId>,
 }
 
 impl SortDecl {

@@ -127,7 +127,7 @@ pub(crate) fn resolve_pres_variables(pres: &mut UntypedPres) -> VariableSpans {
 /// [`StateFrmKind::Resolved`] much like [`DataExprKind::Id`] resolves to [`DataExprKind::Resolved`],
 /// keyed by that binder's own [`StateVarId`] rather than [`VarId`]: a fixpoint variable is a
 /// propositional variable, not a data variable, so it gets its own id namespace and its own
-/// [`StateVarIdAllocator`] rather than sharing `VarId`'s counter (mirroring why `VarId` and `DefId`
+/// [`StateVarIdAllocator`] rather than sharing `VarId`'s counter (mirroring why `VarId` and `SortId`
 /// don't share a counter either). A state formula specification has no `glob` block, so both
 /// scopes start empty — unlike
 /// [`resolve_process_variables`]/[`resolve_pbes_variables`]/[`resolve_pres_variables`], there is no

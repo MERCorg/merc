@@ -102,7 +102,7 @@ fn collect_scope(
     data: &mut DataSpecification,
     expr: &PresExpr,
     scope: &mut Vec<(VarId, ResolvedSortId, Span)>,
-    sort_references: &mut Vec<(Span, String)>,
+    sort_references: &mut Vec<typing_info::SortReference>,
     typing: &mut TypingInfo,
 ) -> Result<(), PresError> {
     match &expr.node {

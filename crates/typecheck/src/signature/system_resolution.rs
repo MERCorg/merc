@@ -3,9 +3,9 @@ use std::sync::Arc;
 
 use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
-use merc_syntax::DefId;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SortId;
 use merc_syntax::TypeVarId;
 use merc_syntax::UntypedDataSpecification;
 
@@ -140,7 +140,7 @@ pub(crate) fn resolve_system_signature_full(
 /// Builds the system-internal sort name table; the re-declared basic sorts
 /// (`sort Bool;`) already resolve as primitives and are skipped.
 ///
-/// Each entry gets a fresh `DefId` continuing the user sorts' numbering,
+/// Each entry gets a fresh `SortId` continuing the user sorts' numbering,
 /// `user_spec.sort_declarations.len() + decl_index` — the layout
 /// `TypeCheckContext::sort_name` relies on to recover the name again.
 fn build_system_sort_ids(
@@ -159,7 +159,7 @@ fn build_system_sort_ids(
             decl.identifier
         );
 
-        let def = DefId::new(user_spec.sort_declarations.len() + decl_index);
+        let def = SortId::new(user_spec.sort_declarations.len() + decl_index);
         sort_ids.insert(decl.identifier.clone(), ctx.sorts.def(def));
     }
     sort_ids
@@ -292,9 +292,9 @@ pub(crate) fn merge_signatures(a: &Signature, b: &Signature) -> Signature {
 /// on the same footing as any other lattice element.
 ///
 /// Safe to call with any of [CONTAINER_TEMPLATES]/[BUILTIN_SCHEME_TEMPLATE]:
-/// none of them contains a `Resolved(_, DefId)` node or a nominal `sort X;`
+/// none of them contains a `Resolved(_, SortId)` node or a nominal `sort X;`
 /// declaration (only `type_var`, primitive, container and function sorts), so
-/// there is no `DefId` to resolve and hence no risk of it being looked up
+/// there is no `SortId` to resolve and hence no risk of it being looked up
 /// against the wrong spec's `sort_declarations`.
 ///
 /// This is the one shared mechanism behind both `ctx.signature`'s `schemes`
@@ -412,7 +412,7 @@ pub(crate) fn resolve_system_sort(
             Ok(ctx.sorts.function(resolved_domain, range))
         }
         // A sort substituted into an Appendix-B template comes from the
-        // normalized user specification, so its `DefId` indexes `user_spec`.
+        // normalized user specification, so its `SortId` indexes `user_spec`.
         SortExpressionKind::Resolved(_, id) => Ok(query_sort_of_def(ctx, user_spec, *id)),
         SortExpressionKind::Reference(name) => {
             if let Some(id) = sort_ids.get(name) {
@@ -469,8 +469,8 @@ mod tests {
     use std::collections::HashMap;
 
     use merc_syntax::ComplexSort;
-    use merc_syntax::DefId;
     use merc_syntax::Sort;
+    use merc_syntax::SortId;
     use merc_syntax::SourceMap;
     use merc_syntax::UntypedDataSpecification;
 
@@ -546,7 +546,7 @@ mod tests {
         let mut ctx = TypeCheckContext::new();
         resolve_system_signature(&mut ctx, spec.data_specification(), spec.system_defined_specification()).unwrap();
 
-        let def = DefId::new(*spec.sorts().index("D").unwrap());
+        let def = SortId::new(*spec.sorts().index("D").unwrap());
         let d = ctx.sorts.def(def);
         let d_list = ctx.sorts.generic(ComplexSort::List, d);
         let expected = ctx.sorts.function(vec![d, d_list], d_list);
@@ -559,7 +559,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
     fn test_system_internal_sort_gets_fresh_def() {
         // `@NatPair` exists only in the system specification; it gets a nominal
-        // DefId past the user declarations, and its name is recovered by
+        // SortId past the user declarations, and its name is recovered by
         // `sort_name`, which derives it from the system specification's
         // declarations on demand rather than from a stored table.
         let (spec, ctx) = resolve("sort D; map f: D;");

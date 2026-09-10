@@ -101,7 +101,7 @@ fn collect_scope(
     data: &mut DataSpecification,
     expr: &PbesExpr,
     scope: &mut Vec<(VarId, ResolvedSortId, Span)>,
-    sort_references: &mut Vec<(Span, String)>,
+    sort_references: &mut Vec<typing_info::SortReference>,
     typing: &mut TypingInfo,
 ) -> Result<(), PbesError> {
     match &expr.node {
