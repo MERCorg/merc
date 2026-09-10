@@ -38,7 +38,9 @@ use crate::basic_sort_data_specification;
 use crate::build_signature;
 use crate::build_system_defined_specification;
 use crate::check_aliases;
+use crate::check_container_templates;
 use crate::check_equations;
+use crate::check_multi_argument_function_update_template;
 use crate::check_no_system_function_redeclaration;
 use crate::check_products_within_domains;
 use crate::check_system_equations;
@@ -207,11 +209,12 @@ impl DataSpecification {
         check_no_system_function_redeclaration(&spec, &basics)?;
         debug!("typecheck: no user declaration redeclares a system function");
 
-        let (mut system, mut groups) = build_system_defined_specification(sources, &spec, basics.clone(), encoding);
+        let (mut system, mut instantiations) =
+            build_system_defined_specification(sources, &spec, basics.clone(), encoding);
 
         // The defining equations of each structured sort (Appendix B.10) join
-        // the system-defined part, appended after every group above so those
-        // ranges still index correctly into `system.equation_declarations`.
+        // the system-defined part, appended after every instantiation above so
+        // those ranges still index correctly into `system.equation_declarations`.
         // Each struct's range and symbol names are recorded so its equations
         // can later be checked against a signature scoped to that struct alone
         // — pooling them would make a name shared with an unrelated struct
@@ -253,6 +256,17 @@ impl DataSpecification {
         resolve_system_signature(&mut context, &spec, &basics)?;
         debug!("typecheck: resolved the system signature");
 
+        // Type checks every container/function-update template's own
+        // equations once, with its type variable(s) held rigid, against the
+        // signature built above (which already carries every scheme).
+        // Independent of `spec`'s own content; runs once per specification
+        // build rather than once per element sort the worklist above already
+        // instantiated them for — those instantiations are specialized from
+        // this check's own result later, by `check_system_equations`, rather
+        // than re-checked.
+        check_container_templates(&mut context, encoding)?;
+        debug!("typecheck: container template equations passed the rigid check");
+
         // Inference over every user equation; an equation binding
         // a variable through an invalid sort (a bare product) is rejected here.
         // Must run before the extension below, which reads back the
@@ -263,8 +277,9 @@ impl DataSpecification {
         // Must happen before the sanity check below and before `self.system` is
         // stored, so every equation this specification ever lowers is covered by
         // both.
-        let (mut system, new_groups) = extend_system_with_inferred_sorts(sources, &context, &spec, &system, encoding);
-        groups.extend(new_groups);
+        let (mut system, new_instantiations) =
+            extend_system_with_inferred_sorts(sources, &context, &spec, &system, encoding);
+        instantiations.extend(new_instantiations);
 
         // Ties every system equation's own variable occurrences to its `var`-block declaration.
         resolve_data_specification_variables(&mut system);
@@ -282,10 +297,7 @@ impl DataSpecification {
 
         assign_declaration_ids(&mut system);
 
-        // A container group needs no user signature: a container template never
-        // calls a struct-desugared symbol, and the comparison operators it does
-        // use are polymorphic schemes.
-        resolve_system_signature_full(&mut context, &spec, &system, &groups)?;
+        resolve_system_signature_full(&mut context, &spec, &system)?;
 
         for (range, constructor_names, mapping_names) in &struct_ranges {
             let struct_signature = filter_signature(
@@ -300,13 +312,30 @@ impl DataSpecification {
                     .as_deref()
                     .expect("resolve_system_signature ran earlier"),
             ));
-            for slot in &mut context.system_equation_signature_by_group[range.clone()] {
-                *slot = Arc::clone(&signature);
+            for i in range.clone() {
+                context
+                    .struct_signature_overrides
+                    .insert(EqnSpecId::new(i), Arc::clone(&signature));
             }
         }
         debug!("typecheck: resolved the system-equation signatures");
 
-        check_system_equations(&mut context, &spec, &system)?;
+        // Every distinct arity a generated multi-argument function-update
+        // instantiation uses gets its own generic template, checked once with
+        // its type variables held rigid, exactly like the six bundled
+        // container templates above — see `check_multi_argument_function_update_template`.
+        let mut checked_arities = HashSet::new();
+        for instantiation in &instantiations {
+            if let Some(arity) = instantiation.template.strip_prefix("function_update_")
+                && checked_arities.insert(arity.to_string())
+            {
+                let arity: usize = arity.parse().expect("`function_update_{arity}` names an integer arity");
+                check_multi_argument_function_update_template(&mut context, arity)?;
+            }
+        }
+        debug!("typecheck: multi-argument function-update templates passed the rigid check");
+
+        check_system_equations(&mut context, &spec, &system, &instantiations)?;
         debug!("typecheck: system-equation inference finished; the system specification is well-typed");
 
         Ok(Self {

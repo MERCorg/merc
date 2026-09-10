@@ -647,3 +647,17 @@ fn test_random_acyclic_aliases_are_normalized() {
         }
     });
 }
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_container_scheme_usable_alongside_numeric_operator_of_same_name() {
+    // `used_by` includes the `Set` container template because `S` aliases `Set(Nat)`, so the
+    // `+` disjunction must offer both the numeric overloads and the `Set` union scheme.
+    check(
+        "sort S = Set(Nat);
+         map f: S # S -> S;
+         var s, t: S;
+         eqn f(s, t) = s + t;",
+        true,
+    );
+}

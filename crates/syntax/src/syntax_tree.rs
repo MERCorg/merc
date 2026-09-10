@@ -281,7 +281,7 @@ pub enum SortExpressionKind {
     /// A bound sort (type) variable, such as the `S` in a container spec.
     TypeVar(String),
     /// A bound sort (type) variable after name resolution has assigned its
-    /// [TypeVarId], mirroring how [Reference] becomes [Resolved].
+    /// [TypeVarId], mirroring how [Self::Reference] becomes [Self::Resolved].
     ResolvedTypeVar(TypeVarId),
     /// Built-in simple sort
     Simple(Sort),

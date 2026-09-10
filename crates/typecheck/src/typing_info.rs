@@ -98,7 +98,7 @@ pub enum ResolvedName {
     Variable {
         name: String,
         /// See [`ResolvedName::Constructor::declaration`]. Resolved from the occurrence's own
-        /// [`merc_syntax::VarId`] via the [`VariableSpans`] map in scope where this node was
+        /// [`merc_syntax::VarId`] via the `VariableSpans` map in scope where this node was
         /// built — never a raw `VarId` a caller would have no way to look up on its own.
         declaration: Option<Span>,
     },

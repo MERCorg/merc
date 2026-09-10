@@ -1,4 +1,4 @@
-//! Shifts every [`Span`] reachable from a parsed tree by a fixed `delta` — the rebasing
+//! Shifts every [`Span`](merc_utilities::Span) reachable from a parsed tree by a fixed `delta` — the rebasing
 //! counterpart of padding a file's text with `delta` leading bytes before handing it to pest so
 //! every offset it reports already lands in the shared, [`SourceMap`](merc_utilities::SourceMap)
 //! wide space. Parsing the unpadded text and then shifting every span here in one pass is both
@@ -7,7 +7,7 @@
 //!
 //! [`Traverse`](crate::Traverse) cannot do this on its own: its recursion only ever descends into
 //! children of the *same* node type (a [`SortExpression`]'s children are other `SortExpression`s),
-//! so it never reaches a declaration's own span, an identifier's [`Spanned`] name, or any other
+//! so it never reaches a declaration's own span, an identifier's [`Spanned`](merc_utilities::Spanned) name, or any other
 //! differently-typed field that also carries a span. [`OffsetSpans`] walks every such field
 //! explicitly instead.
 
