@@ -100,9 +100,7 @@ fn test_ifthen_does_not_backtrack_exponentially_over_choice() {
 
     // Many `+`-joined `sum ... . cond -> action` summands with no `<>` anywhere: exponential
     // backtracking here previously made this take minutes even for ~25 summands.
-    let summands: Vec<String> = (0..40)
-        .map(|i| format!("sum x{i}: Bool. (x{i}) -> a{i}"))
-        .collect();
+    let summands: Vec<String> = (0..40).map(|i| format!("sum x{i}: Bool. (x{i}) -> a{i}")).collect();
     let spec = format!("init {};", summands.join(" + "));
 
     let start = Instant::now();

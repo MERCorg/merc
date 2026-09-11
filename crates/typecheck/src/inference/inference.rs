@@ -8,6 +8,7 @@ use log::trace;
 use merc_syntax::ComplexSort;
 use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
+use merc_syntax::EqnSpec;
 use merc_syntax::EqnSpecId;
 use merc_syntax::EquationId;
 use merc_syntax::IdDecl;
@@ -28,6 +29,7 @@ use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::Signature;
 use crate::SortInterner;
+use crate::TemplateInstantiation;
 use crate::TypeCheckContext;
 use crate::Unifier;
 use crate::build_builtin_scheme_signature;
@@ -95,6 +97,8 @@ pub(crate) struct EquationTyping {
     /// occurrence the upstream variable-resolution pass left unresolved because it names no
     /// binder in scope (rejected separately by [`NameTarget::Variable`]'s own lookup below).
     pub(crate) declarations: HashMap<ExprId, VarId>,
+    /// Every visited node's own [ExprId], keyed by that node's address.
+    pub(crate) node_ids: HashMap<usize, ExprId>,
 }
 
 /// The errors of Phase-3 sort inference. `Clone` so a failure can be stored in
@@ -158,7 +162,7 @@ impl InferenceError {
     }
 }
 
-/// Which specification's equations are being checked. Both roles share the
+/// Which specification's equations are being checked. All roles share the
 /// same [ConstraintGenerator] and [Solver]; only where a name and a
 /// binder/equation-variable sort resolve from differs.
 #[derive(Clone, Copy)]
@@ -166,11 +170,13 @@ enum EquationRole {
     /// Names resolve against `ctx.signature`, then `ctx.system_signature`,
     /// then the full polymorphic scheme table; sorts via `resolve_sort`.
     User,
-    /// Names resolve against `ctx.system_equation_signature_by_group`, then
-    /// `ctx.system_signature`, then only the builtin comparison/`if` schemes —
-    /// the full table's container overloads would duplicate the primary
-    /// signature's and misreport ambiguity. Sorts via `resolve_system_sort`.
+    /// Names resolve against `ctx.struct_signature_overrides`'s entry for this
+    /// equation's own block when present.
     System,
+    /// Checking one Appendix-B container/function-update template's own,
+    /// un-instantiated equations, once, with its `type_var`-declared sort(s)
+    /// held rigid.
+    Template,
 }
 
 /// Returns the typing of one user equation, keyed by the id of its enclosing
@@ -185,9 +191,6 @@ pub(crate) fn query_equation_typing(
 ) -> Result<Arc<EquationTyping>, InferenceError> {
     let (eqn_spec_id, equation_id) = key;
 
-    // Checked before the cache lock: an out-of-range key would panic inside
-    // `infer_equation` with the entry left `InProgress`, misreporting any
-    // later identical query as a cyclic dependency.
     debug_assert!(
         spec.equation_declarations
             .get(*eqn_spec_id)
@@ -200,7 +203,6 @@ pub(crate) fn query_equation_typing(
         key,
         |ctx| infer_equation(ctx, spec, system, EquationRole::User, eqn_spec_id, equation_id).map(Arc::new),
     )
-    .expect("equation typing does not depend on other equations")
 }
 
 /// Infers and validates the sort of every user equation, populating the
@@ -222,6 +224,96 @@ pub(crate) fn check_equations(
         }
     }
     Ok(())
+}
+
+/// The proven, rigid typing of one Appendix-B template's own equations.
+pub(crate) struct TemplateCheck {
+    pub(crate) type_vars: Vec<TypeVarId>,
+    /// Nested the same way as the template's own `equation_declarations`.
+    pub(crate) typings: Vec<Vec<Arc<EquationTyping>>>,
+}
+
+/// Checks every equation of one Appendix-B container/function-update
+/// template, once, with its own `type_var`-declared sort(s) held rigid.
+///
+/// The returned typing of each equation specializes into every concrete
+/// instantiation by substitution.
+pub(crate) fn check_template_equations(
+    ctx: &mut TypeCheckContext,
+    template: &UntypedDataSpecification,
+) -> Result<TemplateCheck, InferenceError> {
+    let type_vars = template
+        .type_var_declarations
+        .iter()
+        .filter_map(|decl| decl.id)
+        .collect();
+
+    let mut typings = Vec::with_capacity(template.equation_declarations.len());
+    for eqn_spec in &template.equation_declarations {
+        let eqn_spec_id = eqn_spec
+            .id
+            .expect("assign_declaration_ids ran on the template before check_template_equations");
+        let mut block = Vec::with_capacity(eqn_spec.equations.len());
+        for equation in &eqn_spec.equations {
+            let equation_id = equation
+                .id
+                .expect("assign_declaration_ids ran on the template before check_template_equations");
+            block.push(Arc::new(infer_equation(
+                ctx,
+                template,
+                template,
+                EquationRole::Template,
+                eqn_spec_id,
+                equation_id,
+            )?));
+        }
+        typings.push(block);
+    }
+    Ok(TemplateCheck { type_vars, typings })
+}
+
+/// Specializes a container/function-update template's own proven
+/// [EquationTyping] into the typing of one concrete instantiation.
+pub(crate) fn specialize_template_typing(
+    ctx: &mut TypeCheckContext,
+    typing: &EquationTyping,
+    vars: &[TypeVarId],
+    substitution: &[ResolvedSortId],
+) -> EquationTyping {
+    debug_assert_eq!(
+        vars.len(),
+        substitution.len(),
+        "one concrete sort per template type variable"
+    );
+    let substitute = |ctx: &mut TypeCheckContext, sort: ResolvedSortId| {
+        vars.iter()
+            .zip(substitution)
+            .fold(sort, |sort, (&var, &with)| ctx.sorts.substitute_var(sort, var, with))
+    };
+
+    let sorts = typing.sorts.iter().map(|&sort| substitute(ctx, sort)).collect();
+    let names = typing
+        .names
+        .iter()
+        .map(|(&id, target)| {
+            let target = match *target {
+                NameTarget::Op { sort } => NameTarget::Op {
+                    sort: substitute(ctx, sort),
+                },
+                other => other,
+            };
+            (id, target)
+        })
+        .collect();
+
+    EquationTyping {
+        sorts,
+        spans: Vec::new(),
+        names,
+        identifier_names: HashMap::new(),
+        declarations: HashMap::new(),
+        node_ids: HashMap::new(),
+    }
 }
 
 /// The system-equation counterpart of [query_equation_typing], memoized on
@@ -247,7 +339,6 @@ pub(crate) fn query_system_equation_typing(
         key,
         |ctx| infer_equation(ctx, spec, system, EquationRole::System, eqn_spec_id, equation_id).map(Arc::new),
     )
-    .expect("equation typing does not depend on other equations")
 }
 
 /// Infers and validates the sort of every system-defined equation, the same
@@ -258,19 +349,85 @@ pub(crate) fn check_system_equations(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
     system: &UntypedDataSpecification,
+    instantiations: &[TemplateInstantiation],
 ) -> Result<(), InferenceError> {
-    for eqn_spec in &system.equation_declarations {
+    // Which template (and local, within-template block index) generated each
+    // `system.equation_declarations` block index, if any.
+    let mut covered: HashMap<usize, (usize, usize)> = HashMap::new();
+    for (instantiation_index, instantiation) in instantiations.iter().enumerate() {
+        for (local_index, block_index) in instantiation.equation_range.clone().enumerate() {
+            covered.insert(block_index, (instantiation_index, local_index));
+        }
+    }
+
+    for (block_index, eqn_spec) in system.equation_declarations.iter().enumerate() {
         let eqn_spec_id = eqn_spec
             .id
             .expect("assign_declaration_ids ran on system before check_system_equations");
-        for equation in &eqn_spec.equations {
-            let equation_id = equation
-                .id
-                .expect("assign_declaration_ids ran on system before check_system_equations");
-            query_system_equation_typing(ctx, spec, system, (eqn_spec_id, equation_id))?;
+        match covered.get(&block_index) {
+            Some(&(instantiation_index, local_index)) => specialize_instantiation_equations(
+                ctx,
+                spec,
+                eqn_spec,
+                eqn_spec_id,
+                &instantiations[instantiation_index],
+                local_index,
+            ),
+            None => {
+                for equation in &eqn_spec.equations {
+                    let equation_id = equation
+                        .id
+                        .expect("assign_declaration_ids ran on system before check_system_equations");
+                    query_system_equation_typing(ctx, spec, system, (eqn_spec_id, equation_id))?;
+                }
+            }
         }
     }
     Ok(())
+}
+
+/// Specializes one generated `EqnSpecId` block's equations.].
+fn specialize_instantiation_equations(
+    ctx: &mut TypeCheckContext,
+    user_spec: &UntypedDataSpecification,
+    eqn_spec: &EqnSpec,
+    eqn_spec_id: EqnSpecId,
+    instantiation: &TemplateInstantiation,
+    local_index: usize,
+) {
+    let check = ctx.template_typings.get(&instantiation.template).unwrap_or_else(|| {
+        panic!(
+            "template '{}' was not checked before specialization",
+            instantiation.template
+        )
+    });
+    let type_vars = check.type_vars.clone();
+    let block_typings = check.typings[local_index].clone();
+
+    let sort_ids = Arc::clone(
+        ctx.system_sort_ids
+            .as_ref()
+            .expect("resolve_system_signature_full ran before inference"),
+    );
+    let substitution: Vec<ResolvedSortId> = instantiation
+        .substitution
+        .iter()
+        .map(|sort| {
+            resolve_system_sort(ctx, user_spec, &sort_ids, sort).expect(
+                "a generated instantiation's own substitution sort, drawn from the user's own \
+                 already-resolved sort tree, always resolves",
+            )
+        })
+        .collect();
+
+    for (equation, template_typing) in eqn_spec.equations.iter().zip(&block_typings) {
+        let equation_id = equation
+            .id
+            .expect("assign_declaration_ids ran on system before check_system_equations");
+        let specialized = specialize_template_typing(ctx, template_typing, &type_vars, &substitution);
+        ctx.system_equation_typing
+            .insert((eqn_spec_id, equation_id), Ok(Arc::new(specialized)));
+    }
 }
 
 /// Resolves the declared sort of one equation-block variable, identified by its own `var_id`. The
@@ -294,6 +451,8 @@ fn resolve_equation_variable_sort(
             resolve_system_sort(ctx, spec, &sort_ids, sort)
                 .expect("resolve_system_signature_full already proved every system-equation sort resolves")
         }
+        // Deliberately not `query_sort_of_equation_var`: see `EquationRole::Template`.
+        EquationRole::Template => resolve_sort(ctx, spec, sort),
     }
 }
 
@@ -316,7 +475,7 @@ fn infer_equation(
     // resolves a `Resolved` sort's `SortId` against the *user* spec regardless of
     // which spec holds the equation.
     let eqn_spec = match role {
-        EquationRole::User => &spec.equation_declarations[eqn_spec_id],
+        EquationRole::User | EquationRole::Template => &spec.equation_declarations[eqn_spec_id],
         EquationRole::System => &system.equation_declarations[eqn_spec_id],
     };
     let equation = &eqn_spec.equations[equation_id];
@@ -476,16 +635,21 @@ fn infer<'a>(
     // `builtin_schemes` is the *only* remaining source of polymorphic
     // overloads for the System role.
     let (signature, builtin_schemes): (Arc<Signature>, Arc<HashMap<String, Vec<PolySortScheme>>>) = match role {
-        EquationRole::User => (
+        EquationRole::User | EquationRole::Template => (
             Arc::clone(ctx.signature.as_ref().expect("build_signature ran before inference")),
             Arc::new(HashMap::new()),
         ),
         EquationRole::System => (
-            Arc::clone(
-                ctx.system_equation_signature_by_group
-                    .get(*eqn_spec_id)
-                    .expect("resolve_system_signature_full ran before inference"),
-            ),
+            ctx.struct_signature_overrides
+                .get(&eqn_spec_id)
+                .cloned()
+                .unwrap_or_else(|| {
+                    Arc::clone(
+                        ctx.system_signature
+                            .as_ref()
+                            .expect("resolve_system_signature ran before inference"),
+                    )
+                }),
             build_builtin_scheme_signature(ctx),
         ),
     };
@@ -495,7 +659,7 @@ fn infer<'a>(
             .expect("resolve_system_signature ran before inference"),
     );
     let sort_ids = match role {
-        EquationRole::User => None,
+        EquationRole::User | EquationRole::Template => None,
         EquationRole::System => Some(Arc::clone(
             ctx.system_sort_ids
                 .as_ref()
@@ -519,6 +683,7 @@ fn infer<'a>(
         expr_spans: Vec::new(),
         expr_names: HashMap::new(),
         expr_declarations: HashMap::new(),
+        expr_ids: HashMap::new(),
         collect_typing_info: matches!(role, EquationRole::User),
         names: HashMap::new(),
         constraints: Vec::new(),
@@ -559,6 +724,7 @@ fn infer<'a>(
         expr_spans,
         expr_names,
         expr_declarations,
+        expr_ids,
         names,
         constraints,
         ..
@@ -666,6 +832,7 @@ fn infer<'a>(
                     names,
                     identifier_names: expr_names,
                     declarations: expr_declarations,
+                    node_ids: expr_ids,
                 })
             }
         },
@@ -873,6 +1040,9 @@ struct ConstraintGenerator<'a> {
     /// binder — keyed by its [ExprId]; only filled when [Self::collect_typing_info]. Becomes
     /// [EquationTyping::declarations].
     expr_declarations: HashMap<ExprId, VarId>,
+    /// Every visited node's own [ExprId], keyed by that node's address; only filled when
+    /// [Self::collect_typing_info]. Becomes [EquationTyping::node_ids].
+    expr_ids: HashMap<usize, ExprId>,
     /// Whether [Self::expr_spans]/[Self::expr_names] should be filled — i.e.
     /// whether `role` is [EquationRole::User]. Sampled once at construction.
     collect_typing_info: bool,
@@ -956,6 +1126,7 @@ impl<'a> ConstraintGenerator<'a> {
         }
         if self.collect_typing_info {
             self.expr_spans.push(expr.span.clone());
+            self.expr_ids.insert(expr as *const DataExpr as usize, id);
         }
 
         match &expr.node {
@@ -1031,20 +1202,17 @@ impl<'a> ConstraintGenerator<'a> {
                 self.bind_fresh(node, bag);
             }
             DataExprKind::SetBagComp { variable, predicate } => {
-                let element = self.binder_sort(&variable.sort, &variable.identifier.span)?;
-                let element_node = self.unifier.resolved_node(element);
-
                 // The bound variable is in scope for the predicate only; it has no [ExprId] of
                 // its own, like every other binder here.
-                let var_id = variable
-                    .var_id
-                    .expect("resolve_data_specification_variables/resolve_process_variables/... ran before inference");
-                self.declared_sorts.insert(var_id, element_node);
-                let body = self.visit(predicate)?;
-                self.declared_sorts.remove(&var_id);
-
-                self.constraints
-                    .push(Constraint::Comprehension(Comprehension { body, node, element }));
+                let comprehension = self.with_binder_scope(std::slice::from_ref(variable), |this, sorts| {
+                    let body = this.visit(predicate)?;
+                    Ok(Comprehension {
+                        body,
+                        node,
+                        element: sorts[0],
+                    })
+                })?;
+                self.constraints.push(Constraint::Comprehension(comprehension));
             }
             DataExprKind::Application { function, arguments } => {
                 // The arguments are visited (and hence constrained) before the
@@ -1144,15 +1312,13 @@ impl<'a> ConstraintGenerator<'a> {
         debug_assert!(unified, "a fresh variable unifies with any sort");
     }
 
-    /// Resolves the declared sort of each of `variables` (rejecting an invalid
-    /// binder sort, see [Self::binder_sort]) and registers it in `self.declared_sorts`, by each
-    /// variable's own [VarId], for the scope of `f`, removing the entries again afterwards.
-    /// Unlike a name-keyed scope this never needs to save/restore a shadowed binding: every
-    /// binder has its own `VarId`, so nested binders of the same name can never collide here —
-    /// the multi-variable generalization of the same insert/remove done inline for a
-    /// comprehension's single bound variable. Used by `lambda` and `forall`/`exists`, which
-    /// declare their variables' sorts, unlike a `whr` binding whose sort follows from its
-    /// right-hand side.
+    /// Resolves the declared sort of each of `variables` (rejecting an invalid binder sort, see
+    /// [Self::binder_sort]), registers each by its own [VarId] in `self.declared_sorts` for the
+    /// duration of `f`, then removes them again. Unlike a name-keyed scope this never needs to
+    /// save/restore a shadowed binding: every binder has its own `VarId`, so nested binders of the
+    /// same name can never collide here. Used for every binder that declares its variables' own
+    /// sorts — `lambda`, `forall`/`exists`, and a set/bag comprehension's single bound variable —
+    /// unlike a `whr` binding, whose sort follows from its right-hand side instead.
     fn with_binder_scope<T>(
         &mut self,
         variables: &'a [IdDecl],
@@ -1189,7 +1355,7 @@ impl<'a> ConstraintGenerator<'a> {
             return Err(GenFailure::InvalidBinderSort(sort.to_string(), span.clone()));
         }
         Ok(match self.role {
-            EquationRole::User => resolve_sort(self.ctx, self.spec, sort),
+            EquationRole::User | EquationRole::Template => resolve_sort(self.ctx, self.spec, sort),
             EquationRole::System => {
                 let sort_ids = Arc::clone(self.sort_ids.as_ref().expect("the System role always carries sort_ids"));
                 resolve_system_sort(self.ctx, self.spec, &sort_ids, sort)
@@ -1258,8 +1424,19 @@ impl<'a> ConstraintGenerator<'a> {
         // variables per occurrence, mirroring mCRL2's polymorphic symbol
         // table; Phase-4 lowering recovers the concrete operation from the
         // name and the inferred sort.
-        for scheme in self.builtin_schemes.clone().get(name).into_iter().flatten() {
-            let instance = self.instantiate_scheme(scheme.sort, &mut HashMap::new());
+        //
+        // Collected into a `Vec` first (rather than iterating `self.builtin_schemes` directly) so
+        // the loop below can call `self.instantiate_scheme`, which needs `&mut self`, without
+        // holding a borrow into `self.builtin_schemes` across it.
+        let builtin_sorts: Vec<ResolvedSortId> = self
+            .builtin_schemes
+            .get(name)
+            .into_iter()
+            .flatten()
+            .map(|scheme| scheme.sort)
+            .collect();
+        for sort in builtin_sorts {
+            let instance = self.instantiate_scheme(sort, &mut HashMap::new());
             disjuncts.push((NameTarget::Builtin, instance));
         }
 

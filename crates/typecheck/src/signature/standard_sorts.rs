@@ -433,14 +433,7 @@ pub(crate) fn check_multi_argument_function_update_template(
 /// the comparison-operator counterpart of [CONTAINER_TEMPLATE_NAMES]' entries.
 pub(crate) const COMPARISON_TEMPLATE_NAME: &str = "comparison";
 
-/// Type checks `crate::BUILTIN_SCHEME_TEMPLATE`'s own `var`/`eqn` block once,
-/// with its `type_var S` held rigid, populating `ctx.template_typings` under
-/// [COMPARISON_TEMPLATE_NAME] — the comparison-operator counterpart of
-/// [check_container_templates]. Unlike
-/// [check_multi_argument_function_update_template], no temporary signature
-/// merge is needed: `BUILTIN_SCHEME_TEMPLATE`'s names are already part of the
-/// pooled `ctx.signature` (`build_polymorphic_schemes` draws from it
-/// directly). Idempotent.
+/// Type checks `crate::BUILTIN_SCHEME_TEMPLATE`'s own `var`/`eqn` block once.
 pub(crate) fn check_comparison_template(ctx: &mut TypeCheckContext) -> Result<(), InferenceError> {
     if ctx.template_typings.contains_key(COMPARISON_TEMPLATE_NAME) {
         return Ok(());

@@ -1,4 +1,4 @@
-//! A minimal, dependency-free snapshot-testing helper: compares the [`Display`]
+//! A minimal, dependency-free snapshot-testing helper: compares the [`Display`](fmt::Display)
 //! form of a value against a file checked into `tests/snapshot/`, writing the
 //! file if it doesn't exist yet (or the snapshot format has moved on since —
 //! see [`ensure_snapshot_version`]). No external crate (e.g. `insta`) is
@@ -43,7 +43,7 @@ pub fn ensure_snapshot_version(dir: &Path, version: u32) -> Result<bool, MercErr
     Ok(up_to_date)
 }
 
-/// Compares the [`Display`] form of `result` against the snapshot stored at
+/// Compares the [`Display`](fmt::Display) form of `result` against the snapshot stored at
 /// `snapshot_path`, in the crate's `version` (see [`ensure_snapshot_version`]).
 /// If the snapshot already exists and is at `version`, the two are compared
 /// with `assert_eq!`. Otherwise (missing snapshot, or a version bump) the
