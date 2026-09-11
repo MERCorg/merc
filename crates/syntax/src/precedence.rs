@@ -2,7 +2,6 @@ use std::sync::LazyLock;
 
 use pest::iterators::Pair;
 use pest::iterators::Pairs;
-use pest::pratt_parser::Assoc;
 use pest::pratt_parser::Op;
 use pest::pratt_parser::PrattParser;
 
@@ -35,6 +34,7 @@ use crate::RegFrm;
 use crate::RegFrmKind;
 use crate::Rule;
 use crate::Sort;
+use crate::Spanned;
 use crate::StateFrm;
 use crate::StateFrmKind;
 use crate::StateFrmOp;
@@ -42,13 +42,103 @@ use crate::StateFrmUnaryOp;
 use crate::syntax_tree::SortExpression;
 use crate::syntax_tree::SortExpressionKind;
 
-pub static SORT_PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| {
-    // Precedence is defined lowest to highest
-    PrattParser::new()
-        // Sort operators
-        .op(Op::infix(Rule::SortExprFunction, Assoc::Right)) // $right 0
-        .op(Op::infix(Rule::SortExprProduct, Assoc::Left)) // $left 1
-});
+/// An operator's associativity, independent of `pest`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Assoc {
+    Left,
+    Right,
+}
+
+impl From<Assoc> for pest::pratt_parser::Assoc {
+    fn from(assoc: Assoc) -> Self {
+        match assoc {
+            Assoc::Left => pest::pratt_parser::Assoc::Left,
+            Assoc::Right => pest::pratt_parser::Assoc::Right,
+        }
+    }
+}
+
+/// How an AST node's own operator participates in precedence: a prefix, infix or postfix
+/// operator at the given level. Higher levels bind tighter.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Fixity {
+    Prefix(u8),
+    Infix(u8, Assoc),
+    Postfix(u8),
+    Primary,
+}
+
+/// Implemented by every `*Kind` enum whose values are Pratt-parsed.
+pub trait Operator: Sized {
+    /// Returns the fixity and precedence level of this operator.
+    fn fixity(&self) -> Fixity;
+
+    /// Returns the operand of this operator if it has one (prefix or postfix), or `None` otherwise.
+    fn operand(&self) -> Option<&Spanned<Self>>;
+}
+
+/// One entry in a `*_OPERATORS` table: which grammar rule an operator parses from, alongside its
+/// [Fixity].
+#[derive(Clone, Copy)]
+struct RuleFixity {
+    rule: Rule,
+    fixity: Fixity,
+}
+
+/// Builds a [PrattParser] whose precedence levels are exactly `table`'s own [Fixity] levels:
+/// entries sharing a level become one Pratt-parser precedence step (combined with `|`, exactly as
+/// a hand-written `.op(Op::infix(...) | Op::prefix(...))` would), lowest level first.
+///
+/// # Panics
+///
+/// Panics if `table` contains a `Fixity::Primary` entry — a primary rule is handled by
+/// `map_primary` alone and never belongs in this table.
+fn build_pratt_parser(table: &[RuleFixity]) -> PrattParser<Rule> {
+    let max_level = table
+        .iter()
+        .map(|entry| match entry.fixity {
+            Fixity::Prefix(level) | Fixity::Postfix(level) | Fixity::Infix(level, _) => level,
+            Fixity::Primary => unreachable!("a primary rule never belongs in a *_OPERATORS table"),
+        })
+        .max()
+        .unwrap_or(0);
+
+    let mut parser = PrattParser::new();
+    for level in 0..=max_level {
+        let level_ops = table
+            .iter()
+            .filter(|entry| match entry.fixity {
+                Fixity::Prefix(l) | Fixity::Postfix(l) | Fixity::Infix(l, _) => l == level,
+                Fixity::Primary => false,
+            })
+            .map(|entry| match entry.fixity {
+                Fixity::Prefix(_) => Op::prefix(entry.rule),
+                Fixity::Postfix(_) => Op::postfix(entry.rule),
+                Fixity::Infix(_, assoc) => Op::infix(entry.rule, assoc.into()),
+                Fixity::Primary => unreachable!("a primary rule never belongs in a *_OPERATORS table"),
+            })
+            .reduce(|a, b| a | b);
+        if let Some(level_ops) = level_ops {
+            parser = parser.op(level_ops);
+        }
+    }
+    parser
+}
+
+/// Precedence table for [SortExpressionKind], lowest level first — see [build_pratt_parser] and
+/// [Operator].
+const SORTEXPR_OPERATORS: &[RuleFixity] = &[
+    RuleFixity {
+        rule: Rule::SortExprFunction,
+        fixity: Fixity::Infix(0, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::SortExprProduct,
+        fixity: Fixity::Infix(1, Assoc::Left),
+    },
+];
+
+pub static SORT_PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| build_pratt_parser(SORTEXPR_OPERATORS));
 
 #[allow(clippy::result_large_err)]
 pub fn parse_sortexpr_primary(primary: Pair<'_, Rule>) -> ParseResult<SortExpression> {
@@ -116,34 +206,129 @@ pub fn parse_sortexpr(pairs: Pairs<Rule>) -> ParseResult<SortExpression> {
         .parse(pairs)
 }
 
-pub static DATAEXPR_PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| {
-    // Precedence is defined lowest to highest
-    PrattParser::new()
-        .op(Op::postfix(Rule::DataExprWhr)) // $left 0
-        .op(Op::prefix(Rule::DataExprForall) | Op::prefix(Rule::DataExprExists) | Op::prefix(Rule::DataExprLambda)) // $right 1
-        .op(Op::infix(Rule::DataExprImpl, Assoc::Right)) // $right 2
-        .op(Op::infix(Rule::DataExprDisj, Assoc::Right)) // $right 3
-        .op(Op::infix(Rule::DataExprConj, Assoc::Right)) // $right 4
-        .op(Op::infix(Rule::DataExprEq, Assoc::Left) | Op::infix(Rule::DataExprNeq, Assoc::Left)) // $left 5
-        .op(Op::infix(Rule::DataExprLess, Assoc::Left)
-            | Op::infix(Rule::DataExprLeq, Assoc::Left)
-            | Op::infix(Rule::DataExprGeq, Assoc::Left)
-            | Op::infix(Rule::DataExprGreater, Assoc::Left)
-            | Op::infix(Rule::DataExprIn, Assoc::Left)) // $left 6
-        .op(Op::infix(Rule::DataExprCons, Assoc::Right)) // $right 7
-        .op(Op::infix(Rule::DataExprSnoc, Assoc::Left)) // $left 8
-        .op(Op::infix(Rule::DataExprConcat, Assoc::Left)) // $left 9
-        .op(Op::infix(Rule::DataExprAdd, Assoc::Left) | Op::infix(Rule::DataExprSubtract, Assoc::Left)) // $left 10
-        .op(Op::infix(Rule::DataExprDiv, Assoc::Left)
-            | Op::infix(Rule::DataExprIntDiv, Assoc::Left)
-            | Op::infix(Rule::DataExprMod, Assoc::Left)) // $left 11
-        .op(Op::infix(Rule::DataExprMult, Assoc::Left)
-            | Op::infix(Rule::DataExprAt, Assoc::Left) // $left 12
-            | Op::prefix(Rule::DataExprMinus)
-            | Op::prefix(Rule::DataExprNegation)
-            | Op::prefix(Rule::DataExprSize)) // $right 12
-        .op(Op::postfix(Rule::DataExprUpdate) | Op::postfix(Rule::DataExprApplication)) // ) // $left 13
-});
+/// Precedence table for [DataExprKind], lowest level first — see [build_pratt_parser] and
+/// [Operator].
+const DATAEXPR_OPERATORS: &[RuleFixity] = &[
+    RuleFixity {
+        rule: Rule::DataExprWhr,
+        fixity: Fixity::Postfix(0),
+    },
+    RuleFixity {
+        rule: Rule::DataExprForall,
+        fixity: Fixity::Prefix(1),
+    },
+    RuleFixity {
+        rule: Rule::DataExprExists,
+        fixity: Fixity::Prefix(1),
+    },
+    RuleFixity {
+        rule: Rule::DataExprLambda,
+        fixity: Fixity::Prefix(1),
+    },
+    RuleFixity {
+        rule: Rule::DataExprImpl,
+        fixity: Fixity::Infix(2, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::DataExprDisj,
+        fixity: Fixity::Infix(3, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::DataExprConj,
+        fixity: Fixity::Infix(4, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::DataExprEq,
+        fixity: Fixity::Infix(5, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::DataExprNeq,
+        fixity: Fixity::Infix(5, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::DataExprLess,
+        fixity: Fixity::Infix(6, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::DataExprLeq,
+        fixity: Fixity::Infix(6, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::DataExprGeq,
+        fixity: Fixity::Infix(6, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::DataExprGreater,
+        fixity: Fixity::Infix(6, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::DataExprIn,
+        fixity: Fixity::Infix(6, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::DataExprCons,
+        fixity: Fixity::Infix(7, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::DataExprSnoc,
+        fixity: Fixity::Infix(8, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::DataExprConcat,
+        fixity: Fixity::Infix(9, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::DataExprAdd,
+        fixity: Fixity::Infix(10, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::DataExprSubtract,
+        fixity: Fixity::Infix(10, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::DataExprDiv,
+        fixity: Fixity::Infix(11, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::DataExprIntDiv,
+        fixity: Fixity::Infix(11, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::DataExprMod,
+        fixity: Fixity::Infix(11, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::DataExprMult,
+        fixity: Fixity::Infix(12, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::DataExprAt,
+        fixity: Fixity::Infix(12, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::DataExprMinus,
+        fixity: Fixity::Prefix(12),
+    },
+    RuleFixity {
+        rule: Rule::DataExprNegation,
+        fixity: Fixity::Prefix(12),
+    },
+    RuleFixity {
+        rule: Rule::DataExprSize,
+        fixity: Fixity::Prefix(12),
+    },
+    RuleFixity {
+        rule: Rule::DataExprUpdate,
+        fixity: Fixity::Postfix(13),
+    },
+    RuleFixity {
+        rule: Rule::DataExprApplication,
+        fixity: Fixity::Postfix(13),
+    },
+];
+
+pub static DATAEXPR_PRATT_PARSER: LazyLock<PrattParser<Rule>> =
+    LazyLock::new(|| build_pratt_parser(DATAEXPR_OPERATORS));
 
 #[allow(clippy::result_large_err)]
 pub fn parse_dataexpr(pairs: Pairs<Rule>) -> ParseResult<DataExpr> {
@@ -285,20 +470,57 @@ pub fn parse_dataexpr(pairs: Pairs<Rule>) -> ParseResult<DataExpr> {
         .parse(pairs)
 }
 
-pub static PROCEXPR_PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| {
-    // Precedence is defined lowest to highest
-    PrattParser::new()
-        .op(Op::infix(Rule::ProcExprChoice, Assoc::Left)) // $left 1
-        .op(Op::prefix(Rule::ProcExprSum) | Op::prefix(Rule::ProcExprDist)) // $right 2
-        .op(Op::infix(Rule::ProcExprParallel, Assoc::Right)) // $right 3
-        .op(Op::infix(Rule::ProcExprLeftMerge, Assoc::Right)) // $right 4
-        .op(Op::prefix(Rule::ProcExprIf)) // $right 5
-        .op(Op::prefix(Rule::ProcExprIfThen)) // $right 5
-        .op(Op::infix(Rule::ProcExprUntil, Assoc::Left)) // $left 6
-        .op(Op::infix(Rule::ProcExprSeq, Assoc::Right)) // $right 7
-        .op(Op::postfix(Rule::ProcExprAt)) // $left 8
-        .op(Op::infix(Rule::ProcExprSync, Assoc::Left)) // $left 9
-});
+/// Precedence table for [ProcessExprKind], lowest level first — see [build_pratt_parser] and
+/// [Operator].
+const PROCEXPR_OPERATORS: &[RuleFixity] = &[
+    RuleFixity {
+        rule: Rule::ProcExprChoice,
+        fixity: Fixity::Infix(0, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::ProcExprSum,
+        fixity: Fixity::Prefix(1),
+    },
+    RuleFixity {
+        rule: Rule::ProcExprDist,
+        fixity: Fixity::Prefix(1),
+    },
+    RuleFixity {
+        rule: Rule::ProcExprParallel,
+        fixity: Fixity::Infix(2, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::ProcExprLeftMerge,
+        fixity: Fixity::Infix(3, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::ProcExprIf,
+        fixity: Fixity::Prefix(4),
+    },
+    RuleFixity {
+        rule: Rule::ProcExprIfThen,
+        fixity: Fixity::Prefix(4),
+    },
+    RuleFixity {
+        rule: Rule::ProcExprUntil,
+        fixity: Fixity::Infix(5, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::ProcExprSeq,
+        fixity: Fixity::Infix(6, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::ProcExprAt,
+        fixity: Fixity::Postfix(7),
+    },
+    RuleFixity {
+        rule: Rule::ProcExprSync,
+        fixity: Fixity::Infix(8, Assoc::Left),
+    },
+];
+
+pub static PROCEXPR_PRATT_PARSER: LazyLock<PrattParser<Rule>> =
+    LazyLock::new(|| build_pratt_parser(PROCEXPR_OPERATORS));
 
 #[allow(clippy::result_large_err)]
 pub fn parse_process_expr(pairs: Pairs<Rule>) -> ParseResult<ProcessExpr> {
@@ -417,17 +639,43 @@ pub fn parse_process_expr(pairs: Pairs<Rule>) -> ParseResult<ProcessExpr> {
         .parse(pairs)
 }
 
+/// Precedence table for [ActFrmKind], lowest level first — see [build_pratt_parser] and
+/// [Operator]. `Rule::ActFrmAt` (postfix, level 4) has no [ActFrmKind] variant of its own — it
+/// only participates in [ACTFRM_PRATT_PARSER]'s precedence climbing, so [Operator]'s levels below
+/// skip straight from 3 to 5.
+const ACTFRM_OPERATORS: &[RuleFixity] = &[
+    RuleFixity {
+        rule: Rule::ActFrmExists,
+        fixity: Fixity::Prefix(0),
+    },
+    RuleFixity {
+        rule: Rule::ActFrmForall,
+        fixity: Fixity::Prefix(0),
+    },
+    RuleFixity {
+        rule: Rule::ActFrmImplies,
+        fixity: Fixity::Infix(1, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::ActFrmUnion,
+        fixity: Fixity::Infix(2, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::ActFrmIntersect,
+        fixity: Fixity::Infix(3, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::ActFrmAt,
+        fixity: Fixity::Postfix(4),
+    },
+    RuleFixity {
+        rule: Rule::ActFrmNegation,
+        fixity: Fixity::Prefix(5),
+    },
+];
+
 /// Defines the operator precedence for action formulas using a Pratt parser.
-pub static ACTFRM_PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| {
-    // Precedence is defined lowest to highest
-    PrattParser::new()
-        .op(Op::prefix(Rule::ActFrmExists) | Op::prefix(Rule::ActFrmForall)) // $right  0
-        .op(Op::infix(Rule::ActFrmImplies, Assoc::Right)) //  $right 2
-        .op(Op::infix(Rule::ActFrmUnion, Assoc::Right)) // $right 3
-        .op(Op::infix(Rule::ActFrmIntersect, Assoc::Right)) // $right 4
-        .op(Op::postfix(Rule::ActFrmAt)) //  $left 5
-        .op(Op::prefix(Rule::ActFrmNegation)) // $right 6
-});
+pub static ACTFRM_PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| build_pratt_parser(ACTFRM_OPERATORS));
 
 /// Parses a sequence of `Rule` pairs into an `ActFrm` using a Pratt parser defined in [ACTFRM_PRATT_PARSER] for operator precedence.
 ///
@@ -504,14 +752,29 @@ pub fn parse_actfrm(pairs: Pairs<Rule>) -> ParseResult<ActFrm> {
         .parse(pairs)
 }
 
+/// Precedence table for [RegFrmKind], lowest level first — see [build_pratt_parser] and
+/// [Operator].
+const REGFRM_OPERATORS: &[RuleFixity] = &[
+    RuleFixity {
+        rule: Rule::RegFrmAlternative,
+        fixity: Fixity::Infix(0, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::RegFrmComposition,
+        fixity: Fixity::Infix(1, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::RegFrmIteration,
+        fixity: Fixity::Postfix(2),
+    },
+    RuleFixity {
+        rule: Rule::RegFrmPlus,
+        fixity: Fixity::Postfix(2),
+    },
+];
+
 /// Defines the operator precedence for regular expressions using a Pratt parser.
-pub static REGFRM_PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| {
-    // Precedence is defined lowest to highest
-    PrattParser::new()
-        .op(Op::infix(Rule::RegFrmAlternative, Assoc::Left)) // $left 1
-        .op(Op::infix(Rule::RegFrmComposition, Assoc::Right)) // $right 2
-        .op(Op::postfix(Rule::RegFrmIteration) | Op::postfix(Rule::RegFrmPlus)) // $left 3
-});
+pub static REGFRM_PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| build_pratt_parser(REGFRM_OPERATORS));
 
 /// Parses a sequence of `Rule` pairs into an [RegFrm] using a Pratt parser defined in [REGFRM_PRATT_PARSER] for operator precedence.
 ///
@@ -572,24 +835,81 @@ pub fn parse_regfrm(pairs: Pairs<Rule>) -> ParseResult<RegFrm> {
         .parse(pairs)
 }
 
+/// Precedence table for [StateFrmKind], lowest level first — see [build_pratt_parser] and
+/// [Operator].
+const STATEFRM_OPERATORS: &[RuleFixity] = &[
+    RuleFixity {
+        rule: Rule::StateFrmMu,
+        fixity: Fixity::Prefix(0),
+    },
+    RuleFixity {
+        rule: Rule::StateFrmNu,
+        fixity: Fixity::Prefix(0),
+    },
+    RuleFixity {
+        rule: Rule::StateFrmForall,
+        fixity: Fixity::Prefix(1),
+    },
+    RuleFixity {
+        rule: Rule::StateFrmExists,
+        fixity: Fixity::Prefix(1),
+    },
+    RuleFixity {
+        rule: Rule::StateFrmInf,
+        fixity: Fixity::Prefix(1),
+    },
+    RuleFixity {
+        rule: Rule::StateFrmSup,
+        fixity: Fixity::Prefix(1),
+    },
+    RuleFixity {
+        rule: Rule::StateFrmSum,
+        fixity: Fixity::Prefix(1),
+    },
+    RuleFixity {
+        rule: Rule::StateFrmAddition,
+        fixity: Fixity::Infix(2, Assoc::Left),
+    },
+    RuleFixity {
+        rule: Rule::StateFrmImplication,
+        fixity: Fixity::Infix(3, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::StateFrmDisjunction,
+        fixity: Fixity::Infix(4, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::StateFrmConjunction,
+        fixity: Fixity::Infix(5, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::StateFrmLeftConstantMultiply,
+        fixity: Fixity::Prefix(6),
+    },
+    RuleFixity {
+        rule: Rule::StateFrmRightConstantMultiply,
+        fixity: Fixity::Postfix(6),
+    },
+    RuleFixity {
+        rule: Rule::StateFrmBox,
+        fixity: Fixity::Prefix(7),
+    },
+    RuleFixity {
+        rule: Rule::StateFrmDiamond,
+        fixity: Fixity::Prefix(7),
+    },
+    RuleFixity {
+        rule: Rule::StateFrmNegation,
+        fixity: Fixity::Prefix(8),
+    },
+    RuleFixity {
+        rule: Rule::StateFrmUnaryMinus,
+        fixity: Fixity::Prefix(8),
+    },
+];
+
 /// Defines the operator precedence for state formulas using a Pratt parser.
-static STATEFRM_PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| {
-    // Precedence is defined lowest to highest
-    PrattParser::new()
-        .op(Op::prefix(Rule::StateFrmMu) | Op::prefix(Rule::StateFrmNu)) // $right 1
-        .op(Op::prefix(Rule::StateFrmForall)
-            | Op::prefix(Rule::StateFrmExists)
-            | Op::prefix(Rule::StateFrmInf)
-            | Op::prefix(Rule::StateFrmSup)
-            | Op::prefix(Rule::StateFrmSum)) // $right 2
-        .op(Op::infix(Rule::StateFrmAddition, Assoc::Left)) // $left 3
-        .op(Op::infix(Rule::StateFrmImplication, Assoc::Right)) // $right 4
-        .op(Op::infix(Rule::StateFrmDisjunction, Assoc::Right)) // $right 5
-        .op(Op::infix(Rule::StateFrmConjunction, Assoc::Right)) // $right 6
-        .op(Op::prefix(Rule::StateFrmLeftConstantMultiply) | Op::postfix(Rule::StateFrmRightConstantMultiply)) // $right 7
-        .op(Op::prefix(Rule::StateFrmBox) | Op::prefix(Rule::StateFrmDiamond)) // $right 8
-        .op(Op::prefix(Rule::StateFrmNegation) | Op::prefix(Rule::StateFrmUnaryMinus)) // $right 9
-});
+static STATEFRM_PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| build_pratt_parser(STATEFRM_OPERATORS));
 
 #[allow(clippy::result_large_err)]
 pub fn parse_statefrm(pairs: Pairs<Rule>) -> ParseResult<StateFrm> {
@@ -737,15 +1057,36 @@ pub fn parse_statefrm(pairs: Pairs<Rule>) -> ParseResult<StateFrm> {
         .parse(pairs)
 }
 
-static PBESEXPR_PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| {
-    // Precedence is defined lowest to highest
-    PrattParser::new()
-        .op(Op::prefix(Rule::PbesExprForall) | Op::prefix(Rule::PbesExprExists)) // $right 0
-        .op(Op::infix(Rule::PbesExprImplies, Assoc::Right)) // $right 2
-        .op(Op::infix(Rule::PbesExprDisj, Assoc::Right)) // $right 3
-        .op(Op::infix(Rule::PbesExprConj, Assoc::Right)) // $right 4
-        .op(Op::prefix(Rule::PbesExprNegation)) // $right 5
-});
+/// Precedence table for [PbesExprKind], lowest level first — see [build_pratt_parser] and
+/// [Operator].
+const PBESEXPR_OPERATORS: &[RuleFixity] = &[
+    RuleFixity {
+        rule: Rule::PbesExprForall,
+        fixity: Fixity::Prefix(0),
+    },
+    RuleFixity {
+        rule: Rule::PbesExprExists,
+        fixity: Fixity::Prefix(0),
+    },
+    RuleFixity {
+        rule: Rule::PbesExprImplies,
+        fixity: Fixity::Infix(1, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::PbesExprDisj,
+        fixity: Fixity::Infix(2, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::PbesExprConj,
+        fixity: Fixity::Infix(3, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::PbesExprNegation,
+        fixity: Fixity::Prefix(4),
+    },
+];
+
+static PBESEXPR_PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| build_pratt_parser(PBESEXPR_OPERATORS));
 
 #[allow(clippy::result_large_err)]
 pub fn parse_pbesexpr(pairs: Pairs<Rule>) -> ParseResult<PbesExpr> {
@@ -819,17 +1160,54 @@ pub fn parse_pbesexpr(pairs: Pairs<Rule>) -> ParseResult<PbesExpr> {
         .parse(pairs)
 }
 
-static PRESEXPR_PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| {
-    // Precedence is defined lowest to highest
-    PrattParser::new()
-        .op(Op::prefix(Rule::PresExprInf) | Op::prefix(Rule::PresExprSup) | Op::prefix(Rule::PresExprSum)) // $right 0
-        .op(Op::infix(Rule::PresExprAdd, Assoc::Right)) // $right 2
-        .op(Op::infix(Rule::PbesExprImplies, Assoc::Right)) // $right 3
-        .op(Op::infix(Rule::PbesExprDisj, Assoc::Right)) // $right 4
-        .op(Op::infix(Rule::PbesExprConj, Assoc::Right)) // $right 5
-        .op(Op::prefix(Rule::PresExprLeftConstantMultiply) | Op::postfix(Rule::PresExprRightConstMultiply)) // $right 6
-        .op(Op::prefix(Rule::PresExprNegation)) // $right 7
-});
+/// Precedence table for [PresExprKind], lowest level first — see [build_pratt_parser] and
+/// [Operator]. Note that a PRES expression's `Implies`/`Disj`/`Conj` still parse from the shared
+/// `PbesExprImplies`/`PbesExprDisj`/`PbesExprConj` grammar rules (see [PresExprBinaryOp] and
+/// [parse_presexpr]'s own `map_infix`), same as [PBESEXPR_OPERATORS].
+const PRESEXPR_OPERATORS: &[RuleFixity] = &[
+    RuleFixity {
+        rule: Rule::PresExprInf,
+        fixity: Fixity::Prefix(0),
+    },
+    RuleFixity {
+        rule: Rule::PresExprSup,
+        fixity: Fixity::Prefix(0),
+    },
+    RuleFixity {
+        rule: Rule::PresExprSum,
+        fixity: Fixity::Prefix(0),
+    },
+    RuleFixity {
+        rule: Rule::PresExprAdd,
+        fixity: Fixity::Infix(1, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::PbesExprImplies,
+        fixity: Fixity::Infix(2, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::PbesExprDisj,
+        fixity: Fixity::Infix(3, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::PbesExprConj,
+        fixity: Fixity::Infix(4, Assoc::Right),
+    },
+    RuleFixity {
+        rule: Rule::PresExprLeftConstantMultiply,
+        fixity: Fixity::Prefix(5),
+    },
+    RuleFixity {
+        rule: Rule::PresExprRightConstMultiply,
+        fixity: Fixity::Postfix(5),
+    },
+    RuleFixity {
+        rule: Rule::PresExprNegation,
+        fixity: Fixity::Prefix(6),
+    },
+];
+
+static PRESEXPR_PRATT_PARSER: LazyLock<PrattParser<Rule>> = LazyLock::new(|| build_pratt_parser(PRESEXPR_OPERATORS));
 
 #[allow(clippy::result_large_err)]
 pub fn parse_presexpr(pairs: Pairs<Rule>) -> ParseResult<PresExpr> {
@@ -932,4 +1310,259 @@ pub fn parse_presexpr(pairs: Pairs<Rule>) -> ParseResult<PresExpr> {
             }
         })
         .parse(pairs)
+}
+
+impl Operator for DataExprKind {
+    fn fixity(&self) -> Fixity {
+        match self {
+            DataExprKind::Whr { .. } => Fixity::Postfix(0),
+            DataExprKind::Lambda { .. } => Fixity::Prefix(1),
+            DataExprKind::Quantifier { .. } => Fixity::Prefix(1),
+            DataExprKind::Binary { op, .. } => match op {
+                DataExprBinaryOp::Implies => Fixity::Infix(2, Assoc::Right),
+                DataExprBinaryOp::Disj => Fixity::Infix(3, Assoc::Right),
+                DataExprBinaryOp::Conj => Fixity::Infix(4, Assoc::Right),
+                DataExprBinaryOp::Equal | DataExprBinaryOp::NotEqual => Fixity::Infix(5, Assoc::Left),
+                DataExprBinaryOp::LessThan
+                | DataExprBinaryOp::LessEqual
+                | DataExprBinaryOp::GreaterThan
+                | DataExprBinaryOp::GreaterEqual
+                | DataExprBinaryOp::In => Fixity::Infix(6, Assoc::Left),
+                DataExprBinaryOp::Cons => Fixity::Infix(7, Assoc::Right),
+                DataExprBinaryOp::Snoc => Fixity::Infix(8, Assoc::Left),
+                DataExprBinaryOp::Concat => Fixity::Infix(9, Assoc::Left),
+                DataExprBinaryOp::Add | DataExprBinaryOp::Subtract => Fixity::Infix(10, Assoc::Left),
+                DataExprBinaryOp::Div | DataExprBinaryOp::IntDiv | DataExprBinaryOp::Mod => {
+                    Fixity::Infix(11, Assoc::Left)
+                }
+                DataExprBinaryOp::Multiply | DataExprBinaryOp::At => Fixity::Infix(12, Assoc::Left),
+            },
+            DataExprKind::Unary { .. } => Fixity::Prefix(12),
+            DataExprKind::FunctionUpdate { .. } | DataExprKind::Application { .. } => Fixity::Postfix(13),
+            DataExprKind::Id(_)
+            | DataExprKind::Resolved(_, _)
+            | DataExprKind::Number(_)
+            | DataExprKind::Bool(_)
+            | DataExprKind::EmptyList
+            | DataExprKind::List(_)
+            | DataExprKind::EmptySet
+            | DataExprKind::Set(_)
+            | DataExprKind::EmptyBag
+            | DataExprKind::Bag(_)
+            | DataExprKind::SetBagComp { .. } => Fixity::Primary,
+        }
+    }
+
+    fn operand(&self) -> Option<&DataExpr> {
+        match self {
+            DataExprKind::Whr { expr, .. }
+            | DataExprKind::FunctionUpdate { expr, .. }
+            | DataExprKind::Application { function: expr, .. }
+            | DataExprKind::Lambda { body: expr, .. }
+            | DataExprKind::Quantifier { body: expr, .. }
+            | DataExprKind::Unary { expr, .. } => Some(expr),
+            _ => None,
+        }
+    }
+}
+
+impl Operator for ActFrmKind {
+    fn fixity(&self) -> Fixity {
+        match self {
+            ActFrmKind::Quantifier { .. } => Fixity::Prefix(0),
+            ActFrmKind::Binary { op, .. } => match op {
+                ActFrmBinaryOp::Implies => Fixity::Infix(1, Assoc::Right),
+                ActFrmBinaryOp::Union => Fixity::Infix(2, Assoc::Right),
+                ActFrmBinaryOp::Intersect => Fixity::Infix(3, Assoc::Right),
+            },
+            ActFrmKind::Negation(_) => Fixity::Prefix(5),
+            ActFrmKind::True | ActFrmKind::False | ActFrmKind::MultAct(_) | ActFrmKind::DataExprVal(_) => {
+                Fixity::Primary
+            }
+        }
+    }
+
+    fn operand(&self) -> Option<&ActFrm> {
+        match self {
+            ActFrmKind::Negation(inner) => Some(inner),
+            ActFrmKind::Quantifier { body, .. } => Some(body),
+            _ => None,
+        }
+    }
+}
+
+impl Operator for RegFrmKind {
+    fn fixity(&self) -> Fixity {
+        match self {
+            RegFrmKind::Choice { .. } => Fixity::Infix(0, Assoc::Left),
+            RegFrmKind::Sequence { .. } => Fixity::Infix(1, Assoc::Right),
+            RegFrmKind::Iteration(_) | RegFrmKind::Plus(_) => Fixity::Postfix(2),
+            RegFrmKind::Action(_) => Fixity::Primary,
+        }
+    }
+
+    fn operand(&self) -> Option<&RegFrm> {
+        match self {
+            RegFrmKind::Iteration(inner) | RegFrmKind::Plus(inner) => Some(inner),
+            _ => None,
+        }
+    }
+}
+
+impl Operator for StateFrmKind {
+    fn fixity(&self) -> Fixity {
+        match self {
+            StateFrmKind::FixedPoint { .. } => Fixity::Prefix(0),
+            StateFrmKind::Quantifier { .. } | StateFrmKind::Bound { .. } => Fixity::Prefix(1),
+            StateFrmKind::Binary { op, .. } => match op {
+                StateFrmOp::Addition => Fixity::Infix(2, Assoc::Left),
+                StateFrmOp::Implies => Fixity::Infix(3, Assoc::Right),
+                StateFrmOp::Disjunction => Fixity::Infix(4, Assoc::Right),
+                StateFrmOp::Conjunction => Fixity::Infix(5, Assoc::Right),
+            },
+            StateFrmKind::DataValExprLeftMult(_, _) => Fixity::Prefix(6),
+            StateFrmKind::DataValExprRightMult(_, _) => Fixity::Postfix(6),
+            StateFrmKind::Modality { .. } => Fixity::Prefix(7),
+            StateFrmKind::Unary { .. } => Fixity::Prefix(8),
+            StateFrmKind::True
+            | StateFrmKind::False
+            | StateFrmKind::Delay(_)
+            | StateFrmKind::Yaled(_)
+            | StateFrmKind::Id(_, _)
+            | StateFrmKind::Resolved(_, _, _)
+            | StateFrmKind::DataValExpr(_) => Fixity::Primary,
+        }
+    }
+
+    fn operand(&self) -> Option<&StateFrm> {
+        match self {
+            StateFrmKind::DataValExprLeftMult(_, expr) => Some(expr),
+            StateFrmKind::DataValExprRightMult(expr, _) => Some(expr),
+            StateFrmKind::Modality { expr, .. }
+            | StateFrmKind::Unary { expr, .. }
+            | StateFrmKind::Quantifier { body: expr, .. }
+            | StateFrmKind::Bound { body: expr, .. }
+            | StateFrmKind::FixedPoint { body: expr, .. } => Some(expr),
+            _ => None,
+        }
+    }
+}
+
+impl Operator for PbesExprKind {
+    fn fixity(&self) -> Fixity {
+        match self {
+            PbesExprKind::Quantifier { .. } => Fixity::Prefix(0),
+            PbesExprKind::Binary { op, .. } => match op {
+                PbesExprBinaryOp::Implies => Fixity::Infix(1, Assoc::Right),
+                PbesExprBinaryOp::Disjunction => Fixity::Infix(2, Assoc::Right),
+                PbesExprBinaryOp::Conjunction => Fixity::Infix(3, Assoc::Right),
+            },
+            PbesExprKind::Negation(_) => Fixity::Prefix(4),
+            PbesExprKind::DataValExpr(_) | PbesExprKind::PropVarInst(_) | PbesExprKind::True | PbesExprKind::False => {
+                Fixity::Primary
+            }
+        }
+    }
+
+    fn operand(&self) -> Option<&PbesExpr> {
+        match self {
+            PbesExprKind::Negation(inner) => Some(inner),
+            PbesExprKind::Quantifier { body, .. } => Some(body),
+            _ => None,
+        }
+    }
+}
+
+impl Operator for SortExpressionKind {
+    fn fixity(&self) -> Fixity {
+        match self {
+            SortExpressionKind::Function { .. } => Fixity::Infix(0, Assoc::Right),
+            SortExpressionKind::Product { .. } => Fixity::Infix(1, Assoc::Left),
+            SortExpressionKind::Struct { .. }
+            | SortExpressionKind::Reference(_)
+            | SortExpressionKind::TypeVar(_)
+            | SortExpressionKind::ResolvedTypeVar(_)
+            | SortExpressionKind::Simple(_)
+            | SortExpressionKind::Complex(_, _)
+            | SortExpressionKind::Resolved(_, _)
+            | SortExpressionKind::FlattenedFunction { .. } => Fixity::Primary,
+        }
+    }
+
+    fn operand(&self) -> Option<&SortExpression> {
+        None
+    }
+}
+
+impl Operator for ProcessExprKind {
+    fn fixity(&self) -> Fixity {
+        match self {
+            ProcessExprKind::Binary { op, .. } => match op {
+                ProcExprBinaryOp::Choice => Fixity::Infix(0, Assoc::Left),
+                ProcExprBinaryOp::Parallel => Fixity::Infix(2, Assoc::Right),
+                ProcExprBinaryOp::LeftMerge => Fixity::Infix(3, Assoc::Right),
+                ProcExprBinaryOp::Until => Fixity::Infix(5, Assoc::Left),
+                ProcExprBinaryOp::Sequence => Fixity::Infix(6, Assoc::Right),
+                ProcExprBinaryOp::CommMerge => Fixity::Infix(8, Assoc::Left),
+            },
+            ProcessExprKind::Sum { .. } | ProcessExprKind::Dist { .. } => Fixity::Prefix(1),
+            ProcessExprKind::Condition { .. } => Fixity::Prefix(4),
+            ProcessExprKind::At { .. } => Fixity::Postfix(7),
+            ProcessExprKind::Id(_, _)
+            | ProcessExprKind::Action(_, _)
+            | ProcessExprKind::Delta
+            | ProcessExprKind::Tau
+            | ProcessExprKind::Hide { .. }
+            | ProcessExprKind::Rename { .. }
+            | ProcessExprKind::Allow { .. }
+            | ProcessExprKind::Block { .. }
+            | ProcessExprKind::Comm { .. } => Fixity::Primary,
+        }
+    }
+
+    fn operand(&self) -> Option<&ProcessExpr> {
+        match self {
+            ProcessExprKind::Sum { operand, .. } | ProcessExprKind::Dist { operand, .. } => Some(operand),
+            ProcessExprKind::Condition { then, else_, .. } => Some(else_.as_deref().unwrap_or(then)),
+            ProcessExprKind::At { expr, .. } => Some(expr),
+            _ => None,
+        }
+    }
+}
+
+impl Operator for PresExprKind {
+    fn fixity(&self) -> Fixity {
+        match self {
+            PresExprKind::Bound { .. } => Fixity::Prefix(0),
+            PresExprKind::Binary { op, .. } => match op {
+                PresExprBinaryOp::Add => Fixity::Infix(1, Assoc::Right),
+                PresExprBinaryOp::Implies => Fixity::Infix(2, Assoc::Right),
+                PresExprBinaryOp::Disjunction => Fixity::Infix(3, Assoc::Right),
+                PresExprBinaryOp::Conjunction => Fixity::Infix(4, Assoc::Right),
+            },
+            PresExprKind::LeftConstantMultiply { .. } => Fixity::Prefix(5),
+            PresExprKind::RightConstantMultiply { .. } => Fixity::Postfix(5),
+            PresExprKind::Negation(_) => Fixity::Prefix(6),
+            // `Equal`/`Condition` parse as self-contained, closed productions (`f(x) eq-inf`,
+            // `f(x) whr ...`-shaped, always delimited by their own keywords) — see
+            // `parse_presexpr`'s `map_primary` — so they never interact with precedence climbing.
+            PresExprKind::DataValExpr(_)
+            | PresExprKind::PropVarInst(_)
+            | PresExprKind::Equal { .. }
+            | PresExprKind::Condition { .. }
+            | PresExprKind::True
+            | PresExprKind::False => Fixity::Primary,
+        }
+    }
+
+    fn operand(&self) -> Option<&PresExpr> {
+        match self {
+            PresExprKind::LeftConstantMultiply { expr, .. } | PresExprKind::RightConstantMultiply { expr, .. } => {
+                Some(expr)
+            }
+            PresExprKind::Bound { expr, .. } => Some(expr),
+            PresExprKind::Negation(inner) => Some(inner),
+            _ => None,
+        }
+    }
 }
