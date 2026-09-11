@@ -289,6 +289,12 @@ fn check_action_or_process(
             name: name.node.clone(),
             arity: args.len(),
             span: span.clone(),
+            candidates: tables
+                .actions_by_name
+                .keys()
+                .chain(tables.processes_by_name.keys())
+                .cloned()
+                .collect(),
         });
     }
 
@@ -373,6 +379,12 @@ fn check_instantiation(
             name: name.node.clone(),
             arity: assignments.len(),
             span: span.clone(),
+            candidates: tables
+                .actions_by_name
+                .keys()
+                .chain(tables.processes_by_name.keys())
+                .cloned()
+                .collect(),
         });
     }
 
@@ -464,6 +476,7 @@ fn check_action_names(
             return Err(ProcessError::UndeclaredAction {
                 name: name.node.clone(),
                 span: name.span.clone(),
+                candidates: tables.actions_by_name.keys().cloned().collect(),
             });
         };
 

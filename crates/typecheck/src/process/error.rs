@@ -37,7 +37,13 @@ pub enum ProcessError {
     DuplicateGlobalVariable { name: String, span: Span },
 
     #[error("no action or process named '{name}' takes {arity} argument(s)")]
-    UndeclaredActionOrProcess { name: String, arity: usize, span: Span },
+    UndeclaredActionOrProcess {
+        name: String,
+        arity: usize,
+        span: Span,
+        /// Every declared action and process name, regardless of arity.
+        candidates: Vec<String>,
+    },
     #[error("no overload of '{name}' accepts these arguments")]
     NoMatchingOverload {
         name: String,
@@ -52,7 +58,13 @@ pub enum ProcessError {
     UnknownProcessParameter { process: String, name: String, span: Span },
 
     #[error("the action '{name}' is not declared")]
-    UndeclaredAction { name: String, span: Span },
+    UndeclaredAction {
+        name: String,
+        span: Span,
+        /// Every declared action name, the same "did you mean" candidate list
+        /// [`ProcessError::UndeclaredActionOrProcess`] carries.
+        candidates: Vec<String>,
+    },
 
     /// No way to pick one declared overload per action in a `comm` rule's
     /// left-hand side and one for its right-hand side makes every left-hand

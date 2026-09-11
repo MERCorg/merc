@@ -43,7 +43,13 @@ pub enum ModalError {
     },
 
     #[error("no action named '{name}' takes {arity} argument(s)")]
-    UndeclaredAction { name: String, arity: usize, span: Span },
+    UndeclaredAction {
+        name: String,
+        arity: usize,
+        span: Span,
+        /// Every declared action name, regardless of arity.
+        candidates: Vec<String>,
+    },
     #[error("no overload of '{name}' accepts these arguments")]
     NoMatchingOverload {
         name: String,

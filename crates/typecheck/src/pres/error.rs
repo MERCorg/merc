@@ -35,7 +35,12 @@ pub enum PresError {
     DuplicatePropositionalVariable { name: String, span: Span },
 
     #[error("no propositional variable named '{name}' is declared")]
-    UndeclaredPropositionalVariable { name: String, span: Span },
+    UndeclaredPropositionalVariable {
+        name: String,
+        span: Span,
+        /// Every declared propositional-variable name.
+        candidates: Vec<String>,
+    },
     #[error("'{name}' expects {expected} argument(s), found {found}")]
     ArityMismatch {
         name: String,
