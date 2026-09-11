@@ -14,7 +14,8 @@ pub type SourceId = TagIndex<usize, SourceTag>;
 /// global byte-offset space.
 #[derive(Default)]
 pub struct SourceMap {
-    /// Sorted by `base`, ascending, with no gaps.
+    /// Sorted by `base`, ascending, each separated from the next by a one-byte gap (see
+    /// [SourceMap::add]) that belongs to neither file.
     files: Vec<SourceFile>,
 }
 
@@ -44,7 +45,9 @@ impl SourceMap {
     }
 
     fn add(&mut self, name: String, text: String, is_virtual: bool) -> SourceId {
-        let base = self.files.last().map_or(0, |file| file.base + file.text.len());
+        // A one-byte gap after the previous file means an offset one-past-its-end can never
+        // collide with the next file's own base.
+        let base = self.files.last().map_or(0, |file| file.base + file.text.len() + 1);
         let id = TagIndex::new(self.files.len());
         self.files.push(SourceFile {
             name,
@@ -63,7 +66,9 @@ impl SourceMap {
     /// Finds which loaded file a global byte offset (as found in a [`crate::Span`]) falls into.
     /// Offsets past the end of every loaded file resolve to the last file, so an out-of-range or
     /// synthetic (e.g. [`crate::Span::default`]) span still renders against something rather than
-    /// panicking.
+    /// panicking. An offset landing exactly in the one-byte gap after a file (e.g. an
+    /// end-exclusive span whose `end` is that file's length) resolves to that file rather than the
+    /// one following it.
     ///
     /// Panics if no file has been loaded yet.
     pub fn lookup(&self, offset: usize) -> SourceId {
@@ -149,11 +154,40 @@ mod tests {
         assert!(sources.is_virtual(second));
 
         assert_eq!(sources.base_offset(first), 0);
-        assert_eq!(sources.base_offset(second), "sort D;".len());
+        // One byte further than the naive "first.len()" — the gap between files.
+        assert_eq!(sources.base_offset(second), "sort D;".len() + 1);
 
         assert_eq!(sources.lookup(0), first);
         assert_eq!(sources.lookup("sort D;".len() - 1), first);
         assert_eq!(sources.lookup(sources.base_offset(second)), second);
         assert_eq!(sources.lookup(sources.base_offset(second) + 3), second);
+    }
+
+    #[test]
+    fn test_offset_one_past_a_file_end_resolves_to_that_file_not_the_next() {
+        let mut sources = SourceMap::new();
+        let first = sources.add_text("a.mcrl2", "sort D;");
+        let second = sources.add_text("b.mcrl2", "sort E;");
+
+        // Before the gap fix, this offset (exactly "sort D;".len(), the naive base of the next
+        // file) was indistinguishable from `second`'s own base and always resolved to `second`.
+        assert_eq!(sources.lookup("sort D;".len()), first);
+        assert_eq!(sources.lookup(sources.base_offset(second)), second);
+    }
+
+    #[test]
+    fn test_empty_file_gets_its_own_unambiguous_offset() {
+        let mut sources = SourceMap::new();
+        let first = sources.add_text("a.mcrl2", "sort D;");
+        let empty = sources.add_text("empty.mcrl2", "");
+        let third = sources.add_text("c.mcrl2", "sort F;");
+
+        assert_ne!(sources.base_offset(empty), sources.base_offset(first));
+        assert_ne!(sources.base_offset(empty), sources.base_offset(third));
+        assert_eq!(sources.lookup(sources.base_offset(empty)), empty);
+        // Every offset into the following file must resolve to it, not to the empty file that
+        // used to share its base.
+        assert_eq!(sources.lookup(sources.base_offset(third)), third);
+        assert_eq!(sources.lookup(sources.base_offset(third) + 3), third);
     }
 }

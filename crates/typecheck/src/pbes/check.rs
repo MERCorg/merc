@@ -160,6 +160,7 @@ fn check_prop_var_inst(
         return Err(PbesError::UndeclaredPropositionalVariable {
             name: inst.identifier.node.clone(),
             span: inst.span.clone(),
+            candidates: tables.equations_by_name.keys().cloned().collect(),
         });
     };
     typing.push(

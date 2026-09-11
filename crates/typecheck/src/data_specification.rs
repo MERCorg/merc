@@ -38,6 +38,7 @@ use crate::basic_sort_data_specification;
 use crate::build_signature;
 use crate::build_system_defined_specification;
 use crate::check_aliases;
+use crate::check_comparison_template;
 use crate::check_container_templates;
 use crate::check_equations;
 use crate::check_multi_argument_function_update_template;
@@ -84,23 +85,14 @@ pub struct DataSpecification {
     encoding: NumberEncoding,
     /// Every sort-name reference in `spec`'s own declarations.
     sort_references: Vec<typing_info::SortReference>,
-    /// Every `var`-block-declared equation variable's own [`VarId`], paired with its declaring
-    /// identifier's span — see [`VariableSpans`]. Scoped to `spec`'s own equation-variable
-    /// numbering: never valid for a `VarId` from a process/PBES/PRES/modal specification built on
-    /// top of this one, which allocates from its own separate counter (see the module doc comment
-    /// on [`crate::resolve_process_variables`] and friends).
-    variable_spans: VariableSpans,
 }
 
 impl DataSpecification {
     /// Type checks `spec` against a fresh, throwaway [`SourceMap`], using the default number
-    /// encoding. See [`Self::from_untyped_with`].
+    /// encoding.
     ///
-    /// Prefer [`Self::from_untyped_with`] with a real `sources` (e.g. the one
-    /// `UntypedDataSpecification::parse_with_imports` built) when `spec` came from a file on disk
-    /// that may itself `%import` other specifications, or when a caller downstream needs to
-    /// render a span into `spec`'s system-defined content — this entry point's own throwaway
-    /// `SourceMap` is discarded on return.
+    /// Prefer [`Self::from_untyped_with`] with a real `sources` when `spec` came from a file on disk
+    /// that may itself `%import` other specifications.
     pub fn from_untyped(spec: UntypedDataSpecification) -> Result<Self, WellTypedError> {
         Self::from_untyped_with(spec, NumberEncoding::default(), &mut SourceMap::new())
     }
@@ -109,10 +101,7 @@ impl DataSpecification {
     /// specification, using `encoding` to represent the numeric sorts.
     ///
     /// `sources` accumulates the system-defined (Appendix-B) content this generates as virtual
-    /// documents — pass the `SourceMap` `spec` was parsed (and, if applicable, `%import`-resolved)
-    /// against so every span, whether from `spec`'s own text, something it imports, or Appendix B,
-    /// renders correctly against one shared offset space; pass a fresh one if nothing else needs
-    /// to share it.
+    /// documents, and resolve %import directives correctly.
     pub fn from_untyped_with(
         mut spec: UntypedDataSpecification,
         encoding: NumberEncoding,
@@ -128,7 +117,7 @@ impl DataSpecification {
 
         // Ties every equation-variable occurrence to its own `var`-block
         // declaration span.
-        let variable_spans = resolve_data_specification_variables(&mut spec);
+        resolve_data_specification_variables(&mut spec);
 
         // Hoist anonymous structured sorts into fresh named declarations.
         hoist_anonymous_structs(&mut spec);
@@ -143,12 +132,14 @@ impl DataSpecification {
         .expect("The inner function never fails");
 
         // Assign ids to `type_var` declarations and resolve every `TypeVar` node to its id.
-        let type_vars = resolve_type_var_ids(&mut spec)?;
-        debug!("typecheck: resolved {} type variable name(s)", type_vars.len());
+        resolve_type_var_ids(&mut spec)?;
+        debug!("typecheck: resolved type variable name(s)");
 
+        // The returned sorts are only used for lookup cycles.
         let sorts = resolve_sort_ids(&mut spec)?;
         debug!("typecheck: resolved {} sort name(s)", sorts.len());
 
+        // Alias checks still need to see the structured sorts, so we perform them before desugaring.
         check_aliases(&spec).map_err(|(err, span)| {
             let name = |id: &SortId| sorts.get_by_index(**id).expect("The sort should be declared").clone();
             match err {
@@ -164,8 +155,7 @@ impl DataSpecification {
         })?;
 
         // Desugar structured sorts into abstract sorts plus their constructors,
-        // recognisers and projections. Alias checks still need to see the
-        // structured sorts.
+        // recognisers and projections.
         let structs = desugar_structured_sorts(&mut spec);
         debug!(
             "typecheck: desugared {} structured sort(s) into {} constructor(s)",
@@ -265,6 +255,11 @@ impl DataSpecification {
         // this check's own result later, by `check_system_equations`, rather
         // than re-checked.
         check_container_templates(&mut context, encoding)?;
+        // Comparison-operator equations are checked the same way, once, against
+        // `crate::BUILTIN_SCHEME_TEMPLATE`'s own `type_var S` held rigid — its
+        // names are already part of the signature built above, so no per-arity
+        // signature merge is needed here.
+        check_comparison_template(&mut context)?;
         debug!("typecheck: container template equations passed the rigid check");
 
         // Inference over every user equation; an equation binding
@@ -345,7 +340,6 @@ impl DataSpecification {
             context,
             encoding,
             sort_references,
-            variable_spans,
         })
     }
 
@@ -559,7 +553,13 @@ impl DataSpecification {
     ) -> Result<(DataExpression, TypingInfo), InferenceError> {
         // Ties every local binder this.
         let mut expr = expr.clone();
-        let variable_spans = resolve_data_expr_variables(&mut expr);
+        resolve_data_expr_variables(&mut expr);
+
+        // `expr`'s own binders (a `lambda`/`forall`/`exists`/comprehension/`whr`) each already
+        // carry their own `VarId` and declaring span after resolution above; collected here, from
+        // `expr` itself, before `lower_data_expr` below consumes it.
+        let mut variable_spans = VariableSpans::new();
+        typing_info::collect_data_expr_variable_declarations(&expr, &mut variable_spans);
 
         // The built-in operator nodes (`x + y`, `[x, y]`, `f[x -> y]`) become
         // applications first, exactly as `from_untyped_with` does for the
@@ -595,11 +595,10 @@ impl DataSpecification {
         if let Some(cached) = self.context.equation_typing_info.get(&key) {
             return (**cached).clone();
         }
-        let info = Arc::new(typing_info::build(
-            self,
-            self.equation_typing(key),
-            &self.variable_spans,
-        ));
+        let (eqn_spec_id, _) = key;
+        let variable_spans =
+            typing_info::collect_equation_variable_declarations(&self.spec.equation_declarations[*eqn_spec_id]);
+        let info = Arc::new(typing_info::build(self, self.equation_typing(key), &variable_spans));
         self.context.equation_typing_info.insert(key, Arc::clone(&info));
         (*info).clone()
     }

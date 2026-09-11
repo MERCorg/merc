@@ -2,6 +2,7 @@ mod alias;
 mod name_resolution;
 mod non_empty;
 mod normalize;
+mod type_var_binding;
 mod variable_resolution;
 
 pub(crate) use alias::*;
