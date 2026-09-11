@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use merc_syntax::ActFrm;
 use merc_syntax::ActFrmKind;
 use merc_syntax::DataExpr;
@@ -14,7 +12,6 @@ use merc_syntax::ProcessExprKind;
 use merc_syntax::PropVarInst;
 use merc_syntax::RegFrm;
 use merc_syntax::RegFrmKind;
-use merc_syntax::Span;
 use merc_syntax::StateFrm;
 use merc_syntax::StateFrmKind;
 use merc_syntax::StateVarId;
@@ -27,129 +24,101 @@ use merc_syntax::UntypedStateFrmSpec;
 use merc_syntax::VarId;
 use merc_syntax::VarIdAllocator;
 
-/// Every binder's own [VarId], paired with the span of the identifier it declares.
-pub(crate) type VariableSpans = HashMap<VarId, Span>;
-
 /// Resolves every context-free variable reference in a standalone expression's
 /// own local binders: every binder `expr` declares is local to `expr` itself,
 /// so resolution starts from an empty [Scope], exactly as it would for a fresh
 /// `var`-block-less equation.
-pub(crate) fn resolve_data_expr_variables(expr: &mut DataExpr) -> VariableSpans {
+pub(crate) fn resolve_data_expr_variables(expr: &mut DataExpr) {
     let mut ids = VarIdAllocator::default();
     let mut scope = Scope::default();
-    let mut spans = VariableSpans::new();
-    resolve_in_data_expr(expr, &mut scope, &mut ids, &mut spans);
-    spans
+    resolve_in_data_expr(expr, &mut scope, &mut ids);
 }
 
 /// Resolves every context-free variable reference in `spec`'s own `var`-block equations.
-pub(crate) fn resolve_data_specification_variables(spec: &mut UntypedDataSpecification) -> VariableSpans {
+pub(crate) fn resolve_data_specification_variables(spec: &mut UntypedDataSpecification) {
     let mut ids = VarIdAllocator::default();
-    let mut spans = VariableSpans::new();
 
     for eqn_spec in &mut spec.equation_declarations {
-        let mut scope = Scope::from_declarations(&mut eqn_spec.variables, &mut ids, &mut spans);
+        let mut scope = Scope::from_declarations(&mut eqn_spec.variables, &mut ids);
 
         for equation in &mut eqn_spec.equations {
             if let Some(condition) = &mut equation.condition {
-                resolve_in_data_expr(condition, &mut scope, &mut ids, &mut spans);
+                resolve_in_data_expr(condition, &mut scope, &mut ids);
             }
 
-            resolve_in_data_expr(&mut equation.lhs, &mut scope, &mut ids, &mut spans);
-            resolve_in_data_expr(&mut equation.rhs, &mut scope, &mut ids, &mut spans);
+            resolve_in_data_expr(&mut equation.lhs, &mut scope, &mut ids);
+            resolve_in_data_expr(&mut equation.rhs, &mut scope, &mut ids);
         }
     }
-    spans
 }
 
 /// Resolves every context-free variable reference in `spec`'s `proc` bodies and `init`.
-pub(crate) fn resolve_process_variables(spec: &mut UntypedProcessSpecification) -> VariableSpans {
+pub(crate) fn resolve_process_variables(spec: &mut UntypedProcessSpecification) {
     let mut ids = VarIdAllocator::default();
-    let mut spans = VariableSpans::new();
-    let globals = Scope::from_declarations(&mut spec.global_variables, &mut ids, &mut spans);
+    let globals = Scope::from_declarations(&mut spec.global_variables, &mut ids);
 
     for proc_decl in &mut spec.process_declarations {
         // A process's own parameters shadow a global variable of the same name.
         let mut scope = globals.clone();
-        scope.push_declarations(&mut proc_decl.params, &mut ids, &mut spans);
-        resolve_in_process_expr(&mut proc_decl.body, &mut scope, &mut ids, &mut spans);
+        scope.push_declarations(&mut proc_decl.params, &mut ids);
+        resolve_in_process_expr(&mut proc_decl.body, &mut scope, &mut ids);
     }
 
     if let Some(init) = &mut spec.init {
         // `init` sits outside every process's own parameter scope — only globals apply.
         let mut scope = globals.clone();
-        resolve_in_process_expr(init, &mut scope, &mut ids, &mut spans);
+        resolve_in_process_expr(init, &mut scope, &mut ids);
     }
-    spans
 }
 
 /// Resolves every context-free variable reference in `pbes`'s equation bodies and `init`.
-pub(crate) fn resolve_pbes_variables(pbes: &mut UntypedPbes) -> VariableSpans {
+pub(crate) fn resolve_pbes_variables(pbes: &mut UntypedPbes) {
     let mut ids = VarIdAllocator::default();
-    let mut spans = VariableSpans::new();
-    let globals = Scope::from_declarations(&mut pbes.global_variables, &mut ids, &mut spans);
+    let globals = Scope::from_declarations(&mut pbes.global_variables, &mut ids);
 
     for equation in &mut pbes.equations {
         let mut scope = globals.clone();
-        scope.push_declarations(&mut equation.variable.parameters, &mut ids, &mut spans);
-        resolve_in_pbes_expr(&mut equation.formula, &mut scope, &mut ids, &mut spans);
+        scope.push_declarations(&mut equation.variable.parameters, &mut ids);
+        resolve_in_pbes_expr(&mut equation.formula, &mut scope, &mut ids);
     }
 
     // `init` sits outside every equation's own parameter scope — only globals apply.
     let mut scope = globals.clone();
-    resolve_in_prop_var_inst(&mut pbes.init, &mut scope, &mut ids, &mut spans);
-    spans
+    resolve_in_prop_var_inst(&mut pbes.init, &mut scope, &mut ids);
 }
 
 /// Resolves every context-free variable reference in `pres`'s equation bodies and `init`.
-pub(crate) fn resolve_pres_variables(pres: &mut UntypedPres) -> VariableSpans {
+pub(crate) fn resolve_pres_variables(pres: &mut UntypedPres) {
     let mut ids = VarIdAllocator::default();
-    let mut spans = VariableSpans::new();
-    let globals = Scope::from_declarations(&mut pres.global_variables, &mut ids, &mut spans);
+    let globals = Scope::from_declarations(&mut pres.global_variables, &mut ids);
 
     for equation in &mut pres.equations {
         let mut scope = globals.clone();
-        scope.push_declarations(&mut equation.variable.parameters, &mut ids, &mut spans);
-        resolve_in_pres_expr(&mut equation.formula, &mut scope, &mut ids, &mut spans);
+        scope.push_declarations(&mut equation.variable.parameters, &mut ids);
+        resolve_in_pres_expr(&mut equation.formula, &mut scope, &mut ids);
     }
 
     // `init` sits outside every equation's own parameter scope — only globals apply.
     let mut scope = globals.clone();
-    resolve_in_prop_var_inst(&mut pres.init, &mut scope, &mut ids, &mut spans);
-    spans
+    resolve_in_prop_var_inst(&mut pres.init, &mut scope, &mut ids);
 }
 
-/// Resolves every context-free variable reference in `spec`'s state formula: a
-/// `forall`/`exists`/`inf`/`sup`/`sum` binder, a fixpoint (`mu`/`nu`) variable's own parameters, an
-/// action-formula `forall`/`exists` binder nested inside a `<...>`/`[...]` modality, and — in a
-/// second, separate namespace threaded alongside the first — a fixpoint-variable *name* itself
-/// (`StateFrmKind::Id`'s reference to an enclosing `mu X(...)`/`nu X(...)`), rewritten to
-/// [`StateFrmKind::Resolved`] much like [`DataExprKind::Id`] resolves to [`DataExprKind::Resolved`],
-/// keyed by that binder's own [`StateVarId`] rather than [`VarId`]: a fixpoint variable is a
-/// propositional variable, not a data variable, so it gets its own id namespace and its own
-/// [`StateVarIdAllocator`] rather than sharing `VarId`'s counter (mirroring why `VarId` and `SortId`
-/// don't share a counter either). A state formula specification has no `glob` block, so both
-/// scopes start empty — unlike
-/// [`resolve_process_variables`]/[`resolve_pbes_variables`]/[`resolve_pres_variables`], there is no
-/// outer scope to seed.
+/// Resolves every context-free variable reference in `spec`'s state formula.
 ///
 /// This pass only decides *which* enclosing binder a name refers to; a fixpoint variable's own
 /// *parameter sorts* still aren't known here.
-pub(crate) fn resolve_modal_variables(spec: &mut UntypedStateFrmSpec) -> VariableSpans {
+pub(crate) fn resolve_modal_variables(spec: &mut UntypedStateFrmSpec) {
     let mut ids = VarIdAllocator::default();
     let mut state_var_ids = StateVarIdAllocator::default();
     let mut scope = Scope::default();
     let mut state_vars = FixpointScope::default();
-    let mut spans = VariableSpans::new();
     resolve_in_state_frm(
         &mut spec.formula,
         &mut scope,
         &mut state_vars,
         &mut ids,
         &mut state_var_ids,
-        &mut spans,
     );
-    spans
 }
 
 fn resolve_in_state_frm(
@@ -158,18 +127,17 @@ fn resolve_in_state_frm(
     state_vars: &mut FixpointScope,
     ids: &mut VarIdAllocator,
     state_var_ids: &mut StateVarIdAllocator,
-    spans: &mut VariableSpans,
 ) {
     match &mut formula.node {
         StateFrmKind::True | StateFrmKind::False => {}
         StateFrmKind::Delay(time) | StateFrmKind::Yaled(time) => {
             if let Some(time) = time {
-                resolve_in_data_expr(time, scope, ids, spans);
+                resolve_in_data_expr(time, scope, ids);
             }
         }
         StateFrmKind::Id(name, arguments) => {
             for argument in arguments.iter_mut() {
-                resolve_in_data_expr(argument, scope, ids, spans);
+                resolve_in_data_expr(argument, scope, ids);
             }
             if let Some(declaration) = state_vars.resolve(name) {
                 formula.node = StateFrmKind::Resolved(name.clone(), std::mem::take(arguments), declaration);
@@ -179,30 +147,30 @@ fn resolve_in_state_frm(
         // leaf keeps the rewrite idempotent, the same way `DataExprKind::Resolved` does).
         StateFrmKind::Resolved(_, arguments, _) => {
             for argument in arguments.iter_mut() {
-                resolve_in_data_expr(argument, scope, ids, spans);
+                resolve_in_data_expr(argument, scope, ids);
             }
         }
-        StateFrmKind::DataValExpr(data_expr) => resolve_in_data_expr(data_expr, scope, ids, spans),
+        StateFrmKind::DataValExpr(data_expr) => resolve_in_data_expr(data_expr, scope, ids),
         StateFrmKind::DataValExprLeftMult(constant, expr) => {
-            resolve_in_data_expr(constant, scope, ids, spans);
-            resolve_in_state_frm(expr, scope, state_vars, ids, state_var_ids, spans);
+            resolve_in_data_expr(constant, scope, ids);
+            resolve_in_state_frm(expr, scope, state_vars, ids, state_var_ids);
         }
         StateFrmKind::DataValExprRightMult(expr, constant) => {
-            resolve_in_state_frm(expr, scope, state_vars, ids, state_var_ids, spans);
-            resolve_in_data_expr(constant, scope, ids, spans);
+            resolve_in_state_frm(expr, scope, state_vars, ids, state_var_ids);
+            resolve_in_data_expr(constant, scope, ids);
         }
         StateFrmKind::Modality { formula, expr, .. } => {
-            resolve_in_reg_frm(formula, scope, ids, spans);
-            resolve_in_state_frm(expr, scope, state_vars, ids, state_var_ids, spans);
+            resolve_in_reg_frm(formula, scope, ids);
+            resolve_in_state_frm(expr, scope, state_vars, ids, state_var_ids);
         }
-        StateFrmKind::Unary { expr, .. } => resolve_in_state_frm(expr, scope, state_vars, ids, state_var_ids, spans),
+        StateFrmKind::Unary { expr, .. } => resolve_in_state_frm(expr, scope, state_vars, ids, state_var_ids),
         StateFrmKind::Binary { lhs, rhs, .. } => {
-            resolve_in_state_frm(lhs, scope, state_vars, ids, state_var_ids, spans);
-            resolve_in_state_frm(rhs, scope, state_vars, ids, state_var_ids, spans);
+            resolve_in_state_frm(lhs, scope, state_vars, ids, state_var_ids);
+            resolve_in_state_frm(rhs, scope, state_vars, ids, state_var_ids);
         }
         StateFrmKind::Quantifier { variables, body, .. } | StateFrmKind::Bound { variables, body, .. } => {
-            let pushed = scope.push_declarations(variables, ids, spans);
-            resolve_in_state_frm(body, scope, state_vars, ids, state_var_ids, spans);
+            let pushed = scope.push_declarations(variables, ids);
+            resolve_in_state_frm(body, scope, state_vars, ids, state_var_ids);
             scope.pop(pushed);
         }
         StateFrmKind::FixedPoint { variable, body, .. } => {
@@ -210,114 +178,92 @@ fn resolve_in_state_frm(
             // the parameter it initializes (and any sibling parameter) isn't bound yet, mirroring
             // `resolve_in_process_expr`'s treatment of an instantiation's assignment value.
             for argument in &mut variable.arguments {
-                resolve_in_data_expr(&mut argument.expr, scope, ids, spans);
+                resolve_in_data_expr(&mut argument.expr, scope, ids);
             }
             let pushed = variable.arguments.len();
             for argument in &mut variable.arguments {
-                argument.id = Some(scope.declare(
-                    argument.identifier.node.clone(),
-                    argument.identifier.span.clone(),
-                    ids,
-                    spans,
-                ));
+                argument.id = Some(scope.declare(argument.identifier.node.clone(), ids));
             }
             // The fixpoint variable's own name is in scope for its body only (it may itself
             // shadow an outer variable of the same name, `mu X. nu X. ...`).
             let state_var_id = state_var_ids.alloc();
             variable.id = Some(state_var_id);
             state_vars.push(variable.identifier.clone(), state_var_id);
-            resolve_in_state_frm(body, scope, state_vars, ids, state_var_ids, spans);
+            resolve_in_state_frm(body, scope, state_vars, ids, state_var_ids);
             state_vars.pop(1);
             scope.pop(pushed);
         }
     }
 }
 
-fn resolve_in_reg_frm(formula: &mut RegFrm, scope: &mut Scope, ids: &mut VarIdAllocator, spans: &mut VariableSpans) {
+fn resolve_in_reg_frm(formula: &mut RegFrm, scope: &mut Scope, ids: &mut VarIdAllocator) {
     match &mut formula.node {
-        RegFrmKind::Action(action) => resolve_in_act_frm(action, scope, ids, spans),
-        RegFrmKind::Iteration(inner) | RegFrmKind::Plus(inner) => resolve_in_reg_frm(inner, scope, ids, spans),
+        RegFrmKind::Action(action) => resolve_in_act_frm(action, scope, ids),
+        RegFrmKind::Iteration(inner) | RegFrmKind::Plus(inner) => resolve_in_reg_frm(inner, scope, ids),
         RegFrmKind::Sequence { lhs, rhs } | RegFrmKind::Choice { lhs, rhs } => {
-            resolve_in_reg_frm(lhs, scope, ids, spans);
-            resolve_in_reg_frm(rhs, scope, ids, spans);
+            resolve_in_reg_frm(lhs, scope, ids);
+            resolve_in_reg_frm(rhs, scope, ids);
         }
     }
 }
 
-fn resolve_in_act_frm(formula: &mut ActFrm, scope: &mut Scope, ids: &mut VarIdAllocator, spans: &mut VariableSpans) {
+fn resolve_in_act_frm(formula: &mut ActFrm, scope: &mut Scope, ids: &mut VarIdAllocator) {
     match &mut formula.node {
         ActFrmKind::True | ActFrmKind::False => {}
         ActFrmKind::MultAct(multi_action) => {
             for action in &mut multi_action.actions {
                 for argument in &mut action.args {
-                    resolve_in_data_expr(argument, scope, ids, spans);
+                    resolve_in_data_expr(argument, scope, ids);
                 }
             }
         }
-        ActFrmKind::DataExprVal(data_expr) => resolve_in_data_expr(data_expr, scope, ids, spans),
-        ActFrmKind::Negation(inner) => resolve_in_act_frm(inner, scope, ids, spans),
+        ActFrmKind::DataExprVal(data_expr) => resolve_in_data_expr(data_expr, scope, ids),
+        ActFrmKind::Negation(inner) => resolve_in_act_frm(inner, scope, ids),
         ActFrmKind::Quantifier { variables, body, .. } => {
-            let pushed = scope.push_declarations(variables, ids, spans);
-            resolve_in_act_frm(body, scope, ids, spans);
+            let pushed = scope.push_declarations(variables, ids);
+            resolve_in_act_frm(body, scope, ids);
             scope.pop(pushed);
         }
         ActFrmKind::Binary { lhs, rhs, .. } => {
-            resolve_in_act_frm(lhs, scope, ids, spans);
-            resolve_in_act_frm(rhs, scope, ids, spans);
+            resolve_in_act_frm(lhs, scope, ids);
+            resolve_in_act_frm(rhs, scope, ids);
         }
     }
 }
 
 /// The binders currently in scope, each paired with its declaration's own [VarId] so two
 /// occurrences of the same binder keep comparing equal once rewritten to
-/// [`DataExprKind::Resolved`]. Lexical scoping is stack-shaped: a subtree's own binders are
-/// pushed before descending into it and [`Scope::pop`]ped back off once that subtree is done, so
-/// a later binder of the same name shadows an earlier one without disturbing it.
+/// [`DataExprKind::Resolved`].
 #[derive(Clone, Default)]
 struct Scope(Vec<(String, VarId)>);
 
 impl Scope {
     /// Builds a scope from a binder's own declarations, assigning each a fresh [VarId].
-    fn from_declarations<Id>(
-        variables: &mut [IdDecl<Id>],
-        ids: &mut VarIdAllocator,
-        spans: &mut VariableSpans,
-    ) -> Self {
+    fn from_declarations<Id>(variables: &mut [IdDecl<Id>], ids: &mut VarIdAllocator) -> Self {
         let mut scope = Scope::default();
-        scope.push_declarations(variables, ids, spans);
+        scope.push_declarations(variables, ids);
         scope
     }
 
-    /// Pushes each declaration in `variables` onto the scope, assigning it a fresh [VarId] (also
-    /// written back onto the declaration itself) and recording its own identifier span into
-    /// `spans` (see [`VariableSpans`]), and returns how many were pushed so the caller can
-    /// [`Scope::pop`] them back off once its subtree is done.
-    fn push_declarations<Id>(
-        &mut self,
-        variables: &mut [IdDecl<Id>],
-        ids: &mut VarIdAllocator,
-        spans: &mut VariableSpans,
-    ) -> usize {
+    /// Pushes each declaration in `variables` onto the scope, assigning it a fresh [VarId], and
+    /// returns how many were pushed so the caller can [`Scope::pop`] them back off once its
+    /// subtree is done.
+    ///
+    /// Each declaration's own identifier span stays on the AST node itself (`variable.identifier`)
+    /// rather than being recorded here: a later, on-demand walk over the resolved tree (see
+    /// `crate::typing_info::VariableSpans`) recovers it straight from the declaration when a
+    /// `TypingInfo` query actually needs it, so resolution itself doesn't need to track it.
+    fn push_declarations<Id>(&mut self, variables: &mut [IdDecl<Id>], ids: &mut VarIdAllocator) -> usize {
         for variable in variables.iter_mut() {
-            variable.var_id = Some(self.declare(
-                variable.identifier.node.clone(),
-                variable.identifier.span.clone(),
-                ids,
-                spans,
-            ));
+            variable.var_id = Some(self.declare(variable.identifier.node.clone(), ids));
         }
         variables.len()
     }
 
-    /// Declares a single binder: allocates it a fresh [VarId], records its identifier's span into
-    /// `spans` (see [`VariableSpans`]), and pushes `name` onto the scope under that id. This is
-    /// what [`Scope::push_declarations`] does per-element for an `IdDecl`; every binder that isn't
-    /// itself an `IdDecl` (a fixpoint variable's own parameter, a `whr` assignment's identifier)
-    /// goes through this one method too, so "allocate a VarId for a binder" has exactly one place
-    /// that does it instead of each such site reimplementing alloc-record-push by hand.
-    fn declare(&mut self, name: String, span: Span, ids: &mut VarIdAllocator, spans: &mut VariableSpans) -> VarId {
+    /// Declares a single binder: allocates it a fresh [VarId] and pushes `name` onto the scope
+    /// under that id.
+    fn declare(&mut self, name: String, ids: &mut VarIdAllocator) -> VarId {
         let var_id = ids.alloc();
-        spans.insert(var_id, span);
         self.0.push((name, var_id));
         var_id
     }
@@ -338,9 +284,7 @@ impl Scope {
     }
 }
 
-/// The fixpoint-variable names currently in scope, in the second, [`StateVarId`]-keyed namespace
-/// [`resolve_modal_variables`] documents — kept as a distinct type from [Scope] so the two
-/// namespaces can't be mixed up by accident.
+/// The fixpoint-variable names currently in scope, in the second, [`StateVarId`]-keyed namespace.
 #[derive(Default)]
 struct FixpointScope(Vec<(String, StateVarId)>);
 
@@ -358,28 +302,23 @@ impl FixpointScope {
     }
 }
 
-fn resolve_in_process_expr(
-    expr: &mut ProcessExpr,
-    scope: &mut Scope,
-    ids: &mut VarIdAllocator,
-    spans: &mut VariableSpans,
-) {
+fn resolve_in_process_expr(expr: &mut ProcessExpr, scope: &mut Scope, ids: &mut VarIdAllocator) {
     match &mut expr.node {
         ProcessExprKind::Delta | ProcessExprKind::Tau => {}
         ProcessExprKind::Action(_, args) => {
             for arg in args {
-                resolve_in_data_expr(arg, scope, ids, spans);
+                resolve_in_data_expr(arg, scope, ids);
             }
         }
         ProcessExprKind::Id(_, assignments) => {
             // Only the assignment's *value* is a context-free variable read.
             for assignment in assignments {
-                resolve_in_data_expr(&mut assignment.expr, scope, ids, spans);
+                resolve_in_data_expr(&mut assignment.expr, scope, ids);
             }
         }
         ProcessExprKind::Sum { variables, operand } => {
-            let pushed = scope.push_declarations(variables, ids, spans);
-            resolve_in_process_expr(operand, scope, ids, spans);
+            let pushed = scope.push_declarations(variables, ids);
+            resolve_in_process_expr(operand, scope, ids);
             scope.pop(pushed);
         }
         ProcessExprKind::Dist {
@@ -387,97 +326,92 @@ fn resolve_in_process_expr(
             expr: weight,
             operand,
         } => {
-            let pushed = scope.push_declarations(variables, ids, spans);
+            let pushed = scope.push_declarations(variables, ids);
             // `dist`'s weight is resolved with its own bound variables already in scope.
-            resolve_in_data_expr(weight, scope, ids, spans);
-            resolve_in_process_expr(operand, scope, ids, spans);
+            resolve_in_data_expr(weight, scope, ids);
+            resolve_in_process_expr(operand, scope, ids);
             scope.pop(pushed);
         }
         ProcessExprKind::Binary { lhs, rhs, .. } => {
-            resolve_in_process_expr(lhs, scope, ids, spans);
-            resolve_in_process_expr(rhs, scope, ids, spans);
+            resolve_in_process_expr(lhs, scope, ids);
+            resolve_in_process_expr(rhs, scope, ids);
         }
         ProcessExprKind::Hide { operand, .. }
         | ProcessExprKind::Rename { operand, .. }
         | ProcessExprKind::Allow { operand, .. }
         | ProcessExprKind::Block { operand, .. }
-        | ProcessExprKind::Comm { operand, .. } => resolve_in_process_expr(operand, scope, ids, spans),
+        | ProcessExprKind::Comm { operand, .. } => resolve_in_process_expr(operand, scope, ids),
         ProcessExprKind::Condition { condition, then, else_ } => {
-            resolve_in_data_expr(condition, scope, ids, spans);
-            resolve_in_process_expr(then, scope, ids, spans);
+            resolve_in_data_expr(condition, scope, ids);
+            resolve_in_process_expr(then, scope, ids);
             if let Some(else_) = else_ {
-                resolve_in_process_expr(else_, scope, ids, spans);
+                resolve_in_process_expr(else_, scope, ids);
             }
         }
         ProcessExprKind::At { expr, operand } => {
-            resolve_in_process_expr(expr, scope, ids, spans);
-            resolve_in_data_expr(operand, scope, ids, spans);
+            resolve_in_process_expr(expr, scope, ids);
+            resolve_in_data_expr(operand, scope, ids);
         }
     }
 }
 
-fn resolve_in_pbes_expr(expr: &mut PbesExpr, scope: &mut Scope, ids: &mut VarIdAllocator, spans: &mut VariableSpans) {
+fn resolve_in_pbes_expr(expr: &mut PbesExpr, scope: &mut Scope, ids: &mut VarIdAllocator) {
     match &mut expr.node {
         PbesExprKind::True | PbesExprKind::False => {}
-        PbesExprKind::DataValExpr(data_expr) => resolve_in_data_expr(data_expr, scope, ids, spans),
-        PbesExprKind::PropVarInst(inst) => resolve_in_prop_var_inst(inst, scope, ids, spans),
-        PbesExprKind::Negation(inner) => resolve_in_pbes_expr(inner, scope, ids, spans),
+        PbesExprKind::DataValExpr(data_expr) => resolve_in_data_expr(data_expr, scope, ids),
+        PbesExprKind::PropVarInst(inst) => resolve_in_prop_var_inst(inst, scope, ids),
+        PbesExprKind::Negation(inner) => resolve_in_pbes_expr(inner, scope, ids),
         PbesExprKind::Binary { lhs, rhs, .. } => {
-            resolve_in_pbes_expr(lhs, scope, ids, spans);
-            resolve_in_pbes_expr(rhs, scope, ids, spans);
+            resolve_in_pbes_expr(lhs, scope, ids);
+            resolve_in_pbes_expr(rhs, scope, ids);
         }
         PbesExprKind::Quantifier { variables, body, .. } => {
-            let pushed = scope.push_declarations(variables, ids, spans);
-            resolve_in_pbes_expr(body, scope, ids, spans);
+            let pushed = scope.push_declarations(variables, ids);
+            resolve_in_pbes_expr(body, scope, ids);
             scope.pop(pushed);
         }
     }
 }
 
-fn resolve_in_pres_expr(expr: &mut PresExpr, scope: &mut Scope, ids: &mut VarIdAllocator, spans: &mut VariableSpans) {
+fn resolve_in_pres_expr(expr: &mut PresExpr, scope: &mut Scope, ids: &mut VarIdAllocator) {
     match &mut expr.node {
         PresExprKind::True | PresExprKind::False => {}
-        PresExprKind::DataValExpr(data_expr) => resolve_in_data_expr(data_expr, scope, ids, spans),
-        PresExprKind::PropVarInst(inst) => resolve_in_prop_var_inst(inst, scope, ids, spans),
-        PresExprKind::Negation(inner) => resolve_in_pres_expr(inner, scope, ids, spans),
+        PresExprKind::DataValExpr(data_expr) => resolve_in_data_expr(data_expr, scope, ids),
+        PresExprKind::PropVarInst(inst) => resolve_in_prop_var_inst(inst, scope, ids),
+        PresExprKind::Negation(inner) => resolve_in_pres_expr(inner, scope, ids),
         PresExprKind::Binary { lhs, rhs, .. } => {
-            resolve_in_pres_expr(lhs, scope, ids, spans);
-            resolve_in_pres_expr(rhs, scope, ids, spans);
+            resolve_in_pres_expr(lhs, scope, ids);
+            resolve_in_pres_expr(rhs, scope, ids);
         }
-        PresExprKind::Equal { body, .. } => resolve_in_pres_expr(body, scope, ids, spans),
+        PresExprKind::Equal { body, .. } => resolve_in_pres_expr(body, scope, ids),
         PresExprKind::Condition { lhs, then, else_, .. } => {
-            resolve_in_pres_expr(lhs, scope, ids, spans);
-            resolve_in_pres_expr(then, scope, ids, spans);
-            resolve_in_pres_expr(else_, scope, ids, spans);
+            resolve_in_pres_expr(lhs, scope, ids);
+            resolve_in_pres_expr(then, scope, ids);
+            resolve_in_pres_expr(else_, scope, ids);
         }
         PresExprKind::RightConstantMultiply { expr, constant }
         | PresExprKind::LeftConstantMultiply { expr, constant } => {
-            resolve_in_data_expr(constant, scope, ids, spans);
-            resolve_in_pres_expr(expr, scope, ids, spans);
+            resolve_in_data_expr(constant, scope, ids);
+            resolve_in_pres_expr(expr, scope, ids);
         }
         PresExprKind::Bound { variables, expr, .. } => {
-            let pushed = scope.push_declarations(variables, ids, spans);
-            resolve_in_pres_expr(expr, scope, ids, spans);
+            let pushed = scope.push_declarations(variables, ids);
+            resolve_in_pres_expr(expr, scope, ids);
             scope.pop(pushed);
         }
     }
 }
 
-fn resolve_in_prop_var_inst(
-    inst: &mut PropVarInst,
-    scope: &mut Scope,
-    ids: &mut VarIdAllocator,
-    spans: &mut VariableSpans,
-) {
+fn resolve_in_prop_var_inst(inst: &mut PropVarInst, scope: &mut Scope, ids: &mut VarIdAllocator) {
     for argument in &mut inst.arguments {
-        resolve_in_data_expr(argument, scope, ids, spans);
+        resolve_in_data_expr(argument, scope, ids);
     }
 }
 
 /// Rewrites every `Id(name)` in `expr` found in `scope` into `Resolved(name, VarId)`, extending
 /// `scope` (and allocating from `ids`) for the data-level binders it descends through (`lambda`, a
 /// quantifier, a set/bag comprehension, `whr`).
-fn resolve_in_data_expr(expr: &mut DataExpr, scope: &mut Scope, ids: &mut VarIdAllocator, spans: &mut VariableSpans) {
+fn resolve_in_data_expr(expr: &mut DataExpr, scope: &mut Scope, ids: &mut VarIdAllocator) {
     match &mut expr.node {
         DataExprKind::Id(name) => {
             if let Some(declaration) = scope.resolve(name) {
@@ -491,53 +425,53 @@ fn resolve_in_data_expr(expr: &mut DataExpr, scope: &mut Scope, ids: &mut VarIdA
         | DataExprKind::EmptySet
         | DataExprKind::EmptyBag => {}
         DataExprKind::Application { function, arguments } => {
-            resolve_in_data_expr(function, scope, ids, spans);
+            resolve_in_data_expr(function, scope, ids);
             for argument in arguments {
-                resolve_in_data_expr(argument, scope, ids, spans);
+                resolve_in_data_expr(argument, scope, ids);
             }
         }
         DataExprKind::List(elements) | DataExprKind::Set(elements) => {
             for element in elements {
-                resolve_in_data_expr(element, scope, ids, spans);
+                resolve_in_data_expr(element, scope, ids);
             }
         }
         DataExprKind::Bag(elements) => {
             for element in elements {
-                resolve_in_data_expr(&mut element.expr, scope, ids, spans);
-                resolve_in_data_expr(&mut element.multiplicity, scope, ids, spans);
+                resolve_in_data_expr(&mut element.expr, scope, ids);
+                resolve_in_data_expr(&mut element.multiplicity, scope, ids);
             }
         }
         DataExprKind::SetBagComp { variable, predicate } => {
-            let pushed = scope.push_declarations(std::slice::from_mut(variable), ids, spans);
-            resolve_in_data_expr(predicate, scope, ids, spans);
+            let pushed = scope.push_declarations(std::slice::from_mut(variable), ids);
+            resolve_in_data_expr(predicate, scope, ids);
             scope.pop(pushed);
         }
         DataExprKind::Lambda { variables, body } | DataExprKind::Quantifier { variables, body, .. } => {
-            let pushed = scope.push_declarations(variables, ids, spans);
-            resolve_in_data_expr(body, scope, ids, spans);
+            let pushed = scope.push_declarations(variables, ids);
+            resolve_in_data_expr(body, scope, ids);
             scope.pop(pushed);
         }
-        DataExprKind::Unary { expr, .. } => resolve_in_data_expr(expr, scope, ids, spans),
+        DataExprKind::Unary { expr, .. } => resolve_in_data_expr(expr, scope, ids),
         DataExprKind::Binary { lhs, rhs, .. } => {
-            resolve_in_data_expr(lhs, scope, ids, spans);
-            resolve_in_data_expr(rhs, scope, ids, spans);
+            resolve_in_data_expr(lhs, scope, ids);
+            resolve_in_data_expr(rhs, scope, ids);
         }
         DataExprKind::FunctionUpdate { expr, update } => {
-            resolve_in_data_expr(expr, scope, ids, spans);
-            resolve_in_data_expr(&mut update.expr, scope, ids, spans);
-            resolve_in_data_expr(&mut update.update, scope, ids, spans);
+            resolve_in_data_expr(expr, scope, ids);
+            resolve_in_data_expr(&mut update.expr, scope, ids);
+            resolve_in_data_expr(&mut update.update, scope, ids);
         }
         DataExprKind::Whr { expr, assignments } => {
             // Each assignment's right-hand side is resolved in the *outer* scope — bindings
             // don't see each other, only the body does.
             for assignment in assignments.iter_mut() {
-                resolve_in_data_expr(&mut assignment.expr, scope, ids, spans);
+                resolve_in_data_expr(&mut assignment.expr, scope, ids);
             }
             let pushed = assignments.len();
             for assignment in assignments.iter_mut() {
-                assignment.id = Some(scope.declare(assignment.identifier.clone(), assignment.span.clone(), ids, spans));
+                assignment.id = Some(scope.declare(assignment.identifier.clone(), ids));
             }
-            resolve_in_data_expr(expr, scope, ids, spans);
+            resolve_in_data_expr(expr, scope, ids);
             scope.pop(pushed);
         }
     }

@@ -393,6 +393,35 @@ impl SortInterner {
         }
     }
 
+    /// Substitutes `with` for every occurrence of `ResolvedSort::Var(var)`
+    /// inside `sort`, recursively.
+    pub(crate) fn substitute_var(
+        &mut self,
+        sort: ResolvedSortId,
+        var: TypeVarId,
+        with: ResolvedSortId,
+    ) -> ResolvedSortId {
+        match self.get(sort).clone() {
+            ResolvedSort::Var(id) if id == var => with,
+            ResolvedSort::Generic { op, subsort } => {
+                let subsort = self.substitute_var(subsort, var, with);
+                self.generic(op, subsort)
+            }
+            ResolvedSort::Function { domain, range } => {
+                let domain = domain
+                    .iter()
+                    .map(|&sort| self.substitute_var(sort, var, with))
+                    .collect();
+                let range = self.substitute_var(range, var, with);
+                self.function(domain, range)
+            }
+            // Already ground, or a distinct bound variable never introduced by
+            // this substitution's own template — no occurrence of `var` can
+            // occur any deeper.
+            ResolvedSort::Unit | ResolvedSort::Primitive(_) | ResolvedSort::Def(_) | ResolvedSort::Var(_) => sort,
+        }
+    }
+
     /// Finds the greatest common subsort of two sorts, or `None` when they are
     /// incomparable.
     // The dual of `join`; exercised by tests only for now.

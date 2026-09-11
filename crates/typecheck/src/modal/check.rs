@@ -397,6 +397,7 @@ fn check_action(
             name: action.id.node.clone(),
             arity: action.args.len(),
             span: action.id.span.clone(),
+            candidates: tables.actions_by_name.keys().cloned().collect(),
         });
     }
 

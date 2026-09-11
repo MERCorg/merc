@@ -45,6 +45,7 @@ use merc_syntax::ComplexSort;
 use merc_syntax::ConstructorId;
 use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
+use merc_syntax::EqnSpec;
 use merc_syntax::MapId;
 use merc_syntax::SortDecl;
 use merc_syntax::SortExpression;
@@ -62,8 +63,32 @@ use crate::NameTarget;
 use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::TypeCheckContext;
-use crate::VariableSpans;
 use crate::unreachable_not_a_value_sort;
+
+/// A `VarId -> declaration span` lookup, covering exactly the binders one [`TypingInfo`] query
+/// needs to resolve a [`ResolvedName::Variable`] occurrence.
+#[derive(Default)]
+pub(crate) struct VariableSpans(HashMap<VarId, Span>);
+
+impl VariableSpans {
+    pub(crate) fn new() -> Self {
+        VariableSpans(HashMap::new())
+    }
+
+    pub(crate) fn insert(&mut self, var_id: VarId, span: Span) {
+        self.0.insert(var_id, span);
+    }
+
+    pub(crate) fn get(&self, var_id: &VarId) -> Option<&Span> {
+        self.0.get(var_id)
+    }
+}
+
+impl FromIterator<(VarId, Span)> for VariableSpans {
+    fn from_iter<T: IntoIterator<Item = (VarId, Span)>>(iter: T) -> Self {
+        VariableSpans(iter.into_iter().collect())
+    }
+}
 
 /// The typing of a document's data specification (or of one expression checked via
 /// [`DataSpecification::typecheck_expression_with_typing`]): one [`TypedNode`] per checked
@@ -497,31 +522,29 @@ pub(crate) fn collect_sort_name_references(sort: &SortExpression, out: &mut Vec<
     });
 }
 
-/// Every sort-name reference reachable in `spec`'s own declarations: `cons`/`map` signatures, a
-/// `var`-block declaration, a sort alias's own right-hand side (including a `struct`'s field
-/// sorts — already flattened into fresh `cons`/`map` declarations by the time this runs, see
-/// [`crate::desugar_structured_sorts`], so no separate `Struct` case is needed here), and a
-/// `lambda`/quantifier/comprehension binder inside an equation. Does *not* cover
-/// `act`/`proc`/`glob`/`sum`/`dist`/PBES-or-PRES-binder sorts — see this section's own doc
-/// comment for where those are gathered instead.
+/// Every sort-name reference reachable in `spec`'s own declarations.
 ///
-/// Must be called before [`crate::normalize_sorts`] — see this section's doc comment.
+/// Must be called before [`crate::normalize_sorts`].
 pub(crate) fn collect_data_specification_sort_references(spec: &UntypedDataSpecification) -> Vec<SortReference> {
     let mut out = Vec::new();
 
     for expr in spec.sort_declarations.iter().filter_map(|decl| decl.expr.as_ref()) {
         collect_sort_name_references(expr, &mut out);
     }
+
     for decl in &spec.constructor_declarations {
         collect_sort_name_references(&decl.sort, &mut out);
     }
+
     for decl in &spec.map_declarations {
         collect_sort_name_references(&decl.sort, &mut out);
     }
+
     for eqn_spec in &spec.equation_declarations {
         for var in &eqn_spec.variables {
             collect_sort_name_references(&var.sort, &mut out);
         }
+
         for eqn in &eqn_spec.equations {
             collect_data_expr_sort_references(&eqn.lhs, &mut out);
             collect_data_expr_sort_references(&eqn.rhs, &mut out);
@@ -532,6 +555,25 @@ pub(crate) fn collect_data_specification_sort_references(spec: &UntypedDataSpeci
     }
 
     out
+}
+
+/// Every variable a `(EqnSpecId, EquationId)` typing can reference.
+pub(crate) fn collect_equation_variable_declarations(eqn_spec: &EqnSpec) -> VariableSpans {
+    let mut spans = VariableSpans::new();
+    for var in &eqn_spec.node.variables {
+        let var_id = var
+            .var_id
+            .expect("resolve_data_specification_variables ran before typing_info");
+        spans.insert(var_id, var.identifier.span.clone());
+    }
+    for equation in &eqn_spec.node.equations {
+        if let Some(condition) = &equation.condition {
+            collect_data_expr_variable_declarations(condition, &mut spans);
+        }
+        collect_data_expr_variable_declarations(&equation.lhs, &mut spans);
+        collect_data_expr_variable_declarations(&equation.rhs, &mut spans);
+    }
+    spans
 }
 
 /// Every `lambda`/quantifier/comprehension/`whr` binder's own [`VarId`] and declaring span inside
