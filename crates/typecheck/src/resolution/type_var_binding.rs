@@ -1,27 +1,14 @@
-//! Rewrites every sort-position [`SortExpressionKind::Reference`] naming one of a
-//! specification's own `type_var` declarations into a [`SortExpressionKind::TypeVar`].
-//!
-//! Runs during parsing (see the `type_var` call sites in `consume.rs`), before any
-//! type-checking-specific name resolution: which names a `type_var` block binds is purely
-//! syntactic, so an [`UntypedDataSpecification`] already tells
-//! them apart from ordinary sort references by the time it leaves the parser. Name resolution
-//! later resolves [`SortExpressionKind::TypeVar`] into [`SortExpressionKind::ResolvedTypeVar`],
-//! mirroring how it resolves a plain [`SortExpressionKind::Reference`]. See `docs/typecheck.md`.
-
 use std::collections::HashSet;
 
-use crate::DataExpr;
-use crate::DataExprKind;
-use crate::SortExpression;
-use crate::SortExpressionKind;
-use crate::Traverse;
-use crate::UntypedDataSpecification;
+use merc_syntax::DataExpr;
+use merc_syntax::DataExprKind;
+use merc_syntax::SortExpression;
+use merc_syntax::SortExpressionKind;
+use merc_syntax::Traverse;
+use merc_syntax::UntypedDataSpecification;
 
 /// Resolves every [`SortExpressionKind::Reference`] naming one of `spec`'s own `type_var`
-/// declarations into a [`SortExpressionKind::TypeVar`], throughout the specification: sort
-/// aliases, constructor, map and equation-variable sorts, and binder sorts inside equation bodies
-/// (a quantifier, lambda, or set/bag comprehension). A no-op when the spec declares no type
-/// variables.
+/// declarations into a [`SortExpressionKind::TypeVar`], throughout the specification.
 pub(crate) fn resolve_type_vars(spec: &mut UntypedDataSpecification) {
     if spec.type_var_declarations.is_empty() {
         return;

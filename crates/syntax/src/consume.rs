@@ -74,7 +74,6 @@ use crate::parse_regfrm;
 use crate::parse_sortexpr;
 use crate::parse_sortexpr_primary;
 use crate::parse_statefrm;
-use crate::resolve_type_vars;
 
 /// The error type produced while consuming the parse tree.
 pub(crate) type ParseResult<T> = std::result::Result<T, Error<Rule>>;
@@ -157,7 +156,6 @@ impl Mcrl2Parser {
             sort_declarations,
             type_var_declarations,
         };
-        resolve_type_vars(&mut data_specification);
 
         Ok(UntypedProcessSpecification {
             data_specification,
@@ -489,7 +487,6 @@ impl Mcrl2Parser {
             sort_declarations,
             type_var_declarations,
         };
-        resolve_type_vars(&mut data_specification);
 
         Ok(data_specification)
     }
@@ -543,7 +540,6 @@ impl Mcrl2Parser {
             sort_declarations,
             type_var_declarations,
         };
-        resolve_type_vars(&mut data_specification);
 
         Ok(UntypedActionRenameSpec {
             data_specification,
@@ -1414,7 +1410,6 @@ impl Mcrl2Parser {
             sort_declarations,
             type_var_declarations,
         };
-        resolve_type_vars(&mut data_specification);
 
         Ok(UntypedStateFrmSpec {
             data_specification,
