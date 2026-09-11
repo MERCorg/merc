@@ -13,6 +13,17 @@ use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::TypeCheckContext;
 
+/// The `ExprId` `typing` recorded for `expr` (see [`EquationTyping::node_ids`]), looked up by
+/// `expr`'s own address rather than by replaying `ConstraintGenerator::visit`'s traversal order —
+/// `expr` must come from the same `spec`/`system` tree `typing` was computed against.
+fn node_sort(expr: &DataExpr, typing: &EquationTyping) -> ResolvedSortId {
+    let &id = typing
+        .node_ids
+        .get(&(expr as *const DataExpr as usize))
+        .expect("typed-display only ever visits nodes of the tree `typing` was computed against");
+    typing.sorts[id]
+}
+
 /// As [`typed_expr_string`], but returns the node's own resolved sort alongside its text instead
 /// of appending it — the building block [`typed_expr_string`] wraps, and what an `Application`
 /// uses to show the *applied function's* sort (a full domain `#`-separated `-> range` arrow)
@@ -24,15 +35,8 @@ fn typed_expr_shape(
     spec: &UntypedDataSpecification,
     system: &UntypedDataSpecification,
     typing: &EquationTyping,
-    cursor: &mut usize,
 ) -> (String, ResolvedSortId) {
-    let id = *cursor;
-    *cursor += 1;
-    debug_assert_eq!(
-        typing.spans[id], expr.span,
-        "typed-display traversal drifted out of sync with ConstraintGenerator::visit's ExprId order"
-    );
-    let sort = typing.sorts[id];
+    let sort = node_sort(expr, typing);
 
     let shape = match &expr.node {
         DataExprKind::EmptyList => "[]".to_string(),
@@ -44,17 +48,15 @@ fn typed_expr_shape(
         DataExprKind::Set(members) => {
             let mut parts = Vec::with_capacity(members.len());
             for member in members {
-                parts.push(typed_expr_string(member, ctx, spec, system, typing, cursor));
+                parts.push(typed_expr_string(member, ctx, spec, system, typing));
             }
             format!("{{ {} }}", parts.join(", "))
         }
         DataExprKind::Bag(members) => {
             let mut parts = Vec::with_capacity(members.len());
             for member in members {
-                // Mirrors `visit`: each member's own expression is consumed before its
-                // multiplicity.
-                let element = typed_expr_string(&member.expr, ctx, spec, system, typing, cursor);
-                let count = typed_expr_string(&member.multiplicity, ctx, spec, system, typing, cursor);
+                let element = typed_expr_string(&member.expr, ctx, spec, system, typing);
+                let count = typed_expr_string(&member.multiplicity, ctx, spec, system, typing);
                 parts.push(format!("{element}: {count}"));
             }
             format!("{{ {} }}", parts.join(", "))
@@ -62,17 +64,15 @@ fn typed_expr_shape(
         DataExprKind::SetBagComp { variable, predicate } => {
             // The bound variable has no `ExprId` of its own — see `visit`'s own comment — so
             // only the predicate is annotated.
-            let predicate = typed_expr_string(predicate, ctx, spec, system, typing, cursor);
+            let predicate = typed_expr_string(predicate, ctx, spec, system, typing);
             format!("{{ {variable} | {predicate} }}")
         }
         DataExprKind::Application { function, arguments } => {
-            // Mirrors `visit`: arguments are consumed (and so numbered) before the applied
-            // function.
             let args: Vec<String> = arguments
                 .iter()
-                .map(|argument| typed_expr_string(argument, ctx, spec, system, typing, cursor))
+                .map(|argument| typed_expr_string(argument, ctx, spec, system, typing))
                 .collect();
-            let (function_shape, function_sort) = typed_expr_shape(function, ctx, spec, system, typing, cursor);
+            let (function_shape, function_sort) = typed_expr_shape(function, ctx, spec, system, typing);
 
             // The whole call's own trailing annotation is the *applied function's* sort (its
             // full arrow), not this `Application` node's own (just the arrow's range) — see this
@@ -85,23 +85,22 @@ fn typed_expr_shape(
             return (format!("{function_shape}({})", args.join(", ")), function_sort);
         }
         DataExprKind::Lambda { variables, body } => {
-            let body = typed_expr_string(body, ctx, spec, system, typing, cursor);
+            let body = typed_expr_string(body, ctx, spec, system, typing);
             let variables: Vec<String> = variables.iter().map(ToString::to_string).collect();
             format!("(lambda {} . {body})", variables.join(", "))
         }
         DataExprKind::Quantifier { op, variables, body } => {
-            let body = typed_expr_string(body, ctx, spec, system, typing, cursor);
+            let body = typed_expr_string(body, ctx, spec, system, typing);
             let variables: Vec<String> = variables.iter().map(ToString::to_string).collect();
             format!("({op} {} . {body})", variables.join(", "))
         }
         DataExprKind::Whr { expr, assignments } => {
-            // Mirrors `visit`: every assignment's own value is consumed before the body.
             let mut parts = Vec::with_capacity(assignments.len());
             for assignment in assignments {
-                let value = typed_expr_string(&assignment.expr, ctx, spec, system, typing, cursor);
+                let value = typed_expr_string(&assignment.expr, ctx, spec, system, typing);
                 parts.push(format!("{} = {value}", assignment.identifier));
             }
-            let body = typed_expr_string(expr, ctx, spec, system, typing, cursor);
+            let body = typed_expr_string(expr, ctx, spec, system, typing);
             format!("{body} whr {} end", parts.join(", "))
         }
         DataExprKind::List(_)
@@ -116,27 +115,18 @@ fn typed_expr_shape(
 }
 
 /// Renders `expr` in the same prefix notation `Display for DataExpr` uses, except every
-/// sub-expression is suffixed with `: <sort>` — its own resolved sort, read off `typing` (an
-/// applied function's own arrow sort in place of the call's — see [`typed_expr_shape`]'s doc
-/// comment), parenthesized when it is itself an arrow (matching how a `map`/`cons` declaration's
-/// own function sort is parenthesized in this same file's header).
-///
-/// `cursor` walks `typing.sorts`/`typing.spans` (both `ExprId`-indexed) one entry per recursive
-/// call, advancing in exactly the order `ConstraintGenerator::visit` assigned `ExprId`s in:
-/// parents before children, and within an `Application` the arguments before the applied
-/// function (see that function's own doc comment). Each call `debug_assert`s that the span it
-/// consumes matches `expr`'s own, so if a future change to `visit`'s traversal order drifts out
-/// of sync with this mirror, a debug build catches it immediately rather than silently
-/// mislabeling sorts.
+/// sub-expression is suffixed with `: <sort>` — its own resolved sort, read off `typing` by node
+/// identity (see [`node_sort`]; an applied function's own arrow sort in place of the call's — see
+/// [`typed_expr_shape`]'s doc comment), parenthesized when it is itself an arrow (matching how a
+/// `map`/`cons` declaration's own function sort is parenthesized in this same file's header).
 pub(crate) fn typed_expr_string(
     expr: &DataExpr,
     ctx: &TypeCheckContext,
     spec: &UntypedDataSpecification,
     system: &UntypedDataSpecification,
     typing: &EquationTyping,
-    cursor: &mut usize,
 ) -> String {
-    let (shape, sort) = typed_expr_shape(expr, ctx, spec, system, typing, cursor);
+    let (shape, sort) = typed_expr_shape(expr, ctx, spec, system, typing);
     let display = DisplaySortContext::new(ctx, spec, system, sort);
     if matches!(ctx.sorts.get(sort), ResolvedSort::Function { .. }) {
         format!("{shape}: ({display})")
@@ -146,9 +136,7 @@ pub(crate) fn typed_expr_string(
 }
 
 /// As [`typed_expr_string`], for a whole equation: `condition -> lhs = rhs`, or plain `lhs = rhs`
-/// with no condition. Uses one shared `cursor`, starting at `0`, across the condition (if any),
-/// then the left-hand side, then the right-hand side — the same order
-/// `ConstraintGenerator::generate` visits them in for one equation's own `EquationTyping`.
+/// with no condition.
 pub(crate) fn typed_equation_string(
     eqn: &EqnDecl,
     ctx: &TypeCheckContext,
@@ -156,13 +144,12 @@ pub(crate) fn typed_equation_string(
     system: &UntypedDataSpecification,
     typing: &EquationTyping,
 ) -> String {
-    let mut cursor = 0;
     let condition = eqn
         .condition
         .as_ref()
-        .map(|condition| typed_expr_string(condition, ctx, spec, system, typing, &mut cursor));
-    let lhs = typed_expr_string(&eqn.lhs, ctx, spec, system, typing, &mut cursor);
-    let rhs = typed_expr_string(&eqn.rhs, ctx, spec, system, typing, &mut cursor);
+        .map(|condition| typed_expr_string(condition, ctx, spec, system, typing));
+    let lhs = typed_expr_string(&eqn.lhs, ctx, spec, system, typing);
+    let rhs = typed_expr_string(&eqn.rhs, ctx, spec, system, typing);
 
     match condition {
         Some(condition) => format!("{condition} -> {lhs} = {rhs}"),

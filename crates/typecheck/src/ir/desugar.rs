@@ -119,9 +119,9 @@ struct Hoister {
 
 impl Hoister {
     /// Replaces every anonymous struct in `sort` by a reference to its named
-    /// declaration.  The named declaration retains the struct *body*, so
+    /// declaration. The named declaration retains the struct *body*, so
     /// [`desugar_structured_sorts`] will generate its constructors, recognisers
-    /// and projections.  Use only for structs nested inside a named sort
+    /// and projections. Use only for structs nested inside a named sort
     /// declaration's constructor arguments.
     fn hoist(&mut self, sort: SortExpression) -> SortExpression {
         sort.apply(|expr| -> Result<Option<SortExpression>, Infallible> {
