@@ -69,6 +69,16 @@ fn test_undeclared_propositional_variable_is_rejected() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_undeclared_propositional_variable_lists_declared_names_as_candidates() {
+    let error = check_err("pbes mu X = true; init Y;");
+    let PbesError::UndeclaredPropositionalVariable { candidates, .. } = &error else {
+        panic!("expected PbesError::UndeclaredPropositionalVariable, got {error:?}");
+    };
+    assert_eq!(candidates, &["X".to_string()]);
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_undeclared_propositional_variable_inside_a_formula_is_rejected() {
     let error = check_err("pbes mu X = Y; init X;");
     assert!(

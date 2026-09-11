@@ -38,9 +38,11 @@ pub(crate) fn normalize_sorts(spec: &mut UntypedDataSpecification) {
 
     apply_sorts_in_spec(spec, |sort| -> Result<_, Infallible> {
         let result = normalize_sort(sort, &alias_map, &mut Vec::new());
+
         if result != *sort {
             debug!("normalize: sort '{sort}' expanded to '{result}'");
         }
+
         Ok(result)
     })
     .expect("normalization never fails");

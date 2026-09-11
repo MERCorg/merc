@@ -88,12 +88,11 @@ pub(crate) fn build_signature<'a>(
 
 fn compute_signature(ctx: &mut TypeCheckContext, spec: &UntypedDataSpecification) -> Result<Signature, WellTypedError> {
     // resolve_sort has no meaning for (and panics on) a product sort outside a
-    // function domain, so every sort this query resolves is checked first: the
-    // constructor and mapping sorts, and the alias bodies reachable from them
-    // through query_sort_of_def.
+    // function domain, so every sort this query resolves is checked first.
     for sort in spec.sort_declarations.iter().filter_map(|decl| decl.expr.as_ref()) {
         check_products_within_domains(sort)?;
     }
+
     for sort in spec
         .constructor_declarations
         .iter()
@@ -113,16 +112,16 @@ fn compute_signature(ctx: &mut TypeCheckContext, spec: &UntypedDataSpecification
         // Resolve through the memoized query so lowering can later read the
         // interned constructor sort straight from the context.
         let constructor_id = decl.id.expect("assign_declaration_ids ran before build_signature");
-        let id = query_sort_of_constructor(ctx, spec, constructor_id);
+        let sort_id = query_sort_of_constructor(ctx, spec, constructor_id);
 
         // The constructor targets the range of its (function) sort. The check
         // is semantic — an alias of `Nat` is rejected like `Nat` itself — but
         // the error reports the target as written. When the whole constructor
         // sort is an alias of a function sort, the written sort itself is the
         // closest the user came to writing the target.
-        let target = match ctx.sorts.get(id) {
+        let target = match ctx.sorts.get(sort_id) {
             ResolvedSort::Function { domain: _, range } => *range,
-            _ => id,
+            _ => sort_id,
         };
         match ctx.sorts.get(target) {
             ResolvedSort::Primitive(_) => {
@@ -142,10 +141,16 @@ fn compute_signature(ctx: &mut TypeCheckContext, spec: &UntypedDataSpecification
             _ => {}
         }
 
-        check_constant_name(&mut constants, ctx, &decl.identifier, decl.identifier.span.clone(), id)?;
+        check_constant_name(
+            &mut constants,
+            ctx,
+            &decl.identifier,
+            decl.identifier.span.clone(),
+            sort_id,
+        )?;
         push_overload(
             signature.constructors.entry(decl.identifier.node.clone()).or_default(),
-            id,
+            sort_id,
         );
     }
 
@@ -174,11 +179,7 @@ fn compute_signature(ctx: &mut TypeCheckContext, spec: &UntypedDataSpecification
     }
 
     // The polymorphic built-ins — containers, function-update, comparisons
-    // and `if` — join the same one signature as real scheme entries, so
-    // inference has exactly one table to look a name up in. User
-    // declarations never carry a `type_var` block (see
-    // `docs/polymorphism.md`'s "Open questions"), so this never collides
-    // with the loops above; it only *adds* names.
+    // and `if`.
     signature.schemes = build_polymorphic_schemes(
         ctx,
         CONTAINER_TEMPLATES.all().into_iter().chain([&*BUILTIN_SCHEME_TEMPLATE]),
