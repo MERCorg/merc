@@ -28,6 +28,42 @@ pub struct ImportDirective {
     pub path_span: Span,
 }
 
+/// A parse failure's location and message, extracted from the parser's own error at the point
+/// [ImportError::Parse] is built — see [ImportError::syntax_error].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SyntaxError {
+    /// Where the failure was reported, at the same shared, global ([SourceMap]-wide) offset as
+    /// every other span produced while resolving this import tree.
+    pub span: Span,
+    /// The parser's own rendered message, avoids depending on `pest`.
+    pub message: String,
+}
+
+/// The `%import` graph resolved alongside one `parse_with_imports` call: which file every
+/// directive, transitively, ends up resolving to.
+#[derive(Clone, Debug, Default)]
+pub struct ImportGraph {
+    /// The [SourceId] of the file `parse_with_imports` was called on.
+    pub root: SourceId,
+    /// One entry per `%import` directive actually resolved, in load order: the importing file,
+    /// the directive's own span (at the importer's shared, global offset), and the file it
+    /// resolved to.
+    pub edges: Vec<(SourceId, Span, SourceId)>,
+}
+
+impl From<&PestError<Rule>> for SyntaxError {
+    fn from(error: &PestError<Rule>) -> Self {
+        let (start, end) = match error.location {
+            pest::error::InputLocation::Pos(pos) => (pos, pos),
+            pest::error::InputLocation::Span((start, end)) => (start, end),
+        };
+        SyntaxError {
+            span: Span::new(start, end),
+            message: error.variant.message().into_owned(),
+        }
+    }
+}
+
 /// A failure resolving the import graph rooted at one `parse_with_imports` call: an `%import`
 /// directive whose target couldn't be resolved, an import cycle, or a file (reached directly or
 /// transitively) that failed to parse.
@@ -35,8 +71,8 @@ pub struct ImportDirective {
 /// Every variant keeps the failure's own underlying error structured — as the original
 /// [MercError] rather than a message rendered into a `String` — so a caller with access to the
 /// [SourceMap] (an LSP) can recover it via [MercError::downcast_ref] and build a precise
-/// diagnostic, instead of re-parsing formatted text. [ImportError::pest_error] does exactly that
-/// for a parse failure, however deeply nested behind [ImportError::Unresolved] layers it is.
+/// diagnostic, instead of re-parsing formatted text. [ImportError::syntax_error] does exactly
+/// that for a parse failure, however deeply nested behind [ImportError::Unresolved] layers it is.
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
     /// A `%import` directive's target couldn't be loaded: the file is missing or unreadable,
@@ -66,7 +102,11 @@ pub enum ImportError {
     #[error("in {}:\n{cause}", path.display())]
     Parse {
         path: PathBuf,
-        /// The parser's own [MercError].
+        /// Structured location/message for the failure, already shifted into the shared, global
+        /// offset space — see [ImportError::syntax_error].
+        syntax_error: SyntaxError,
+        /// The parser's own [MercError], kept for its `Display` (which additionally renders the
+        /// offending source line) and for a caller that specifically wants the raw pest error.
         cause: MercError,
     },
 }
@@ -82,18 +122,39 @@ impl ImportError {
     }
 
     /// If this failure was ultimately a parse failure — reached directly or through any number
-    /// of nested [ImportError::Unresolved] layers — the pest parser's own error, carrying
-    /// line/column and expected-token information a caller can turn into a precise diagnostic.
-    /// `None` for a missing file, an I/O error, or an import cycle.
-    pub fn pest_error(&self) -> Option<&PestError<Rule>> {
+    /// of nested [ImportError::Unresolved] layers — its location and message, already shifted
+    /// into the shared, global offset space. `None` for a missing file, an I/O error, or an
+    /// import cycle.
+    pub fn syntax_error(&self) -> Option<&SyntaxError> {
         match self {
-            ImportError::Parse { cause, .. } => cause.downcast_ref(),
+            ImportError::Parse { syntax_error, .. } => Some(syntax_error),
             ImportError::Unresolved { cause, .. } => {
-                cause.downcast_ref::<ImportError>().and_then(ImportError::pest_error)
+                cause.downcast_ref::<ImportError>().and_then(ImportError::syntax_error)
             }
             ImportError::Cycle { .. } => None,
         }
     }
+}
+
+/// Wraps a parser failure at `path` (whose own text starts at `base` in the shared [SourceMap]
+/// offset space) into an [ImportError::Parse], shifting the parser's [SyntaxError] out of
+/// file-local coordinates the same way every other span produced while parsing that file is
+/// shifted (see [crate::OffsetSpans]).
+fn parse_error(path: &Path, base: usize, cause: MercError) -> MercError {
+    let mut syntax_error = cause
+        .downcast_ref::<PestError<Rule>>()
+        .map(SyntaxError::from)
+        .unwrap_or_else(|| SyntaxError {
+            span: Span::default(),
+            message: cause.to_string(),
+        });
+    syntax_error.span.shift(base);
+
+    MercError::from(ImportError::Parse {
+        path: path.to_path_buf(),
+        syntax_error,
+        cause,
+    })
 }
 
 /// Scans `text` line by line for `%import "relative/path"` directives: a line,
@@ -204,6 +265,8 @@ struct Resolver<'a, T> {
     /// The canonicalized paths currently being loaded, innermost last — a file reappearing in
     /// here (rather than just in `merged`) is a cycle, not a diamond.
     stack: Vec<PathBuf>,
+    /// Every `%import` directive resolved so far, in load order — becomes [`ImportGraph::edges`].
+    graph: Vec<(SourceId, Span, SourceId)>,
     _marker: std::marker::PhantomData<T>,
 }
 
@@ -214,11 +277,12 @@ impl<'a, T: ImportMergeable> Resolver<'a, T> {
             sources,
             merged: HashMap::new(),
             stack: Vec::new(),
+            graph: Vec::new(),
             _marker: std::marker::PhantomData,
         }
     }
 
-    /// As [Self::load_with_text], reading `path` from disk rather than being handed its text.
+    /// As [Self::load_with_text], with no explicit text override — `path` is read from disk.
     fn load(&mut self, path: &Path, output: &mut T) -> Result<SourceId, MercError> {
         self.load_with_text(path, None, output)
     }
@@ -228,8 +292,7 @@ impl<'a, T: ImportMergeable> Resolver<'a, T> {
     /// under. A file already merged earlier in this resolution is skipped
     /// rather than merged a second time.
     ///
-    /// `text_override`, when given, is used as `path`'s own text instead of reading `path` from
-    /// disk.
+    /// `text_override`, when given, is used as `path`'s own text instead of reading it from disk.
     fn load_with_text(
         &mut self,
         path: &Path,
@@ -269,22 +332,18 @@ impl<'a, T: ImportMergeable> Resolver<'a, T> {
         let directory = path.parent().unwrap_or_else(|| Path::new("."));
         for directive in scan_imports(&text) {
             let import_path = directory.join(&directive.node.path);
-            self.load(&import_path, output).map_err(|error| {
-                let span = Span::new(base + directive.span.start, base + directive.span.end);
+            let span = Span::new(base + directive.span.start, base + directive.span.end);
+            let child_id = self.load(&import_path, output).map_err(|error| {
                 MercError::from(ImportError::Unresolved {
                     path: directive.node.path.clone(),
-                    span,
+                    span: span.clone(),
                     cause: error,
                 })
             })?;
+            self.graph.push((source_id, span, child_id));
         }
 
-        let mut file_spec = T::parse_own_text(&text).map_err(|error| {
-            MercError::from(ImportError::Parse {
-                path: path.to_path_buf(),
-                cause: error,
-            })
-        })?;
+        let mut file_spec = T::parse_own_text(&text).map_err(|error| parse_error(path, base, error))?;
         file_spec.offset_spans(base);
         if is_root {
             output.merge_own(&file_spec);
@@ -314,11 +373,17 @@ impl UntypedDataSpecification {
     pub fn parse_with_imports(
         root_path: &Path,
         sources: &mut SourceMap,
-    ) -> Result<(UntypedDataSpecification, SourceId), MercError> {
+    ) -> Result<(UntypedDataSpecification, ImportGraph), MercError> {
         let mut resolver: Resolver<UntypedDataSpecification> = Resolver::new(sources);
         let mut output = UntypedDataSpecification::default();
-        let root_id = resolver.load(root_path, &mut output)?;
-        Ok((output, root_id))
+        let root = resolver.load(root_path, &mut output)?;
+        Ok((
+            output,
+            ImportGraph {
+                root,
+                edges: resolver.graph,
+            },
+        ))
     }
 }
 
@@ -333,11 +398,17 @@ impl UntypedProcessSpecification {
         root_path: &Path,
         text: &str,
         sources: &mut SourceMap,
-    ) -> Result<(UntypedProcessSpecification, SourceId), MercError> {
+    ) -> Result<(UntypedProcessSpecification, ImportGraph), MercError> {
         let mut resolver: Resolver<UntypedProcessSpecification> = Resolver::new(sources);
         let mut output = UntypedProcessSpecification::default();
-        let root_id = resolver.load_with_text(root_path, Some(text), &mut output)?;
-        Ok((output, root_id))
+        let root = resolver.load_with_text(root_path, Some(text), &mut output)?;
+        Ok((
+            output,
+            ImportGraph {
+                root,
+                edges: resolver.graph,
+            },
+        ))
     }
 }
 
@@ -352,7 +423,7 @@ impl UntypedStateFrmSpec {
         root_path: &Path,
         text: &str,
         sources: &mut SourceMap,
-    ) -> Result<(UntypedStateFrmSpec, SourceId), MercError> {
+    ) -> Result<(UntypedStateFrmSpec, ImportGraph), MercError> {
         let root_id = sources.add_text(root_path.display().to_string(), text.to_string());
         // Registered (and so base-offset-fixed) before anything it imports is parsed, same
         // offset-rebasing precondition `Resolver::load` relies on for every other file kind.
@@ -364,22 +435,19 @@ impl UntypedStateFrmSpec {
         let mut imported = UntypedProcessSpecification::default();
         for directive in scan_imports(&text) {
             let import_path = directory.join(&directive.node.path);
-            resolver.load(&import_path, &mut imported).map_err(|error| {
-                let span = Span::new(base + directive.span.start, base + directive.span.end);
+            let span = Span::new(base + directive.span.start, base + directive.span.end);
+            let child_id = resolver.load(&import_path, &mut imported).map_err(|error| {
                 MercError::from(ImportError::Unresolved {
                     path: directive.node.path.clone(),
-                    span,
+                    span: span.clone(),
                     cause: error,
                 })
             })?;
+            resolver.graph.push((root_id, span, child_id));
         }
+        let edges = resolver.graph;
 
-        let mut spec = UntypedStateFrmSpec::parse(&text).map_err(|error| {
-            MercError::from(ImportError::Parse {
-                path: root_path.to_path_buf(),
-                cause: error,
-            })
-        })?;
+        let mut spec = UntypedStateFrmSpec::parse(&text).map_err(|error| parse_error(root_path, base, error))?;
         spec.offset_spans(base);
 
         // `imported` was built the same way `Resolver::load` builds up a file's own accumulator.
@@ -390,7 +458,7 @@ impl UntypedStateFrmSpec {
         spec.data_specification = imported.data_specification;
         spec.action_declarations = imported.action_declarations;
 
-        Ok((spec, root_id))
+        Ok((spec, ImportGraph { root: root_id, edges }))
     }
 }
 
@@ -450,7 +518,7 @@ mod tests {
         ]);
 
         let mut sources = SourceMap::new();
-        let (spec, _root_id) =
+        let (spec, _import_graph) =
             UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
                 .expect("should resolve the import");
 
@@ -466,7 +534,7 @@ mod tests {
         ]);
 
         let mut sources = SourceMap::new();
-        let (spec, _root_id) =
+        let (spec, _import_graph) =
             UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
                 .expect("should resolve the import");
 
@@ -489,7 +557,7 @@ mod tests {
         ]);
 
         let mut sources = SourceMap::new();
-        let (spec, _root_id) =
+        let (spec, _import_graph) =
             UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
                 .expect("should resolve the diamond import");
 
@@ -598,10 +666,10 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_with_imports_reports_a_syntax_error_as_a_structured_pest_error() {
-        // A caller with access to the `SourceMap` (an LSP) needs the parser's own error object —
-        // not just a rendered "in <path>: <message>" string — to build a precise diagnostic
-        // (line/column, expected tokens) for a genuine grammar failure.
+    fn test_parse_with_imports_reports_a_syntax_error_as_a_structured_syntax_error() {
+        // A caller with access to the `SourceMap` (an LSP) needs a structured location/message —
+        // not just a rendered "in <path>: <message>" string — to build a precise diagnostic for a
+        // genuine grammar failure, without depending on `pest` itself.
         let dir = temp_project(&[("main.mcrl2", "sort D\n")]); // missing the trailing `;`
 
         let mut sources = SourceMap::new();
@@ -616,16 +684,16 @@ mod tests {
             "expected ImportError::Parse, got: {import_error:?}"
         );
         assert!(
-            import_error.pest_error().is_some(),
-            "expected the underlying pest error to be recoverable, got: {import_error:?}"
+            import_error.syntax_error().is_some(),
+            "expected the underlying syntax error to be recoverable, got: {import_error:?}"
         );
     }
 
     #[test]
     fn test_parse_with_imports_recovers_a_transitively_imported_files_syntax_error() {
         // The broken file here is reached only through `main.mcrl2`'s own `%import`, so the
-        // error surfaces wrapped in an `ImportError::Unresolved` layer — `pest_error` must still
-        // recover the parser's own error through that layer.
+        // error surfaces wrapped in an `ImportError::Unresolved` layer — `syntax_error` must
+        // still recover the parser's own error through that layer.
         let dir = temp_project(&[
             ("main.mcrl2", "%import \"common.mcrl2\"\nmap g: D;\n"),
             ("common.mcrl2", "sort D\n"), // missing the trailing `;`
@@ -643,7 +711,7 @@ mod tests {
             "expected ImportError::Unresolved, got: {import_error:?}"
         );
         assert!(
-            import_error.pest_error().is_some(),
+            import_error.syntax_error().is_some(),
             "expected the transitively imported file's syntax error to be recoverable through \
              the Unresolved layer, got: {import_error:?}"
         );
@@ -668,7 +736,7 @@ mod tests {
         ]);
 
         let mut sources = SourceMap::new();
-        let (spec, _root_id) =
+        let (spec, _import_graph) =
             UntypedProcessSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), main_text, &mut sources)
                 .expect("should resolve the import");
 
@@ -684,7 +752,7 @@ mod tests {
         let dir = temp_project(&[("main.mcrl2", main_text), ("common.mcrl2", "act a;\n")]);
 
         let mut sources = SourceMap::new();
-        let (spec, _root_id) =
+        let (spec, _import_graph) =
             UntypedProcessSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), main_text, &mut sources)
                 .expect("should resolve the import");
 
@@ -704,7 +772,7 @@ mod tests {
         let dir = temp_project(&[("main.mcrl2", main_text), ("common.mcrl2", "act a;\ninit a;\n")]);
 
         let mut sources = SourceMap::new();
-        let (spec, _root_id) =
+        let (spec, _import_graph) =
             UntypedProcessSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), main_text, &mut sources)
                 .expect("should resolve the import");
 
@@ -720,7 +788,7 @@ mod tests {
         let dir = temp_project(&[("formula.mcf", formula_text), ("common.mcrl2", "act a;\n")]);
 
         let mut sources = SourceMap::new();
-        let (spec, _root_id) =
+        let (spec, _import_graph) =
             UntypedStateFrmSpec::parse_with_imports(&dir.path().join("formula.mcf"), formula_text, &mut sources)
                 .expect("should resolve the import");
 
@@ -734,7 +802,7 @@ mod tests {
         let dir = temp_project(&[("formula.mcf", formula_text), ("common.mcrl2", "act a;\n")]);
 
         let mut sources = SourceMap::new();
-        let (spec, _root_id) =
+        let (spec, _import_graph) =
             UntypedStateFrmSpec::parse_with_imports(&dir.path().join("formula.mcf"), formula_text, &mut sources)
                 .expect("should resolve the import");
 
@@ -756,5 +824,73 @@ mod tests {
             UntypedStateFrmSpec::parse_with_imports(&dir.path().join("formula.mcf"), formula_text, &mut sources);
 
         assert!(error.is_err());
+    }
+
+    #[test]
+    fn test_import_graph_has_one_edge_per_directive_including_a_diamonds_two() {
+        // `main.mcrl2` reaches `common.mcrl2` twice, once through each of `a.mcrl2`/`b.mcrl2` — a
+        // diamond. `common.mcrl2`'s declarations are only merged once (see
+        // `test_parse_with_imports_merges_a_diamond_import_once`), but the graph itself must
+        // still carry both edges into it: each is a real, independently editable `%import` line.
+        let dir = temp_project(&[
+            ("main.mcrl2", "%import \"a.mcrl2\"\n%import \"b.mcrl2\"\n"),
+            ("a.mcrl2", "%import \"common.mcrl2\"\n"),
+            ("b.mcrl2", "%import \"common.mcrl2\"\n"),
+            ("common.mcrl2", "sort D;\n"),
+        ]);
+
+        let mut sources = SourceMap::new();
+        let (_spec, graph) = UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
+            .expect("should resolve the diamond import");
+
+        assert!(
+            sources.path(graph.root).ends_with("main.mcrl2"),
+            "got: {}",
+            sources.path(graph.root)
+        );
+        assert_eq!(
+            graph.edges.len(),
+            4,
+            "expected one edge per %import directive, got: {graph:?}"
+        );
+
+        // Every edge's importer/imported pair renders against the file the directive names.
+        let common_id = graph
+            .edges
+            .iter()
+            .map(|(_, _, imported)| *imported)
+            .find(|id| sources.path(*id).ends_with("common.mcrl2"))
+            .expect("common.mcrl2 must be reachable");
+        let edges_into_common = graph
+            .edges
+            .iter()
+            .filter(|(_, _, imported)| *imported == common_id)
+            .count();
+        assert_eq!(
+            edges_into_common, 2,
+            "expected both a.mcrl2 and b.mcrl2 to have their own edge into common.mcrl2"
+        );
+    }
+
+    #[test]
+    fn test_import_graph_edge_span_covers_the_importing_directive() {
+        let dir = temp_project(&[
+            ("main.mcrl2", "%import \"common.mcrl2\"\nmap g: D;\n"),
+            ("common.mcrl2", "sort D;\n"),
+        ]);
+        let main_text = fs::read_to_string(dir.path().join("main.mcrl2")).unwrap();
+
+        let mut sources = SourceMap::new();
+        let (_spec, graph) = UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
+            .expect("should resolve the import");
+
+        assert_eq!(graph.edges.len(), 1);
+        let (importer, span, imported) = &graph.edges[0];
+        assert_eq!(*importer, graph.root);
+        assert_eq!(
+            sources.path(*imported),
+            dir.path().join("common.mcrl2").display().to_string()
+        );
+        assert_eq!(&main_text[span.start..span.end], "%import \"common.mcrl2\"");
     }
 }
