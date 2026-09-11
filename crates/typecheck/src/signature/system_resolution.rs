@@ -14,7 +14,6 @@ use crate::CONTAINER_TEMPLATES;
 use crate::PolySortScheme;
 use crate::ResolvedSortId;
 use crate::Signature;
-use crate::SystemEquationGroup;
 use crate::TypeCheckContext;
 use crate::WellTypedError;
 use crate::is_basic_sort_name;
@@ -68,8 +67,9 @@ pub(crate) fn resolve_system_signature(
 }
 
 /// Resolves the system-defined specification's declarations onto the interned
-/// sort lattice, group by group (see [SystemEquationGroup]), populating
-/// `ctx.system_equation_signature_by_group`.
+/// sort lattice and records each one's own declaration span
+/// (`ctx.system_symbol_spans`, read back by `TypingInfo` for go-to-
+/// definition).
 ///
 /// Also eagerly resolves every equation- and binder-variable sort and persists
 /// `ctx.system_sort_ids`, so the per-equation Phase-3 pass can treat sort
@@ -78,7 +78,6 @@ pub(crate) fn resolve_system_signature_full(
     ctx: &mut TypeCheckContext,
     user_spec: &UntypedDataSpecification,
     system: &UntypedDataSpecification,
-    groups: &[SystemEquationGroup],
 ) -> Result<(), WellTypedError> {
     let sort_ids = build_system_sort_ids(ctx, user_spec, system);
 
@@ -95,44 +94,17 @@ pub(crate) fn resolve_system_signature_full(
         }
     }
 
-    // An ungrouped equation is a basic-sort template's own, never at risk of the
-    // cross-instantiation collision and never referencing a user declaration, so
-    // the basic-sort signature alone suffices.
-    let basics = ctx
-        .system_signature
-        .as_deref()
-        .expect("resolve_system_signature ran earlier");
-    let ambient = Arc::new(Signature {
-        constructors: basics.constructors.clone(),
-        mappings: basics.mappings.clone(),
-        schemes: basics.schemes.clone(),
-    });
-
-    let mut by_group = vec![Arc::clone(&ambient); system.equation_declarations.len()];
-    for group in groups {
-        let mut signature = Signature::default();
-        for decl in &group.declarations.constructor_declarations {
-            let id = resolve_system_sort(ctx, user_spec, &sort_ids, &decl.sort)?;
-            push_overload(
-                signature.constructors.entry(decl.identifier.node.clone()).or_default(),
-                id,
-            );
-            ctx.system_symbol_spans
-                .insert((decl.identifier.node.clone(), id), decl.identifier.span.clone());
-        }
-        for decl in &group.declarations.map_declarations {
-            let id = resolve_system_sort(ctx, user_spec, &sort_ids, &decl.sort)?;
-            push_overload(signature.mappings.entry(decl.identifier.node.clone()).or_default(), id);
-            ctx.system_symbol_spans
-                .insert((decl.identifier.node.clone(), id), decl.identifier.span.clone());
-        }
-        let group_signature = Arc::new(merge_signatures(&signature, &ambient));
-        for slot in &mut by_group[group.equation_range.clone()] {
-            *slot = Arc::clone(&group_signature);
-        }
+    for decl in &system.constructor_declarations {
+        let id = resolve_system_sort(ctx, user_spec, &sort_ids, &decl.sort)?;
+        ctx.system_symbol_spans
+            .insert((decl.identifier.node.clone(), id), decl.identifier.span.clone());
+    }
+    for decl in &system.map_declarations {
+        let id = resolve_system_sort(ctx, user_spec, &sort_ids, &decl.sort)?;
+        ctx.system_symbol_spans
+            .insert((decl.identifier.node.clone(), id), decl.identifier.span.clone());
     }
 
-    ctx.system_equation_signature_by_group = by_group;
     ctx.system_sort_ids = Some(Arc::new(sort_ids));
     Ok(())
 }
@@ -288,7 +260,7 @@ pub(crate) fn merge_signatures(a: &Signature, b: &Signature) -> Signature {
 /// Builds one [PolySortScheme] per constructor/mapping declaration of each
 /// `template` in `templates`, keyed by name, via [`resolve_sort`] against the
 /// template's own (self-contained) spec — legal because every occurrence of
-/// the template's own `type_var` block interns to the same [ResolvedSort::Var],
+/// the template's own `type_var` block interns to the same [ResolvedSort::Var](crate::ResolvedSort::Var),
 /// on the same footing as any other lattice element.
 ///
 /// Safe to call with any of [CONTAINER_TEMPLATES]/[BUILTIN_SCHEME_TEMPLATE]:
@@ -339,10 +311,16 @@ pub(crate) fn build_polymorphic_schemes<'a>(
 
 /// The narrow scheme table a system equation's own body is checked against:
 /// the comparison operators and `if` only, built once and cached on `ctx`.
-/// Deliberately excludes the container/function-update templates — a system
-/// equation's primary signature (`ctx.system_equation_signature_by_group`)
-/// already covers the container operations concretely for its own group, so
-/// re-adding them here as a polymorphic fallback would misreport ambiguity.
+/// Deliberately excludes the container/function-update templates — reached
+/// only by [`crate::EquationRole::System`]'s fallback path (the basic sorts'
+/// own equations, and a desugared struct's own isolated equations via
+/// `ctx.struct_signature_overrides`), neither of which ever calls a container
+/// operation, so admitting them here polymorphically would only risk
+/// misreporting ambiguity against a struct override's own real symbols for no
+/// benefit. A container/function-update instantiation's own equations are
+/// specialized from their template's proven typing instead of reaching this
+/// role at all — see [`crate::check_system_equations`]'s `instantiations`
+/// parameter.
 pub(crate) fn build_builtin_scheme_signature(ctx: &mut TypeCheckContext) -> Arc<HashMap<String, Vec<PolySortScheme>>> {
     if ctx.builtin_scheme_signature.is_none() {
         let schemes = build_polymorphic_schemes(ctx, std::iter::once(&*BUILTIN_SCHEME_TEMPLATE));
@@ -603,13 +581,15 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
     fn test_full_signature_covers_containers() {
+        // `in`/`@setfset` resolve as schemes in the one pooled signature, the
+        // same way for every instantiation — there is no more per-group
+        // signature to check instead.
         let spec = resolve_full("map f: Set(Nat);");
         let ctx = spec.context();
+        let signature = ctx.signature.as_ref().unwrap();
         assert!(
-            ctx.system_equation_signature_by_group.iter().any(|signature| {
-                signature.mappings.contains_key("in") && signature.mappings.contains_key("@setfset")
-            }),
-            "some group must resolve 'in'/'@setfset' for a spec using Set(Nat)"
+            signature.schemes.contains_key("in") && signature.schemes.contains_key("@setfset"),
+            "the pooled signature must resolve 'in'/'@setfset' as schemes for a spec using Set(Nat)"
         );
     }
 
@@ -639,7 +619,7 @@ mod tests {
         crate::build_signature(&mut ctx, &user_spec).unwrap();
         let basics = crate::basic_sort_data_specification(&mut SourceMap::new(), crate::NumberEncoding::Binary);
         resolve_system_signature(&mut ctx, &user_spec, &basics).unwrap();
-        match resolve_system_signature_full(&mut ctx, &user_spec, &broken, &[]) {
+        match resolve_system_signature_full(&mut ctx, &user_spec, &broken) {
             Err(WellTypedError::Custom(err)) => assert!(err.to_string().contains('S'), "{err}"),
             other => panic!("expected a custom error, got {other:?}"),
         }
@@ -665,18 +645,18 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
     fn test_struct_desugared_symbols_resolve_in_their_own_group_signature() {
         // `c1`/`is_c1` are declared on the user spec by struct desugaring, not
-        // on `system`, yet must still resolve in their own group's signature.
+        // on `system`, yet must still resolve in their own isolated override.
         let spec = resolve_full("sort D = struct c1(pr1: Nat)?is_c1; map f: Set(D);");
         let ctx = spec.context();
         assert!(
-            !ctx.system_equation_signature_by_group.is_empty(),
-            "Set(D) should produce at least one group"
+            !ctx.struct_signature_overrides.is_empty(),
+            "the struct's own equations should produce at least one override"
         );
         assert!(
-            ctx.system_equation_signature_by_group
-                .iter()
+            ctx.struct_signature_overrides
+                .values()
                 .any(|signature| signature.mappings.contains_key("is_c1")),
-            "is_c1's own struct group should see it"
+            "is_c1's own struct override should see it"
         );
     }
 }

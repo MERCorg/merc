@@ -23,7 +23,6 @@ pub(crate) fn query_sort_of_constructor(
         id,
         |ctx| resolve_sort(ctx, spec, &spec.constructor_declarations[id].sort),
     )
-    .expect("constructor sort has no cyclic dependency")
 }
 
 /// Returns the resolved sort of the map with the given [MapId], memoized on
@@ -42,7 +41,6 @@ pub(crate) fn query_sort_of_map(
         id,
         |ctx| resolve_sort(ctx, spec, &spec.map_declarations[id].sort),
     )
-    .expect("map sort has no cyclic dependency")
 }
 
 /// Returns the resolved sort of the equation `var`-block variable declared by `sort`, identified
@@ -62,7 +60,6 @@ pub(crate) fn query_sort_of_equation_var(
         var_id,
         |ctx| resolve_sort(ctx, spec, sort),
     )
-    .expect("equation variable sort has no cyclic dependency")
 }
 
 ///
@@ -153,7 +150,6 @@ pub(crate) fn query_sort_of_def(
             Some(expr) => resolve_sort(ctx, spec, expr),
         },
     )
-    .expect("check_aliases rejected cyclic aliases")
 }
 
 #[cfg(test)]

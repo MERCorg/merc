@@ -100,6 +100,16 @@ fn test_undeclared_action_is_rejected() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_undeclared_action_lists_declared_actions_as_candidates() {
+    let error = check_err("act b: Nat; form <a(1)>true;");
+    let ModalError::UndeclaredAction { candidates, .. } = &error else {
+        panic!("expected ModalError::UndeclaredAction, got {error:?}");
+    };
+    assert_eq!(candidates, &["b".to_string()]);
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_action_argument_sort_mismatch_is_rejected() {
     let error = check_err("act a: Nat; form <a(true)>true;");
     assert!(matches!(error, ModalError::NoMatchingOverload { .. }), "got {error:?}");

@@ -73,6 +73,18 @@ fn test_action_with_wrong_argument_arity_is_rejected() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_undeclared_action_or_process_lists_declared_names_as_candidates() {
+    let error = check_err("act a; proc P = delta; init a(1);");
+    let ProcessError::UndeclaredActionOrProcess { candidates, .. } = &error else {
+        panic!("expected ProcessError::UndeclaredActionOrProcess, got {error:?}");
+    };
+    let mut candidates = candidates.clone();
+    candidates.sort();
+    assert_eq!(candidates, vec!["P".to_string(), "a".to_string()]);
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_action_with_mismatched_argument_sort_is_rejected() {
     let error = check_err("act a: Nat; init a(true);");
     assert!(
@@ -272,6 +284,16 @@ fn test_duplicate_global_variable_is_rejected() {
 fn test_hiding_an_undeclared_action_is_rejected() {
     let error = check_err("act a; init hide({b}, a);");
     assert!(matches!(error, ProcessError::UndeclaredAction { .. }), "got {error:?}");
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_hiding_an_undeclared_action_lists_declared_actions_as_candidates() {
+    let error = check_err("act a; init hide({b}, a);");
+    let ProcessError::UndeclaredAction { candidates, .. } = &error else {
+        panic!("expected ProcessError::UndeclaredAction, got {error:?}");
+    };
+    assert_eq!(candidates, &["a".to_string()]);
 }
 
 #[test]

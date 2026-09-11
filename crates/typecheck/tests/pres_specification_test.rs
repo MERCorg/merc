@@ -112,6 +112,16 @@ fn test_undeclared_propositional_variable_is_rejected() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_undeclared_propositional_variable_lists_declared_names_as_candidates() {
+    let error = check_err("pres mu X = true; init Y;");
+    let PresError::UndeclaredPropositionalVariable { candidates, .. } = &error else {
+        panic!("expected PresError::UndeclaredPropositionalVariable, got {error:?}");
+    };
+    assert_eq!(candidates, &["X".to_string()]);
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_undeclared_propositional_variable_inside_a_formula_is_rejected() {
     let error = check_err("pres mu X = Y; init X;");
     assert!(
