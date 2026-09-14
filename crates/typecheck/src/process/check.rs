@@ -632,7 +632,7 @@ fn combined_sort_matches(
 
     let mut failure: Option<(usize, ResolvedSortId, ResolvedSortId)> = None;
     {
-        let (ctx, _, _) = data.context_and_specs_mut();
+        let (ctx, _) = data.context_and_specs_mut();
         'positions: for (position, &expected) in to_domain.iter().enumerate() {
             let mut joined = tables.action_domains[from_indices[0]][position];
             for &index in &from_indices[1..] {
@@ -658,12 +658,12 @@ fn combined_sort_matches(
     match failure {
         None => Ok(()),
         Some((position, lhs, rhs)) => {
-            let (ctx, spec, system) = data.context_and_specs_mut();
+            let (ctx, spec) = data.context_and_specs_mut();
             Err(format!(
                 "parameter {} has sort '{}', which is not compatible with '{}'",
                 position + 1,
-                DisplaySortContext::new(ctx, spec, system, lhs),
-                DisplaySortContext::new(ctx, spec, system, rhs),
+                DisplaySortContext::new(ctx, spec, lhs),
+                DisplaySortContext::new(ctx, spec, rhs),
             ))
         }
     }

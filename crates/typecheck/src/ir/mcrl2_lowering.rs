@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::collections::HashSet;
 
 use merc_data::BasicSort;
 use merc_data::BinderType;
@@ -26,6 +27,7 @@ use merc_syntax::Quantifier;
 use merc_syntax::Sort;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
+use merc_syntax::SourceMap;
 use merc_syntax::UntypedDataSpecification;
 
 use crate::EquationTyping;
@@ -35,6 +37,13 @@ use crate::NumberEncoding;
 use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::TypeCheckContext;
+use crate::assign_declaration_ids;
+use crate::build_system_defined_specification;
+use crate::check_multi_argument_function_update_template;
+use crate::check_system_equations;
+use crate::check_system_specification;
+use crate::extend_system_with_inferred_sorts;
+use crate::resolve_data_specification_variables;
 use crate::unreachable_not_a_value_sort;
 
 /// The mCRL2 name of a basic sort, matching the literal `SortId` names the
@@ -140,29 +149,28 @@ fn container_coerce(term: DataExpression, op: ComplexSort, element: DataSortExpr
 /// Converts an inferred, interned sort into the aterm `SortExpression` the
 /// binary format uses: `Primitive`/`Generic`/`Function` recurse structurally
 /// onto `BasicSort`/`SortCons`/`SortArrow`, and `Def` resolves to its declared
-/// name via [TypeCheckContext::sort_display_name] — a user sort from `spec`, a
-/// system-internal sort from `system`, or a synthesized placeholder as a last
-/// resort: a nominal sort's identity *is* its declared name for the binary
-/// schema.
+/// name via [TypeCheckContext::sort_display_name] — a user sort or a
+/// system-internal one alike, both declared in `spec` (see
+/// `docs/typecheck.md`'s `DefId`-offset milestone), or a synthesized
+/// placeholder as a last resort: a nominal sort's identity *is* its declared
+/// name for the binary schema.
 #[allow(dead_code)]
 pub(crate) fn lower_sort(
     ctx: &TypeCheckContext,
     spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
     id: ResolvedSortId,
 ) -> DataSortExpression {
     match ctx.sorts.get(id) {
         ResolvedSort::Unit => unreachable_not_a_value_sort("Unit"),
         ResolvedSort::Primitive(sort) => BasicSort::new(primitive_name(*sort)).into(),
         ResolvedSort::Generic { op, subsort } => {
-            SortCons::new(container_kind(*op), lower_sort(ctx, spec, system, *subsort)).into()
+            SortCons::new(container_kind(*op), lower_sort(ctx, spec, *subsort)).into()
         }
         ResolvedSort::Function { domain, range } => {
-            let domain: Vec<DataSortExpression> =
-                domain.iter().map(|&sort| lower_sort(ctx, spec, system, sort)).collect();
-            SortArrow::new(&domain, lower_sort(ctx, spec, system, *range)).into()
+            let domain: Vec<DataSortExpression> = domain.iter().map(|&sort| lower_sort(ctx, spec, sort)).collect();
+            SortArrow::new(&domain, lower_sort(ctx, spec, *range)).into()
         }
-        ResolvedSort::Def(def) => BasicSort::new(ctx.sort_display_name(spec, system, *def).as_ref()).into(),
+        ResolvedSort::Def(def) => BasicSort::new(ctx.sort_display_name(spec, *def).as_ref()).into(),
         ResolvedSort::Var(_) => unreachable_not_a_value_sort("Var"),
     }
 }
@@ -395,7 +403,6 @@ pub(crate) struct LoweredEquation {
 pub(crate) fn lower_equation(
     ctx: &TypeCheckContext,
     spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
     typing: &EquationTyping,
     condition: Option<&DataExpr>,
     lhs: &DataExpr,
@@ -407,7 +414,6 @@ pub(crate) fn lower_equation(
     let mut walker = Lowering {
         ctx,
         spec,
-        system,
         sorts,
         names,
         next_id: 0,
@@ -448,7 +454,6 @@ pub(crate) fn lower_equation(
 pub(crate) fn lower_expression(
     ctx: &TypeCheckContext,
     spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
     typing: &EquationTyping,
     expr: &DataExpr,
     encoding: NumberEncoding,
@@ -458,7 +463,6 @@ pub(crate) fn lower_expression(
     Lowering {
         ctx,
         spec,
-        system,
         sorts,
         names,
         next_id: 0,
@@ -471,7 +475,6 @@ pub(crate) fn lower_expression(
 struct Lowering<'a> {
     ctx: &'a TypeCheckContext,
     spec: &'a UntypedDataSpecification,
-    system: &'a UntypedDataSpecification,
     sorts: &'a [ResolvedSortId],
     names: &'a HashMap<ExprId, NameTarget>,
     /// The `ExprId` the next node visited will be assigned, mirroring
@@ -566,7 +569,7 @@ impl Lowering<'_> {
                 Some(numeric_coerce(term, *from_sort, *to_sort, self.encoding))
             }
             (ResolvedSort::Generic { op, subsort }, ResolvedSort::Generic { .. }) => {
-                let element = lower_sort(self.ctx, self.spec, self.system, *subsort);
+                let element = lower_sort(self.ctx, self.spec, *subsort);
                 Some(container_coerce(term, *op, element))
             }
             _ => None,
@@ -576,11 +579,11 @@ impl Lowering<'_> {
     fn lower_id(&self, id: ExprId, name: &str, sort: ResolvedSortId) -> Option<DataExpression> {
         match self.names.get(&id)? {
             NameTarget::Variable => {
-                Some(DataVariable::with_sort(name, lower_sort(self.ctx, self.spec, self.system, sort).copy()).into())
+                Some(DataVariable::with_sort(name, lower_sort(self.ctx, self.spec, sort).copy()).into())
             }
-            NameTarget::Op { .. } | NameTarget::Builtin => Some(
-                DataFunctionSymbol::with_sort(name, lower_sort(self.ctx, self.spec, self.system, sort).copy()).into(),
-            ),
+            NameTarget::Op { .. } | NameTarget::Builtin => {
+                Some(DataFunctionSymbol::with_sort(name, lower_sort(self.ctx, self.spec, sort).copy()).into())
+            }
         }
     }
 
@@ -645,7 +648,7 @@ impl Lowering<'_> {
         else {
             unreachable!("empty container always infers to a Generic sort")
         };
-        let element = lower_sort(self.ctx, self.spec, self.system, *element_id);
+        let element = lower_sort(self.ctx, self.spec, *element_id);
         let container: DataSortExpression = SortCons::new(container_kind(op), element).into();
         let name = match op {
             ComplexSort::List => "[]",
@@ -665,7 +668,7 @@ impl Lowering<'_> {
             unreachable!("Set literal always infers to FSet(S)")
         };
         let element_id = *element_id;
-        let element = lower_sort(self.ctx, self.spec, self.system, element_id);
+        let element = lower_sort(self.ctx, self.spec, element_id);
         let fset: DataSortExpression = SortCons::new(ContainerSortKind::FSet, element.clone()).into();
         let fset_insert = function_symbol("@fset_insert", &[element.clone(), fset.clone()], fset.clone());
 
@@ -696,7 +699,7 @@ impl Lowering<'_> {
         };
         let element_id = *element_id;
         let nat_id = self.ctx.sorts.nat_sort();
-        let element = lower_sort(self.ctx, self.spec, self.system, element_id);
+        let element = lower_sort(self.ctx, self.spec, element_id);
         let fbag: DataSortExpression = SortCons::new(ContainerSortKind::FBag, element.clone()).into();
         let fbag_cinsert = function_symbol(
             "@fbag_cinsert",
@@ -775,7 +778,7 @@ impl Lowering<'_> {
             ResolvedSort::Generic { op, subsort } => (*op, *subsort),
             _ => unreachable!("SetBagComp always infers to Set or Bag"),
         };
-        let element = lower_sort(self.ctx, self.spec, self.system, element_id);
+        let element = lower_sort(self.ctx, self.spec, element_id);
         let var = DataVariable::with_sort(variable.identifier.as_str(), element.copy());
 
         let body_id = ExprId::new(self.next_id);
@@ -828,7 +831,7 @@ impl Lowering<'_> {
             let assignment_term = self.lower(&assignment.expr)?;
             let var = DataVariable::with_sort(
                 assignment.identifier.as_str(),
-                lower_sort(self.ctx, self.spec, self.system, assignment_sort).copy(),
+                lower_sort(self.ctx, self.spec, assignment_sort).copy(),
             );
             whr_decls.push(DataWhrDecl::new(var, assignment_term));
         }
@@ -910,10 +913,18 @@ pub(crate) fn lower_data_specification(
     system: &UntypedDataSpecification,
     encoding: NumberEncoding,
 ) -> Mcrl2DataSpecification {
+    // `@NatPair`/`@word` share `spec.sort_declarations` with the user's own sorts (folded in by
+    // `DataSpecification::from_untyped_with` so they get a real `SortId` from the same pass — see
+    // `docs/typecheck.md`'s `DefId`-offset milestone), but the lowered aterm's own `sorts()` must
+    // stay exactly what the user declared: the mCRL2 toolset never declares them as a `sort` in its
+    // own output either, treating them as an implementation detail baked into `Nat`/`@word`'s own
+    // constructor and mapping signatures instead. Told apart by the reserved `@`-name convention
+    // system-generated declarations use, the same one `typing_info::sort_declaration_by_id` relies
+    // on.
     let sorts: Vec<BasicSort> = spec
         .sort_declarations
         .iter()
-        .filter(|d| d.expr.is_none())
+        .filter(|d| d.expr.is_none() && !d.identifier.starts_with('@'))
         .map(|d| BasicSort::new(d.identifier.as_str()))
         .collect();
 
@@ -942,7 +953,7 @@ pub(crate) fn lower_data_specification(
                 .get(&id)
                 .copied()
                 .expect("constructor sorts are all resolved during from_untyped");
-            DataFunctionSymbol::with_sort(decl.identifier.as_str(), lower_sort(ctx, spec, system, sort_id).copy())
+            DataFunctionSymbol::with_sort(decl.identifier.as_str(), lower_sort(ctx, spec, sort_id).copy())
         })
         .collect();
     for decl in &system.constructor_declarations {
@@ -962,7 +973,7 @@ pub(crate) fn lower_data_specification(
                 .get(&id)
                 .copied()
                 .expect("map sorts are all resolved during from_untyped");
-            DataFunctionSymbol::with_sort(decl.identifier.as_str(), lower_sort(ctx, spec, system, sort_id).copy())
+            DataFunctionSymbol::with_sort(decl.identifier.as_str(), lower_sort(ctx, spec, sort_id).copy())
         })
         .collect();
     for decl in &system.map_declarations {
@@ -994,17 +1005,10 @@ pub(crate) fn lower_data_specification(
             // Phase-3 already accepted this equation, so `None` means `Lowering`
             // is missing a construct it supports: an internal bug, and a hard
             // failure rather than a silently dropped rewrite rule.
-            let lowered = lower_equation(
-                ctx,
-                spec,
-                system,
-                typing,
-                eqn.condition.as_ref(),
-                &eqn.lhs,
-                &eqn.rhs,
-                encoding,
-            )
-            .unwrap_or_else(|| panic!("user equation '{eqn}' passed Phase-3 inference but failed Phase-4 lowering"));
+            let lowered = lower_equation(ctx, spec, typing, eqn.condition.as_ref(), &eqn.lhs, &eqn.rhs, encoding)
+                .unwrap_or_else(|| {
+                    panic!("user equation '{eqn}' passed Phase-3 inference but failed Phase-4 lowering")
+                });
             equations.push(DataEquation::new(&vars, lowered.condition, lowered.lhs, lowered.rhs));
         }
     }
@@ -1026,17 +1030,132 @@ pub(crate) fn lower_data_specification(
                 .expect("system equation typings are all resolved during from_untyped")
                 .as_ref()
                 .expect("a well-typed specification has no system equation inference errors");
+            let lowered = lower_equation(ctx, spec, typing, eqn.condition.as_ref(), &eqn.lhs, &eqn.rhs, encoding)
+                .unwrap_or_else(|| {
+                    panic!("system equation '{eqn}' passed Phase-3 inference but failed Phase-4 lowering")
+                });
+            equations.push(DataEquation::new(&vars, lowered.condition, lowered.lhs, lowered.rhs));
+        }
+    }
+
+    // Every container/function-update/comparison instantiation the
+    // specification actually uses is monomorphized here, for this call only,
+    // rather than during type-checking — see `docs/typecheck.md`'s
+    // monomorphization-to-lowering milestone. `ctx` itself proved every
+    // template's own equations exactly once, rigidly
+    // (`check_container_templates`/`check_comparison_template`, run during
+    // `from_untyped_with`); a scratch clone absorbs the work still needed
+    // to turn that into ground content — checking a not-yet-seen
+    // multi-argument function-update arity, interning a substituted sort —
+    // without mutating the context the caller's `DataSpecification` still
+    // holds.
+    let mut scratch_ctx = ctx.clone();
+    let mut scratch_sources = SourceMap::new();
+
+    // Seeded empty, not with `basics`: `system`'s own constructors/mappings/
+    // equations (basics and desugared structs) were already lowered above,
+    // so seeding with a second copy here would duplicate them in the output.
+    // `build_system_defined_specification`'s worklist only ever scans `spec`
+    // to decide what to generate, never its own seed, so an empty seed
+    // changes nothing about *which* instantiations it discovers.
+    let (generated, instantiations) = build_system_defined_specification(
+        &mut scratch_sources,
+        spec,
+        UntypedDataSpecification::default(),
+        encoding,
+    );
+    let (mut generated, more_instantiations) =
+        extend_system_with_inferred_sorts(&mut scratch_sources, &scratch_ctx, spec, &generated, encoding);
+    let mut instantiations = instantiations;
+    instantiations.extend(more_instantiations);
+
+    resolve_data_specification_variables(&mut generated);
+
+    // A cheap sanity net over the generated content (see
+    // `check_system_specification`'s own doc comment) — checked against
+    // `system`'s own declarations too (cloned in, not `generated` alone), so
+    // a container equation referencing a basic-sort operator by name (e.g.
+    // `+`) resolves correctly; `system` itself is left untouched; only
+    // `generated`'s own content is ever lowered below, so this never
+    // duplicates `system`'s content in the output. Should never fail for a
+    // well-formed template: a failure here is a bug in the generator, not in
+    // the user's specification (already fully checked before this call), so
+    // it panics rather than threading a `Result` through lowering.
+    let mut check_target = system.clone();
+    check_target.merge(&generated);
+    check_system_specification(spec, &check_target)
+        .unwrap_or_else(|err| panic!("the generated system-defined specification is malformed: {err}"));
+
+    assign_declaration_ids(&mut generated);
+
+    // Every distinct arity a generated multi-argument function-update
+    // instantiation uses gets its own generic template, checked once with its
+    // type variable(s) held rigid, exactly like the six bundled container
+    // templates and the comparison template — whose own results this scratch
+    // context already inherited from `ctx`, since those are checked
+    // unconditionally during `from_untyped_with` regardless of usage.
+    let mut checked_arities = HashSet::new();
+    for instantiation in &instantiations {
+        if let Some(arity) = instantiation.template.strip_prefix("function_update_")
+            && checked_arities.insert(arity.to_string())
+        {
+            let arity: usize = arity.parse().expect("`function_update_{arity}` names an integer arity");
+            check_multi_argument_function_update_template(&mut scratch_ctx, arity).unwrap_or_else(|err| {
+                panic!("the generated arity-{arity} function-update template failed its rigid check: {err}")
+            });
+        }
+    }
+
+    // Every equation is specialized from its own template's already-proven,
+    // rigid typing by substitution, not re-inferred — see
+    // `check_system_equations`/`specialize_template_typing`.
+    check_system_equations(&mut scratch_ctx, spec, &generated, &instantiations)
+        .unwrap_or_else(|err| panic!("a generated system equation failed to specialize: {err}"));
+
+    for decl in &generated.constructor_declarations {
+        constructors.push(DataFunctionSymbol::with_sort(
+            decl.identifier.as_str(),
+            lower_syntax_sort(&decl.sort).copy(),
+        ));
+    }
+    for decl in &generated.map_declarations {
+        mappings.push(DataFunctionSymbol::with_sort(
+            decl.identifier.as_str(),
+            lower_syntax_sort(&decl.sort).copy(),
+        ));
+    }
+
+    for eqn_spec in &generated.equation_declarations {
+        let eqn_spec_id = eqn_spec
+            .id
+            .expect("assign_declaration_ids ran on the generated content above");
+        let vars: Vec<DataVariable> = eqn_spec
+            .variables
+            .iter()
+            .map(|var| DataVariable::with_sort(var.identifier.as_str(), lower_syntax_sort(&var.sort).copy()))
+            .collect();
+        for eqn in &eqn_spec.equations {
+            let equation_id = eqn
+                .id
+                .expect("assign_declaration_ids ran on the generated content above");
+            let typing = scratch_ctx
+                .system_equation_typing
+                .get(&(eqn_spec_id, equation_id))
+                .expect("check_system_equations resolved every generated equation's typing above")
+                .as_ref()
+                .expect("a well-typed template specializes to a well-typed instantiation");
             let lowered = lower_equation(
-                ctx,
+                &scratch_ctx,
                 spec,
-                system,
                 typing,
                 eqn.condition.as_ref(),
                 &eqn.lhs,
                 &eqn.rhs,
                 encoding,
             )
-            .unwrap_or_else(|| panic!("system equation '{eqn}' passed Phase-3 inference but failed Phase-4 lowering"));
+            .unwrap_or_else(|| {
+                panic!("generated equation '{eqn}' passed Phase-3 inference but failed Phase-4 lowering")
+            });
             equations.push(DataEquation::new(&vars, lowered.condition, lowered.lhs, lowered.rhs));
         }
     }
@@ -1081,7 +1200,6 @@ mod tests {
         lower_equation(
             spec.context(),
             spec.data_specification(),
-            spec.system_defined_specification(),
             typing,
             eqn.condition.as_ref(),
             &eqn.lhs,
@@ -1097,7 +1215,6 @@ mod tests {
         let sort = lower_sort(
             spec.context(),
             spec.data_specification(),
-            spec.system_defined_specification(),
             spec.sort_of_map(merc_syntax::MapId::new(0)),
         );
         assert_eq!(sort.to_string(), "Nat");
@@ -1110,7 +1227,6 @@ mod tests {
         let sort = lower_sort(
             spec.context(),
             spec.data_specification(),
-            spec.system_defined_specification(),
             spec.sort_of_map(merc_syntax::MapId::new(0)),
         );
         assert!(is_container_sort(&sort));
@@ -1123,7 +1239,6 @@ mod tests {
         let sort = lower_sort(
             spec.context(),
             spec.data_specification(),
-            spec.system_defined_specification(),
             spec.sort_of_map(merc_syntax::MapId::new(0)),
         );
         assert!(is_function_sort(&sort));
@@ -1136,7 +1251,6 @@ mod tests {
         let sort = lower_sort(
             spec.context(),
             spec.data_specification(),
-            spec.system_defined_specification(),
             spec.sort_of_map(merc_syntax::MapId::new(0)),
         );
         assert_eq!(sort.to_string(), "D");
