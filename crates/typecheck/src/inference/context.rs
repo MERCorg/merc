@@ -26,6 +26,7 @@ use crate::TypingInfo;
 /// It owns the [SortInterner] and one [QueryCache] per query. Each semantic
 /// fact is a memoized function on this context, so passes pull their
 /// dependencies lazily and results are shared.
+#[derive(Clone)]
 pub(crate) struct TypeCheckContext {
     pub(crate) sorts: SortInterner,
 
@@ -41,16 +42,12 @@ pub(crate) struct TypeCheckContext {
 
     /// The signature of the specification.
     pub(crate) signature: Option<Arc<Signature>>,
-    /// The resolved signature of the *basic-sort* part of the system-defined
-    /// specification; containers are deliberately excluded, see
-    /// `resolve_system_signature`.
-    pub(crate) system_signature: Option<Arc<Signature>>,
+    /// The basic-sort operators alone (`succ`, `&&`, `@c0`, …) — no schemes, no other user
+    /// declarations.
+    pub(crate) basics_signature: Option<Arc<Signature>>,
     /// A per-block override of the signature a system equation's body is
     /// checked against, keyed by its enclosing block's `EqnSpecId`.
     pub(crate) struct_signature_overrides: HashMap<EqnSpecId, Arc<Signature>>,
-    /// The system-internal sort name table, needed to resolve a `Reference`
-    /// sort (e.g. `@NatPair`) while checking a system equation.
-    pub(crate) system_sort_ids: Option<Arc<HashMap<String, ResolvedSortId>>>,
     /// The narrow polymorphic scheme table (comparison operators and `if`
     /// only) a system equation's own body is checked against.
     pub(crate) builtin_scheme_signature: Option<Arc<HashMap<String, Vec<PolySortScheme>>>>,
@@ -83,10 +80,9 @@ impl TypeCheckContext {
             sort_of_map: QueryCache::new(),
             sort_of_equation_var: QueryCache::new(),
             signature: None,
-            system_signature: None,
-            builtin_scheme_signature: None,
+            basics_signature: None,
             struct_signature_overrides: HashMap::new(),
-            system_sort_ids: None,
+            builtin_scheme_signature: None,
             system_symbol_spans: HashMap::new(),
             equation_typing: QueryCache::new(),
             system_equation_typing: QueryCache::new(),
@@ -130,42 +126,18 @@ impl TypeCheckContext {
         value
     }
 
-    /// The declared name of the sort that [SortId] `def` resolves to, whether a
-    /// user sort (looked up in `spec`) or a system-internal one such as
-    /// `@NatPair` (looked up in `system`), or `None` when it is out of range of
-    /// both.
-    ///
-    /// This is the single place aware that a system-internal `SortId` continues
-    /// the user sort numbering: it indexes `system.sort_declarations` offset by
-    /// the user sort count, the layout `resolve_system_signature` establishes.
-    /// The names are derived from the specifications on demand rather than
-    /// cached, so nothing here needs to stay in sync with them.
-    pub(crate) fn sort_name<'a>(
-        &'a self,
-        spec: &'a UntypedDataSpecification,
-        system: &'a UntypedDataSpecification,
-        def: SortId,
-    ) -> Option<&'a str> {
-        if let Some(decl) = spec.sort_declarations.get(*def) {
-            return Some(&decl.identifier);
-        }
-
-        let system_index = (*def).checked_sub(spec.sort_declarations.len())?;
-        system
-            .sort_declarations
-            .get(system_index)
-            .map(|decl| decl.identifier.as_str())
+    /// The declared name of the sort that [SortId] `def` resolves to — a user
+    /// sort or a system-internal one such as `@NatPair` alike, both declared in
+    /// `spec.sort_declarations` (see `docs/typecheck.md`'s `DefId`-offset
+    /// milestone) — or `None` when `def` is out of range.
+    pub(crate) fn sort_name<'a>(&'a self, spec: &'a UntypedDataSpecification, def: SortId) -> Option<&'a str> {
+        spec.sort_declarations.get(*def).map(|decl| decl.identifier.as_str())
     }
 
     /// As [`Self::sort_name`], but falls back to a synthesized `@sort_N` placeholder instead of
     /// `None` when `def` is out of range.
-    pub(crate) fn sort_display_name<'a>(
-        &'a self,
-        spec: &'a UntypedDataSpecification,
-        system: &'a UntypedDataSpecification,
-        def: SortId,
-    ) -> Cow<'a, str> {
-        match self.sort_name(spec, system, def) {
+    pub(crate) fn sort_display_name<'a>(&'a self, spec: &'a UntypedDataSpecification, def: SortId) -> Cow<'a, str> {
+        match self.sort_name(spec, def) {
             Some(name) => Cow::Borrowed(name),
             None => Cow::Owned(format!("@sort_{}", def.value())),
         }
@@ -180,6 +152,7 @@ impl Default for TypeCheckContext {
 
 /// A memoization table for a single query, populated through
 /// [TypeCheckContext::get_or_compute] or [Self::insert].
+#[derive(Clone)]
 pub(crate) struct QueryCache<K, V> {
     entries: HashMap<K, V>,
 }

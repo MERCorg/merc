@@ -311,7 +311,6 @@ pub(crate) fn build(spec: &DataSpecification, typing: &EquationTyping, variable_
     let index = DeclarationIndex::build(spec);
     let ctx = spec.context();
     let user_spec = spec.data_specification();
-    let system_spec = spec.system_defined_specification();
 
     let nodes = typing
         .spans
@@ -331,7 +330,7 @@ pub(crate) fn build(spec: &DataSpecification, typing: &EquationTyping, variable_
             });
             TypedNode {
                 span: span.clone(),
-                sort: Some(sort_expression(ctx, user_spec, system_spec, sort)),
+                sort: Some(sort_expression(ctx, user_spec, sort)),
                 name,
             }
         })
@@ -633,35 +632,30 @@ fn collect_data_expr_sort_references(expr: &DataExpr, out: &mut Vec<SortReferenc
     });
 }
 
-/// `reference`'s own [`SortId`] declaration, and whether it names a user sort (from `spec`) or a
-/// system-internal one (from `system`) — mirrors [`crate::TypeCheckContext::sort_name`]'s
-/// dual-range lookup (a system sort's [`SortId`] continues the user sorts' own numbering), but
-/// returns the whole declaration rather than just its name, since [`push_sort_references`] needs
-/// the declaration's span.
-fn sort_declaration_by_id<'a>(
-    spec: &'a UntypedDataSpecification,
-    system: &'a UntypedDataSpecification,
-    id: SortId,
-) -> Option<(&'a SortDecl, bool)> {
-    if let Some(decl) = spec.sort_declarations.get(*id) {
-        return Some((decl, false));
-    }
-
-    let system_index = (*id).checked_sub(spec.sort_declarations.len())?;
-    system.sort_declarations.get(system_index).map(|decl| (decl, true))
+/// `reference`'s own [`SortId`] declaration, and whether it names a user sort or a system-internal
+/// one. Returns the whole declaration rather than just its
+/// name, since [`push_sort_references`] needs the declaration's span.
+fn sort_declaration_by_id(spec: &UntypedDataSpecification, id: SortId) -> Option<(&SortDecl, bool)> {
+    let decl = spec.sort_declarations.get(*id)?;
+    Some((decl, decl.identifier.starts_with('@')))
 }
 
 /// Resolves each occurrence in `references` to its declaration and pushes
 /// [`ResolvedName::Sort`]/[`ResolvedName::SystemDefined`] into `typing`.
 ///
-/// Every occurrence is resolved the same way, through [`sort_declaration_by_id`]: a reference with
-/// its own [`SortReference::id`] (every already-`Resolved` occurrence) indexes straight into its
-/// declaration; a not-yet-resolved [`SortExpressionKind::Reference`] first looks its name up in
-/// `name_to_id` — built fresh per call, user declarations shadowing a same-named system one, the
-/// same precedence the old two-map version had — to find that same [`SortId`], and then goes
-/// through the identical lookup. A container-sort keyword (`List`, `Set`, …) is the only case with
-/// no [`SortId`] at all, so it's handled separately. A sort name is never overloaded, so — unlike
-/// [`DeclarationIndex`] — this only needs one plain `name -> id` map.
+/// Every occurrence with a real [`SortId`] is resolved the same way, through
+/// [`sort_declaration_by_id`]: a reference with its own [`SortReference::id`] (every already-
+/// `Resolved` occurrence) indexes straight into its declaration; a not-yet-resolved
+/// [`SortExpressionKind::Reference`] first looks its name up in `name_to_id` — built fresh per call
+/// from `spec`'s own (system-internal sorts included) — to find that same [`SortId`], and then goes
+/// through the identical lookup. A sort name is never overloaded, so — unlike [`DeclarationIndex`]
+/// — this only needs one plain `name -> id` map.
+///
+/// Two occurrence shapes carry no [`SortId`] at all, and so bypass `name_to_id` entirely: a
+/// container-sort keyword (`List`, `Set`, …), which has no declaration site to point at, and a
+/// primitive basic-sort name (`Bool`, `Nat`, …), which resolves straight to `ResolvedSort::Primitive`
+/// rather than a nominal `SortId` — but still has a real declaration span to offer, in `system`'s own
+/// textual re-declaration of it (`sort Nat;` in `nat.mcrl2`), found by name rather than id.
 pub(crate) fn push_sort_references(spec: &DataSpecification, references: &[SortReference], typing: &mut TypingInfo) {
     if references.is_empty() {
         return;
@@ -671,20 +665,13 @@ pub(crate) fn push_sort_references(spec: &DataSpecification, references: &[SortR
     for (i, decl) in spec.data_specification().sort_declarations.iter().enumerate() {
         name_to_id.entry(decl.identifier.as_str()).or_insert(SortId::new(i));
     }
-    let user_sort_count = spec.data_specification().sort_declarations.len();
-    for (i, decl) in spec.system_defined_specification().sort_declarations.iter().enumerate() {
-        name_to_id
-            .entry(decl.identifier.as_str())
-            .or_insert(SortId::new(user_sort_count + i));
-    }
 
     for reference in references {
         let name = &reference.name;
         let id = reference.id.or_else(|| name_to_id.get(name.as_str()).copied());
 
         if let Some(id) = id
-            && let Some((decl, is_system)) =
-                sort_declaration_by_id(spec.data_specification(), spec.system_defined_specification(), id)
+            && let Some((decl, is_system)) = sort_declaration_by_id(spec.data_specification(), id)
         {
             let declaration = declared_span(&decl.span);
             typing.push(
@@ -711,6 +698,19 @@ pub(crate) fn push_sort_references(spec: &DataSpecification, references: &[SortR
                     declaration: None,
                 },
             );
+        } else if let Some(decl) = spec
+            .system_defined_specification()
+            .sort_declarations
+            .iter()
+            .find(|decl| decl.identifier == *name)
+        {
+            typing.push(
+                reference.span.clone(),
+                ResolvedName::SystemDefined {
+                    name: name.clone(),
+                    declaration: declared_span(&decl.span),
+                },
+            );
         }
     }
 }
@@ -723,12 +723,7 @@ pub(crate) fn push_binder_declaration(
     name: String,
     sort: ResolvedSortId,
 ) {
-    let sort = sort_expression(
-        data.context(),
-        data.data_specification(),
-        data.system_defined_specification(),
-        sort,
-    );
+    let sort = sort_expression(data.context(), data.data_specification(), sort);
     typing.push_typed(
         span.clone(),
         Some(sort),
@@ -745,28 +740,20 @@ pub(crate) fn push_binder_declaration(
 /// the binary aterm format instead of the AST's own sort type).
 ///
 /// Every produced node gets [`Span::default`].
-fn sort_expression(
-    ctx: &TypeCheckContext,
-    spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
-    id: ResolvedSortId,
-) -> SortExpression {
+fn sort_expression(ctx: &TypeCheckContext, spec: &UntypedDataSpecification, id: ResolvedSortId) -> SortExpression {
     match ctx.sorts.get(id) {
         ResolvedSort::Unit => unreachable_not_a_value_sort("Unit"),
         ResolvedSort::Primitive(sort) => SortExpressionKind::Simple(*sort).into(),
         ResolvedSort::Generic { op, subsort } => {
-            SortExpressionKind::Complex(*op, Box::new(sort_expression(ctx, spec, system, *subsort))).into()
+            SortExpressionKind::Complex(*op, Box::new(sort_expression(ctx, spec, *subsort))).into()
         }
         ResolvedSort::Function { domain, range } => SortExpressionKind::FlattenedFunction {
-            domain: domain
-                .iter()
-                .map(|&sort| sort_expression(ctx, spec, system, sort))
-                .collect(),
-            range: Box::new(sort_expression(ctx, spec, system, *range)),
+            domain: domain.iter().map(|&sort| sort_expression(ctx, spec, sort)).collect(),
+            range: Box::new(sort_expression(ctx, spec, *range)),
         }
         .into(),
         ResolvedSort::Def(def) => {
-            let name = ctx.sort_display_name(spec, system, *def).into_owned();
+            let name = ctx.sort_display_name(spec, *def).into_owned();
             SortExpressionKind::Resolved(name, *def).into()
         }
         ResolvedSort::Var(_) => unreachable_not_a_value_sort("Var"),

@@ -4,10 +4,7 @@ use merc_syntax::UntypedDataSpecification;
 
 use crate::parse_rigid_template;
 
-/// The five built-in basic sorts. They are always present in a specification,
-/// resolve to primitives, and may not receive user constructors. Public so a
-/// caller that needs to recognize these names without a full type-checking pass (e.g. an LSP's
-/// syntax highlighting) has a single source of truth instead of a hand-copied list of its own.
+/// The five built-in basic sorts. They are always present in a specification.
 pub const BASIC_SORT_NAMES: [&str; 5] = ["Bool", "Pos", "Nat", "Int", "Real"];
 
 /// Whether `name` is one of the [`BASIC_SORT_NAMES`].
