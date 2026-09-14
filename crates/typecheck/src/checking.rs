@@ -54,8 +54,8 @@ where
     let lowered = prepare_expression::<E>(data, expr)?;
     // `infer_expression_in_scope` only needs each binder's sort, not its span.
     let declared_scope: Vec<(VarId, ResolvedSortId)> = scope.iter().map(|&(id, sort, _)| (id, sort)).collect();
-    let (ctx, spec, system) = data.context_and_specs_mut();
-    let equation_typing = infer_expression_in_scope(ctx, spec, system, &lowered, &declared_scope, Some(expected))?;
+    let (ctx, spec) = data.context_and_specs_mut();
+    let equation_typing = infer_expression_in_scope(ctx, spec, &lowered, &declared_scope, Some(expected))?;
     // `scope` covers every binder declared *outside* `expr` (see `Scope`'s doc comment); `expr`
     // may also introduce its own `lambda`/quantifier/comprehension/`whr` binders, not part of
     // `scope` at all, so those are collected separately, straight off `expr`'s own tree.
