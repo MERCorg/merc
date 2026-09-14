@@ -419,6 +419,26 @@ fn test_redeclaring_the_system_count_function_is_rejected() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_at_prefixed_mapping_is_rejected_even_without_a_name_collision() {
+    // `@` is reserved for Appendix B's own generated content (`@c0`, `@cPair`, `@zero_`, …),
+    // regardless of whether this particular name happens to already exist there.
+    match check_err("map @my_helper: Nat; map f: Nat; eqn f = @my_helper;") {
+        WellTypedError::SystemFunctionRedeclared { name, .. } => assert_eq!(name, "@my_helper"),
+        other => panic!("unexpected error {other}"),
+    }
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_at_prefixed_constructor_is_rejected() {
+    match check_err("sort D; cons @weird: D;") {
+        WellTypedError::SystemFunctionRedeclared { name, .. } => assert_eq!(name, "@weird"),
+        other => panic!("unexpected error {other}"),
+    }
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_constructor_for_the_built_in_bool_sort_is_rejected() {
     match check_err("cons maybe: Bool;") {
         WellTypedError::ConstructorForBasicSort { constructor, sort, .. } => {
