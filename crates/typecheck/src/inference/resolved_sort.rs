@@ -118,27 +118,20 @@ pub(crate) fn number_sort_from_generality(generality: u32) -> Sort {
 pub(crate) struct DisplaySortContext<'a> {
     ctx: &'a TypeCheckContext,
     spec: &'a UntypedDataSpecification,
-    system: &'a UntypedDataSpecification,
     id: ResolvedSortId,
 }
 
 impl<'a> DisplaySortContext<'a> {
-    pub(crate) fn new(
-        ctx: &'a TypeCheckContext,
-        spec: &'a UntypedDataSpecification,
-        system: &'a UntypedDataSpecification,
-        id: ResolvedSortId,
-    ) -> Self {
-        DisplaySortContext { ctx, spec, system, id }
+    pub(crate) fn new(ctx: &'a TypeCheckContext, spec: &'a UntypedDataSpecification, id: ResolvedSortId) -> Self {
+        DisplaySortContext { ctx, spec, id }
     }
 
     /// A [DisplaySortContext] for a sub-sort of `self`, reusing the same context
-    /// and specifications.
+    /// and specification.
     fn sub(&self, id: ResolvedSortId) -> Self {
         DisplaySortContext {
             ctx: self.ctx,
             spec: self.spec,
-            system: self.system,
             id,
         }
     }
@@ -157,7 +150,7 @@ impl fmt::Display for DisplaySortContext<'_> {
                 write!(f, "{} -> {}", domain.join(" # "), self.sub(*range))
             }
             ResolvedSort::Def(def) => {
-                write!(f, "{}", self.ctx.sort_display_name(self.spec, self.system, *def))
+                write!(f, "{}", self.ctx.sort_display_name(self.spec, *def))
             }
             // Debug logging only (per this struct's doc comment).
             ResolvedSort::Var(id) => write!(f, "@S_{id}"),
@@ -214,6 +207,7 @@ fn generic_op_partial_cmp(lhs: ComplexSort, rhs: ComplexSort) -> Option<Ordering
 /// The primitive sorts are interned eagerly and returned by the `*_sort`
 /// accessors; every other sort is created on demand through [SortInterner::generic],
 /// [SortInterner::function] and [SortInterner::def].
+#[derive(Clone)]
 pub(crate) struct SortInterner {
     arena: Vec<ResolvedSort>,
     dedup: HashMap<ResolvedSort, ResolvedSortId>,

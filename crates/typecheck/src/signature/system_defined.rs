@@ -144,7 +144,11 @@ pub(crate) fn build_system_defined_specification(
 
     let mut container_worklist = Vec::new();
     // Seed from the user specification, including its function sorts.
-    collect_system_sorts_in_spec(spec, &mut container_worklist, SortCollectionMode::ContainersAndFunctions);
+    collect_system_sorts_in_spec(
+        spec,
+        &mut container_worklist,
+        SortCollectionMode::ContainersAndFunctions,
+    );
     let mut instantiations = merge_generated(
         sources,
         &mut result,
@@ -254,7 +258,7 @@ pub(crate) fn extend_system_with_inferred_sorts(
     for typing in ctx.equation_typing.values().filter_map(|typing| typing.as_ref().ok()) {
         for &id in &typing.sorts {
             if matches!(ctx.sorts.get(id), ResolvedSort::Generic { .. })
-                && let Some(sort) = resolved_sort_to_syntax(ctx, spec, system, id)
+                && let Some(sort) = resolved_sort_to_syntax(ctx, spec, id)
             {
                 container_worklist.push(sort);
             }
@@ -298,7 +302,7 @@ pub(crate) fn extend_system_with_inferred_sorts(
     let mut comparison_worklist = Vec::new();
     for typing in ctx.equation_typing.values().filter_map(|typing| typing.as_ref().ok()) {
         for &id in &typing.sorts {
-            if let Some(sort) = resolved_sort_to_syntax(ctx, spec, system, id) {
+            if let Some(sort) = resolved_sort_to_syntax(ctx, spec, id) {
                 comparison_worklist.push(sort);
             }
         }
@@ -328,13 +332,11 @@ pub(crate) fn extend_system_with_inferred_sorts(
 /// `mcrl2_lowering::lower_sort`, but targeting the syntax tree rather than the
 /// aterm schema, since [standard_sort] substitutes into syntax-tree templates.
 /// Returns `None` for [ResolvedSort::Unit] (never a data sort) or a
-/// [ResolvedSort::Def] whose declaration cannot be named (out of range of both
-/// `spec` and `system`, which does not happen for a sort that inference
-/// actually produced).
+/// [ResolvedSort::Def] whose declaration cannot be named (out of range of
+/// `spec`, which does not happen for a sort that inference actually produced).
 fn resolved_sort_to_syntax(
     ctx: &TypeCheckContext,
     spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
     id: ResolvedSortId,
 ) -> Option<SortExpression> {
     match ctx.sorts.get(id) {
@@ -346,15 +348,15 @@ fn resolved_sort_to_syntax(
         ResolvedSort::Unit => None,
         ResolvedSort::Primitive(sort) => Some(SortExpressionKind::Simple(*sort).into()),
         ResolvedSort::Generic { op, subsort } => {
-            let sub = resolved_sort_to_syntax(ctx, spec, system, *subsort)?;
+            let sub = resolved_sort_to_syntax(ctx, spec, *subsort)?;
             Some(SortExpressionKind::Complex(*op, Box::new(sub)).into())
         }
         ResolvedSort::Function { domain, range } => {
             let domain = domain
                 .iter()
-                .map(|&sort| resolved_sort_to_syntax(ctx, spec, system, sort))
+                .map(|&sort| resolved_sort_to_syntax(ctx, spec, sort))
                 .collect::<Option<Vec<_>>>()?;
-            let range = resolved_sort_to_syntax(ctx, spec, system, *range)?;
+            let range = resolved_sort_to_syntax(ctx, spec, *range)?;
             Some(
                 SortExpressionKind::FlattenedFunction {
                     domain,
@@ -364,14 +366,19 @@ fn resolved_sort_to_syntax(
             )
         }
         ResolvedSort::Def(def) => {
-            let name = ctx.sort_name(spec, system, *def)?;
+            let name = ctx.sort_name(spec, *def)?;
             Some(SortExpressionKind::Resolved(name.to_string(), *def).into())
         }
     }
 }
 
 /// Any user `cons`/`map` declaration whose name collides with a system-defined
-/// function is rejected, regardless of the user's declared sort.
+/// function is rejected, regardless of the user's declared sort — as is any
+/// declaration under an `@`-prefixed name outright, the reserved-name
+/// convention every system-generated symbol uses (`@c0`, `@cPair`, `@zero_`,
+/// …), whether or not it happens to collide with one that exists today; only
+/// a *trusted* declaration (Appendix B's own) may use one — see
+/// `docs/typecheck.md`'s trusted-signature milestone.
 pub(crate) fn check_no_system_function_redeclaration(
     spec: &UntypedDataSpecification,
     basics: &UntypedDataSpecification,
@@ -390,7 +397,10 @@ pub(crate) fn check_no_system_function_redeclaration(
     let reserved_polymorphic: HashSet<&'static str> = polymorphic_operator_names().collect();
 
     for decl in &spec.constructor_declarations {
-        if reserved.contains(decl.identifier.as_str()) || reserved_polymorphic.contains(decl.identifier.as_str()) {
+        if reserved.contains(decl.identifier.as_str())
+            || reserved_polymorphic.contains(decl.identifier.as_str())
+            || decl.identifier.starts_with('@')
+        {
             return Err(WellTypedError::SystemFunctionRedeclared {
                 name: decl.identifier.node.clone(),
                 span: decl.identifier.span.clone(),
@@ -398,7 +408,10 @@ pub(crate) fn check_no_system_function_redeclaration(
         }
     }
     for decl in &spec.map_declarations {
-        if reserved.contains(decl.identifier.as_str()) || reserved_polymorphic.contains(decl.identifier.as_str()) {
+        if reserved.contains(decl.identifier.as_str())
+            || reserved_polymorphic.contains(decl.identifier.as_str())
+            || decl.identifier.starts_with('@')
+        {
             return Err(WellTypedError::SystemFunctionRedeclared {
                 name: decl.identifier.node.clone(),
                 span: decl.identifier.span.clone(),
@@ -413,7 +426,11 @@ pub(crate) fn check_no_system_function_redeclaration(
 /// [SortCollectionMode::ContainersOnly], every single-argument function sort,
 /// occurring in the specification into `out`, including the sorts on binders
 /// inside the equation expressions.
-fn collect_system_sorts_in_spec(spec: &UntypedDataSpecification, out: &mut Vec<SortExpression>, mode: SortCollectionMode) {
+fn collect_system_sorts_in_spec(
+    spec: &UntypedDataSpecification,
+    out: &mut Vec<SortExpression>,
+    mode: SortCollectionMode,
+) {
     for declaration in &spec.sort_declarations {
         if let Some(expr) = &declaration.expr {
             collect_system_sorts(expr, out, mode);
@@ -500,7 +517,8 @@ fn collect_system_sorts(sort: &SortExpression, out: &mut Vec<SortExpression>, mo
             // generated Appendix-B specifications carry the un-flattened
             // `Function` form.
             SortExpressionKind::Function { domain, .. } => {
-                if mode != SortCollectionMode::ContainersOnly && !matches!(domain.node, SortExpressionKind::Product { .. })
+                if mode != SortCollectionMode::ContainersOnly
+                    && !matches!(domain.node, SortExpressionKind::Product { .. })
                 {
                     out.push(expr.clone());
                 }
@@ -632,15 +650,18 @@ mod tests {
         assert!(ops.contains(&ComplexSort::FSet));
     }
 
-    /// Whether the system-defined spec of `text` declares the function-update
-    /// operators, checked through the full `from_untyped` path (which flattens
-    /// function sorts).
+    /// Whether the *lowered* spec of `text` declares the function-update
+    /// operators, checked through the full `from_untyped`/`lower_data_specification`
+    /// path (which flattens function sorts and, since the monomorphization-to-
+    /// lowering milestone, is also where a container/function-update
+    /// instantiation is generated at all — `system_defined_specification()`
+    /// itself no longer carries one, see `docs/typecheck.md`).
     fn has_function_update(text: &str) -> bool {
         let spec = DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap()).unwrap();
-        spec.system_defined_specification()
-            .map_declarations
+        spec.lower_data_specification()
+            .mappings()
             .iter()
-            .any(|map| map.identifier.contains("func_update"))
+            .any(|map| map.name().value().contains("func_update"))
     }
 
     #[test]
@@ -687,12 +708,32 @@ mod tests {
         })
     }
 
-    /// As [spec_has_comparison_equations_for], checked through the full
-    /// `from_untyped` path (which flattens function sorts, desugars structs
-    /// and drives Phase-3 inference).
+    /// As [spec_has_comparison_equations_for], but over the *lowered* spec,
+    /// checked through the full `from_untyped`/`lower_data_specification` path
+    /// (which flattens function sorts, desugars structs, drives Phase-3
+    /// inference, and — since the monomorphization-to-lowering milestone — is
+    /// also where a comparison-operator instantiation is generated at all).
+    ///
+    /// Compares by aterm equality rather than `Display`: `SortCons`'s own
+    /// `Display` renders only the element sort (`"Nat"`, not `"List(Nat)"`) —
+    /// a binary-aterm-format quirk unrelated to this milestone, since the
+    /// container *kind* is a separate structural tag there, not part of a
+    /// name — so a `sort_name` like `"List(Nat)"` is instead parsed and
+    /// lowered through the same [`crate::lower_syntax_sort`] every other
+    /// declaration sort goes through, and compared against that.
     fn has_comparison_equations_for(text: &str, sort_name: &str) -> bool {
         let spec = DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap()).unwrap();
-        spec_has_comparison_equations_for(spec.system_defined_specification(), sort_name)
+        let lowered = spec.lower_data_specification();
+
+        let sort_spec = UntypedDataSpecification::parse(&format!("map q: {sort_name};")).unwrap();
+        let expected_sort = crate::lower_syntax_sort(&sort_spec.map_declarations[0].sort);
+
+        lowered.equations().iter().any(|eqn| {
+            eqn.variables()
+                .into_iter()
+                .any(|var| var.sort().protect() == expected_sort)
+                && eqn.lhs().to_string().contains("if(")
+        })
     }
 
     #[test]
@@ -732,10 +773,7 @@ mod tests {
         // A `struct` gets its own componentwise `==`/`<`/`<=` from
         // `structured_sort_equations`, but never `if` — that still has to
         // come from the generic scheme.
-        assert!(has_comparison_equations_for(
-            "sort D = struct c1 | c2; map f: D;",
-            "D"
-        ));
+        assert!(has_comparison_equations_for("sort D = struct c1 | c2; map f: D;", "D"));
     }
 
     #[test]
@@ -755,9 +793,6 @@ mod tests {
         // must catch a sort that is never spelled out anywhere in the
         // specification's own text — the comparison-operator counterpart of
         // the enumeration-literal container gap.
-        assert!(has_comparison_equations_for(
-            "map f: Bool; eqn f = (1 == 1);",
-            "Pos"
-        ));
+        assert!(has_comparison_equations_for("map f: Bool; eqn f = (1 == 1);", "Pos"));
     }
 }
