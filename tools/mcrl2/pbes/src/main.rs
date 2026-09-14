@@ -129,9 +129,9 @@ fn init_ldd_manager(cli: &Cli) -> oxidd::ldd::LDDManagerRef {
 enum Commands {
     /// Print a PBES in textual format.
     Print(PrintArgs),
-    /// Analyze symmetries of a PBES
-    Symmetry(SymmetryArgs),
-    /// Compute symmetries of a PBES via the Symmetry Detection Graph and GAP.
+    /// Analyze symmetries of a PBES using control flow graphs, generally superseded by the graph approach.
+    CfgSymmetry(CfgSymmetryArgs),
+    /// Compute symmetries of a PBES using symmetry detection graph and GAP.
     GraphSymmetry(GraphSymmetryArgs),
     /// Explore a PBES explicitly into a parity game.
     ExploreExplicit(ExploreExplicitArgs),
@@ -244,7 +244,7 @@ struct PrintArgs {
 }
 
 #[derive(clap::Args, Debug)]
-struct SymmetryArgs {
+struct CfgSymmetryArgs {
     #[command(flatten)]
     input: InputArgs,
 
@@ -460,7 +460,7 @@ fn handle_command(cli: &Cli, timing: &Timing) -> Result<(), MercError> {
     if let Some(command) = &cli.commands {
         match command {
             Commands::Print(args) => handle_print(args, timing, preprocess)?,
-            Commands::Symmetry(args) => handle_symmetry(args, timing, preprocess)?,
+            Commands::CfgSymmetry(args) => handle_symmetry(args, timing, preprocess)?,
             Commands::GraphSymmetry(args) => handle_graph_symmetry(args, timing, preprocess)?,
             Commands::ExploreExplicit(args) => handle_explore_explicit(args, timing, preprocess)?,
             Commands::ExploreSymbolic(args) => handle_explore_symbolic(cli, args, timing, preprocess)?,
@@ -978,7 +978,7 @@ fn handle_graph_symmetry(args: &GraphSymmetryArgs, timing: &Timing, preprocess: 
     Ok(())
 }
 
-fn handle_symmetry(args: &SymmetryArgs, timing: &Timing, preprocess: bool) -> Result<(), MercError> {
+fn handle_symmetry(args: &CfgSymmetryArgs, timing: &Timing, preprocess: bool) -> Result<(), MercError> {
     let pbes = args.input.read(timing, preprocess)?;
     let algorithm = SymmetryAlgorithm::new(&pbes, args.print_srf)?;
     if let Some(permutation) = &args.permutation {
