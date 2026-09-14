@@ -9,4 +9,5 @@ pub(crate) use alias::*;
 pub(crate) use name_resolution::*;
 pub(crate) use non_empty::*;
 pub(crate) use normalize::*;
+pub(crate) use type_var_binding::*;
 pub(crate) use variable_resolution::*;

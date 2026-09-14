@@ -28,6 +28,7 @@ use crate::lower_data_expressions;
 use crate::merge_signatures;
 use crate::resolve_data_specification_variables;
 use crate::resolve_type_var_ids;
+use crate::resolve_type_vars;
 
 /// Parses a bundled `spec/*.mcrl2` file, or an equally self-contained
 /// hand-written template string (`BUILTIN_SCHEME_TEMPLATE`), with no
@@ -37,6 +38,7 @@ use crate::resolve_type_var_ids;
 /// this way is ever rendered.
 pub(crate) fn parse_template_bare(text: &str) -> UntypedDataSpecification {
     let mut spec = UntypedDataSpecification::parse(text).expect("the bundled templates parse");
+    resolve_type_vars(&mut spec);
     resolve_type_var_ids(&mut spec).expect("the bundled template's type_var block resolves");
     spec
 }
@@ -70,6 +72,7 @@ fn parse_generated(sources: &mut SourceMap, name: &str, text: &str) -> Result<Un
     // As in `parse_template_bare`: resolves a template's own `type_var` block, if
     // it has one. Content this module generates itself (`multi_argument_function_update`,
     // `structured_sort_equations`) never declares one, so this is a no-op there.
+    resolve_type_vars(&mut spec);
     resolve_type_var_ids(&mut spec)?;
     Ok(spec)
 }
@@ -439,7 +442,8 @@ pub(crate) fn check_comparison_template(ctx: &mut TypeCheckContext) -> Result<()
         return Ok(());
     }
     let typings = check_template_equations(ctx, &BUILTIN_SCHEME_TEMPLATE)?;
-    ctx.template_typings.insert(COMPARISON_TEMPLATE_NAME.to_string(), typings);
+    ctx.template_typings
+        .insert(COMPARISON_TEMPLATE_NAME.to_string(), typings);
     Ok(())
 }
 
@@ -581,6 +585,7 @@ fn multi_argument_function_update_template(arity: usize) -> UntypedDataSpecifica
     let mut spec = UntypedDataSpecification::parse(&text).unwrap_or_else(|err| {
         panic!("the generated arity-{arity} function-update template does not parse: {err}\n{text}")
     });
+    resolve_type_vars(&mut spec);
     resolve_type_var_ids(&mut spec).expect("the generated template's type_var block resolves");
     resolve_data_specification_variables(&mut spec);
     assign_declaration_ids(&mut spec);
