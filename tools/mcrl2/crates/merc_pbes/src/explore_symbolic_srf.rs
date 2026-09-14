@@ -45,7 +45,7 @@ pub struct SymbolicPbes {
 /// mCRL2's `pbessolvesymbolic`, and `cached` its `--cached` option: every group then remembers the
 /// parameter values it has already learned successors for, instead of re-enumerating them.
 ///
-/// Builds the game from the same [`merc_symbolic::SymbolicContext`] reachability ran with; the
+/// Builds the game from the same `SymbolicContext` reachability ran with; the
 /// value → equation-index mapping in `context.columns()` is only valid for that one context and
 /// must not be recombined with states obtained from a different one.
 pub fn explore_pbes_symbolic_game(

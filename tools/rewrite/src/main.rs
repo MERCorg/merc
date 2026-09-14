@@ -220,7 +220,7 @@ fn handle_command(commands: Option<Commands>, timing: &Timing) -> Result<(), Mer
                     }
                     Format::Mcrl2 => {
                         let mut sources = SourceMap::new();
-                        let (untyped_spec, _source_id) =
+                        let (untyped_spec, _import_graph) =
                             UntypedDataSpecification::parse_with_imports(&args.specification, &mut sources)?;
 
                         let mut data_spec = match DataSpecification::from_untyped_with(
@@ -268,7 +268,7 @@ fn handle_command(commands: Option<Commands>, timing: &Timing) -> Result<(), Mer
                 let show_all = !args.ast && !args.ir && !args.lowered;
 
                 let mut sources = SourceMap::new();
-                let (untyped_spec, _source_id) =
+                let (untyped_spec, _import_graph) =
                     UntypedDataSpecification::parse_with_imports(&args.specification, &mut sources)?;
 
                 if show_all || args.ast {
@@ -286,7 +286,13 @@ fn handle_command(commands: Option<Commands>, timing: &Timing) -> Result<(), Mer
                     println!("=== IR (resolved user declarations) ===\n");
                     println!("{}", data_spec.data_specification());
 
-                    println!("=== IR (system-defined declarations) ===\n");
+                    // Basic sorts and desugared structs only: a container/
+                    // function-update/comparison instantiation is generated at
+                    // lowering time now, not during type-checking, so it only
+                    // shows up under `--lowered` below, not here — see
+                    // `docs/typecheck.md`'s monomorphization-to-lowering
+                    // milestone.
+                    println!("=== IR (system-defined declarations, unmonomorphized) ===\n");
                     println!("{}", data_spec.system_defined_specification());
                 }
 
