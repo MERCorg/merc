@@ -15,7 +15,7 @@ use crate::TypeCheckContext;
 
 /// The `ExprId` `typing` recorded for `expr` (see [`EquationTyping::node_ids`]), looked up by
 /// `expr`'s own address rather than by replaying `ConstraintGenerator::visit`'s traversal order —
-/// `expr` must come from the same `spec`/`system` tree `typing` was computed against.
+/// `expr` must come from the same tree `typing` was computed against.
 fn node_sort(expr: &DataExpr, typing: &EquationTyping) -> ResolvedSortId {
     let &id = typing
         .node_ids
@@ -33,7 +33,6 @@ fn typed_expr_shape(
     expr: &DataExpr,
     ctx: &TypeCheckContext,
     spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
     typing: &EquationTyping,
 ) -> (String, ResolvedSortId) {
     let sort = node_sort(expr, typing);
@@ -48,15 +47,15 @@ fn typed_expr_shape(
         DataExprKind::Set(members) => {
             let mut parts = Vec::with_capacity(members.len());
             for member in members {
-                parts.push(typed_expr_string(member, ctx, spec, system, typing));
+                parts.push(typed_expr_string(member, ctx, spec, typing));
             }
             format!("{{ {} }}", parts.join(", "))
         }
         DataExprKind::Bag(members) => {
             let mut parts = Vec::with_capacity(members.len());
             for member in members {
-                let element = typed_expr_string(&member.expr, ctx, spec, system, typing);
-                let count = typed_expr_string(&member.multiplicity, ctx, spec, system, typing);
+                let element = typed_expr_string(&member.expr, ctx, spec, typing);
+                let count = typed_expr_string(&member.multiplicity, ctx, spec, typing);
                 parts.push(format!("{element}: {count}"));
             }
             format!("{{ {} }}", parts.join(", "))
@@ -64,15 +63,15 @@ fn typed_expr_shape(
         DataExprKind::SetBagComp { variable, predicate } => {
             // The bound variable has no `ExprId` of its own — see `visit`'s own comment — so
             // only the predicate is annotated.
-            let predicate = typed_expr_string(predicate, ctx, spec, system, typing);
+            let predicate = typed_expr_string(predicate, ctx, spec, typing);
             format!("{{ {variable} | {predicate} }}")
         }
         DataExprKind::Application { function, arguments } => {
             let args: Vec<String> = arguments
                 .iter()
-                .map(|argument| typed_expr_string(argument, ctx, spec, system, typing))
+                .map(|argument| typed_expr_string(argument, ctx, spec, typing))
                 .collect();
-            let (function_shape, function_sort) = typed_expr_shape(function, ctx, spec, system, typing);
+            let (function_shape, function_sort) = typed_expr_shape(function, ctx, spec, typing);
 
             // The whole call's own trailing annotation is the *applied function's* sort (its
             // full arrow), not this `Application` node's own (just the arrow's range) — see this
@@ -85,22 +84,22 @@ fn typed_expr_shape(
             return (format!("{function_shape}({})", args.join(", ")), function_sort);
         }
         DataExprKind::Lambda { variables, body } => {
-            let body = typed_expr_string(body, ctx, spec, system, typing);
+            let body = typed_expr_string(body, ctx, spec, typing);
             let variables: Vec<String> = variables.iter().map(ToString::to_string).collect();
             format!("(lambda {} . {body})", variables.join(", "))
         }
         DataExprKind::Quantifier { op, variables, body } => {
-            let body = typed_expr_string(body, ctx, spec, system, typing);
+            let body = typed_expr_string(body, ctx, spec, typing);
             let variables: Vec<String> = variables.iter().map(ToString::to_string).collect();
             format!("({op} {} . {body})", variables.join(", "))
         }
         DataExprKind::Whr { expr, assignments } => {
             let mut parts = Vec::with_capacity(assignments.len());
             for assignment in assignments {
-                let value = typed_expr_string(&assignment.expr, ctx, spec, system, typing);
+                let value = typed_expr_string(&assignment.expr, ctx, spec, typing);
                 parts.push(format!("{} = {value}", assignment.identifier));
             }
-            let body = typed_expr_string(expr, ctx, spec, system, typing);
+            let body = typed_expr_string(expr, ctx, spec, typing);
             format!("{body} whr {} end", parts.join(", "))
         }
         DataExprKind::List(_)
@@ -123,11 +122,10 @@ pub(crate) fn typed_expr_string(
     expr: &DataExpr,
     ctx: &TypeCheckContext,
     spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
     typing: &EquationTyping,
 ) -> String {
-    let (shape, sort) = typed_expr_shape(expr, ctx, spec, system, typing);
-    let display = DisplaySortContext::new(ctx, spec, system, sort);
+    let (shape, sort) = typed_expr_shape(expr, ctx, spec, typing);
+    let display = DisplaySortContext::new(ctx, spec, sort);
     if matches!(ctx.sorts.get(sort), ResolvedSort::Function { .. }) {
         format!("{shape}: ({display})")
     } else {
@@ -141,15 +139,14 @@ pub(crate) fn typed_equation_string(
     eqn: &EqnDecl,
     ctx: &TypeCheckContext,
     spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
     typing: &EquationTyping,
 ) -> String {
     let condition = eqn
         .condition
         .as_ref()
-        .map(|condition| typed_expr_string(condition, ctx, spec, system, typing));
-    let lhs = typed_expr_string(&eqn.lhs, ctx, spec, system, typing);
-    let rhs = typed_expr_string(&eqn.rhs, ctx, spec, system, typing);
+        .map(|condition| typed_expr_string(condition, ctx, spec, typing));
+    let lhs = typed_expr_string(&eqn.lhs, ctx, spec, typing);
+    let rhs = typed_expr_string(&eqn.rhs, ctx, spec, typing);
 
     match condition {
         Some(condition) => format!("{condition} -> {lhs} = {rhs}"),

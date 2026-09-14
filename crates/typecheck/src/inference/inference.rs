@@ -38,7 +38,6 @@ use crate::is_supported_binder_sort;
 use crate::number_generality;
 use crate::query_sort_of_equation_var;
 use crate::resolve_sort;
-use crate::resolve_system_sort;
 
 /// A unique type for expression nodes within a single equation.
 pub(crate) struct ExprTag;
@@ -167,11 +166,16 @@ impl InferenceError {
 /// binder/equation-variable sort resolve from differs.
 #[derive(Clone, Copy)]
 enum EquationRole {
-    /// Names resolve against `ctx.signature`, then `ctx.system_signature`,
-    /// then the full polymorphic scheme table; sorts via `resolve_sort`.
+    /// Names resolve against `ctx.signature` (which already pools the system-defined basic-sort
+    /// operators and the polymorphic schemes alongside the user's own declarations), then
+    /// `ctx.basics_signature` again as a redundant (harmless — see `push_signature_disjuncts`)
+    /// fallback; sorts via `resolve_sort`.
     User,
-    /// Names resolve against `ctx.struct_signature_overrides`'s entry for this
-    /// equation's own block when present.
+    /// Names resolve against `ctx.struct_signature_overrides`'s entry for this equation's own
+    /// block when present, falling back to `ctx.basics_signature` and the narrow builtin-scheme
+    /// table otherwise — deliberately never the full `ctx.signature`, which would leak every
+    /// *other* user declaration (including an unrelated struct's same-named symbol) into a
+    /// struct's own isolated equations.
     System,
     /// Checking one Appendix-B container/function-update template's own,
     /// un-instantiated equations, once, with its `type_var`-declared sort(s)
@@ -227,6 +231,7 @@ pub(crate) fn check_equations(
 }
 
 /// The proven, rigid typing of one Appendix-B template's own equations.
+#[derive(Clone)]
 pub(crate) struct TemplateCheck {
     pub(crate) type_vars: Vec<TypeVarId>,
     /// Nested the same way as the template's own `equation_declarations`.
@@ -404,20 +409,13 @@ fn specialize_instantiation_equations(
     let type_vars = check.type_vars.clone();
     let block_typings = check.typings[local_index].clone();
 
-    let sort_ids = Arc::clone(
-        ctx.system_sort_ids
-            .as_ref()
-            .expect("resolve_system_signature_full ran before inference"),
-    );
+    // Drawn from the user's own already-resolved sort tree, so `resolve_sort`
+    // (the one shared resolver, see `docs/typecheck.md`'s `DefId`-offset
+    // milestone) resolves every entry infallibly.
     let substitution: Vec<ResolvedSortId> = instantiation
         .substitution
         .iter()
-        .map(|sort| {
-            resolve_system_sort(ctx, user_spec, &sort_ids, sort).expect(
-                "a generated instantiation's own substitution sort, drawn from the user's own \
-                 already-resolved sort tree, always resolves",
-            )
-        })
+        .map(|sort| resolve_sort(ctx, user_spec, sort))
         .collect();
 
     for (equation, template_typing) in eqn_spec.equations.iter().zip(&block_typings) {
@@ -431,8 +429,10 @@ fn specialize_instantiation_equations(
 }
 
 /// Resolves the declared sort of one equation-block variable, identified by its own `var_id`. The
-/// `System` role is unmemoized: nothing reads a system equation variable's sort back out later,
-/// unlike `DataSpecification::sort_of_equation_var` on the user side.
+/// `System`/`Template` roles are unmemoized: nothing reads a system- or template-equation
+/// variable's sort back out later, unlike `DataSpecification::sort_of_equation_var` on the user
+/// side — and their own `var_id` numbering is not guaranteed unique against `spec`'s, so sharing
+/// `ctx.sort_of_equation_var`'s cache with the `User` role would risk a collision.
 fn resolve_equation_variable_sort(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
@@ -442,17 +442,7 @@ fn resolve_equation_variable_sort(
 ) -> ResolvedSortId {
     match role {
         EquationRole::User => query_sort_of_equation_var(ctx, spec, var_id, sort),
-        EquationRole::System => {
-            let sort_ids = Arc::clone(
-                ctx.system_sort_ids
-                    .as_ref()
-                    .expect("resolve_system_signature_full ran before inference"),
-            );
-            resolve_system_sort(ctx, spec, &sort_ids, sort)
-                .expect("resolve_system_signature_full already proved every system-equation sort resolves")
-        }
-        // Deliberately not `query_sort_of_equation_var`: see `EquationRole::Template`.
-        EquationRole::Template => resolve_sort(ctx, spec, sort),
+        EquationRole::System | EquationRole::Template => resolve_sort(ctx, spec, sort),
     }
 }
 
@@ -471,9 +461,10 @@ fn infer_equation(
     eqn_spec_id: EqnSpecId,
     equation_id: EquationId,
 ) -> Result<EquationTyping, InferenceError> {
-    // `spec`/`system` are always the true user/system pair; `resolve_system_sort`
-    // resolves a `Resolved` sort's `SortId` against the *user* spec regardless of
-    // which spec holds the equation.
+    // `spec`/`system` are always the true user/system pair; `resolve_sort`
+    // resolves a `Resolved` sort's `SortId` against `spec.sort_declarations`
+    // regardless of which spec holds the equation (see `docs/typecheck.md`'s
+    // `DefId`-offset milestone).
     let eqn_spec = match role {
         EquationRole::User | EquationRole::Template => &spec.equation_declarations[eqn_spec_id],
         EquationRole::System => &system.equation_declarations[eqn_spec_id],
@@ -500,7 +491,6 @@ fn infer_equation(
     infer(
         ctx,
         spec,
-        system,
         role,
         eqn_spec_id,
         &declared_scope,
@@ -531,10 +521,9 @@ fn infer_equation(
 pub(crate) fn infer_expression(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
     expr: &DataExpr,
 ) -> Result<EquationTyping, InferenceError> {
-    infer_expression_in_scope(ctx, spec, system, expr, &[], None)
+    infer_expression_in_scope(ctx, spec, expr, &[], None)
 }
 
 /// As [`infer_expression`], but against an externally-supplied `declared_scope` (rather than
@@ -549,7 +538,6 @@ pub(crate) fn infer_expression(
 pub(crate) fn infer_expression_in_scope(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
     expr: &DataExpr,
     declared_scope: &[(VarId, ResolvedSortId)],
     expected: Option<ResolvedSortId>,
@@ -561,7 +549,6 @@ pub(crate) fn infer_expression_in_scope(
     infer(
         ctx,
         spec,
-        system,
         EquationRole::User,
         // Unused: the `User` role reads no per-group state, and a scope here is never an
         // equation's `var` block.
@@ -608,7 +595,6 @@ enum Roots<'a> {
 fn infer<'a>(
     ctx: &mut TypeCheckContext,
     spec: &'a UntypedDataSpecification,
-    system: &UntypedDataSpecification,
     role: EquationRole,
     eqn_spec_id: EqnSpecId,
     declared_scope: &[(VarId, ResolvedSortId)],
@@ -633,7 +619,12 @@ fn infer<'a>(
     // cache mid-walk.
     //
     // `builtin_schemes` is the *only* remaining source of polymorphic
-    // overloads for the System role.
+    // overloads for the System role: `ctx.basics_signature` and a struct's own override never
+    // carry schemes (only `ctx.signature` does, merged in by `resolve_system_signature`/
+    // `build_signature`), and the System role deliberately does *not* fall back to `ctx.signature`
+    // itself — doing so would let a struct's own equation see every *other* user declaration too
+    // (including an unrelated struct's same-named constructor/projection), not just the basic-sort
+    // operators it actually needs. See `docs/typecheck.md`'s trusted-signature milestone.
     let (signature, builtin_schemes): (Arc<Signature>, Arc<HashMap<String, Vec<PolySortScheme>>>) = match role {
         EquationRole::User | EquationRole::Template => (
             Arc::clone(ctx.signature.as_ref().expect("build_signature ran before inference")),
@@ -645,7 +636,7 @@ fn infer<'a>(
                 .cloned()
                 .unwrap_or_else(|| {
                     Arc::clone(
-                        ctx.system_signature
+                        ctx.basics_signature
                             .as_ref()
                             .expect("resolve_system_signature ran before inference"),
                     )
@@ -654,24 +645,14 @@ fn infer<'a>(
         ),
     };
     let system_signature = Arc::clone(
-        ctx.system_signature
+        ctx.basics_signature
             .as_ref()
             .expect("resolve_system_signature ran before inference"),
     );
-    let sort_ids = match role {
-        EquationRole::User | EquationRole::Template => None,
-        EquationRole::System => Some(Arc::clone(
-            ctx.system_sort_ids
-                .as_ref()
-                .expect("resolve_system_signature_full ran before inference"),
-        )),
-    };
 
     let mut generator = ConstraintGenerator {
         ctx: &mut *ctx,
         spec,
-        role,
-        sort_ids,
         signature,
         system_signature,
         builtin_schemes,
@@ -816,14 +797,11 @@ fn infer<'a>(
                     for &(declaration, sort) in declared_scope {
                         trace!(
                             "inference:   variable {declaration:?}: {}",
-                            DisplaySortContext::new(ctx, spec, system, sort)
+                            DisplaySortContext::new(ctx, spec, sort)
                         );
                     }
                     for (&sort, text) in sorts.iter().zip(&expr_texts) {
-                        trace!(
-                            "inference:   '{text}': {}",
-                            DisplaySortContext::new(ctx, spec, system, sort)
-                        );
+                        trace!("inference:   '{text}': {}", DisplaySortContext::new(ctx, spec, sort));
                     }
                 }
                 Ok(EquationTyping {
@@ -1004,11 +982,8 @@ struct ConstraintGenerator<'a> {
     /// Mutable so a comprehension's binder sort can be resolved (interned)
     /// mid-walk; the signatures below are `Arc` clones out of this same context.
     ctx: &'a mut TypeCheckContext,
-    /// Always the true user spec, regardless of `role`.
+    /// Always the true user spec, regardless of the equation role `infer` built this from.
     spec: &'a UntypedDataSpecification,
-    role: EquationRole,
-    /// The system-internal sort name table, present only for the `System` role.
-    sort_ids: Option<Arc<HashMap<String, ResolvedSortId>>>,
     signature: Arc<Signature>,
     /// Always the basic-sort system signature, regardless of `role`.
     system_signature: Arc<Signature>,
@@ -1354,14 +1329,7 @@ impl<'a> ConstraintGenerator<'a> {
         if !is_supported_binder_sort(sort) {
             return Err(GenFailure::InvalidBinderSort(sort.to_string(), span.clone()));
         }
-        Ok(match self.role {
-            EquationRole::User | EquationRole::Template => resolve_sort(self.ctx, self.spec, sort),
-            EquationRole::System => {
-                let sort_ids = Arc::clone(self.sort_ids.as_ref().expect("the System role always carries sort_ids"));
-                resolve_system_sort(self.ctx, self.spec, &sort_ids, sort)
-                    .expect("resolve_system_signature_full already proved every system-equation sort resolves")
-            }
-        })
+        Ok(resolve_sort(self.ctx, self.spec, sort))
     }
 
     /// Resolves the candidates of a name: a `Resolved` node's own declaration (`declaration`, its

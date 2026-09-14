@@ -1,35 +1,37 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use merc_syntax::DataExpr;
-use merc_syntax::DataExprKind;
-use merc_syntax::SortExpression;
-use merc_syntax::SortExpressionKind;
-use merc_syntax::SortId;
 use merc_syntax::TypeVarId;
 use merc_syntax::UntypedDataSpecification;
 
 use crate::BUILTIN_SCHEME_TEMPLATE;
 use crate::CONTAINER_TEMPLATES;
 use crate::PolySortScheme;
-use crate::ResolvedSortId;
 use crate::Signature;
 use crate::TypeCheckContext;
-use crate::WellTypedError;
-use crate::is_basic_sort_name;
 use crate::push_overload;
-use crate::query_sort_of_def;
 use crate::resolve_sort;
 
 /// Resolves the constructor and mapping declarations of the *basic-sort* part
-/// of the system-defined specification onto the interned sort lattice.
+/// of the system-defined specification onto the interned sort lattice, merging
+/// them into `ctx.signature` (the same pooled signature the user's own
+/// declarations resolve through — see `docs/typecheck.md`'s trusted-signature
+/// milestone) — so a name like `succ`/`&&`/`@c0` is one more overload set in
+/// the one table `gen_name` searches, not a second signature to fall back to.
 ///
 /// `system` must be the *basic-sort* specification ([`basic_sort_data_specification`](crate::basic_sort_data_specification)),
 /// not the full system-defined specification `build_system_defined_specification`
 /// produces: the container operations are looked up polymorphically instead
-/// (`POLYMORPHIC_SIGNATURE`), because resolving their per-sort instantiations
+/// (`ctx.signature.schemes`), because resolving their per-sort instantiations
 /// here as well would misreport ambiguity (a name would have both a concrete
 /// and a polymorphic candidate for the same sort).
+///
+/// Every `Reference` node of `system`'s own declarations must already be
+/// resolved to `Resolved(name, SortId)` (see `DataSpecification::from_untyped_with`,
+/// which folds `@NatPair`/`@word` into the shared `sort_declarations` table and
+/// resolves `system` against it the same way it resolves `spec` itself) — so
+/// `resolve_sort` is infallible here, the same call the user's own signature
+/// resolves through.
 ///
 /// Unlike `build_signature` this runs no well-typedness checks here — not
 /// because the system specification is trusted, but because `build_signature`'s
@@ -37,17 +39,24 @@ use crate::resolve_sort;
 /// such as constructors for the basic sorts (`@c0: Nat`). The system
 /// specification's own well-formedness is instead verified separately and
 /// extensively by `check_system_specification`, unconditionally.
+///
+/// Requires `build_signature` to have already populated `ctx.signature` with
+/// the user's own declarations, so there is something to merge into.
+///
+/// Also stores the basics-only signature on `ctx.basics_signature` (not just the merged
+/// `ctx.signature`), for `DataSpecification::from_untyped_with`'s own struct-equation signature
+/// override, which must stay scoped to a struct's own names plus the basic-sort operators — never
+/// the rest of the user's own signature, which could otherwise make an unrelated same-named user
+/// declaration a spurious extra overload of a struct's own constructor/projection.
 pub(crate) fn resolve_system_signature(
     ctx: &mut TypeCheckContext,
-    user_spec: &UntypedDataSpecification,
+    spec: &UntypedDataSpecification,
     system: &UntypedDataSpecification,
-) -> Result<(), WellTypedError> {
-    let sort_ids = build_system_sort_ids(ctx, user_spec, system);
-
+) {
     let mut signature = Signature::default();
 
     for decl in &system.constructor_declarations {
-        let id = resolve_system_sort(ctx, user_spec, &sort_ids, &decl.sort)?;
+        let id = resolve_sort(ctx, spec, &decl.sort);
         push_overload(
             signature.constructors.entry(decl.identifier.node.clone()).or_default(),
             id,
@@ -56,147 +65,40 @@ pub(crate) fn resolve_system_signature(
             .insert((decl.identifier.node.clone(), id), decl.identifier.span.clone());
     }
     for decl in &system.map_declarations {
-        let id = resolve_system_sort(ctx, user_spec, &sort_ids, &decl.sort)?;
+        let id = resolve_sort(ctx, spec, &decl.sort);
         push_overload(signature.mappings.entry(decl.identifier.node.clone()).or_default(), id);
         ctx.system_symbol_spans
             .insert((decl.identifier.node.clone(), id), decl.identifier.span.clone());
     }
 
-    ctx.system_signature = Some(Arc::new(signature));
-    Ok(())
+    let merged = merge_signatures(
+        ctx.signature
+            .as_deref()
+            .expect("build_signature ran before resolve_system_signature"),
+        &signature,
+    );
+    ctx.signature = Some(Arc::new(merged));
+    ctx.basics_signature = Some(Arc::new(signature));
 }
 
 /// Resolves the system-defined specification's declarations onto the interned
 /// sort lattice and records each one's own declaration span
 /// (`ctx.system_symbol_spans`, read back by `TypingInfo` for go-to-
 /// definition).
-///
-/// Also eagerly resolves every equation- and binder-variable sort and persists
-/// `ctx.system_sort_ids`, so the per-equation Phase-3 pass can treat sort
-/// resolution there as infallible rather than thread a second fallible path.
 pub(crate) fn resolve_system_signature_full(
     ctx: &mut TypeCheckContext,
-    user_spec: &UntypedDataSpecification,
+    spec: &UntypedDataSpecification,
     system: &UntypedDataSpecification,
-) -> Result<(), WellTypedError> {
-    let sort_ids = build_system_sort_ids(ctx, user_spec, system);
-
-    for eqn_spec in &system.equation_declarations {
-        for variable in &eqn_spec.variables {
-            resolve_system_sort(ctx, user_spec, &sort_ids, &variable.sort)?;
-        }
-        for equation in &eqn_spec.equations {
-            if let Some(condition) = &equation.condition {
-                validate_system_binder_sorts(ctx, user_spec, &sort_ids, condition)?;
-            }
-            validate_system_binder_sorts(ctx, user_spec, &sort_ids, &equation.lhs)?;
-            validate_system_binder_sorts(ctx, user_spec, &sort_ids, &equation.rhs)?;
-        }
-    }
-
+) {
     for decl in &system.constructor_declarations {
-        let id = resolve_system_sort(ctx, user_spec, &sort_ids, &decl.sort)?;
+        let id = resolve_sort(ctx, spec, &decl.sort);
         ctx.system_symbol_spans
             .insert((decl.identifier.node.clone(), id), decl.identifier.span.clone());
     }
     for decl in &system.map_declarations {
-        let id = resolve_system_sort(ctx, user_spec, &sort_ids, &decl.sort)?;
+        let id = resolve_sort(ctx, spec, &decl.sort);
         ctx.system_symbol_spans
             .insert((decl.identifier.node.clone(), id), decl.identifier.span.clone());
-    }
-
-    ctx.system_sort_ids = Some(Arc::new(sort_ids));
-    Ok(())
-}
-
-/// Builds the system-internal sort name table; the re-declared basic sorts
-/// (`sort Bool;`) already resolve as primitives and are skipped.
-///
-/// Each entry gets a fresh `SortId` continuing the user sorts' numbering,
-/// `user_spec.sort_declarations.len() + decl_index` — the layout
-/// `TypeCheckContext::sort_name` relies on to recover the name again.
-fn build_system_sort_ids(
-    ctx: &mut TypeCheckContext,
-    user_spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
-) -> HashMap<String, ResolvedSortId> {
-    let mut sort_ids: HashMap<String, ResolvedSortId> = HashMap::new();
-    for (decl_index, decl) in system.sort_declarations.iter().enumerate() {
-        if is_basic_sort_name(&decl.identifier) || sort_ids.contains_key(&decl.identifier) {
-            continue;
-        }
-        debug_assert!(
-            decl.expr.is_none(),
-            "system-defined sorts are nominal, but '{}' has a body",
-            decl.identifier
-        );
-
-        let def = SortId::new(user_spec.sort_declarations.len() + decl_index);
-        sort_ids.insert(decl.identifier.clone(), ctx.sorts.def(def));
-    }
-    sort_ids
-}
-
-/// Recursively resolves the sort declared on every binder inside `expr`.
-/// `expr` is assumed already lowered by `lower_data_expressions`.
-fn validate_system_binder_sorts(
-    ctx: &mut TypeCheckContext,
-    user_spec: &UntypedDataSpecification,
-    sort_ids: &HashMap<String, ResolvedSortId>,
-    expr: &DataExpr,
-) -> Result<(), WellTypedError> {
-    match &expr.node {
-        // `Resolved` never occurs in the system-defined specification's own equations, but is
-        // grouped with `Id` for exhaustiveness.
-        DataExprKind::Id(_)
-        | DataExprKind::Resolved(_, _)
-        | DataExprKind::Number(_)
-        | DataExprKind::Bool(_)
-        | DataExprKind::EmptyList
-        | DataExprKind::EmptySet
-        | DataExprKind::EmptyBag => Ok(()),
-        DataExprKind::Application { function, arguments } => {
-            validate_system_binder_sorts(ctx, user_spec, sort_ids, function)?;
-            for argument in arguments {
-                validate_system_binder_sorts(ctx, user_spec, sort_ids, argument)?;
-            }
-            Ok(())
-        }
-        DataExprKind::Set(members) => {
-            for member in members {
-                validate_system_binder_sorts(ctx, user_spec, sort_ids, member)?;
-            }
-            Ok(())
-        }
-        DataExprKind::Bag(members) => {
-            for member in members {
-                validate_system_binder_sorts(ctx, user_spec, sort_ids, &member.expr)?;
-                validate_system_binder_sorts(ctx, user_spec, sort_ids, &member.multiplicity)?;
-            }
-            Ok(())
-        }
-        DataExprKind::SetBagComp { variable, predicate } => {
-            resolve_system_sort(ctx, user_spec, sort_ids, &variable.sort)?;
-            validate_system_binder_sorts(ctx, user_spec, sort_ids, predicate)
-        }
-        DataExprKind::Lambda { variables, body } | DataExprKind::Quantifier { op: _, variables, body } => {
-            for variable in variables {
-                resolve_system_sort(ctx, user_spec, sort_ids, &variable.sort)?;
-            }
-            validate_system_binder_sorts(ctx, user_spec, sort_ids, body)
-        }
-        DataExprKind::Whr { expr, assignments } => {
-            for assignment in assignments {
-                validate_system_binder_sorts(ctx, user_spec, sort_ids, &assignment.expr)?;
-            }
-            validate_system_binder_sorts(ctx, user_spec, sort_ids, expr)
-        }
-        DataExprKind::List(_)
-        | DataExprKind::Unary { .. }
-        | DataExprKind::Binary { .. }
-        | DataExprKind::FunctionUpdate { .. } => {
-            unreachable!("lower_data_expressions already rewrote this expression form before this pass runs")
-        }
     }
 }
 
@@ -273,7 +175,7 @@ pub(crate) fn merge_signatures(a: &Signature, b: &Signature) -> Signature {
 /// (containers, function-update and the comparison/`if` builtins, for the
 /// user-facing lookup — see `build_signature`) and
 /// [`build_builtin_scheme_signature`]'s narrower table (the comparison/`if`
-/// builtins only, for a system equation's own lookup).
+/// builtins only, for a struct-scoped system equation's own lookup).
 pub(crate) fn build_polymorphic_schemes<'a>(
     ctx: &mut TypeCheckContext,
     templates: impl IntoIterator<Item = &'a UntypedDataSpecification>,
@@ -309,18 +211,15 @@ pub(crate) fn build_polymorphic_schemes<'a>(
     schemes
 }
 
-/// The narrow scheme table a system equation's own body is checked against:
-/// the comparison operators and `if` only, built once and cached on `ctx`.
-/// Deliberately excludes the container/function-update templates — reached
-/// only by [`crate::EquationRole::System`]'s fallback path (the basic sorts'
-/// own equations, and a desugared struct's own isolated equations via
-/// `ctx.struct_signature_overrides`), neither of which ever calls a container
-/// operation, so admitting them here polymorphically would only risk
-/// misreporting ambiguity against a struct override's own real symbols for no
-/// benefit. A container/function-update instantiation's own equations are
-/// specialized from their template's proven typing instead of reaching this
-/// role at all — see [`crate::check_system_equations`]'s `instantiations`
-/// parameter.
+/// The narrow scheme table a struct-scoped system equation's own body is checked against: the
+/// comparison operators and `if` only, built once and cached on `ctx`. Deliberately excludes the
+/// container/function-update templates — reached only by a struct's own isolated equations
+/// (`ctx.struct_signature_overrides`) or the plain basics equations
+/// (`ctx.basics_signature`), neither of which ever calls a container operation, so admitting them
+/// here polymorphically would only risk misreporting ambiguity against a struct override's own
+/// real symbols for no benefit. A container/function-update instantiation's own equations are
+/// specialized from their template's proven typing instead of reaching this role at all — see
+/// [`crate::check_system_equations`]'s `instantiations` parameter.
 pub(crate) fn build_builtin_scheme_signature(ctx: &mut TypeCheckContext) -> Arc<HashMap<String, Vec<PolySortScheme>>> {
     if ctx.builtin_scheme_signature.is_none() {
         let schemes = build_polymorphic_schemes(ctx, std::iter::once(&*BUILTIN_SCHEME_TEMPLATE));
@@ -353,95 +252,6 @@ pub(crate) fn polymorphic_operator_names() -> impl Iterator<Item = &'static str>
         .chain(crate::builtin_scheme_names())
 }
 
-/// The system-defined counterpart of `resolve_sort`. It differs in two ways:
-/// `Reference` nodes are looked up among the system-internal sorts first (the
-/// system specification never went through name resolution) and, failing that,
-/// among the user specification's sort declarations — `structured_sort_equations`
-/// generates fresh source text that is re-parsed, so a user sort it mentions
-/// stays a bare `Reference` rather than a `Resolved` node. Unknown references
-/// are a clean error rather than a panic, so a template mistake in a
-/// `spec/*.mcrl2` file cannot crash the checker.
-pub(crate) fn resolve_system_sort(
-    ctx: &mut TypeCheckContext,
-    user_spec: &UntypedDataSpecification,
-    sort_ids: &HashMap<String, ResolvedSortId>,
-    sort: &SortExpression,
-) -> Result<ResolvedSortId, WellTypedError> {
-    match &sort.node {
-        SortExpressionKind::Simple(sort) => Ok(ctx.sorts.primitive(*sort)),
-        SortExpressionKind::Complex(op, subsort) => {
-            let subsort = resolve_system_sort(ctx, user_spec, sort_ids, subsort)?;
-            Ok(ctx.sorts.generic(*op, subsort))
-        }
-        SortExpressionKind::FlattenedFunction { domain, range } => {
-            let domain = domain
-                .iter()
-                .map(|sort| resolve_system_sort(ctx, user_spec, sort_ids, sort))
-                .collect::<Result<_, _>>()?;
-            let range = resolve_system_sort(ctx, user_spec, sort_ids, range)?;
-            Ok(ctx.sorts.function(domain, range))
-        }
-        // The system specification is parsed directly and never flattened, so
-        // function sorts appear with a `Product` domain spine.
-        SortExpressionKind::Function { domain, range } => {
-            let mut resolved_domain = Vec::new();
-            resolve_system_function_domain(ctx, user_spec, sort_ids, domain, &mut resolved_domain)?;
-            let range = resolve_system_sort(ctx, user_spec, sort_ids, range)?;
-            Ok(ctx.sorts.function(resolved_domain, range))
-        }
-        // A sort substituted into an Appendix-B template comes from the
-        // normalized user specification, so its `SortId` indexes `user_spec`.
-        SortExpressionKind::Resolved(_, id) => Ok(query_sort_of_def(ctx, user_spec, *id)),
-        SortExpressionKind::Reference(name) => {
-            if let Some(id) = sort_ids.get(name) {
-                return Ok(*id);
-            }
-            match user_spec.sort_declarations.iter().find(|decl| decl.identifier == *name) {
-                Some(decl) => Ok(query_sort_of_def(
-                    ctx,
-                    user_spec,
-                    decl.id
-                        .expect("name resolution assigned every user sort declaration an id"),
-                )),
-                None => Err(WellTypedError::Custom(
-                    format!("the system-defined specification references the undeclared sort '{name}'").into(),
-                )),
-            }
-        }
-        SortExpressionKind::TypeVar(_) => {
-            unreachable!("a template's `type_var` block is resolved once, up front, before it is ever cached")
-        }
-        SortExpressionKind::ResolvedTypeVar(_) => unreachable!(
-            "a container/function-update template does declare its own sort variable(s) with a \
-             `type_var` block now (see the unifying-polymorphism design), but `replace_sort` always \
-             substitutes every ResolvedTypeVar node for a concrete sort before the result is ever \
-             merged into `system` — resolve_system_sort only ever runs on that already-substituted copy"
-        ),
-        SortExpressionKind::Struct { .. } => unreachable!("the system-defined specification has no structured sorts"),
-        SortExpressionKind::Product { .. } => {
-            unreachable!("product sorts cannot occur outside a function domain")
-        }
-    }
-}
-
-/// Resolves the leaves of a `Product` domain spine in declaration order.
-fn resolve_system_function_domain(
-    ctx: &mut TypeCheckContext,
-    user_spec: &UntypedDataSpecification,
-    sort_ids: &HashMap<String, ResolvedSortId>,
-    sort: &SortExpression,
-    domain: &mut Vec<ResolvedSortId>,
-) -> Result<(), WellTypedError> {
-    match &sort.node {
-        SortExpressionKind::Product { lhs, rhs } => {
-            resolve_system_function_domain(ctx, user_spec, sort_ids, lhs, domain)?;
-            resolve_system_function_domain(ctx, user_spec, sort_ids, rhs, domain)?;
-        }
-        _ => domain.push(resolve_system_sort(ctx, user_spec, sort_ids, sort)?),
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -458,11 +268,10 @@ mod tests {
     use crate::ResolvedSortId;
     use crate::Signature;
     use crate::TypeCheckContext;
-    use crate::WellTypedError;
     use crate::basic_sort_data_specification;
+    use crate::build_system_defined_specification;
     use crate::merge_signatures;
     use crate::resolve_system_signature;
-    use crate::resolve_system_signature_full;
 
     /// Type checks `text` and resolves the basic-sort system signature in a
     /// fresh context, as `DataSpecification::from_untyped` does.
@@ -475,8 +284,15 @@ mod tests {
         )
         .unwrap();
         let mut ctx = TypeCheckContext::new();
-        let basics = basic_sort_data_specification(&mut sources, NumberEncoding::Binary);
-        resolve_system_signature(&mut ctx, spec.data_specification(), &basics).unwrap();
+        // `resolve_system_signature` merges into `ctx.signature`, so there must be one to merge
+        // into, exactly as in the real pipeline.
+        crate::build_signature(&mut ctx, spec.data_specification()).unwrap();
+        // Mirrors `from_untyped_with`'s own resolution of `basics` against the
+        // spec's shared `sort_declarations` table (which already carries
+        // `@NatPair`/`@word`, folded in by that same pipeline run).
+        let mut basics = basic_sort_data_specification(&mut sources, NumberEncoding::Binary);
+        crate::apply_sorts_in_spec(&mut basics, |sort| crate::resolve_sort_id(sort, spec.sorts())).unwrap();
+        resolve_system_signature(&mut ctx, spec.data_specification(), &basics);
         (spec, ctx)
     }
 
@@ -484,7 +300,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
     fn test_boolean_operators_are_resolved() {
         let (_, ctx) = resolve("map f: Bool;");
-        let signature = ctx.system_signature.as_ref().unwrap();
+        let signature = ctx.signature.as_ref().unwrap();
 
         let bool_sort = ctx.sorts.primitive(Sort::Bool);
         let conjunction = ctx.sorts.get(signature.mappings["&&"][0]).clone();
@@ -503,45 +319,60 @@ mod tests {
         // Appendix B declares `max` for Pos # Nat, Nat # Pos and Nat # Nat
         // (and more through Int), all collected as one overloaded name.
         let (_, ctx) = resolve("map f: Nat;");
-        let signature = ctx.system_signature.as_ref().unwrap();
+        let signature = ctx.signature.as_ref().unwrap();
         assert!(signature.mappings["max"].len() >= 3);
     }
 
     #[test]
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
     fn test_template_instantiation_carries_user_sorts() {
-        // `resolve_system_sort`'s handling of `Resolved` nodes, exercised
-        // directly: production only ever feeds `resolve_system_signature` the
-        // basic-sort spec (see its doc comment), so this instantiates the
-        // full system-defined spec — containers included — in an isolated
-        // context to check the substitution logic itself. The list template
-        // instantiated with the user sort `D` should resolve `|>` to
-        // `D # List(D) -> List(D)`.
+        // `resolve_sort`'s handling of a template-substituted `Resolved` node,
+        // exercised directly: production only ever feeds `resolve_system_signature`
+        // the basic-sort spec (see its doc comment) — a container instantiation
+        // is never part of `system_defined_specification()` at all any more,
+        // generated only at lowering time (see `docs/typecheck.md`'s
+        // monomorphization-to-lowering milestone) — so this builds the
+        // container-instantiated content directly via
+        // `build_system_defined_specification`, in an isolated context, to
+        // check the substitution logic itself. The list template instantiated
+        // with the user sort `D` should resolve `|>` to `D # List(D) -> List(D)`.
         let spec = DataSpecification::from_untyped(
             UntypedDataSpecification::parse("sort D = struct s; map f: List(D);").unwrap(),
         )
         .unwrap();
+        let mut sources = SourceMap::new();
+        let basics = basic_sort_data_specification(&mut sources, NumberEncoding::Binary);
+        let (mut system, _) =
+            build_system_defined_specification(&mut sources, spec.data_specification(), basics, NumberEncoding::Binary);
+        // Unlike the real lowering-time call (which seeds the worklist empty, since `basics`'s
+        // own content is resolved separately — see `ir::mcrl2_lowering`), this seeds it with the
+        // real `basics` to also exercise `|>`'s own container-template output, so `system` here
+        // still carries basics's own unresolved `@NatPair`/`@word` references; resolve them the
+        // same way `from_untyped_with` resolves `system` against the shared `sorts` table.
+        crate::apply_sorts_in_spec(&mut system, |sort| crate::resolve_sort_id(sort, spec.sorts())).unwrap();
+
         let mut ctx = TypeCheckContext::new();
-        resolve_system_signature(&mut ctx, spec.data_specification(), spec.system_defined_specification()).unwrap();
+        crate::build_signature(&mut ctx, spec.data_specification()).unwrap();
+        resolve_system_signature(&mut ctx, spec.data_specification(), &system);
 
         let def = SortId::new(*spec.sorts().index("D").unwrap());
         let d = ctx.sorts.def(def);
         let d_list = ctx.sorts.generic(ComplexSort::List, d);
         let expected = ctx.sorts.function(vec![d, d_list], d_list);
 
-        let signature = ctx.system_signature.as_ref().unwrap();
+        let signature = ctx.signature.as_ref().unwrap();
         assert!(signature.constructors["|>"].contains(&expected));
     }
 
     #[test]
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
     fn test_system_internal_sort_gets_fresh_def() {
-        // `@NatPair` exists only in the system specification; it gets a nominal
-        // SortId past the user declarations, and its name is recovered by
-        // `sort_name`, which derives it from the system specification's
-        // declarations on demand rather than from a stored table.
+        // `@NatPair` is folded into the shared `sort_declarations` table by
+        // `from_untyped_with` (see `docs/typecheck.md`'s `DefId`-offset
+        // milestone), so it has an ordinary `SortId` findable by name, and
+        // `sort_name` recovers it the same way it would a user sort.
         let (spec, ctx) = resolve("sort D; map f: D;");
-        let signature = ctx.system_signature.as_ref().unwrap();
+        let signature = ctx.signature.as_ref().unwrap();
 
         let pair_constructor = signature.constructors["@cPair"][0];
         let ResolvedSort::Function { domain: _, range } = ctx.sorts.get(pair_constructor) else {
@@ -550,27 +381,8 @@ mod tests {
         let ResolvedSort::Def(def) = ctx.sorts.get(*range) else {
             panic!("expected a nominal sort");
         };
-        let user_len = spec.data_specification().sort_declarations.len();
-        assert!(**def >= user_len);
-        assert_eq!(
-            ctx.sort_name(spec.data_specification(), spec.system_defined_specification(), *def),
-            Some("@NatPair")
-        );
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_unknown_reference_is_a_clean_error() {
-        // A system specification referencing an undeclared sort must error
-        // rather than panic; parse one directly to simulate a template mistake.
-        let spec = DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Bool;").unwrap()).unwrap();
-        let broken = UntypedDataSpecification::parse("map f: Unknown;").unwrap();
-
-        let mut ctx = TypeCheckContext::new();
-        match resolve_system_signature(&mut ctx, spec.data_specification(), &broken) {
-            Err(WellTypedError::Custom(err)) => assert!(err.to_string().contains("Unknown")),
-            other => panic!("expected a custom error, got {other:?}"),
-        }
+        assert_eq!(*def, SortId::new(*spec.sorts().index("@NatPair").unwrap()));
+        assert_eq!(ctx.sort_name(spec.data_specification(), *def), Some("@NatPair"));
     }
 
     /// Type checks `text` through the full pipeline.
@@ -603,26 +415,6 @@ mod tests {
             !spec.system_defined_specification().equation_declarations.is_empty(),
             "the Set template should contribute equations to walk"
         );
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_full_signature_rejects_unresolvable_binder_sort() {
-        let mut user_spec = UntypedDataSpecification::parse("map f: Bool;").unwrap();
-        crate::assign_declaration_ids(&mut user_spec);
-        let broken =
-            UntypedDataSpecification::parse("map g: Bool -> Bool; eqn g(b) = forall s: S. b;").unwrap_or_else(|err| {
-                panic!("the broken fixture spec should parse even though it doesn't type check: {err}")
-            });
-
-        let mut ctx = TypeCheckContext::new();
-        crate::build_signature(&mut ctx, &user_spec).unwrap();
-        let basics = crate::basic_sort_data_specification(&mut SourceMap::new(), crate::NumberEncoding::Binary);
-        resolve_system_signature(&mut ctx, &user_spec, &basics).unwrap();
-        match resolve_system_signature_full(&mut ctx, &user_spec, &broken) {
-            Err(WellTypedError::Custom(err)) => assert!(err.to_string().contains('S'), "{err}"),
-            other => panic!("expected a custom error, got {other:?}"),
-        }
     }
 
     #[test]
