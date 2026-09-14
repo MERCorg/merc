@@ -9,7 +9,7 @@ use merc_utilities::test_logger;
 use test_case::test_case;
 
 /// Bump this whenever the stored snapshot format changes.
-const SNAPSHOT_VERSION: u32 = 3;
+const SNAPSHOT_VERSION: u32 = 4;
 
 #[cfg_attr(miri, ignore)]
 #[test_case(include_str!("../../../examples/mCRL2/academic/abp/abp.mcrl2"), "tests/snapshot/result_abp.mcrl2" ; "abp.mcrl2")]
