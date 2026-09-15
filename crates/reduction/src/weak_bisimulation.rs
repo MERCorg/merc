@@ -406,8 +406,9 @@ fn compute_weak_acts_inner<L: LTS>(
             let [marked_s, marked_t] = marked
                 .get_disjoint_mut([*transition.from, *t])
                 .expect("The indices are disjoint");
-            for (i, number) in marked_s.as_raw_mut_slice().iter_mut().enumerate() {
-                *number |= marked_t.as_raw_slice()[i];
+            let marked_t_raw = marked_t.as_raw_slice();
+            for (s, t) in marked_s.as_raw_mut_slice().iter_mut().zip(marked_t_raw) {
+                *s |= *t;
             }
         }
     }
