@@ -1,15 +1,8 @@
-//! Shifts every [`Span`](merc_utilities::Span) reachable from a parsed tree by a fixed `delta` — the rebasing
-//! counterpart of padding a file's text with `delta` leading bytes before handing it to pest so
-//! every offset it reports already lands in the shared, [`SourceMap`](merc_utilities::SourceMap)
-//! wide space. Parsing the unpadded text and then shifting every span here in one pass is both
-//! cheaper (no leading-byte padding to allocate and scan) and lets a caller reuse an already-parsed
-//! tree — clone it and shift the clone — instead of re-parsing the same text at a new base offset.
-//!
-//! [`Traverse`](crate::Traverse) cannot do this on its own: its recursion only ever descends into
-//! children of the *same* node type (a [`SortExpression`]'s children are other `SortExpression`s),
-//! so it never reaches a declaration's own span, an identifier's [`Spanned`](merc_utilities::Spanned) name, or any other
-//! differently-typed field that also carries a span. [`OffsetSpans`] walks every such field
-//! explicitly instead.
+//! Shifts every [`Span`](merc_utilities::Span) reachable from a parsed tree by
+//! a fixed `delta` — the rebasing counterpart of padding a file's text with
+//! `delta` leading bytes before handing it to pest so every offset it reports
+//! already lands in the shared, [`SourceMap`](merc_utilities::SourceMap) wide
+//! space.
 
 use crate::ActDecl;
 use crate::ActFrm;
@@ -39,8 +32,9 @@ use crate::UntypedDataSpecification;
 use crate::UntypedProcessSpecification;
 use crate::UntypedStateFrmSpec;
 
-/// Implemented by every top-level parsed specification [`crate::imports`] and the bundled/generated
-/// template machinery need to rebase into a shared [`SourceMap`](merc_utilities::SourceMap).
+/// Implemented by every top-level parsed specification [`crate::imports`] and
+/// the bundled/generated template machinery need to rebase into a shared
+/// [`SourceMap`](merc_utilities::SourceMap).
 pub trait OffsetSpans {
     /// Shifts every span reachable from `self` by `delta`.
     fn offset_spans(&mut self, delta: usize);
