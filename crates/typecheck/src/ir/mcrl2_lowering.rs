@@ -44,6 +44,7 @@ use crate::check_multi_argument_function_update_template;
 use crate::check_system_equations;
 use crate::check_system_specification;
 use crate::extend_system_with_inferred_sorts;
+use crate::is_system_generated_name;
 use crate::resolve_data_specification_variables;
 use crate::unreachable_not_a_value_sort;
 
@@ -918,13 +919,12 @@ pub(crate) fn lower_data_specification(
     // the lowered aterm's own `sorts()` must stay exactly what the user declared: the mCRL2 toolset
     // never declares them as a `sort` in its own output either, treating them as an implementation
     // detail baked into `Nat`/`@word`'s own constructor and mapping signatures instead. Told apart
-    // by the reserved `@`-name convention
-    // system-generated declarations use, the same one `typing_info::sort_declaration_by_id` relies
-    // on.
+    // by the reserved `@`-name convention system-generated declarations use, the same one
+    // `typing_info::sort_declaration_by_id` relies on.
     let sorts: Vec<BasicSort> = spec
         .sort_declarations
         .iter()
-        .filter(|d| d.expr.is_none() && !d.identifier.starts_with('@'))
+        .filter(|d| d.expr.is_none() && !is_system_generated_name(&d.identifier))
         .map(|d| BasicSort::new(d.identifier.as_str()))
         .collect();
 

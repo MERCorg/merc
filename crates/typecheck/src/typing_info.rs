@@ -63,6 +63,7 @@ use crate::NameTarget;
 use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::TypeCheckContext;
+use crate::is_system_generated_name;
 use crate::unreachable_not_a_value_sort;
 
 /// A `VarId -> declaration span` lookup, covering exactly the binders one [`TypingInfo`] query
@@ -71,10 +72,6 @@ use crate::unreachable_not_a_value_sort;
 pub(crate) struct VariableSpans(HashMap<VarId, Span>);
 
 impl VariableSpans {
-    pub(crate) fn new() -> Self {
-        VariableSpans(HashMap::new())
-    }
-
     pub(crate) fn insert(&mut self, var_id: VarId, span: Span) {
         self.0.insert(var_id, span);
     }
@@ -558,7 +555,7 @@ pub(crate) fn collect_data_specification_sort_references(spec: &UntypedDataSpeci
 
 /// Every variable a `(EqnSpecId, EquationId)` typing can reference.
 pub(crate) fn collect_equation_variable_declarations(eqn_spec: &EqnSpec) -> VariableSpans {
-    let mut spans = VariableSpans::new();
+    let mut spans = VariableSpans::default();
     for var in &eqn_spec.node.variables {
         let var_id = var
             .var_id
@@ -637,7 +634,7 @@ fn collect_data_expr_sort_references(expr: &DataExpr, out: &mut Vec<SortReferenc
 /// name, since [`push_sort_references`] needs the declaration's span.
 fn sort_declaration_by_id(spec: &UntypedDataSpecification, id: SortId) -> Option<(&SortDecl, bool)> {
     let decl = spec.sort_declarations.get(*id)?;
-    Some((decl, decl.identifier.starts_with('@')))
+    Some((decl, is_system_generated_name(&decl.identifier)))
 }
 
 /// Resolves each occurrence in `references` to its declaration and pushes

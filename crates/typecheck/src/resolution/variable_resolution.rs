@@ -231,11 +231,35 @@ fn resolve_in_act_frm(formula: &mut ActFrm, scope: &mut Scope, ids: &mut VarIdAl
     }
 }
 
+/// A stack of `(name, id)` bindings supporting shadowing lookup: the innermost (most recently
+/// pushed) binding for a name wins, and dropping back to an outer scope is a cheap truncate.
+/// Shared by [Scope] (`VarId`-keyed data/action binders) and [FixpointScope] (`StateVarId`-keyed
+/// fixpoint variables) — the two id namespaces variable resolution tracks.
+#[derive(Clone, Default)]
+struct NameStack<Id>(Vec<(String, Id)>);
+
+impl<Id: Copy> NameStack<Id> {
+    /// Pushes one `(name, id)` binding.
+    fn push(&mut self, name: String, id: Id) {
+        self.0.push((name, id));
+    }
+
+    /// Drops the `count` most recently pushed bindings, restoring the stack to what it was
+    /// before they were pushed.
+    fn pop(&mut self, count: usize) {
+        self.0.truncate(self.0.len() - count);
+    }
+
+    /// The innermost binding named `name`, if one is in scope.
+    fn resolve(&self, name: &str) -> Option<Id> {
+        self.0.iter().rev().find(|(bound, _)| bound == name).map(|&(_, id)| id)
+    }
+}
+
 /// The binders currently in scope, each paired with its declaration's own [VarId] so two
 /// occurrences of the same binder keep comparing equal once rewritten to
 /// [`DataExprKind::Resolved`].
-#[derive(Clone, Default)]
-struct Scope(Vec<(String, VarId)>);
+type Scope = NameStack<VarId>;
 
 impl Scope {
     /// Builds a scope from a binder's own declarations, assigning each a fresh [VarId].
@@ -264,43 +288,13 @@ impl Scope {
     /// under that id.
     fn declare(&mut self, name: String, ids: &mut VarIdAllocator) -> VarId {
         let var_id = ids.alloc();
-        self.0.push((name, var_id));
+        self.push(name, var_id);
         var_id
-    }
-
-    /// Drops the `count` most recently pushed bindings, restoring the scope to what it was
-    /// before they were pushed.
-    fn pop(&mut self, count: usize) {
-        self.0.truncate(self.0.len() - count);
-    }
-
-    /// The innermost binder named `name`, if one is in scope.
-    fn resolve(&self, name: &str) -> Option<VarId> {
-        self.0
-            .iter()
-            .rev()
-            .find(|(bound, _)| bound == name)
-            .map(|&(_, var_id)| var_id)
     }
 }
 
 /// The fixpoint-variable names currently in scope, in the second, [`StateVarId`]-keyed namespace.
-#[derive(Default)]
-struct FixpointScope(Vec<(String, StateVarId)>);
-
-impl FixpointScope {
-    fn push(&mut self, name: String, id: StateVarId) {
-        self.0.push((name, id));
-    }
-
-    fn pop(&mut self, count: usize) {
-        self.0.truncate(self.0.len() - count);
-    }
-
-    fn resolve(&self, name: &str) -> Option<StateVarId> {
-        self.0.iter().rev().find(|(bound, _)| bound == name).map(|&(_, id)| id)
-    }
-}
+type FixpointScope = NameStack<StateVarId>;
 
 fn resolve_in_process_expr(expr: &mut ProcessExpr, scope: &mut Scope, ids: &mut VarIdAllocator) {
     match &mut expr.node {

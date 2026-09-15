@@ -12,6 +12,13 @@ pub(crate) fn is_basic_sort_name(name: &str) -> bool {
     BASIC_SORT_NAMES.contains(&name)
 }
 
+/// Whether `name` uses the reserved `@`-prefix convention every system-generated
+/// constructor/mapping/sort declaration (`@c0`, `@cPair`, `@zero_`, `@NatPair`, …) uses, as opposed
+/// to a user's own declaration.
+pub(crate) fn is_system_generated_name(name: &str) -> bool {
+    name.starts_with('@')
+}
+
 /// [BUILTIN_SCHEME_TEMPLATE]'s source text.
 pub(crate) const BUILTIN_SCHEME_TEMPLATE_TEXT: &str = "type_var S; \
      map ==: S # S -> Bool; !=: S # S -> Bool; \

@@ -20,6 +20,7 @@ use crate::TypeCheckContext;
 use crate::WellTypedError;
 use crate::comparison_operator_equations_with_provenance;
 use crate::is_supported_binder_sort;
+use crate::is_system_generated_name;
 use crate::lower_data_expressions;
 use crate::polymorphic_operator_names;
 use crate::standard_sort;
@@ -232,7 +233,7 @@ fn add_numeric_basic_sort_dependencies(
             .iter()
             .any(|expr| matches!(&expr.node, SortExpressionKind::Resolved(name, _) if name == "@word"))
     };
-    let mut push_sort = |worklist: &mut Vec<SortExpression>, sort: Sort| {
+    let push_sort = |worklist: &mut Vec<SortExpression>, sort: Sort| {
         if !has_sort(worklist, sort) {
             worklist.push(SortExpressionKind::Simple(sort).into());
         }
@@ -503,7 +504,7 @@ pub(crate) fn check_no_system_function_redeclaration(
     for decl in &spec.constructor_declarations {
         if reserved.contains(decl.identifier.as_str())
             || reserved_polymorphic.contains(decl.identifier.as_str())
-            || decl.identifier.starts_with('@')
+            || is_system_generated_name(&decl.identifier)
         {
             return Err(WellTypedError::SystemFunctionRedeclared {
                 name: decl.identifier.node.clone(),
@@ -514,7 +515,7 @@ pub(crate) fn check_no_system_function_redeclaration(
     for decl in &spec.map_declarations {
         if reserved.contains(decl.identifier.as_str())
             || reserved_polymorphic.contains(decl.identifier.as_str())
-            || decl.identifier.starts_with('@')
+            || is_system_generated_name(&decl.identifier)
         {
             return Err(WellTypedError::SystemFunctionRedeclared {
                 name: decl.identifier.node.clone(),
