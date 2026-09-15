@@ -5,11 +5,13 @@ use std::ops::ControlFlow;
 use std::time::Instant;
 
 use ahash::HashMap;
+use ahash::HashSet;
 use log::debug;
 use log::info;
 use log::log_enabled;
 use log::trace;
 use log::warn;
+use merc_aterm::ATermRef;
 use merc_aterm::Term;
 use merc_data::DataApplicationRef;
 use merc_data::DataExpression;
@@ -732,7 +734,8 @@ fn is_supported_term(t: &DataExpression) -> bool {
     true
 }
 
-/// Checks whether the set automaton can use this rule, no higher order rules or binders.
+/// Checks whether the set automaton can use this rule: no higher order rules or binders, and
+/// every variable of its condition or right-hand side occurs in its left-hand side.
 pub fn is_supported_rule(rule: &Rule) -> bool {
     // There should be no terms of the shape t(t0,...,t_n)
     if !is_supported_term(&rule.rhs) || !is_supported_term(&rule.lhs) {
@@ -745,6 +748,49 @@ pub fn is_supported_rule(rule: &Rule) -> bool {
         }
     }
 
+    variables_occur_in_lhs(rule)
+}
+
+/// Every `DataVariable` reachable in `expr`.
+fn collect_variables<'a>(expr: &'a DataExpression) -> HashSet<ATermRef<'a>> {
+    let mut variables = HashSet::default();
+    for subterm in expr.iter() {
+        if is_data_variable(&subterm) {
+            variables.insert(subterm);
+        }
+    }
+    variables
+}
+
+/// Returns false iff `expr` uses a variable outside `bound`, warning about `rule` when it does.
+fn all_variables_occur_in<'a>(expr: &'a DataExpression, bound: &HashSet<ATermRef<'a>>, rule: &Rule) -> bool {
+    for subterm in expr.iter() {
+        if is_data_variable(&subterm) && !bound.contains(&subterm) {
+            warn!(
+                "the equation '{rule}' uses the variable '{subterm}' in its condition or right-hand side, \
+                 but it does not occur in the left-hand side; dropping the equation"
+            );
+            return false;
+        }
+    }
+    true
+}
+
+/// Returns true iff every variable occurring in the right-hand side and
+/// conditions of the rule also occurs in its left-hand side.
+fn variables_occur_in_lhs(rule: &Rule) -> bool {
+    let lhs_variables = collect_variables(&rule.lhs);
+
+    if !all_variables_occur_in(&rule.rhs, &lhs_variables, rule) {
+        return false;
+    }
+    
+    for cond in &rule.conditions {
+        if !all_variables_occur_in(&cond.lhs, &lhs_variables, rule) || !all_variables_occur_in(&cond.rhs, &lhs_variables, rule)
+        {
+            return false;
+        }
+    }
     true
 }
 
@@ -803,4 +849,45 @@ fn find_symbols(t: &DataExpressionRef<'_>, symbols: &mut HashMap<DataFunctionSym
     }
 
     FindSymbols { symbols }.visit(t, ());
+}
+
+#[cfg(test)]
+mod tests {
+    use ahash::AHashSet;
+    use merc_data::DataExpression;
+
+    use super::*;
+    use crate::rewrite_specification::Condition;
+
+    fn rule(lhs: &str, rhs: &str, variables: &[&str]) -> Rule {
+        let variables: AHashSet<String> = variables.iter().map(|v| v.to_string()).collect();
+        Rule::new(
+            DataExpression::from_string_untyped(lhs, &variables).unwrap(),
+            DataExpression::from_string_untyped(rhs, &variables).unwrap(),
+        )
+    }
+
+    #[test]
+    fn test_unbound_right_hand_side_variable_is_unsupported() {
+        // `y` is well-typed (it would just be an equation `f(x) = y`), but has no value to draw
+        // from when `f(x)` matches — see `variables_occur_in_lhs`'s doc comment.
+        assert!(!is_supported_rule(&rule("f(x)", "y", &["x", "y"])));
+    }
+
+    #[test]
+    fn test_bound_right_hand_side_variable_is_supported() {
+        assert!(is_supported_rule(&rule("f(x)", "x", &["x"])));
+    }
+
+    #[test]
+    fn test_unbound_condition_variable_is_unsupported() {
+        let mut broken = rule("f(x)", "x", &["x", "y"]);
+        let variables: AHashSet<String> = ["x", "y"].iter().map(|v| v.to_string()).collect();
+        broken.conditions.push(Condition::new(
+            DataExpression::from_string_untyped("y", &variables).unwrap(),
+            DataExpression::from_string_untyped("x", &variables).unwrap(),
+            true,
+        ));
+        assert!(!is_supported_rule(&broken));
+    }
 }

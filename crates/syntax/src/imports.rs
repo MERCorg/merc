@@ -467,8 +467,13 @@ mod tests {
     use std::fs;
 
     use merc_utilities::SourceMap;
+    use merc_utilities::Span;
 
-    use super::*;
+    use super::ImportError;
+    use super::scan_imports;
+    use crate::UntypedDataSpecification;
+    use crate::UntypedProcessSpecification;
+    use crate::UntypedStateFrmSpec;
 
     #[test]
     fn test_scan_imports_finds_a_directive_line() {
