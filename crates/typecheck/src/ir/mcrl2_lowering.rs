@@ -45,6 +45,7 @@ use crate::check_system_equations;
 use crate::check_system_specification;
 use crate::extend_system_with_inferred_sorts;
 use crate::is_system_generated_name;
+use crate::number_expr_nodes;
 use crate::resolve_data_specification_variables;
 use crate::unreachable_not_a_value_sort;
 
@@ -388,10 +389,9 @@ pub(crate) struct LoweredEquation {
 }
 
 /// Re-walks one equation's condition/left/right-hand sides alongside its
-/// [`EquationTyping`] side tables, in the exact `ExprId` order generation used
-/// (documented on `ExprId` in inference.rs: parents before children, arguments
-/// before the applied function), building `merc_data::DataExpression`s
-/// bottom-up.
+/// [`EquationTyping`] side tables — looking each node's sort/name up by its own [`ExprId`], via
+/// [`number_expr_nodes`] (see its doc comment, and [`crate::ExprId`]'s, for why this and generation
+/// need not recurse in the same order) — building `merc_data::DataExpression`s bottom-up.
 ///
 /// Lowers variables, declared-op and builtin-op applications (including the
 /// polymorphic comparison/`if` operators), numeric/boolean literals, container
@@ -412,12 +412,18 @@ pub(crate) fn lower_equation(
 ) -> Option<LoweredEquation> {
     let EquationTyping { sorts, names, .. } = typing;
 
+    let mut roots = Vec::with_capacity(3);
+    roots.extend(condition);
+    roots.push(lhs);
+    roots.push(rhs);
+    let expr_id_of = number_expr_nodes(roots);
+
     let mut walker = Lowering {
         ctx,
         spec,
         sorts,
         names,
-        next_id: 0,
+        expr_id_of,
         encoding,
         literals: HashMap::new(),
     };
@@ -429,11 +435,11 @@ pub(crate) fn lower_equation(
     // The equation itself joins `lhs` and `rhs` through a shared (possibly
     // wider) sort, exactly like an application's argument against its
     // parameter (see `Lowering::lower_application`): capture each side's own
-    // id *before* lowering it, so the narrower side is coerced up to the
-    // wider one rather than silently producing an ill-sorted equation.
-    let lhs_id = ExprId::new(walker.next_id);
+    // id before coercing it, so the narrower side is coerced up to the wider
+    // one rather than silently producing an ill-sorted equation.
+    let lhs_id = walker.id_of(lhs);
     let lhs = walker.lower(lhs)?;
-    let rhs_id = ExprId::new(walker.next_id);
+    let rhs_id = walker.id_of(rhs);
     let rhs = walker.lower(rhs)?;
     let lhs_sort = sorts[*lhs_id];
     let rhs_sort = sorts[*rhs_id];
@@ -449,9 +455,6 @@ pub(crate) fn lower_equation(
 /// Re-walks one standalone expression alongside its [`EquationTyping`], the
 /// counterpart of [lower_equation] for an expression typed on its own by
 /// `infer_expression` (see [`crate::DataSpecification::typecheck_expression`]).
-///
-/// The `ExprId` numbering of a lone expression starts at its own root, so the
-/// walk is the same one [lower_equation] performs on an equation side.
 pub(crate) fn lower_expression(
     ctx: &TypeCheckContext,
     spec: &UntypedDataSpecification,
@@ -466,7 +469,7 @@ pub(crate) fn lower_expression(
         spec,
         sorts,
         names,
-        next_id: 0,
+        expr_id_of: number_expr_nodes([expr]),
         encoding,
         literals: HashMap::new(),
     }
@@ -478,9 +481,12 @@ struct Lowering<'a> {
     spec: &'a UntypedDataSpecification,
     sorts: &'a [ResolvedSortId],
     names: &'a HashMap<ExprId, NameTarget>,
-    /// The `ExprId` the next node visited will be assigned, mirroring
-    /// `ConstraintGenerator::visit`'s `id = ExprId::new(self.expr_sorts.len())`.
-    next_id: usize,
+    /// Every node's own [ExprId], keyed by its address — computed once, by
+    /// [`number_expr_nodes`], over the same condition/lhs/rhs (or standalone expression) that
+    /// produced `sorts`/`names`; see [`crate::ExprId`]'s own doc comment for why looking a node's
+    /// id up here, rather than re-deriving it from the order `lower` recurses in, is what lets a
+    /// monomorphized template instantiation's own lowering agree with the template's typing.
+    expr_id_of: HashMap<usize, ExprId>,
     /// How numeric literals and numeric coercions are represented.
     encoding: NumberEncoding,
     /// The decimal text of every bare `Number` node walked so far, keyed by its
@@ -490,12 +496,18 @@ struct Lowering<'a> {
 }
 
 impl Lowering<'_> {
-    /// Lowers `expr`, consuming exactly the `ExprId`s generation would have
-    /// assigned to its subtree, or `None` the moment an unsupported
-    /// construct is reached (see [lower_equation]).
+    /// The precomputed [ExprId] of `expr`, looked up by its own address.
+    fn id_of(&self, expr: &DataExpr) -> ExprId {
+        *self
+            .expr_id_of
+            .get(&(expr as *const DataExpr as usize))
+            .expect("number_expr_nodes numbered every node of this same tree")
+    }
+
+    /// Lowers `expr`, or `None` the moment an unsupported construct is reached (see
+    /// [lower_equation]).
     fn lower(&mut self, expr: &DataExpr) -> Option<DataExpression> {
-        let id = ExprId::new(self.next_id);
-        self.next_id += 1;
+        let id = self.id_of(expr);
         let sort = self.sorts[*id];
 
         match &expr.node {
@@ -601,18 +613,18 @@ impl Lowering<'_> {
         function: &DataExpr,
         arguments: &[DataExpr],
     ) -> Option<DataExpression> {
-        // Arguments before the applied function, matching generation order.
-        // Each argument's own id is captured before lowering it, so `coerce`
-        // can tell a bare number literal from a term that merely has its sort.
+        // Each argument's own id is looked up before lowering it, so `coerce` can tell a bare
+        // number literal from a term that merely has its sort.
         let mut argument_terms = Vec::with_capacity(arguments.len());
         let mut argument_sorts = Vec::with_capacity(arguments.len());
         let mut argument_ids = Vec::with_capacity(arguments.len());
         for argument in arguments {
-            argument_ids.push(ExprId::new(self.next_id));
-            argument_sorts.push(self.sorts[self.next_id]);
+            let argument_id = self.id_of(argument);
+            argument_ids.push(argument_id);
+            argument_sorts.push(self.sorts[*argument_id]);
             argument_terms.push(self.lower(argument)?);
         }
-        let function_sort = self.sorts[self.next_id];
+        let function_sort = self.sorts[*self.id_of(function)];
         let function_term = self.lower(function)?;
 
         let ResolvedSort::Function { domain, range } = self.ctx.sorts.get(function_sort) else {
@@ -676,8 +688,8 @@ impl Lowering<'_> {
         let empty: DataExpression = DataFunctionSymbol::with_sort("{}", fset.copy()).into();
         let mut lowered = Vec::with_capacity(members.len());
         for member in members {
-            let member_id = ExprId::new(self.next_id);
-            let member_sort = self.sorts[self.next_id];
+            let member_id = self.id_of(member);
+            let member_sort = self.sorts[*member_id];
             let member_term = self.lower(member)?;
             lowered.push((member_id, member_term, member_sort));
         }
@@ -711,11 +723,11 @@ impl Lowering<'_> {
         let empty: DataExpression = DataFunctionSymbol::with_sort("{:}", fbag.copy()).into();
         let mut lowered = Vec::with_capacity(members.len());
         for member in members {
-            let elem_id = ExprId::new(self.next_id);
-            let elem_sort = self.sorts[self.next_id];
+            let elem_id = self.id_of(&member.expr);
+            let elem_sort = self.sorts[*elem_id];
             let elem_term = self.lower(&member.expr)?;
-            let mult_id = ExprId::new(self.next_id);
-            let mult_sort = self.sorts[self.next_id];
+            let mult_id = self.id_of(&member.multiplicity);
+            let mult_sort = self.sorts[*mult_id];
             let mult_term = self.lower(&member.multiplicity)?;
             lowered.push((elem_id, elem_term, elem_sort, mult_id, mult_term, mult_sort));
         }
@@ -782,8 +794,8 @@ impl Lowering<'_> {
         let element = lower_sort(self.ctx, self.spec, element_id);
         let var = DataVariable::with_sort(variable.identifier.as_str(), element.copy());
 
-        let body_id = ExprId::new(self.next_id);
-        let body_sort = self.sorts[self.next_id];
+        let body_id = self.id_of(predicate);
+        let body_sort = self.sorts[*body_id];
         let body = self.lower(predicate)?;
 
         let (body, range) = match op {
@@ -828,7 +840,7 @@ impl Lowering<'_> {
     fn lower_whr(&mut self, expr: &DataExpr, assignments: &[merc_syntax::Assignment]) -> Option<DataExpression> {
         let mut whr_decls = Vec::with_capacity(assignments.len());
         for assignment in assignments {
-            let assignment_sort = self.sorts[self.next_id];
+            let assignment_sort = self.sorts[*self.id_of(&assignment.expr)];
             let assignment_term = self.lower(&assignment.expr)?;
             let var = DataVariable::with_sort(
                 assignment.identifier.as_str(),
