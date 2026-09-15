@@ -3,75 +3,29 @@ use std::ops::ControlFlow;
 
 use thiserror::Error;
 
-use merc_syntax::DataExpr;
-use merc_syntax::DataExprKind;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
 use merc_syntax::SourceMap;
 use merc_syntax::Span;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedDataSpecification;
-use merc_syntax::VarId;
 use merc_utilities::MercError;
 use merc_utilities::Step;
 
 use crate::InferenceError;
 use crate::nonempty_sorts;
 
-/// The post-normalization well-typedness checks of 15.1.7 that `build_signature`
-/// does not already cover.
+/// The post-normalization well-typedness checks of 15.1.7 that
+/// `build_signature` does not already cover. Needs to run after sort
+/// normalization.
 ///
-/// `build_signature` runs *before* this and rejects — in a stronger,
-/// alias-aware form — every signature-level condition the two once shared
-/// (constructor/mapping disjointness, products outside a function domain, and
-/// constructors for basic or function sorts), so only three genuinely separate
-/// checks remain here:
-///
-/// * equation-variable well-formedness (no duplicate variable in a `var` block,
-///   no bare product sort on one), which is not a signature concern;
-/// * every `var`-block variable used in an equation's condition or right-hand
-///   side occurs in its left-hand side too, so the equation is executable by
-///   rewriting — real mCRL2's own type checker has this rule
-///   (`data_type_checker::operator()(data_equation_vector&)`), unconditionally
-///   before a 2017 simplification (`02ec6305cfc`) nested it inside a branch
-///   that only runs when the equation's two sides don't already share a
-///   common sort on the first pass — in effect turning it off for the common
-///   case, seemingly as an incidental side effect of that simplification
-///   rather than a deliberate relaxation (the rewriter still drops such an
-///   equation with a warning at a later stage, so the *intent* that it be
-///   rejected up front survives even where current upstream mCRL2's
-///   type-checker no longer enforces it). This restores the unconditional
-///   form; and
-/// * sort non-emptiness, which must run on the *normalized* specification —
-///   `nonempty_sorts` unifies a sort with its aliases only once alias
-///   indirection is expanded, so a sort inhabited only through an alias would
-///   otherwise be misreported as empty.
+/// * No duplicate equation variables in a `var` block.
+/// * sort non-emptiness.
 pub(crate) fn is_well_typed(spec: &UntypedDataSpecification) -> Result<(), WellTypedError> {
-    for equation in &spec.equation_declarations {
-        // Inference resolves a variable by name, so a duplicate would silently
-        // shadow the earlier declaration; mCRL2 rejects the block outright.
-        let mut names = HashSet::new();
-        for var in &equation.variables {
-            if !names.insert(var.identifier.as_str()) {
-                return Err(WellTypedError::DuplicateEquationVariable {
-                    variable: var.identifier.node.clone(),
-                    span: var.identifier.span.clone(),
-                });
-            }
-            // A product sort only has meaning as the domain of a function sort.
-            check_products_within_domains(&var.sort)?;
-        }
+    check_equation_well_formedness(spec)?;
 
-        let declared: HashSet<VarId> = equation.variables.iter().filter_map(|var| var.var_id).collect();
-        for eqn in &equation.equations {
-            check_variables_occur_on_lhs(&declared, eqn.condition.as_ref(), &eqn.lhs, &eqn.rhs)?;
-        }
-    }
-
-    // Check that all sorts are syntactically non-empty. `nonempty_sorts` already
-    // assumes sorts without constructors (abstract sorts and aliases) to be
-    // non-empty, so only genuine constructor sorts are reported here, as in
-    // mCRL2's check_for_empty_constructor_domains.
+    // Check that all sorts are syntactically non-empty. `nonempty_sorts`
+    // already assumes sorts without constructors to be non-empty.
     let nonempty = nonempty_sorts(spec);
     for sort in &spec.sort_declarations {
         let id = sort.id.expect("The sorts must be resolved");
@@ -86,46 +40,39 @@ pub(crate) fn is_well_typed(spec: &UntypedDataSpecification) -> Result<(), WellT
     Ok(())
 }
 
-/// Every occurrence of one of `declared` (the enclosing equation block's own `var`-block
-/// variables) reachable in `condition`/`rhs` must also occur somewhere in `lhs` — otherwise
-/// rewriting `lhs` to `rhs` would leave a variable in the result with no binding to draw a value
-/// from. A `lambda`/`forall`/`exists`/comprehension binder introduces its own, distinct `VarId`
-/// (assigned by `resolve_data_specification_variables` before this ever runs), so walking the
-/// whole subtree — including inside such a binder's own body — cannot mistake a locally-bound
-/// name for one of `declared`.
-fn check_variables_occur_on_lhs(
-    declared: &HashSet<VarId>,
-    condition: Option<&DataExpr>,
-    lhs: &DataExpr,
-    rhs: &DataExpr,
-) -> Result<(), WellTypedError> {
-    let lhs_vars = collect_declared_var_occurrences(declared, lhs);
-
-    for expr in condition.into_iter().chain(std::iter::once(rhs)) {
-        if let Some((name, span)) = expr.visit(|node| match &node.node {
-            DataExprKind::Resolved(name, id) if declared.contains(id) && !lhs_vars.contains(id) => {
-                ControlFlow::Break((name.clone(), node.span.clone()))
+/// The equation-block well-formedness rules of 15.1.7 that remain a
+/// type-checking concern: no duplicate variable in a `var` block, no bare
+/// product sort on one. Shared, rather than kept as a hand-rolled copy, by
+/// every caller that owns a set of equations to check — the user's own
+/// specification, the base system-defined specification, and (see
+/// `check_system_specification`'s own doc comment) the lowering-time
+/// monomorphized content generated from it.
+///
+/// Whether every condition/right-hand-side variable occurs in the
+/// left-hand side is *not* checked here: an equation can be well-typed
+/// without that holding, so it is caught later, when the rewriter is
+/// actually built from the equations
+/// (`merc_sabre::set_automaton::automaton::is_supported_rule`), which drops
+/// such an equation with a warning instead of rejecting the specification
+/// outright.
+pub(crate) fn check_equation_well_formedness(spec: &UntypedDataSpecification) -> Result<(), WellTypedError> {
+    for equation in &spec.equation_declarations {
+        // Inference resolves a variable by name, so a duplicate would silently
+        // shadow the earlier declaration; mCRL2 rejects the block outright.
+        let mut names = HashSet::new();
+        for var in &equation.variables {
+            if !names.insert(var.identifier.as_str()) {
+                return Err(WellTypedError::DuplicateEquationVariable {
+                    variable: var.identifier.node.clone(),
+                    span: var.identifier.span.clone(),
+                });
             }
-            _ => ControlFlow::Continue(()),
-        }) {
-            return Err(WellTypedError::UnboundEquationVariable { variable: name, span });
+
+            // A product sort only has meaning as the domain of a function sort.
+            check_products_within_domains(&var.sort)?;
         }
     }
     Ok(())
-}
-
-/// Every `VarId` in `declared` that occurs (as a `Resolved` node) anywhere in `expr`.
-fn collect_declared_var_occurrences(declared: &HashSet<VarId>, expr: &DataExpr) -> HashSet<VarId> {
-    let mut found = HashSet::new();
-    expr.visit::<std::convert::Infallible, _>(|node| {
-        if let DataExprKind::Resolved(_, id) = &node.node
-            && declared.contains(id)
-        {
-            found.insert(*id);
-        }
-        ControlFlow::Continue(())
-    });
-    found
 }
 
 #[derive(Debug, Error)]
@@ -174,12 +121,6 @@ pub enum WellTypedError {
     #[error("The variable '{}' occurs multiple times in a var block", variable)]
     DuplicateEquationVariable { variable: String, span: Span },
 
-    #[error(
-        "The variable '{}' occurs in the equation's condition or right-hand side, but not in its left-hand side",
-        variable
-    )]
-    UnboundEquationVariable { variable: String, span: Span },
-
     #[error("Alias cycle detected: {:?}", sorts)]
     AliasCycle { sorts: Vec<String>, span: Span },
 
@@ -221,7 +162,6 @@ impl WellTypedError {
             | WellTypedError::EmptySort { span, .. }
             | WellTypedError::ProductSortOutsideFunctionDomain { span, .. }
             | WellTypedError::DuplicateEquationVariable { span, .. }
-            | WellTypedError::UnboundEquationVariable { span, .. }
             | WellTypedError::AliasCycle { span, .. }
             | WellTypedError::RecursiveAliasThroughFunctionSort { span, .. }
             | WellTypedError::DuplicateSortDeclaration { span, .. }
@@ -293,6 +233,24 @@ mod tests {
 
     use crate::DataSpecification;
     use crate::WellTypedError;
+    use crate::check_equation_well_formedness;
+
+    /// Runs [check_equation_well_formedness] directly against hand-parsed text, bypassing the
+    /// rest of `from_untyped_with`'s pipeline. Used to prove the check behaves the same whether
+    /// the equations came from the user's own declarations or (as here, simulated by hand)
+    /// system-defined content, rather than `check_system_specification` keeping its own
+    /// hand-rolled copy of these rules.
+    fn check_equations(text: &str) -> Result<(), WellTypedError> {
+        let spec = UntypedDataSpecification::parse(text).unwrap();
+        check_equation_well_formedness(&spec)
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // Test is too slow under miri
+    fn test_system_shaped_duplicate_equation_variable_is_rejected() {
+        let err = check_equations("map f: Bool; var b: Bool; b: Nat; eqn f = b;").expect_err("b is duplicated");
+        assert!(matches!(err, WellTypedError::DuplicateEquationVariable { .. }), "{err}");
+    }
 
     #[test]
     #[cfg_attr(miri, ignore)] // Test is too slow under miri

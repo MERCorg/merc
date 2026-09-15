@@ -147,10 +147,13 @@ fn test_parse_sort_spec() {
     }
 }
 
-/// A `type_var` block declares names that are bound for the rest of the specification: every
-/// later occurrence of one of them in sort-expression position must parse as a
-/// [SortExpressionKind::TypeVar], not a [SortExpressionKind::Reference] — in a constructor's
-/// sort, a map's sort, and a `var`-block binder sort alike.
+/// A `type_var` block only declares names at the parser level — `merc_syntax` records them in
+/// `type_var_declarations` but never itself rewrites a matching identifier occurring in
+/// sort-expression position, in a constructor's sort, a map's sort, or a `var`-block binder sort.
+/// Every such occurrence still parses as an ordinary [SortExpressionKind::Reference]; rewriting
+/// the declared names into [SortExpressionKind::TypeVar] is a semantic pass
+/// (`merc_typecheck::resolve_type_var_ids`) that runs later, before type checking, precisely so
+/// the parser doesn't need to know which names are in scope as type variables.
 #[test]
 fn test_parse_type_var_spec() {
     let spec = indoc! {"
@@ -172,7 +175,8 @@ fn test_parse_type_var_spec() {
     assert_eq!(data.type_var_declarations.len(), 1);
     assert_eq!(data.type_var_declarations[0].identifier, "S");
 
-    // `|>: S # List(S) -> List(S)`: `S` must become `TypeVar` both bare and inside `List(...)`.
+    // `|>: S # List(S) -> List(S)`: at the parser level `S` stays a bare `Reference`, both bare
+    // and inside `List(...)` — the parser has no notion of `type_var` scoping.
     let cons_sort = &data.constructor_declarations[1].sort;
     let SortExpressionKind::Function { domain, range } = &cons_sort.node else {
         panic!("expected a function sort, got {:?}", cons_sort.node);
@@ -180,22 +184,22 @@ fn test_parse_type_var_spec() {
     let SortExpressionKind::Product { lhs, rhs } = &domain.node else {
         panic!("expected a product domain, got {:?}", domain.node);
     };
-    assert!(matches!(&lhs.node, SortExpressionKind::TypeVar(name) if name == "S"));
-    assert!(is_list_of_type_var(rhs, "S"));
-    assert!(is_list_of_type_var(range, "S"));
+    assert!(matches!(&lhs.node, SortExpressionKind::Reference(name) if name == "S"));
+    assert!(is_list_of_reference(rhs, "S"));
+    assert!(is_list_of_reference(range, "S"));
 
-    // The `var d: S;` binder sort is rewritten too, not just declaration-level sorts.
+    // The `var d: S;` binder sort is left alone the same way.
     assert!(matches!(
         &data.equation_declarations[0].variables[0].sort.node,
-        SortExpressionKind::TypeVar(name) if name == "S"
+        SortExpressionKind::Reference(name) if name == "S"
     ));
 }
 
-/// Whether `sort` is `List(TypeVar(name))`.
-fn is_list_of_type_var(sort: &merc_syntax::SortExpression, name: &str) -> bool {
+/// Whether `sort` is `List(Reference(name))`.
+fn is_list_of_reference(sort: &merc_syntax::SortExpression, name: &str) -> bool {
     match &sort.node {
         SortExpressionKind::Complex(_, inner) => {
-            matches!(&inner.node, SortExpressionKind::TypeVar(inner_name) if inner_name == name)
+            matches!(&inner.node, SortExpressionKind::Reference(inner_name) if inner_name == name)
         }
         _ => false,
     }

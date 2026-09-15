@@ -23,22 +23,22 @@ use crate::TypingInfo;
 
 /// The context shared by all type-checking queries.
 ///
-/// It owns the [SortInterner] and one [QueryCache] per query. Each semantic
-/// fact is a memoized function on this context, so passes pull their
-/// dependencies lazily and results are shared.
+/// It owns the [SortInterner] and one [HashMap] memoization table per query.
+/// Each semantic fact is a memoized function on this context, so passes pull
+/// their dependencies lazily and results are shared.
 #[derive(Clone)]
 pub(crate) struct TypeCheckContext {
     pub(crate) sorts: SortInterner,
 
-    pub(crate) sort_of_def: QueryCache<SortId, ResolvedSortId>,
+    pub(crate) sort_of_def: HashMap<SortId, ResolvedSortId>,
     /// The memoized resolved sort of each constructor declaration, keyed by
     /// [ConstructorId]. Populated lazily by `query_sort_of_constructor`.
-    pub(crate) sort_of_constructor: QueryCache<ConstructorId, ResolvedSortId>,
+    pub(crate) sort_of_constructor: HashMap<ConstructorId, ResolvedSortId>,
     /// The memoized resolved sort of each map declaration, keyed by [MapId].
     /// Populated lazily by `query_sort_of_map`.
-    pub(crate) sort_of_map: QueryCache<MapId, ResolvedSortId>,
+    pub(crate) sort_of_map: HashMap<MapId, ResolvedSortId>,
     /// The memoized resolved sort of each equation variable, keyed by its own [VarId].
-    pub(crate) sort_of_equation_var: QueryCache<VarId, ResolvedSortId>,
+    pub(crate) sort_of_equation_var: HashMap<VarId, ResolvedSortId>,
 
     /// The signature of the specification.
     pub(crate) signature: Option<Arc<Signature>>,
@@ -57,16 +57,16 @@ pub(crate) struct TypeCheckContext {
     /// The memoized results of `query_equation_typing`, keyed by the id of the
     /// enclosing equation specification block and the equation's own id
     /// within it.
-    pub(crate) equation_typing: QueryCache<(EqnSpecId, EquationId), Result<Arc<EquationTyping>, InferenceError>>,
+    pub(crate) equation_typing: HashMap<(EqnSpecId, EquationId), Result<Arc<EquationTyping>, InferenceError>>,
     /// The system-equation counterpart of `equation_typing`.
-    pub(crate) system_equation_typing: QueryCache<(EqnSpecId, EquationId), Result<Arc<EquationTyping>, InferenceError>>,
+    pub(crate) system_equation_typing: HashMap<(EqnSpecId, EquationId), Result<Arc<EquationTyping>, InferenceError>>,
     /// The proven typing of each Appendix-B container/function-update
     /// template's own equations, checked once with its type variable(s) held
     /// rigid by `check_template_equations`.
     pub(crate) template_typings: HashMap<String, TemplateCheck>,
 
     /// The memoized result of the public TypingInfo for every equation.
-    pub(crate) equation_typing_info: QueryCache<(EqnSpecId, EquationId), Arc<TypingInfo>>,
+    pub(crate) equation_typing_info: HashMap<(EqnSpecId, EquationId), Arc<TypingInfo>>,
     /// The typing info for the whole set of equations.
     pub(crate) whole_typing_info: Option<Arc<TypingInfo>>,
 }
@@ -75,19 +75,19 @@ impl TypeCheckContext {
     pub(crate) fn new() -> Self {
         TypeCheckContext {
             sorts: SortInterner::new(),
-            sort_of_def: QueryCache::new(),
-            sort_of_constructor: QueryCache::new(),
-            sort_of_map: QueryCache::new(),
-            sort_of_equation_var: QueryCache::new(),
+            sort_of_def: HashMap::new(),
+            sort_of_constructor: HashMap::new(),
+            sort_of_map: HashMap::new(),
+            sort_of_equation_var: HashMap::new(),
             signature: None,
             basics_signature: None,
             struct_signature_overrides: HashMap::new(),
             builtin_scheme_signature: None,
             system_symbol_spans: HashMap::new(),
-            equation_typing: QueryCache::new(),
-            system_equation_typing: QueryCache::new(),
+            equation_typing: HashMap::new(),
+            system_equation_typing: HashMap::new(),
             template_typings: HashMap::new(),
-            equation_typing_info: QueryCache::new(),
+            equation_typing_info: HashMap::new(),
             whole_typing_info: None,
         }
     }
@@ -97,11 +97,11 @@ impl TypeCheckContext {
     /// Returns the memoized value for `key` in the cache selected by `cache`,
     /// computing and storing it via `compute` on a miss.
     ///
-    /// `cache` projects `self` down to the relevant [QueryCache] and is
-    /// re-applied on each access rather than borrowed once, so that `compute`
-    /// can use `self` freely in between — including, recursively, other
-    /// queries on `self`. Holding the projected `&mut QueryCache` across that
-    /// call would alias `self` and not compile.
+    /// `cache` projects `self` down to the relevant memoization [HashMap] and
+    /// is re-applied on each access rather than borrowed once, so that
+    /// `compute` can use `self` freely in between — including, recursively,
+    /// other queries on `self`. Holding the projected `&mut HashMap` across
+    /// that call would alias `self` and not compile.
     ///
     /// Every query built on this currently has no self-referential dependency (an equation's
     /// typing never depends on another equation's, and alias cycles are already rejected by
@@ -109,7 +109,7 @@ impl TypeCheckContext {
     /// own key would simply recompute rather than being caught — there is no cycle detection here.
     pub(crate) fn get_or_compute<K, V>(
         &mut self,
-        cache: impl Fn(&mut Self) -> &mut QueryCache<K, V>,
+        cache: impl Fn(&mut Self) -> &mut HashMap<K, V>,
         key: K,
         compute: impl FnOnce(&mut Self) -> V,
     ) -> V
@@ -128,8 +128,7 @@ impl TypeCheckContext {
 
     /// The declared name of the sort that [SortId] `def` resolves to — a user
     /// sort or a system-internal one such as `@NatPair` alike, both declared in
-    /// `spec.sort_declarations` (see `docs/typecheck.md`'s `DefId`-offset
-    /// milestone) — or `None` when `def` is out of range.
+    /// `spec.sort_declarations` — or `None` when `def` is out of range.
     pub(crate) fn sort_name<'a>(&'a self, spec: &'a UntypedDataSpecification, def: SortId) -> Option<&'a str> {
         spec.sort_declarations.get(*def).map(|decl| decl.identifier.as_str())
     }
@@ -147,46 +146,6 @@ impl TypeCheckContext {
 impl Default for TypeCheckContext {
     fn default() -> Self {
         TypeCheckContext::new()
-    }
-}
-
-/// A memoization table for a single query, populated through
-/// [TypeCheckContext::get_or_compute] or [Self::insert].
-#[derive(Clone)]
-pub(crate) struct QueryCache<K, V> {
-    entries: HashMap<K, V>,
-}
-
-impl<K: Eq + Hash, V> QueryCache<K, V> {
-    pub(crate) fn new() -> Self {
-        QueryCache {
-            entries: HashMap::new(),
-        }
-    }
-
-    /// Returns the cached value for `key`, or `None` if it has not been computed yet.
-    pub(crate) fn get(&self, key: &K) -> Option<&V> {
-        self.entries.get(key)
-    }
-
-    /// Iterates the values of every entry. Used for read-only sweeps over the
-    /// whole cache after the pipeline has run, rather than looking up one key
-    /// at a time.
-    pub(crate) fn values(&self) -> impl Iterator<Item = &V> {
-        self.entries.values()
-    }
-
-    /// Unconditionally stores `value` for `key`.
-    ///
-    /// For a caller that already has the value in hand and only needs the cache as storage.
-    pub(crate) fn insert(&mut self, key: K, value: V) {
-        self.entries.insert(key, value);
-    }
-}
-
-impl<K: Eq + Hash, V> Default for QueryCache<K, V> {
-    fn default() -> Self {
-        QueryCache::new()
     }
 }
 

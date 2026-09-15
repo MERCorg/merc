@@ -4,7 +4,6 @@ use std::sync::Arc;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
 use merc_syntax::Span;
-use merc_syntax::TypeVarId;
 use merc_syntax::UntypedDataSpecification;
 
 use crate::BUILTIN_SCHEME_TEMPLATE;
@@ -21,25 +20,18 @@ use crate::resolve_sort;
 
 /// A polymorphic overload: `sort` is a [ResolvedSortId] built by [`resolve_sort`](crate::resolve_sort)
 /// from a template's own declaration, so it may mention [`ResolvedSort::Var`]
-/// at any depth wherever the declaration mentions one of `vars`. Two
-/// occurrences of the same bound variable within `sort` share the same
-/// [TypeVarId] and so the same `Var` node — this is what makes `S` mean "the
-/// same `S`" on both sides of a scheme like `in: S # List(S) -> Bool`.
+/// at any depth wherever the declaration mentions one of the template's bound
+/// type variables. Two occurrences of the same bound variable within `sort`
+/// share the same `Var` node — this is what makes `S` mean "the same `S`" on
+/// both sides of a scheme like `in: S # List(S) -> Bool`.
 ///
 /// Not a ground overload: using one requires instantiating it
-/// (`ConstraintGenerator::instantiate_scheme`), substituting each variable in
-/// `vars` for a fresh unification variable, shared across its occurrences
+/// (`ConstraintGenerator::instantiate_scheme`), which discovers the scheme's
+/// bound variables structurally by walking `sort` and substituting each `Var`
+/// it finds for a fresh unification variable, shared across its occurrences
 /// within that one instantiation.
 #[derive(Clone, Debug)]
 pub(crate) struct PolySortScheme {
-    /// Not yet read anywhere: instantiation (`ConstraintGenerator::instantiate_scheme`)
-    /// currently discovers a scheme's bound variables structurally, by
-    /// walking `sort` and instantiating every `Var` it finds, rather than by
-    /// consulting this list. It is kept for the next step of
-    /// `docs/polymorphism.md`'s migration plan (checking each template's own
-    /// equations once, with these variables held rigid), which does need it.
-    #[allow(dead_code)]
-    pub(crate) vars: Vec<TypeVarId>,
     pub(crate) sort: ResolvedSortId,
 }
 

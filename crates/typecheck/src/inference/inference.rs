@@ -421,8 +421,7 @@ fn specialize_instantiation_equations(
     let block_typings = check.typings[local_index].clone();
 
     // Drawn from the user's own already-resolved sort tree, so `resolve_sort`
-    // (the one shared resolver, see `docs/typecheck.md`'s `DefId`-offset
-    // milestone) resolves every entry infallibly.
+    // resolves every entry infallibly.
     let substitution: Vec<ResolvedSortId> = instantiation
         .substitution
         .iter()
@@ -474,8 +473,7 @@ fn infer_equation(
 ) -> Result<EquationTyping, InferenceError> {
     // `spec`/`system` are always the true user/system pair; `resolve_sort`
     // resolves a `Resolved` sort's `SortId` against `spec.sort_declarations`
-    // regardless of which spec holds the equation (see `docs/typecheck.md`'s
-    // `DefId`-offset milestone).
+    // regardless of which spec holds the equation.
     let eqn_spec = match role {
         EquationRole::User | EquationRole::Template => &spec.equation_declarations[eqn_spec_id],
         EquationRole::System => &system.equation_declarations[eqn_spec_id],
@@ -635,7 +633,7 @@ fn infer<'a>(
     // `build_signature`), and the System role deliberately does *not* fall back to `ctx.signature`
     // itself — doing so would let a struct's own equation see every *other* user declaration too
     // (including an unrelated struct's same-named constructor/projection), not just the basic-sort
-    // operators it actually needs. See `docs/typecheck.md`'s trusted-signature milestone.
+    // operators it actually needs.
     let (signature, builtin_schemes): (Arc<Signature>, Arc<HashMap<String, Vec<PolySortScheme>>>) = match role {
         EquationRole::User | EquationRole::Template => (
             Arc::clone(ctx.signature.as_ref().expect("build_signature ran before inference")),
@@ -1487,8 +1485,8 @@ impl<'a> ConstraintGenerator<'a> {
     /// sides of a use like `in: S # List(S) -> Bool`. Unlike the syntax-tree
     /// walk this replaces, there is no separate `Reference`/name-keyed path
     /// any more: every polymorphic template now declares its variable(s)
-    /// with a real `type_var` block (see `docs/polymorphism.md`), so `sort`
-    /// can only ever contain `Var`, never a name to match by string.
+    /// with a real `type_var` block, so `sort` can only ever contain `Var`,
+    /// never a name to match by string.
     fn instantiate_scheme(
         &mut self,
         sort: ResolvedSortId,
