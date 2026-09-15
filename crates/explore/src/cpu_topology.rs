@@ -198,15 +198,7 @@ fn cluster_by_latency(latency_ns: &[f64], num_cores: usize, factor: f64) -> Vec<
         return (0..num_cores).map(|core| vec![core]).collect();
     }
 
-    let mut min_latency = f64::INFINITY;
-    for i in 0..num_cores {
-        for j in 0..num_cores {
-            if i != j {
-                min_latency = min_latency.min(latency_ns[i * num_cores + j]);
-            }
-        }
-    }
-    let threshold = min_latency * factor;
+    let threshold = minimum_off_diagonal_latency(latency_ns, num_cores) * factor;
 
     let mut visited = vec![false; num_cores];
     let mut clusters = Vec::new();
@@ -215,27 +207,53 @@ fn cluster_by_latency(latency_ns: &[f64], num_cores: usize, factor: f64) -> Vec<
             continue;
         }
 
-        let mut component = Vec::new();
-        let mut queue = VecDeque::new();
-        queue.push_back(start);
-        visited[start] = true;
-
-        while let Some(node) = queue.pop_front() {
-            component.push(node);
-            for neighbor in 0..num_cores {
-                if !visited[neighbor] && latency_ns[node * num_cores + neighbor] <= threshold {
-                    visited[neighbor] = true;
-                    queue.push_back(neighbor);
-                }
-            }
-        }
-
+        let mut component = connected_component(start, latency_ns, num_cores, threshold, &mut visited);
         component.sort_unstable();
         clusters.push(component);
     }
 
     clusters.sort_by_key(|cluster| cluster[0]);
     clusters
+}
+
+/// Returns the smallest observed off-diagonal one-way latency.
+fn minimum_off_diagonal_latency(latency_ns: &[f64], num_cores: usize) -> f64 {
+    let mut min_latency = f64::INFINITY;
+    for i in 0..num_cores {
+        for j in 0..num_cores {
+            if i != j {
+                min_latency = min_latency.min(latency_ns[i * num_cores + j]);
+            }
+        }
+    }
+    min_latency
+}
+
+/// Single-linkage flood fill: returns every core reachable from `start` through
+/// edges of latency at most `threshold`, marking the reached cores as visited.
+fn connected_component(
+    start: usize,
+    latency_ns: &[f64],
+    num_cores: usize,
+    threshold: f64,
+    visited: &mut [bool],
+) -> Vec<usize> {
+    let mut component = Vec::new();
+    let mut queue = VecDeque::new();
+    queue.push_back(start);
+    visited[start] = true;
+
+    while let Some(node) = queue.pop_front() {
+        component.push(node);
+        for neighbor in 0..num_cores {
+            if !visited[neighbor] && latency_ns[node * num_cores + neighbor] <= threshold {
+                visited[neighbor] = true;
+                queue.push_back(neighbor);
+            }
+        }
+    }
+
+    component
 }
 
 /// Measures the row-major one-way latency matrix over `cores`, sequentially pair by pair.

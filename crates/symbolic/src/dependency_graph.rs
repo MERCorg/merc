@@ -143,37 +143,45 @@ pub fn parse_compacted_dependency_graph(input: &str) -> DependencyGraph {
     let mut relations = Vec::new();
 
     for line in input.lines() {
-        if line == "read/write patterns compacted" {
-            continue;
+        if let Some(relation) = parse_pattern_line(line) {
+            relations.push(relation);
         }
-
-        // Keep only pattern characters, ignoring indices/whitespace
-        let pattern: Vec<char> = line.chars().filter(|c| matches!(c, '+' | '-' | 'r' | 'w')).collect();
-
-        if pattern.is_empty() {
-            continue;
-        }
-
-        let mut read_vars = Vec::new();
-        let mut write_vars = Vec::new();
-
-        for (col, ch) in pattern.into_iter().enumerate() {
-            match ch {
-                '+' => {
-                    read_vars.push(col);
-                    write_vars.push(col);
-                }
-                'r' => read_vars.push(col),
-                'w' => write_vars.push(col),
-                '-' => {}
-                _ => {}
-            }
-        }
-
-        relations.push(Relation { read_vars, write_vars });
     }
 
     DependencyGraph::new(relations)
+}
+
+/// Parses a single line of a compacted dependency graph into a [`Relation`],
+/// returning `None` for lines that carry no pattern characters.
+fn parse_pattern_line(line: &str) -> Option<Relation> {
+    if line == "read/write patterns compacted" {
+        return None;
+    }
+
+    // Keep only pattern characters, ignoring indices/whitespace
+    let pattern: Vec<char> = line.chars().filter(|c| matches!(c, '+' | '-' | 'r' | 'w')).collect();
+
+    if pattern.is_empty() {
+        return None;
+    }
+
+    let mut read_vars = Vec::new();
+    let mut write_vars = Vec::new();
+
+    for (col, ch) in pattern.into_iter().enumerate() {
+        match ch {
+            '+' => {
+                read_vars.push(col);
+                write_vars.push(col);
+            }
+            'r' => read_vars.push(col),
+            'w' => write_vars.push(col),
+            '-' => {}
+            _ => {}
+        }
+    }
+
+    Some(Relation { read_vars, write_vars })
 }
 
 #[cfg(test)]

@@ -5,6 +5,7 @@ use std::ops::Range;
 use merc_syntax::ComplexSort;
 use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
+use merc_syntax::EqnSpec;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
 use merc_syntax::SourceMap;
@@ -443,16 +444,23 @@ fn collect_system_sorts_in_spec(
         collect_system_sorts(&map.sort, out, mode);
     }
     for equation in &spec.equation_declarations {
-        for variable in &equation.variables {
-            collect_system_sorts(&variable.sort, out, mode);
+        collect_system_sorts_in_equation(equation, out, mode);
+    }
+}
+
+/// Collects the system-defined sorts occurring in a single `var ... eqn ...`
+/// block: its declared variable sorts and its equations' conditions, left- and
+/// right-hand sides (including binder sorts inside those expressions).
+fn collect_system_sorts_in_equation(equation: &EqnSpec, out: &mut Vec<SortExpression>, mode: SortCollectionMode) {
+    for variable in &equation.variables {
+        collect_system_sorts(&variable.sort, out, mode);
+    }
+    for eqn in &equation.equations {
+        if let Some(condition) = &eqn.condition {
+            collect_system_sorts_in_expr(condition, out, mode);
         }
-        for eqn in &equation.equations {
-            if let Some(condition) = &eqn.condition {
-                collect_system_sorts_in_expr(condition, out, mode);
-            }
-            collect_system_sorts_in_expr(&eqn.lhs, out, mode);
-            collect_system_sorts_in_expr(&eqn.rhs, out, mode);
-        }
+        collect_system_sorts_in_expr(&eqn.lhs, out, mode);
+        collect_system_sorts_in_expr(&eqn.rhs, out, mode);
     }
 }
 

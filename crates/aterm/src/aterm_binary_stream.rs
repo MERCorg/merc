@@ -255,62 +255,13 @@ impl<W: Write> BinaryATermWriter<W> {
 
             if !self.terms.read().contains(&current_term) || is_output {
                 if write_ready {
-                    if is_int_term(&current_term) {
-                        let int_term = ATermIntRef::from(current_term.copy());
-                        if is_output {
-                            // If the integer is output, write the header and just an integer
-                            self.stream.write_bits(PacketType::ATermIntOutput as u64, PACKET_BITS)?;
-                            self.stream.write_integer(int_term.value() as u64)?;
-                        } else {
-                            let symbol_index = self.write_function_symbol(&int_term.get_head_symbol())?;
-
-                            self.stream.write_bits(PacketType::ATerm as u64, PACKET_BITS)?;
-                            self.stream
-                                .write_bits(symbol_index as u64, self.function_symbol_index_width())?;
-                            self.stream.write_integer(int_term.value() as u64)?;
-                        }
-                    } else {
-                        let symbol_index = self.write_function_symbol(&current_term.get_head_symbol())?;
-                        let packet_type = if is_output {
-                            PacketType::ATermOutput
-                        } else {
-                            PacketType::ATerm
-                        };
-
-                        self.stream.write_bits(packet_type as u64, PACKET_BITS)?;
-                        self.stream
-                            .write_bits(symbol_index as u64, self.function_symbol_index_width())?;
-
-                        for arg in current_term.arguments() {
-                            let index = self.terms.read().index(&arg).expect("Argument must already be written");
-                            self.stream.write_bits(*index as u64, self.term_index_width())?;
-                        }
-                    }
-
-                    if !is_output {
-                        let (_, inserted) = self.terms.write().insert(current_term.copy());
-                        assert!(inserted, "This term should have a new index assigned.");
-                        self.term_index_width = bits_for_value(self.terms.read().len());
-                    }
+                    self.write_term_body(&current_term, is_output)?;
 
                     // Done with this entry now that it has been written (and, if not the
                     // top-level output term, protected independently by `terms` above).
                     self.stack.write().pop_back();
                 } else {
-                    // Mark ready for its next visit, once its (not yet written) arguments below
-                    // it on the stack are done -- so leave it in place rather than popping it.
-                    if let Some(back) = self.stack.write().back_mut() {
-                        back.1 = true;
-                    }
-
-                    // Add arguments to stack for processing first. Two equal
-                    // arguments are both pushed here, but that does not write
-                    // the term twice.
-                    for arg in current_term.arguments() {
-                        if !self.terms.read().contains(&arg) {
-                            self.stack.write().push_back((arg.copy(), false));
-                        }
-                    }
+                    self.queue_arguments(&current_term);
                 }
             } else {
                 // This term was already written and as such should be skipped. This can happen
@@ -320,6 +271,69 @@ impl<W: Write> BinaryATermWriter<W> {
         }
 
         Ok(())
+    }
+
+    /// Writes the body of `current_term` to the stream: the head packet and,
+    /// for a non-integer term, the already-written argument indices. When
+    /// `is_output` the term is the top-level output term and is written down
+    /// as such without being added to the term table.
+    fn write_term_body(&mut self, current_term: &ATermRef<'_>, is_output: bool) -> Result<(), MercError> {
+        if is_int_term(current_term) {
+            let int_term = ATermIntRef::from(current_term.copy());
+            if is_output {
+                // If the integer is output, write the header and just an integer
+                self.stream.write_bits(PacketType::ATermIntOutput as u64, PACKET_BITS)?;
+                self.stream.write_integer(int_term.value() as u64)?;
+            } else {
+                let symbol_index = self.write_function_symbol(&int_term.get_head_symbol())?;
+
+                self.stream.write_bits(PacketType::ATerm as u64, PACKET_BITS)?;
+                self.stream
+                    .write_bits(symbol_index as u64, self.function_symbol_index_width())?;
+                self.stream.write_integer(int_term.value() as u64)?;
+            }
+        } else {
+            let symbol_index = self.write_function_symbol(&current_term.get_head_symbol())?;
+            let packet_type = if is_output {
+                PacketType::ATermOutput
+            } else {
+                PacketType::ATerm
+            };
+
+            self.stream.write_bits(packet_type as u64, PACKET_BITS)?;
+            self.stream
+                .write_bits(symbol_index as u64, self.function_symbol_index_width())?;
+
+            for arg in current_term.arguments() {
+                let index = self.terms.read().index(&arg).expect("Argument must already be written");
+                self.stream.write_bits(*index as u64, self.term_index_width())?;
+            }
+        }
+
+        if !is_output {
+            let (_, inserted) = self.terms.write().insert(current_term.copy());
+            assert!(inserted, "This term should have a new index assigned.");
+            self.term_index_width = bits_for_value(self.terms.read().len());
+        }
+
+        Ok(())
+    }
+
+    /// Marks `current_term` ready for its next visit — once its (not yet
+    /// written) arguments below it on the stack are done — by flipping its
+    /// `write_ready` flag in place, then queues those arguments for
+    /// processing first. Two equal arguments are both pushed here, but that
+    /// does not write the term twice.
+    fn queue_arguments(&mut self, current_term: &ATermRef<'_>) {
+        if let Some(back) = self.stack.write().back_mut() {
+            back.1 = true;
+        }
+
+        for arg in current_term.arguments() {
+            if !self.terms.read().contains(&arg) {
+                self.stack.write().push_back((arg.copy(), false));
+            }
+        }
     }
 }
 
