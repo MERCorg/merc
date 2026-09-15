@@ -24,7 +24,7 @@ use merc_syntax::UntypedStateFrmSpec;
 use merc_syntax::VarId;
 use merc_syntax::VarIdAllocator;
 
-/// Resolves every context-free variable reference in a standalone expression's
+/// Resolves every free variable reference in a standalone expression's
 /// own local binders: every binder `expr` declares is local to `expr` itself,
 /// so resolution starts from an empty [Scope], exactly as it would for a fresh
 /// `var`-block-less equation.
@@ -34,7 +34,7 @@ pub(crate) fn resolve_data_expr_variables(expr: &mut DataExpr) {
     resolve_in_data_expr(expr, &mut scope, &mut ids);
 }
 
-/// Resolves every context-free variable reference in `spec`'s own `var`-block equations.
+/// Resolves every free variable reference in `spec`'s own `var`-block equations.
 pub(crate) fn resolve_data_specification_variables(spec: &mut UntypedDataSpecification) {
     let mut ids = VarIdAllocator::default();
 
@@ -52,7 +52,7 @@ pub(crate) fn resolve_data_specification_variables(spec: &mut UntypedDataSpecifi
     }
 }
 
-/// Resolves every context-free variable reference in `spec`'s `proc` bodies and `init`.
+/// Resolves every free variable reference in `spec`'s `proc` bodies and `init`.
 pub(crate) fn resolve_process_variables(spec: &mut UntypedProcessSpecification) {
     let mut ids = VarIdAllocator::default();
     let globals = Scope::from_declarations(&mut spec.global_variables, &mut ids);
@@ -71,7 +71,7 @@ pub(crate) fn resolve_process_variables(spec: &mut UntypedProcessSpecification) 
     }
 }
 
-/// Resolves every context-free variable reference in `pbes`'s equation bodies and `init`.
+/// Resolves every free variable reference in `pbes`'s equation bodies and `init`.
 pub(crate) fn resolve_pbes_variables(pbes: &mut UntypedPbes) {
     let mut ids = VarIdAllocator::default();
     let globals = Scope::from_declarations(&mut pbes.global_variables, &mut ids);
@@ -87,7 +87,7 @@ pub(crate) fn resolve_pbes_variables(pbes: &mut UntypedPbes) {
     resolve_in_prop_var_inst(&mut pbes.init, &mut scope, &mut ids);
 }
 
-/// Resolves every context-free variable reference in `pres`'s equation bodies and `init`.
+/// Resolves every free variable reference in `pres`'s equation bodies and `init`.
 pub(crate) fn resolve_pres_variables(pres: &mut UntypedPres) {
     let mut ids = VarIdAllocator::default();
     let globals = Scope::from_declarations(&mut pres.global_variables, &mut ids);
@@ -103,7 +103,7 @@ pub(crate) fn resolve_pres_variables(pres: &mut UntypedPres) {
     resolve_in_prop_var_inst(&mut pres.init, &mut scope, &mut ids);
 }
 
-/// Resolves every context-free variable reference in `spec`'s state formula.
+/// Resolves every free variable reference in `spec`'s state formula.
 ///
 /// This pass only decides *which* enclosing binder a name refers to; a fixpoint variable's own
 /// *parameter sorts* still aren't known here.
@@ -174,7 +174,7 @@ fn resolve_in_state_frm(
             scope.pop(pushed);
         }
         StateFrmKind::FixedPoint { variable, body, .. } => {
-            // Each parameter's own initial value is a context-free read of the *outer* scope —
+            // Each parameter's own initial value is a free read of the *outer* scope —
             // the parameter it initializes (and any sibling parameter) isn't bound yet, mirroring
             // `resolve_in_process_expr`'s treatment of an instantiation's assignment value.
             for argument in &mut variable.arguments {
@@ -311,7 +311,7 @@ fn resolve_in_process_expr(expr: &mut ProcessExpr, scope: &mut Scope, ids: &mut 
             }
         }
         ProcessExprKind::Id(_, assignments) => {
-            // Only the assignment's *value* is a context-free variable read.
+            // Only the assignment's *value* is a free variable read.
             for assignment in assignments {
                 resolve_in_data_expr(&mut assignment.expr, scope, ids);
             }

@@ -6,6 +6,7 @@ use merc_collections::IndexedSet;
 use merc_syntax::ConstructorId;
 use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
+use merc_syntax::EqnSpec;
 use merc_syntax::EqnSpecId;
 use merc_syntax::EquationId;
 use merc_syntax::MapId;
@@ -18,23 +19,18 @@ use merc_syntax::UntypedDataSpecification;
 
 use crate::WellTypedError;
 
-/// Assigns unique [TypeVarId]s to all `type_var` declarations, and then resolves all
-/// [SortExpressionKind::TypeVar] nodes to their id. Returns an indexed set that indicates the
-/// mapping from type-variable identifiers to their [TypeVarId]s.
-///
-/// Mirrors [resolve_sort_ids] for the type-variable namespace, and must run before it: a
-/// `type_var`-declared name is already told apart from an ordinary sort reference by the parser
-/// (see `merc_syntax`'s `type_var_binding`, which rewrites `Reference` into `TypeVar` before this
-/// ever runs), so `resolve_sort_ids` never has an occasion to see one.
-pub(crate) fn resolve_type_var_ids(spec: &mut UntypedDataSpecification) -> Result<IndexedSet<String>, WellTypedError> {
+/// Assigns unique [TypeVarId]s to all `type_var` declarations, rewrites every
+/// [SortExpressionKind::Reference] naming one of them into a [SortExpressionKind::TypeVar]
+/// throughout the specification, and then resolves all `TypeVar` nodes to their id. Returns an
+/// indexed set that indicates the mapping from type-variable identifiers to their [TypeVarId]s.
+pub(crate) fn resolve_type_variables(
+    spec: &mut UntypedDataSpecification,
+) -> Result<IndexedSet<String>, WellTypedError> {
     let mut vars = IndexedSet::new();
 
     for (i, decl) in spec.type_var_declarations.iter_mut().enumerate() {
         decl.id = Some(TypeVarId::new(i));
-        debug!(
-            "resolve_type_var_ids: type variable '{}' declared as id {i}",
-            decl.identifier
-        );
+        debug!("type variable '{}' declared as id {i}", decl.identifier);
 
         if !vars.insert(decl.identifier.clone()).1 {
             return Err(WellTypedError::DuplicateTypeVarDeclaration {
@@ -44,9 +40,84 @@ pub(crate) fn resolve_type_var_ids(spec: &mut UntypedDataSpecification) -> Resul
         }
     }
 
+    if !vars.is_empty() {
+        let names: HashSet<&str> = spec
+            .type_var_declarations
+            .iter()
+            .map(|decl| decl.identifier.as_str())
+            .collect();
+
+        for sort in &mut spec.sort_declarations {
+            if let Some(expr) = &mut sort.expr {
+                resolve_type_var_name(expr, &names);
+            }
+        }
+
+        for constructor in &mut spec.constructor_declarations {
+            resolve_type_var_name(&mut constructor.sort, &names);
+        }
+
+        for map in &mut spec.map_declarations {
+            resolve_type_var_name(&mut map.sort, &names);
+        }
+
+        for equation in &mut spec.equation_declarations {
+            resolve_type_var_names_in_equation(equation, &names);
+        }
+    }
+
     apply_sorts_in_spec(spec, |sort| resolve_type_var_id(sort, &vars))?;
 
     Ok(vars)
+}
+
+/// Rewrites every `Reference` in `sort` naming one of `names` into a `TypeVar`.
+fn resolve_type_var_name(sort: &mut SortExpression, names: &HashSet<&str>) {
+    sort.transform(|expr| {
+        if let SortExpressionKind::Reference(name) = &expr.node
+            && names.contains(name.as_str())
+        {
+            expr.node = SortExpressionKind::TypeVar(name.clone());
+        }
+    });
+}
+
+/// Rewrites the binder sorts of a single `var ... eqn ...` block: its declared
+/// variables and its equations' conditions, left- and right-hand sides.
+fn resolve_type_var_names_in_equation(equation: &mut EqnSpec, names: &HashSet<&str>) {
+    for var in &mut equation.variables {
+        resolve_type_var_name(&mut var.sort, names);
+    }
+
+    for eqn in &mut equation.equations {
+        if let Some(condition) = &mut eqn.condition {
+            resolve_type_var_names_in_expr(condition, names);
+        }
+
+        resolve_type_var_names_in_expr(&mut eqn.lhs, names);
+        resolve_type_var_names_in_expr(&mut eqn.rhs, names);
+    }
+}
+
+/// See [resolve_type_var_name]; applied to every binder sort (lambda, quantifier and set/bag
+/// comprehension variables) inside a data expression.
+fn resolve_type_var_names_in_expr(expr: &mut DataExpr, names: &HashSet<&str>) {
+    expr.transform(|expr| match &mut expr.node {
+        DataExprKind::Lambda { variables, body: _ }
+        | DataExprKind::Quantifier {
+            op: _,
+            variables,
+            body: _,
+        } => {
+            for variable in variables {
+                resolve_type_var_name(&mut variable.sort, names);
+            }
+        }
+        DataExprKind::SetBagComp { variable, predicate: _ } => {
+            resolve_type_var_name(&mut variable.sort, names);
+        }
+        _ => {}
+    });
 }
 
 /// Rewrites every `TypeVar` node of `sort` to `ResolvedTypeVar(TypeVarId)` using the type-variable
@@ -83,7 +154,7 @@ pub(crate) fn resolve_sort_ids(spec: &mut UntypedDataSpecification) -> Result<In
         .retain(|decl| seen.insert((decl.identifier.clone(), decl.expr.clone())));
     if spec.sort_declarations.len() < before {
         debug!(
-            "resolve_sort_ids: deduplicated {} identical sort declaration(s)",
+            "deduplicated {} identical sort declaration(s)",
             before - spec.sort_declarations.len()
         );
     }
@@ -94,7 +165,7 @@ pub(crate) fn resolve_sort_ids(spec: &mut UntypedDataSpecification) -> Result<In
     // Assign unique IDs to all sort declarations
     for (i, sort) in spec.sort_declarations.iter_mut().enumerate() {
         sort.id = Some(SortId::new(i));
-        debug!("resolve_sort_ids: sort '{}' declared as id {i}", sort.identifier);
+        debug!("sort '{}' declared as id {i}", sort.identifier);
 
         if !sorts.insert(sort.identifier.clone()).1 {
             return Err(WellTypedError::DuplicateSortDeclaration {
