@@ -149,7 +149,7 @@ impl Mcrl2Parser {
             }
         }
 
-        let mut data_specification = UntypedDataSpecification {
+        let data_specification = UntypedDataSpecification {
             map_declarations,
             constructor_declarations,
             equation_declarations,
@@ -480,7 +480,7 @@ impl Mcrl2Parser {
             }
         }
 
-        let mut data_specification = UntypedDataSpecification {
+        let data_specification = UntypedDataSpecification {
             map_declarations,
             equation_declarations,
             constructor_declarations,
@@ -533,7 +533,7 @@ impl Mcrl2Parser {
             }
         }
 
-        let mut data_specification = UntypedDataSpecification {
+        let data_specification = UntypedDataSpecification {
             map_declarations,
             equation_declarations,
             constructor_declarations,
@@ -1403,7 +1403,7 @@ impl Mcrl2Parser {
             }
         }
 
-        let mut data_specification = UntypedDataSpecification {
+        let data_specification = UntypedDataSpecification {
             map_declarations,
             equation_declarations,
             constructor_declarations,

@@ -537,7 +537,7 @@ impl DataSpecification {
         // `expr`'s own binders (a `lambda`/`forall`/`exists`/comprehension/`whr`) each already
         // carry their own `VarId` and declaring span after resolution above; collected here, from
         // `expr` itself, before `lower_data_expr` below consumes it.
-        let mut variable_spans = VariableSpans::new();
+        let mut variable_spans = VariableSpans::default();
         typing_info::collect_data_expr_variable_declarations(&expr, &mut variable_spans);
 
         // The built-in operator nodes (`x + y`, `[x, y]`, `f[x -> y]`) become

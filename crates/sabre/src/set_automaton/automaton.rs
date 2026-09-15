@@ -784,9 +784,10 @@ fn variables_occur_in_lhs(rule: &Rule) -> bool {
     if !all_variables_occur_in(&rule.rhs, &lhs_variables, rule) {
         return false;
     }
-    
+
     for cond in &rule.conditions {
-        if !all_variables_occur_in(&cond.lhs, &lhs_variables, rule) || !all_variables_occur_in(&cond.rhs, &lhs_variables, rule)
+        if !all_variables_occur_in(&cond.lhs, &lhs_variables, rule)
+            || !all_variables_occur_in(&cond.rhs, &lhs_variables, rule)
         {
             return false;
         }

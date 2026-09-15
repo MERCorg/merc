@@ -1646,44 +1646,9 @@ impl Solver<'_> {
         let Some(&source) = sources.get(i) else {
             return self.solve(index + 1);
         };
-
-        // Equality first: it ranks strictly better than any widening.
-        let snapshot = self.unifier.snapshot();
-        let mut found = false;
-        if self.unifier.unify(self.sorts, source, target) {
-            self.measure.push(0);
-            found = self.solve_join_seq(sources, target, i + 1, index);
-            self.measure.pop();
-        }
-        self.unifier.rollback_to(snapshot);
-        if found {
-            return true;
-        }
-
-        // Then the strict widenings, nearest first (a concrete source upcast,
-        // or a concrete target met from below).
-        let pairs: Vec<(InferSortId, InferSortId)> =
-            if let Some(supers) = self.unifier.strict_super_sorts(self.sorts, source) {
-                supers.into_iter().map(|wider| (wider, target)).collect()
-            } else if let Some(subsorts) = self.unifier.strict_sub_sorts(self.sorts, target) {
-                subsorts.into_iter().map(|narrower| (source, narrower)).collect()
-            } else {
-                return false;
-            };
-        for (distance, (lhs, rhs)) in pairs.into_iter().enumerate() {
-            let snapshot = self.unifier.snapshot();
-            let mut found = false;
-            if self.unifier.unify(self.sorts, lhs, rhs) {
-                self.measure.push(1 + distance as u8);
-                found = self.solve_join_seq(sources, target, i + 1, index);
-                self.measure.pop();
-            }
-            self.unifier.rollback_to(snapshot);
-            if found {
-                return true;
-            }
-        }
-        false
+        self.solve_widening(source, target, |this| {
+            this.solve_join_seq(sources, target, i + 1, index)
+        })
     }
 
     /// Branch-and-bound pruning: whether the measure accumulated so far is
@@ -1754,14 +1719,32 @@ impl Solver<'_> {
     }
 
     fn solve_sub(&mut self, sub: &SubConstraint, index: usize) -> bool {
-        // Equality first: it ranks strictly better than any widening, so when
-        // it admits a solution the widening choices cannot improve on it and
-        // are not explored.
+        self.solve_widening(sub.lhs, sub.rhs, |this| this.solve(index + 1))
+    }
+
+    /// Tries to make `lhs` a subsort of `rhs` — equality first (it ranks strictly better than any
+    /// widening, so when it admits a solution the widening choices cannot improve on it and are
+    /// not explored), then the strict widenings ranked by distance, nearest first (ranking them
+    /// all equally would misreport e.g. a `Pos` argument to `mod` as ambiguous between its `Nat`
+    /// and `Int` overloads; the minimal upcast is taken instead) — a concrete `lhs` may be upcast,
+    /// or a concrete `rhs` met from below; two unbound variables admit no enumeration and fail.
+    /// Calls `continue_with` after each tentative unification, pushing/popping the resulting
+    /// measure component around it and rolling the unifier back before the next attempt; the pairs
+    /// are ordered nearest first, so the first success from `continue_with` is the best this pair
+    /// can contribute and the rest need not be explored. Shared by [Self::solve_sub] (a single
+    /// `Sub` constraint) and [Self::solve_join_seq] (the fallback enumeration when a lattice join
+    /// has no fast-path solution).
+    fn solve_widening(
+        &mut self,
+        lhs: InferSortId,
+        rhs: InferSortId,
+        mut continue_with: impl FnMut(&mut Self) -> bool,
+    ) -> bool {
         let snapshot = self.unifier.snapshot();
         let mut found = false;
-        if self.unifier.unify(self.sorts, sub.lhs, sub.rhs) {
+        if self.unifier.unify(self.sorts, lhs, rhs) {
             self.measure.push(0);
-            found = self.solve(index + 1);
+            found = continue_with(self);
             self.measure.pop();
         }
         self.unifier.rollback_to(snapshot);
@@ -1769,29 +1752,21 @@ impl Solver<'_> {
             return true;
         }
 
-        // Otherwise enumerate the strict widenings: a concrete lhs may be
-        // upcast, or a concrete rhs met from below. Two unbound variables
-        // admit no enumeration and fail.
         let pairs: Vec<(InferSortId, InferSortId)> =
-            if let Some(supers) = self.unifier.strict_super_sorts(self.sorts, sub.lhs) {
-                supers.into_iter().map(|wider| (wider, sub.rhs)).collect()
-            } else if let Some(subsorts) = self.unifier.strict_sub_sorts(self.sorts, sub.rhs) {
-                subsorts.into_iter().map(|narrower| (sub.lhs, narrower)).collect()
+            if let Some(supers) = self.unifier.strict_super_sorts(self.sorts, lhs) {
+                supers.into_iter().map(|wider| (wider, rhs)).collect()
+            } else if let Some(subsorts) = self.unifier.strict_sub_sorts(self.sorts, rhs) {
+                subsorts.into_iter().map(|narrower| (lhs, narrower)).collect()
             } else {
                 return false;
             };
 
-        // Widenings rank by distance (ranking them all equally would misreport
-        // e.g. a `Pos` argument to `mod` as ambiguous between its `Nat` and
-        // `Int` overloads; the minimal upcast is taken instead). The pairs
-        // are ordered nearest first, so the first success is the best this
-        // constraint can contribute and the rest need not be explored.
         for (distance, (lhs, rhs)) in pairs.into_iter().enumerate() {
             let snapshot = self.unifier.snapshot();
             let mut found = false;
             if self.unifier.unify(self.sorts, lhs, rhs) {
                 self.measure.push(1 + distance as u8);
-                found = self.solve(index + 1);
+                found = continue_with(self);
                 self.measure.pop();
             }
             self.unifier.rollback_to(snapshot);

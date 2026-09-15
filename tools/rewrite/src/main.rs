@@ -173,6 +173,16 @@ fn read_expressions(path: Option<&Path>) -> Result<Vec<String>, MercError> {
         .collect())
 }
 
+/// Type checks `spec`, rendering a well-typedness error against `sources` (populated by whichever
+/// `parse_with_imports` call produced `spec`) into a plain [MercError].
+fn typecheck_or_render(
+    spec: UntypedDataSpecification,
+    encoding: NumberEncoding,
+    sources: &mut SourceMap,
+) -> Result<DataSpecification, MercError> {
+    DataSpecification::from_untyped_with(spec, encoding, sources).map_err(|err| err.render(sources).into())
+}
+
 /// Parses, type checks and lowers one mCRL2 data expression against `spec`,
 /// rendering a parse or type error against the expression text itself.
 fn typecheck_expression(spec: &mut DataSpecification, text: &str) -> Result<DataExpression, MercError> {
@@ -233,11 +243,7 @@ fn run_rewrite(args: RewriteArgs, timing: &Timing) -> Result<(), MercError> {
             let (untyped_spec, _import_graph) =
                 UntypedDataSpecification::parse_with_imports(&args.specification, &mut sources)?;
 
-            let mut data_spec =
-                match DataSpecification::from_untyped_with(untyped_spec, NumberEncoding::default(), &mut sources) {
-                    Ok(data_spec) => data_spec,
-                    Err(err) => return Err(err.render(&sources).into()),
-                };
+            let mut data_spec = typecheck_or_render(untyped_spec, NumberEncoding::default(), &mut sources)?;
 
             // Every term is type checked and lowered against the
             // same specification the rules come from, so the two
@@ -292,10 +298,7 @@ fn run_check(args: CheckArgs) -> Result<(), MercError> {
         println!("{untyped_spec}");
     }
 
-    let data_spec = match DataSpecification::from_untyped_with(untyped_spec, NumberEncoding::default(), &mut sources) {
-        Ok(data_spec) => data_spec,
-        Err(err) => return Err(err.render(&sources).into()),
-    };
+    let data_spec = typecheck_or_render(untyped_spec, NumberEncoding::default(), &mut sources)?;
 
     if show_all || args.ir {
         println!("=== IR (resolved user declarations) ===\n");
