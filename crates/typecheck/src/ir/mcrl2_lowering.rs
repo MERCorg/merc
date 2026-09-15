@@ -39,6 +39,7 @@ use crate::ResolvedSortId;
 use crate::TypeCheckContext;
 use crate::assign_declaration_ids;
 use crate::build_system_defined_specification;
+use crate::check_equation_well_formedness;
 use crate::check_multi_argument_function_update_template;
 use crate::check_system_equations;
 use crate::check_system_specification;
@@ -150,8 +151,7 @@ fn container_coerce(term: DataExpression, op: ComplexSort, element: DataSortExpr
 /// binary format uses: `Primitive`/`Generic`/`Function` recurse structurally
 /// onto `BasicSort`/`SortCons`/`SortArrow`, and `Def` resolves to its declared
 /// name via [TypeCheckContext::sort_display_name] — a user sort or a
-/// system-internal one alike, both declared in `spec` (see
-/// `docs/typecheck.md`'s `DefId`-offset milestone), or a synthesized
+/// system-internal one alike, both declared in `spec`, or a synthesized
 /// placeholder as a last resort: a nominal sort's identity *is* its declared
 /// name for the binary schema.
 #[allow(dead_code)]
@@ -914,11 +914,11 @@ pub(crate) fn lower_data_specification(
     encoding: NumberEncoding,
 ) -> Mcrl2DataSpecification {
     // `@NatPair`/`@word` share `spec.sort_declarations` with the user's own sorts (folded in by
-    // `DataSpecification::from_untyped_with` so they get a real `SortId` from the same pass — see
-    // `docs/typecheck.md`'s `DefId`-offset milestone), but the lowered aterm's own `sorts()` must
-    // stay exactly what the user declared: the mCRL2 toolset never declares them as a `sort` in its
-    // own output either, treating them as an implementation detail baked into `Nat`/`@word`'s own
-    // constructor and mapping signatures instead. Told apart by the reserved `@`-name convention
+    // `DataSpecification::from_untyped_with` so they get a real `SortId` from the same pass), but
+    // the lowered aterm's own `sorts()` must stay exactly what the user declared: the mCRL2 toolset
+    // never declares them as a `sort` in its own output either, treating them as an implementation
+    // detail baked into `Nat`/`@word`'s own constructor and mapping signatures instead. Told apart
+    // by the reserved `@`-name convention
     // system-generated declarations use, the same one `typing_info::sort_declaration_by_id` relies
     // on.
     let sorts: Vec<BasicSort> = spec
@@ -1040,8 +1040,7 @@ pub(crate) fn lower_data_specification(
 
     // Every container/function-update/comparison instantiation the
     // specification actually uses is monomorphized here, for this call only,
-    // rather than during type-checking — see `docs/typecheck.md`'s
-    // monomorphization-to-lowering milestone. `ctx` itself proved every
+    // rather than during type-checking. `ctx` itself proved every
     // template's own equations exactly once, rigidly
     // (`check_container_templates`/`check_comparison_template`, run during
     // `from_untyped_with`); a scratch clone absorbs the work still needed
@@ -1057,7 +1056,11 @@ pub(crate) fn lower_data_specification(
     // so seeding with a second copy here would duplicate them in the output.
     // `build_system_defined_specification`'s worklist only ever scans `spec`
     // to decide what to generate, never its own seed, so an empty seed
-    // changes nothing about *which* instantiations it discovers.
+    // changes nothing about *which* instantiations it discovers — except for
+    // `Nat`/`@word`, which `add_numeric_basic_sort_dependencies` seeds
+    // unconditionally whenever `Pos`/`Int`/`Real` is used, since `basics`'s
+    // own equations for those depend on `Nat`/`@word` internally regardless
+    // of what `spec` says.
     let (generated, instantiations) = build_system_defined_specification(
         &mut scratch_sources,
         spec,
@@ -1072,18 +1075,24 @@ pub(crate) fn lower_data_specification(
     resolve_data_specification_variables(&mut generated);
 
     // A cheap sanity net over the generated content (see
-    // `check_system_specification`'s own doc comment) — checked against
-    // `system`'s own declarations too (cloned in, not `generated` alone), so
-    // a container equation referencing a basic-sort operator by name (e.g.
-    // `+`) resolves correctly; `system` itself is left untouched; only
-    // `generated`'s own content is ever lowered below, so this never
-    // duplicates `system`'s content in the output. Should never fail for a
-    // well-formed template: a failure here is a bug in the generator, not in
-    // the user's specification (already fully checked before this call), so
-    // it panics rather than threading a `Result` through lowering.
+    // `check_system_specification`'s own doc comment), run before any of the
+    // lowering work below — lowering is only ever reached for the actual
+    // rewriter, so this is the one place nothing else checks `generated` — a
+    // generator bug should fail here, not surface as a silently wrong
+    // rewrite rule further down. Checked against `system`'s own declarations
+    // too (cloned in, not `generated` alone), so a container equation
+    // referencing a basic-sort operator by name (e.g. `+`) resolves
+    // correctly; `system` itself is left untouched; only `generated`'s own
+    // content is ever lowered below, so this never duplicates `system`'s
+    // content in the output. Should never fail for a well-formed template: a
+    // failure here is a bug in the generator, not in the user's
+    // specification (already fully checked before this call), so both checks
+    // panic rather than threading a `Result` through lowering.
     let mut check_target = system.clone();
     check_target.merge(&generated);
     check_system_specification(spec, &check_target)
+        .unwrap_or_else(|err| panic!("the generated system-defined specification is malformed: {err}"));
+    check_equation_well_formedness(&check_target)
         .unwrap_or_else(|err| panic!("the generated system-defined specification is malformed: {err}"));
 
     assign_declaration_ids(&mut generated);

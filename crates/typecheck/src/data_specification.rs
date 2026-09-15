@@ -43,7 +43,6 @@ use crate::check_equations;
 use crate::check_no_system_function_redeclaration;
 use crate::check_products_within_domains;
 use crate::check_system_equations;
-use crate::check_system_specification;
 use crate::desugar_structured_sorts;
 use crate::filter_signature;
 use crate::hoist_anonymous_structs;
@@ -63,8 +62,7 @@ use crate::resolve_sort_id;
 use crate::resolve_sort_ids;
 use crate::resolve_system_signature;
 use crate::resolve_system_signature_full;
-use crate::resolve_type_var_ids;
-use crate::resolve_type_vars;
+use crate::resolve_type_variables;
 use crate::structured_sort_equations;
 use crate::typed_equation_string;
 use crate::typing_info;
@@ -107,7 +105,7 @@ impl DataSpecification {
         sources: &mut SourceMap,
     ) -> Result<Self, WellTypedError> {
         debug!(
-            "typecheck: starting on {} sort, {} constructor, {} map and {} equation declaration(s)",
+            "starting on {} sort, {} constructor, {} map and {} equation declaration(s)",
             spec.sort_declarations.len(),
             spec.constructor_declarations.len(),
             spec.map_declarations.len(),
@@ -121,7 +119,7 @@ impl DataSpecification {
         // Hoist anonymous structured sorts into fresh named declarations.
         hoist_anonymous_structs(&mut spec);
         debug!(
-            "typecheck: hoisted anonymous structs; {} sort declaration(s) remain",
+            "hoisted anonymous structs; {} sort declaration(s) remain",
             spec.sort_declarations.len()
         );
 
@@ -130,15 +128,16 @@ impl DataSpecification {
         })
         .expect("The inner function never fails");
 
-        resolve_type_vars(&mut spec);
-
-        // Assign ids to `type_var` declarations and resolve every `TypeVar` node to its id.
-        resolve_type_var_ids(&mut spec)?;
-        debug!("typecheck: resolved type variable name(s)");
+        // Assign ids to `type_var` declarations and resolve every reference to one to its id.
+        resolve_type_variables(&mut spec)?;
+        debug!("resolved type variable name(s)");
 
         // `basics` depends only on `encoding`, not on `spec`'s own content, so
         // it can be built before name resolution. Only add the non-basic sorts
-        // from `basics` to `spec`.
+        // from `basics` to `spec`: `Bool`/`Pos`/`Nat`/`Int`/`Real` keep their
+        // dedicated `ResolvedSort::Primitive` representation instead of a nominal
+        // `SortId`, since that's what carries the `Pos <= Nat <= Int <= Real`
+        // subtyping lattice.
         let mut basics = basic_sort_data_specification(sources, encoding);
         spec.sort_declarations.extend(
             basics
@@ -150,9 +149,9 @@ impl DataSpecification {
 
         // The returned sorts are only used for lookup cycles.
         let sorts = resolve_sort_ids(&mut spec)?;
-        debug!("typecheck: resolved {} sort name(s)", sorts.len());
+        debug!("resolved {} sort name(s)", sorts.len());
 
-        // `basics`'s own declarations reference `@NatPair`/`@word` by bare name.
+        // Resolve the same sort names in `basics` as were resolved in `spec`.
         apply_sorts_in_spec(&mut basics, |sort| resolve_sort_id(sort, &sorts))?;
 
         // Alias checks still need to see the structured sorts, so we perform them before desugaring.
@@ -174,7 +173,7 @@ impl DataSpecification {
         // recognisers and projections.
         let structs = desugar_structured_sorts(&mut spec);
         debug!(
-            "typecheck: desugared {} structured sort(s) into {} constructor(s)",
+            "desugared {} structured sort(s) into {} constructor(s)",
             structs.len(),
             structs.iter().map(Vec::len).sum::<usize>()
         );
@@ -187,30 +186,30 @@ impl DataSpecification {
         // as the user wrote them.
         let mut context = TypeCheckContext::new();
         build_signature(&mut context, &spec)?;
-        debug!("typecheck: signature checks passed");
+        debug!("signature checks passed");
 
         // Every sort-name reference `spec`'s own declarations make.
         let sort_references = typing_info::collect_data_specification_sort_references(&spec);
-        debug!("typecheck: collected {} sort-name reference(s)", sort_references.len());
+        debug!("collected {} sort-name reference(s)", sort_references.len());
 
         // Expand aliases to a canonical form now that they are known to be
         // acyclic.
         normalize_sorts(&mut spec);
-        debug!("typecheck: normalized alias indirection");
+        debug!("normalized alias indirection");
 
-        // Safety net over the normalized spec:.
+        // Additional well-typedness checks over the normalized spec.
         is_well_typed(&spec)?;
-        debug!("typecheck: well-typedness checks passed");
+        debug!("well-typedness checks passed");
 
         // Lower the built-in operator nodes in the user equations to named
         // applications.
         lower_data_expressions(&mut spec);
-        debug!("typecheck: lowered the user equations");
+        debug!("lowered the user equations");
 
         // The system-defined part of type-checking is deliberately narrow now:
         // `system` holds only `basics` (the five basic sorts, always present.
         check_no_system_function_redeclaration(&spec, &basics)?;
-        debug!("typecheck: no user declaration redeclares a system function");
+        debug!("no user declaration redeclares a system function");
 
         let mut system = basics.clone();
 
@@ -238,8 +237,8 @@ impl DataSpecification {
             struct_ranges.push((start..end, constructor_names, mapping_names));
         }
 
-        // A struct's own equations are generated as fresh source text and
-        // re-parsed.
+        // A struct's own equations are generated as fresh source text, and so
+        // sort ids must be resolved.
         apply_sorts_in_spec(&mut system, |sort| resolve_sort_id(sort, &sorts))?;
 
         // The system equations parse with the same operator nodes, so they are
@@ -247,7 +246,7 @@ impl DataSpecification {
         lower_data_expressions(&mut system);
 
         debug!(
-            "typecheck: built the base system-defined specification with {} sort, {} map and {} equation \
+            "built the base system-defined specification with {} sort, {} map and {} equation \
              declaration(s)",
             system.sort_declarations.len(),
             system.map_declarations.len(),
@@ -258,29 +257,26 @@ impl DataSpecification {
         // the same lattice, so Phase-3 inference sees the overload sets of the
         // built-in operators.
         resolve_system_signature(&mut context, &spec, &basics)?;
-        debug!("typecheck: resolved the system signature");
+        debug!("resolved the system signature");
 
         // Type checks every container/function-update template's own
         // equations once.
         check_container_templates(&mut context, encoding)?;
         // Comparison-operator equations are checked the same way.
         check_comparison_template(&mut context)?;
-        debug!("typecheck: container template equations passed the rigid check");
+        debug!("container template equations passed the rigid check");
 
         // Inference over every user equation; an equation binding
         // a variable through an invalid sort (a bare product) is rejected here.
         check_equations(&mut context, &spec, &system)?;
-        debug!("typecheck: inference finished; the specification is well-typed");
+        debug!("inference finished; the specification is well-typed");
 
         // Ties every system equation's own variable occurrences to its `var`-block declaration.
         resolve_data_specification_variables(&mut system);
 
-        // Unconditional in every build (not a debug_assert!): silently trusting
-        // a malformed generated spec in release would leave a rewrite spec
-        // quietly missing rules.
-        check_system_specification(&spec, &system)?;
+        is_well_typed(&system)?;
         debug!(
-            "typecheck: final system-defined specification has {} sort, {} map and {} equation declaration(s)",
+            "final system-defined specification has {} sort, {} map and {} equation declaration(s)",
             system.sort_declarations.len(),
             system.map_declarations.len(),
             system.equation_declarations.len()
@@ -309,12 +305,12 @@ impl DataSpecification {
                     .insert(EqnSpecId::new(i), Arc::clone(&signature));
             }
         }
-        debug!("typecheck: resolved the system-equation signatures");
+        debug!("resolved the system-equation signatures");
 
         // `system` at this point holds only `basics` and the desugared
         // structs' own equations).
         check_system_equations(&mut context, &spec, &system, &[])?;
-        debug!("typecheck: system-equation inference finished; the system specification is well-typed");
+        debug!("system-equation inference finished; the system specification is well-typed");
 
         Ok(Self {
             spec,
@@ -1177,9 +1173,8 @@ mod tests {
         assert_eq!(
             spec.to_typed_string(),
             // `@NatPair` is the one system-internal nominal sort folded into the
-            // shared `sort_declarations` table alongside the user's own (see
-            // `docs/typecheck.md`'s `DefId`-offset milestone) — present here
-            // regardless of whether this spec ever uses it.
+            // shared `sort_declarations` table alongside the user's own, present
+            // here regardless of whether this spec ever uses it.
             "sort\n\
              \u{20}  Signal;\n\
              \u{20}  Message;\n\

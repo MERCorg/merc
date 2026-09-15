@@ -15,18 +15,14 @@ use crate::apply_sorts_in_spec;
 /// Normalizes every sort in `spec` to a canonical form by expanding aliases.
 ///
 /// A non-structured alias (`sort D = Nat;`, `sort L = List(D);`) is replaced by
-/// its recursively normalized definition, so an alias and the sort it stands for
-/// become indistinguishable and sort equality is structural. A structured-sort
-/// alias is instead its own representative and keeps its name, because
-/// structured sorts are identified by name and because expanding a recursive
-/// `struct` would not terminate.
+/// its recursively normalized definition, so an alias and the sort it stands
+/// for become indistinguishable and sort equality is structural. A
+/// structured-sort alias is instead its own representative and keeps its name,
+/// because structured sorts are identified by name and because expanding a
+/// recursive `struct` would not terminate.
 ///
 /// Terminates on every specification that
-/// [`check_aliases`](super::alias::check_aliases) accepts. The `visited` stack
-/// keeps any alias reached again during its own expansion as a named
-/// representative, so a cycle is never unfolded — including a cycle that closes
-/// through an inline `struct`, which `check_aliases` permits (recursion through
-/// a constructor is well-defined) but which would otherwise diverge here.
+/// [`check_aliases`](super::alias::check_aliases) accepts.
 pub(crate) fn normalize_sorts(spec: &mut UntypedDataSpecification) {
     // Clone the alias right-hand sides so the rewrite can borrow `spec` mutably
     // while still consulting the alias map.

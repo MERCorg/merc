@@ -237,16 +237,14 @@ fn test_list_mismatched_variable_sorts_rejected() {
     // `FSet(S) <= Set(S)`), so `List(Pos)` and `List(Nat)` are simply
     // incomparable, both under `++` and `==`. mCRL2:
     // test_list_pos_concat_list_nat, test_list_is_list_nat.
-    let err = check_err(
-        "map r: List(Pos) # List(Nat) -> List(Nat); var x: List(Pos); y: List(Nat); eqn r(x, y) = x ++ y;",
-    );
+    let err =
+        check_err("map r: List(Pos) # List(Nat) -> List(Nat); var x: List(Pos); y: List(Nat); eqn r(x, y) = x ++ y;");
     assert!(
         matches!(err, WellTypedError::Inference(InferenceError::NoTyping { .. })),
         "{err}"
     );
-    let err = check_err(
-        "map b: List(Pos) # List(Nat) -> Bool; var x: List(Pos); y: List(Nat); eqn b(x, y) = (x == y);",
-    );
+    let err =
+        check_err("map b: List(Pos) # List(Nat) -> Bool; var x: List(Pos); y: List(Nat); eqn b(x, y) = (x == y);");
     assert!(
         matches!(err, WellTypedError::Inference(InferenceError::NoTyping { .. })),
         "{err}"
@@ -928,7 +926,9 @@ fn test_improvement_ranked_overload_through_list_literal() {
     // merc ranks the exact overload. Same limitation as
     // test_ambiguous_function_application_recursive, but the disambiguating
     // context is a container literal rather than a function application.
-    check_ok("map h: List(Nat) -> Bool; f: Pos -> Nat; f: Pos -> Pos; b: Pos -> Bool; var x: Pos; eqn b(x) = h([f(x)]);");
+    check_ok(
+        "map h: List(Nat) -> Bool; f: Pos -> Nat; f: Pos -> Pos; b: Pos -> Bool; var x: Pos; eqn b(x) = h([f(x)]);",
+    );
 }
 
 #[test]

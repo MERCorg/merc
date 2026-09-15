@@ -13,8 +13,8 @@ use crate::WellTypedError;
 use crate::builtin_scheme_names;
 use crate::check_products_within_domains;
 
-/// Verifies that the generated system-defined specification is internally
-/// well-formed.
+/// Verifies that the generated system-defined specification's sorts and
+/// names are internally well-formed.
 ///
 /// Checked, for every declaration and equation of `system`:
 ///
@@ -23,15 +23,20 @@ use crate::check_products_within_domains;
 ///   indexes a user sort declaration;
 /// - product sorts occur only as function domains, and no structured sort
 ///   survives.
-/// - no `var` block declares a variable twice;
 /// - every name in an equation resolves: to a binder or equation variable, a
-///   constructor or mapping of `system` or `user_spec`, or a builtin scheme;
-/// - the free variables of an equation's condition and right-hand side occur in
-///   its left-hand side, so every rule is executable by rewriting.
+///   constructor or mapping of `system` or `user_spec`, or a builtin scheme.
+///
+/// The equation-block rules of 15.1.7 that don't need this function's
+/// undeclared-name context — no duplicate `var`-block variable, and every
+/// condition/right-hand-side variable occurring on the left-hand side — are
+/// not this function's job: callers run the shared
+/// `check_equation_well_formedness` for those, the same one the user's own
+/// specification is checked with, rather than this function keeping its own
+/// copy.
 ///
 /// The signature-level rules of `build_signature` (no constructor for a function or basic sort,
 /// constructor/mapping disjointness, no zero-arity symbol under two different sorts) are not this
-/// function's job any more: `resolve_system_signature` now runs `push_declarations` — the same
+/// function's job either: `resolve_system_signature` now runs `push_declarations` — the same
 /// checks `build_signature` runs for the user's own declarations, `trusted` — directly over
 /// `system`'s constructor/mapping declarations (in practice always exactly `basics`'s own set: a
 /// struct's own constructor/projection/recogniser are *user* declarations from its `sort D = struct
@@ -90,30 +95,17 @@ pub(crate) fn check_system_specification(
     for eqn_spec in &system.equation_declarations {
         let mut variables = HashSet::new();
         for variable in &eqn_spec.variables {
-            if !variables.insert(variable.identifier.as_str()) {
-                return Err(WellTypedError::DuplicateEquationVariable {
-                    variable: variable.identifier.node.clone(),
-                    span: variable.identifier.span.clone(),
-                });
-            }
+            variables.insert(variable.identifier.as_str());
             checker.check_sort(&variable.sort)?;
         }
 
         for equation in &eqn_spec.equations {
             let mut scope = Vec::new();
-            let mut lhs_variables = HashSet::new();
-            checker.check_expr(&equation.lhs, &variables, &mut scope, &mut lhs_variables)?;
-
             let mut used = HashSet::new();
+            checker.check_expr(&equation.lhs, &variables, &mut scope, &mut used)?;
             checker.check_expr(&equation.rhs, &variables, &mut scope, &mut used)?;
             if let Some(condition) = &equation.condition {
                 checker.check_expr(condition, &variables, &mut scope, &mut used)?;
-            }
-
-            if let Some(unbound) = used.iter().find(|name| !lhs_variables.contains(*name)) {
-                return Err(custom(format!(
-                    "the variable '{unbound}' of the system equation '{equation}' does not occur in its left-hand side"
-                )));
             }
         }
     }
@@ -344,33 +336,20 @@ mod tests {
         assert!(err.to_string().contains("'g'"), "{err}");
     }
 
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_unbound_right_hand_side_variable_is_rejected() {
-        let err = check_broken("map f: Nat -> Nat; var n, m: Nat; eqn f(n) = m;");
-        assert!(err.to_string().contains("'m'"), "{err}");
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_unbound_condition_variable_is_rejected() {
-        let err = check_broken("map f: Nat -> Nat; var n, m: Nat; eqn m < n -> f(n) = n;");
-        assert!(err.to_string().contains("'m'"), "{err}");
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_duplicate_equation_variable_is_rejected() {
-        let err = check_broken("map f: Bool; var b: Bool; b: Nat; eqn f = b;");
-        assert!(matches!(err, WellTypedError::DuplicateEquationVariable { .. }), "{err}");
-    }
+    // Duplicate `var`-block variables are no longer this function's job — see
+    // its doc comment — and are instead covered, on this same system-shaped
+    // equation text, by `is_well_typed.rs`'s
+    // `test_system_shaped_duplicate_equation_variable_is_rejected` for the
+    // now-shared `check_equation_well_formedness`. Unbound right-hand-side/
+    // condition variables are not a type-checking concern at all any more —
+    // see `merc_sabre::set_automaton::automaton::variables_occur_in_lhs`.
 
     #[test]
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
     fn test_binders_bind_and_shadow() {
-        // `n` is bound by the quantifier rather than free, and the lambda's
-        // `b` shadows the equation variable, so neither trips the free-variable
-        // check on the right-hand side.
+        // `n` is bound by the quantifier and the lambda's `b` shadows the
+        // equation variable; neither should be reported as an undeclared
+        // name by the scope tracking `check_expr` does.
         let system = UntypedDataSpecification::parse(
             "map f: Bool -> Bool; var b: Bool; eqn f(b) = forall n: Nat. (lambda b: Bool. b)(b == (n == n));",
         )

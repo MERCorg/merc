@@ -22,6 +22,7 @@ pub(crate) fn lower_data_expressions(spec: &mut UntypedDataSpecification) {
             if let Some(condition) = &mut equation.condition {
                 lower_in_place(condition);
             }
+
             lower_in_place(&mut equation.lhs);
             lower_in_place(&mut equation.rhs);
         }

@@ -304,9 +304,7 @@ fn run_check(args: CheckArgs) -> Result<(), MercError> {
         // Basic sorts and desugared structs only: a container/
         // function-update/comparison instantiation is generated at
         // lowering time now, not during type-checking, so it only
-        // shows up under `--lowered` below, not here — see
-        // `docs/typecheck.md`'s monomorphization-to-lowering
-        // milestone.
+        // shows up under `--lowered` below, not here.
         println!("=== IR (system-defined declarations, unmonomorphized) ===\n");
         println!("{}", data_spec.system_defined_specification());
     }

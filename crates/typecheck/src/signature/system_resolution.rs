@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use merc_syntax::TypeVarId;
 use merc_syntax::UntypedDataSpecification;
 
 use crate::BUILTIN_SCHEME_TEMPLATE;
@@ -18,9 +17,9 @@ use crate::resolve_sort;
 /// Resolves the constructor and mapping declarations of the *basic-sort* part
 /// of the system-defined specification onto the interned sort lattice, merging
 /// them into `ctx.signature` (the same pooled signature the user's own
-/// declarations resolve through — see `docs/typecheck.md`'s trusted-signature
-/// milestone) — so a name like `succ`/`&&`/`@c0` is one more overload set in
-/// the one table `gen_name` searches, not a second signature to fall back to.
+/// declarations resolve through) — so a name like `succ`/`&&`/`@c0` is one
+/// more overload set in the one table `gen_name` searches, not a second
+/// signature to fall back to.
 ///
 /// `system` must be the *basic-sort* specification ([`basic_sort_data_specification`](crate::basic_sort_data_specification)),
 /// not the full system-defined specification `build_system_defined_specification`
@@ -60,16 +59,7 @@ pub(crate) fn resolve_system_signature(
     let mut constants: HashMap<String, ResolvedSortId> = HashMap::new();
     push_declarations(ctx, system, spec, true, &mut signature, &mut constants)?;
 
-    for decl in &system.constructor_declarations {
-        let id = resolve_sort(ctx, spec, &decl.sort);
-        ctx.system_symbol_spans
-            .insert((decl.identifier.node.clone(), id), decl.identifier.span.clone());
-    }
-    for decl in &system.map_declarations {
-        let id = resolve_sort(ctx, spec, &decl.sort);
-        ctx.system_symbol_spans
-            .insert((decl.identifier.node.clone(), id), decl.identifier.span.clone());
-    }
+    record_system_symbol_spans(ctx, spec, system);
 
     let merged = merge_signatures(
         ctx.signature
@@ -87,6 +77,16 @@ pub(crate) fn resolve_system_signature(
 /// (`ctx.system_symbol_spans`, read back by `TypingInfo` for go-to-
 /// definition).
 pub(crate) fn resolve_system_signature_full(
+    ctx: &mut TypeCheckContext,
+    spec: &UntypedDataSpecification,
+    system: &UntypedDataSpecification,
+) {
+    record_system_symbol_spans(ctx, spec, system);
+}
+
+/// Resolves each of `system`'s constructor/mapping declarations' sorts and records its own
+/// declaration span in `ctx.system_symbol_spans`, read back by `TypingInfo` for go-to-definition.
+fn record_system_symbol_spans(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
     system: &UntypedDataSpecification,
@@ -183,11 +183,6 @@ pub(crate) fn build_polymorphic_schemes<'a>(
 ) -> HashMap<String, Vec<PolySortScheme>> {
     let mut schemes: HashMap<String, Vec<PolySortScheme>> = HashMap::new();
     for template in templates {
-        let vars: Vec<TypeVarId> = template
-            .type_var_declarations
-            .iter()
-            .filter_map(|decl| decl.id)
-            .collect();
         for (identifier, sort) in template
             .constructor_declarations
             .iter()
@@ -203,10 +198,7 @@ pub(crate) fn build_polymorphic_schemes<'a>(
             schemes
                 .entry(identifier.node.clone())
                 .or_default()
-                .push(PolySortScheme {
-                    vars: vars.clone(),
-                    sort: resolved,
-                });
+                .push(PolySortScheme { sort: resolved });
         }
     }
     schemes
@@ -367,8 +359,7 @@ mod tests {
         // exercised directly: production only ever feeds `resolve_system_signature`
         // the basic-sort spec (see its doc comment) — a container instantiation
         // is never part of `system_defined_specification()` at all any more,
-        // generated only at lowering time (see `docs/typecheck.md`'s
-        // monomorphization-to-lowering milestone) — so this builds the
+        // generated only at lowering time — so this builds the
         // container-instantiated content directly via
         // `build_system_defined_specification`, in an isolated context, to
         // check the substitution logic itself. The list template instantiated
@@ -405,9 +396,8 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
     fn test_system_internal_sort_gets_fresh_def() {
         // `@NatPair` is folded into the shared `sort_declarations` table by
-        // `from_untyped_with` (see `docs/typecheck.md`'s `DefId`-offset
-        // milestone), so it has an ordinary `SortId` findable by name, and
-        // `sort_name` recovers it the same way it would a user sort.
+        // `from_untyped_with`, so it has an ordinary `SortId` findable by
+        // name, and `sort_name` recovers it the same way it would a user sort.
         let (spec, ctx) = resolve("sort D; map f: D;");
         let signature = ctx.signature.as_ref().unwrap();
 
