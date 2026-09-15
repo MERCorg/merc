@@ -27,8 +27,7 @@ use crate::check_template_equations;
 use crate::lower_data_expressions;
 use crate::merge_signatures;
 use crate::resolve_data_specification_variables;
-use crate::resolve_type_var_ids;
-use crate::resolve_type_vars;
+use crate::resolve_type_variables;
 
 /// Parses a bundled `spec/*.mcrl2` file, or an equally self-contained
 /// hand-written template string (`BUILTIN_SCHEME_TEMPLATE`), with no
@@ -38,8 +37,7 @@ use crate::resolve_type_vars;
 /// this way is ever rendered.
 pub(crate) fn parse_template_bare(text: &str) -> UntypedDataSpecification {
     let mut spec = UntypedDataSpecification::parse(text).expect("the bundled templates parse");
-    resolve_type_vars(&mut spec);
-    resolve_type_var_ids(&mut spec).expect("the bundled template's type_var block resolves");
+    resolve_type_variables(&mut spec).expect("the bundled template's type_var block resolves");
     spec
 }
 
@@ -72,8 +70,7 @@ fn parse_generated(sources: &mut SourceMap, name: &str, text: &str) -> Result<Un
     // As in `parse_template_bare`: resolves a template's own `type_var` block, if
     // it has one. Content this module generates itself (`multi_argument_function_update`,
     // `structured_sort_equations`) never declares one, so this is a no-op there.
-    resolve_type_vars(&mut spec);
-    resolve_type_var_ids(&mut spec)?;
+    resolve_type_variables(&mut spec)?;
     Ok(spec)
 }
 
@@ -119,8 +116,8 @@ static BASIC_SORT_TEMPLATES: LazyLock<BasicSortTemplates> = LazyLock::new(|| Bas
     real64: parse_template_bare(include_str!("../../../syntax/spec/real64.mcrl2")),
 });
 
-/// The merged specifications of the five basic sorts (Appendix B.1–B.7) in the
-/// recursive binary encoding, registered into `sources` as virtual documents.
+/// The merged specifications of the five basic sorts (Appendix B) in the
+/// recursive binary encoding.
 fn basic_sorts_binary(sources: &mut SourceMap) -> UntypedDataSpecification {
     let mut result = UntypedDataSpecification::default();
     result.merge(&register_bare_template(
@@ -381,6 +378,7 @@ pub(crate) fn check_container_templates(
         NumberEncoding::Binary => &CONTAINER_TEMPLATES,
         NumberEncoding::MachineWord => &CONTAINER_TEMPLATES_MACHINE_WORD,
     };
+
     for (name, template) in templates.all_named() {
         if !ctx.template_typings.contains_key(name) {
             let typings = check_template_equations(ctx, template)?;
@@ -441,6 +439,7 @@ pub(crate) fn check_comparison_template(ctx: &mut TypeCheckContext) -> Result<()
     if ctx.template_typings.contains_key(COMPARISON_TEMPLATE_NAME) {
         return Ok(());
     }
+
     let typings = check_template_equations(ctx, &BUILTIN_SCHEME_TEMPLATE)?;
     ctx.template_typings
         .insert(COMPARISON_TEMPLATE_NAME.to_string(), typings);
@@ -585,8 +584,7 @@ fn multi_argument_function_update_template(arity: usize) -> UntypedDataSpecifica
     let mut spec = UntypedDataSpecification::parse(&text).unwrap_or_else(|err| {
         panic!("the generated arity-{arity} function-update template does not parse: {err}\n{text}")
     });
-    resolve_type_vars(&mut spec);
-    resolve_type_var_ids(&mut spec).expect("the generated template's type_var block resolves");
+    resolve_type_variables(&mut spec).expect("the generated template's type_var block resolves");
     resolve_data_specification_variables(&mut spec);
     assign_declaration_ids(&mut spec);
     lower_data_expressions(&mut spec);
