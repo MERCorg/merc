@@ -1,6 +1,4 @@
-//! The scoped walk over the state formula: checks each `val(...)` expression —
-//! `Real`-valued at the state-formula level, `Bool`-valued at the
-//! action-formula level nested inside a `<...>`/ `[...]` modality.
+//! The scoped walk over the state formula: checks each `val(...)` expression.
 //!
 //! To resolve a state variable's sort, the checker uses the `state_vars` stack,
 //! which pairs each fixpoint variable's own [`StateVarId`] with its declaring
@@ -34,6 +32,7 @@ use crate::typing_info;
 
 use super::ModalError;
 use super::modal_specification::DeclarationTables;
+use super::modal_specification::ValSort;
 use super::modal_specification::resolve_declared_sort;
 
 /// One fixpoint variable currently in scope: its own [`StateVarId`] — matching a
@@ -44,12 +43,13 @@ use super::modal_specification::resolve_declared_sort;
 type StateVarStack = Vec<(StateVarId, Span, Vec<ResolvedSortId>)>;
 
 /// Checks a state formula specification against the declared sorts, returning the merged typing
-/// information.
+/// information together with the [`ValSort`] the formula's `val(...)` occurrences fixed on (see
+/// this module's doc comment).
 pub(super) fn check_modal_specification(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
     spec: &UntypedStateFrmSpec,
-) -> Result<TypingInfo, ModalError> {
+) -> Result<(TypingInfo, ValSort), ModalError> {
     let mut typing = TypingInfo::default();
     let mut sort_references = Vec::new();
 
@@ -63,10 +63,19 @@ pub(super) fn check_modal_specification(
     collect_scope(data, &spec.formula, &mut scope, &mut sort_references, &mut typing)?;
 
     let mut state_vars = StateVarStack::new();
-    check_state_formula(data, tables, &scope, &mut state_vars, &spec.formula, &mut typing)?;
+    let mut val_sort = ValSort::Unknown;
+    check_state_formula(
+        data,
+        tables,
+        &scope,
+        &mut state_vars,
+        &spec.formula,
+        &mut val_sort,
+        &mut typing,
+    )?;
 
     typing_info::push_sort_references(data, &sort_references, &mut typing);
-    Ok(typing)
+    Ok((typing, val_sort))
 }
 
 /// Collects the scope for a state formula, resolving the declared sorts of every
@@ -166,12 +175,14 @@ fn collect_scope_actfrm(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn check_state_formula(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
     scope: &Scope,
     state_vars: &mut StateVarStack,
     formula: &StateFrm,
+    val_sort: &mut ValSort,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
     match &formula.node {
@@ -203,35 +214,79 @@ fn check_state_formula(
             typing,
         ),
 
-        StateFrmKind::DataValExpr(data_expr) => {
-            let real_sort = data.context().sorts.real_sort();
-            check_expression_against::<ModalError>(data, scope, data_expr, real_sort, typing)
-        }
+        StateFrmKind::DataValExpr(data_expr) => check_val_expr(data, scope, data_expr, val_sort, typing),
 
         StateFrmKind::DataValExprLeftMult(constant, expr) | StateFrmKind::DataValExprRightMult(expr, constant) => {
             let real_sort = data.context().sorts.real_sort();
             check_expression_against::<ModalError>(data, scope, constant, real_sort, typing)?;
-            check_state_formula(data, tables, scope, state_vars, expr, typing)
+            check_state_formula(data, tables, scope, state_vars, expr, val_sort, typing)
         }
 
         StateFrmKind::Modality { formula: reg, expr, .. } => {
             check_reg_formula(data, tables, scope, reg, typing)?;
-            check_state_formula(data, tables, scope, state_vars, expr, typing)
+            check_state_formula(data, tables, scope, state_vars, expr, val_sort, typing)
         }
 
-        StateFrmKind::Unary { expr, .. } => check_state_formula(data, tables, scope, state_vars, expr, typing),
+        StateFrmKind::Unary { expr, .. } => {
+            check_state_formula(data, tables, scope, state_vars, expr, val_sort, typing)
+        }
 
         StateFrmKind::Binary { lhs, rhs, .. } => {
-            check_state_formula(data, tables, scope, state_vars, lhs, typing)?;
-            check_state_formula(data, tables, scope, state_vars, rhs, typing)
+            check_state_formula(data, tables, scope, state_vars, lhs, val_sort, typing)?;
+            check_state_formula(data, tables, scope, state_vars, rhs, val_sort, typing)
         }
 
         StateFrmKind::Quantifier { body, .. } | StateFrmKind::Bound { body, .. } => {
-            check_state_formula(data, tables, scope, state_vars, body, typing)
+            check_state_formula(data, tables, scope, state_vars, body, val_sort, typing)
         }
 
         StateFrmKind::FixedPoint { variable, body, .. } => {
-            check_fixed_point(data, tables, scope, state_vars, variable, body, typing)
+            check_fixed_point(data, tables, scope, state_vars, variable, body, val_sort, typing)
+        }
+    }
+}
+
+/// Type-checks a state-formula-level `val(...)` occurrence. On the first one reached
+/// (`*val_sort == ValSort::Unknown`), tries `Real` then `Bool`, fixating `val_sort` to whichever
+/// sort the expression actually type-checks against; every `val(...)` reached afterward — once
+/// `val_sort` is no longer `Unknown` — is held to that same sort. See this module's doc comment.
+fn check_val_expr(
+    data: &mut DataSpecification,
+    scope: &Scope,
+    data_expr: &DataExpr,
+    val_sort: &mut ValSort,
+    typing: &mut TypingInfo,
+) -> Result<(), ModalError> {
+    match *val_sort {
+        ValSort::Real => {
+            let real_sort = data.context().sorts.real_sort();
+            check_expression_against::<ModalError>(data, scope, data_expr, real_sort, typing)
+        }
+        ValSort::Bool => {
+            let bool_sort = data.context().sorts.bool_sort();
+            check_expression_against::<ModalError>(data, scope, data_expr, bool_sort, typing)
+        }
+        ValSort::Unknown => {
+            let real_sort = data.context().sorts.real_sort();
+            match check_expression_against::<ModalError>(data, scope, data_expr, real_sort, typing) {
+                Ok(()) => {
+                    *val_sort = ValSort::Real;
+                    Ok(())
+                }
+                // `check_expression_against` never touches `typing` before returning an error
+                // (it fails inside `infer_expression_in_scope`, before the merge), so retrying
+                // against `Bool` here does not need a scratch `TypingInfo` to undo the first try.
+                Err(real_error) => {
+                    let bool_sort = data.context().sorts.bool_sort();
+                    match check_expression_against::<ModalError>(data, scope, data_expr, bool_sort, typing) {
+                        Ok(()) => {
+                            *val_sort = ValSort::Bool;
+                            Ok(())
+                        }
+                        Err(_) => Err(real_error),
+                    }
+                }
+            }
         }
     }
 }
@@ -241,6 +296,7 @@ fn check_state_formula(
 /// (mirrors a process instantiation's assignment value, `crate::process::check::check_one_instantiation`)
 /// — then pushes it onto `state_vars` for `body` to reference recursively, popping it again once
 /// `body` is checked so an enclosing formula never sees an inner fixpoint's own variable.
+#[allow(clippy::too_many_arguments)]
 fn check_fixed_point(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
@@ -248,6 +304,7 @@ fn check_fixed_point(
     state_vars: &mut StateVarStack,
     variable: &StateVarDecl,
     body: &StateFrm,
+    val_sort: &mut ValSort,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
     let mut seen = HashSet::new();
@@ -267,7 +324,7 @@ fn check_fixed_point(
 
     let state_var_id = variable.id.expect("resolve_modal_variables ran before checking");
     state_vars.push((state_var_id, variable.span.clone(), params));
-    let result = check_state_formula(data, tables, scope, state_vars, body, typing);
+    let result = check_state_formula(data, tables, scope, state_vars, body, val_sort, typing);
     state_vars.pop();
     result
 }

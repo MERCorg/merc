@@ -3,13 +3,22 @@
 use merc_syntax::UntypedStateFrmSpec;
 use merc_typecheck::ModalError;
 use merc_typecheck::ModalSpecification;
+use merc_typecheck::ValSort;
 
 /// Type checks `text`, asserting it is accepted.
 #[track_caller]
 fn check_ok(text: &str) {
+    check_val_sort(text);
+}
+
+/// Type checks `text`, asserting it is accepted, and returns the [`ValSort`] its `val(...)`
+/// occurrences fixed on.
+#[track_caller]
+fn check_val_sort(text: &str) -> ValSort {
     let spec = UntypedStateFrmSpec::parse(text).expect("the specification should parse");
-    if let Err(error) = ModalSpecification::from_untyped(spec) {
-        panic!("expected the specification to type check:\n{text}\nerror: {error}");
+    match ModalSpecification::from_untyped(spec) {
+        Ok(spec) => spec.val_sort(),
+        Err(error) => panic!("expected the specification to type check:\n{text}\nerror: {error}"),
     }
 }
 
@@ -32,15 +41,46 @@ fn test_true_and_false_are_accepted() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
-fn test_data_val_expr_against_real_is_accepted() {
-    check_ok("val(1)");
+fn test_a_formula_without_any_val_expr_has_an_unknown_val_sort() {
+    assert_eq!(check_val_sort("true"), ValSort::Unknown);
 }
 
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
-fn test_data_val_expr_rejects_a_non_real_value() {
-    // `true` is `Bool`, not upcastable to `Real`.
-    let error = check_err("val(true)");
+fn test_data_val_expr_against_real_is_accepted() {
+    // `1` fits `Real` (tried first), fixating the formula's `val(...)` sort to `Real`.
+    assert_eq!(check_val_sort("val(1)"), ValSort::Real);
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_data_val_expr_against_bool_is_accepted() {
+    // `true` doesn't fit `Real`; the first `val(...)` in a formula falls back to `Bool`.
+    assert_eq!(check_val_sort("val(true)"), ValSort::Bool);
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_data_val_expr_rejects_a_value_matching_neither_real_nor_bool() {
+    // `undeclared` fails identically against both `Real` and `Bool`; the `Real` attempt's error
+    // (tried first) is the one reported.
+    let error = check_err("val(undeclared)");
+    assert!(matches!(error, ModalError::Inference(_)), "got {error:?}");
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_every_val_expr_in_a_formula_shares_the_same_fixed_sort() {
+    assert_eq!(check_val_sort("val(1) && val(2)"), ValSort::Real);
+    assert_eq!(check_val_sort("val(true) && val(false)"), ValSort::Bool);
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_a_later_val_expr_must_match_the_sort_the_first_one_fixed() {
+    // The first `val(...)` (`1`) fixates `Real`; the second (`true`) doesn't fit `Real`, even
+    // though it would fit `Bool` on its own.
+    let error = check_err("val(1) && val(true)");
     assert!(matches!(error, ModalError::Inference(_)), "got {error:?}");
 }
 

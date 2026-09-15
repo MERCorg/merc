@@ -18,6 +18,17 @@ use crate::TypingInfo;
 use super::ModalError;
 use super::check;
 
+/// Whether a state formula's `val(...)` occurrences are `Real`- or `Bool`-sorted.
+///
+/// At the action-formula level (nested inside a `<...>`/`[...]` modality) a `val` is always
+/// `Bool`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ValSort {
+    Real,
+    Bool,
+    Unknown,
+}
+
 /// A type-checked modal state formula: the data specification plus its `act` declarations and the
 /// formula itself, all resolved and checked against it. See the module doc comment for what's in
 /// and out of scope.
@@ -27,6 +38,8 @@ pub struct ModalSpecification {
     data: DataSpecification,
     /// Every checked expression's `TypingInfo`.
     typing: TypingInfo,
+    /// Whether the formula's `val(...)` occurrences are `Real`- or `Bool`-sorted; see [`ValSort`].
+    val_sort: ValSort,
 }
 
 impl ModalSpecification {
@@ -65,9 +78,14 @@ impl ModalSpecification {
         let mut data = DataSpecification::from_untyped_with(data_spec, encoding, sources)?;
 
         let tables = DeclarationTables::build(&mut data, &spec)?;
-        let typing = check::check_modal_specification(&mut data, &tables, &spec)?;
+        let (typing, val_sort) = check::check_modal_specification(&mut data, &tables, &spec)?;
 
-        Ok(ModalSpecification { spec, data, typing })
+        Ok(ModalSpecification {
+            spec,
+            data,
+            typing,
+            val_sort,
+        })
     }
 
     /// The checked data specification.
@@ -95,6 +113,11 @@ impl ModalSpecification {
         let mut info = self.data.typing_info();
         info.merge(self.typing.clone());
         info
+    }
+
+    /// Whether the formula's `val(...)` occurrences are `Real`- or `Bool`-sorted; see [`ValSort`].
+    pub fn val_sort(&self) -> ValSort {
+        self.val_sort
     }
 }
 
