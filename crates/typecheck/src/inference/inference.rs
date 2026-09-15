@@ -116,8 +116,16 @@ pub enum InferenceError {
     #[error("the body '{body}' of a forall/exists must have sort Bool")]
     QuantifierNotBool { body: String, span: Span },
 
-    #[error("'{expression}' has no valid sort assignment")]
-    NoTyping { expression: String, span: Span },
+    #[error(
+        "'{expression}' has no valid sort assignment{}",
+        sort.as_deref().map_or(String::new(), |sort| format!(" matching sort '{sort}'"))
+    )]
+    NoTyping {
+        expression: String,
+        /// The sort the expression was checked against, if available.
+        sort: Option<String>,
+        span: Span,
+    },
 
     #[error("the sorts in '{expression}' are ambiguous")]
     AmbiguousExpression { expression: String, span: Span },
@@ -670,6 +678,13 @@ fn infer<'a>(
         constraints: Vec::new(),
     };
 
+    // Captured before `roots` is consumed below, so a `NoTyping` failure can blame the sort
+    // inference was actually asked to match, when one was given.
+    let expected_sort = match &roots {
+        Roots::ExpressionAgainst { expected, .. } => Some(*expected),
+        Roots::Equation { .. } | Roots::Expression(_) => None,
+    };
+
     let generated = match roots {
         Roots::Equation { condition, lhs, rhs } => generator.generate(condition, lhs, rhs),
         Roots::Expression(expr) => generator.generate_expression(expr),
@@ -746,6 +761,7 @@ fn infer<'a>(
             debug!("inference: no valid sort assignment for '{}'", equation_text());
             Err(InferenceError::NoTyping {
                 expression: equation_text(),
+                sort: expected_sort.map(|sort| DisplaySortContext::new(ctx, spec, sort).to_string()),
                 span: equation_span.clone(),
             })
         }
@@ -2075,11 +2091,14 @@ mod tests {
         let text = "map f: Bool; eqn f = 1;";
         let error = inference_error(text);
         match &error {
-            InferenceError::NoTyping { expression, span } => {
+            InferenceError::NoTyping { expression, sort, span } => {
                 // The whole equation (including its trailing `;`) is the
                 // offending unit; nothing narrower pins down a sort to blame.
                 assert_eq!(&text[span.start..span.end], "f = 1;");
                 assert_eq!(expression, "f = 1");
+                // No externally-supplied expected sort: this is a whole-equation check
+                // (`Roots::Equation`), not a `check_expression_against` call.
+                assert_eq!(sort, &None);
             }
             other => panic!("expected NoTyping, got {other}"),
         }
@@ -2232,14 +2251,15 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // Test is too slow
     fn test_set_elements_join_to_common_supersort() {
-        let spec = typed("map s: FSet(Int); var n: Int; eqn s = {1, n};");
+        let spec = typed("map s: Int -> FSet(Int); var n: Int; eqn s(n) = {1, n};");
 
-        // Ids: 0 = `s`, 1 = the set, 2 = `1`, 3 = `n`. The element sort is
-        // the join `Int`; the literal itself stays `Pos`.
+        // Ids: 0 = `s` (the applied function symbol), 1 = `n` (the lhs argument), 2 = `s(n)` (the
+        // whole application, the declared map sort), 3 = the rhs set, 4 = `1`, 5 = `n` (the rhs
+        // occurrence). The element sort is the join `Int`; the literal itself stays `Pos`.
         let (sorts, _) = typing(&spec);
-        assert_eq!(sorts[1], spec.sort_of_map(merc_syntax::MapId::new(0)));
-        assert_eq!(sorts[2], spec.context().sorts.pos_sort());
-        assert_eq!(sorts[3], spec.context().sorts.int_sort());
+        assert_eq!(sorts[2], spec.sort_of_map(merc_syntax::MapId::new(0)));
+        assert_eq!(sorts[4], spec.context().sorts.pos_sort());
+        assert_eq!(sorts[5], spec.context().sorts.int_sort());
     }
 
     #[test]
@@ -2335,13 +2355,18 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
     fn test_bag_comprehension_from_numeric_body() {
-        let spec = typed("map b: Bag(Nat); var m: Nat; eqn b = { n: Nat | m };");
+        let spec = typed("map b: Pos -> Bag(Nat); var m: Pos; eqn b(m) = { n: Nat | m };");
 
-        // Ids: 0 = `b`, 1 = the comprehension, 2 = `m`. The `Nat` body reads
-        // as the multiplicity function of a `Bag(Nat)`.
+        // Ids: 0 = `b(m)` (the application), 1 = `m` (the lhs argument), 2 = `b`
+        // (the applied function symbol, the declared map sort), 3 = the rhs
+        // comprehension, 4 = `m` (the rhs occurrence, the `Nat` body reads as the
+        // multiplicity function of the `Bag(Nat)`). As in the set-literal case,
+        // the leaf occurrence itself stays `Pos`; only the aggregate sorts are
+        // joined to `Bag(Nat)`.
         let (sorts, _) = typing(&spec);
-        assert_eq!(sorts[1], spec.sort_of_map(merc_syntax::MapId::new(0)));
-        assert_eq!(sorts[2], spec.context().sorts.nat_sort());
+        assert_eq!(sorts[2], spec.sort_of_map(merc_syntax::MapId::new(0)));
+        assert_eq!(sorts[1], spec.context().sorts.pos_sort());
+        assert_eq!(sorts[4], spec.context().sorts.pos_sort());
     }
 
     #[test]

@@ -29,6 +29,7 @@ pub use data_specification::DataSpecification;
 pub use inference::InferenceError;
 pub use modal::ModalError;
 pub use modal::ModalSpecification;
+pub use modal::ValSort;
 pub use number_encoding::NumberEncoding;
 pub use pbes::PbesError;
 pub use pbes::PbesSpecification;
