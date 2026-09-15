@@ -149,7 +149,6 @@ mod tests {
 
     use oxidd::ManagerRef;
     use oxidd::ldd::LDDFunction;
-    use oxidd::ldd::Value;
 
     use merc_utilities::random_test;
 
