@@ -348,8 +348,10 @@ ProcExprPostfix = _{
     
 ProcExprNoIf = { ProcExprPrefix* ~ ProcExprPrimary ~ ProcExprPostfix? ~ (ProcExprNoIfInfix ~ ProcExprPrefix* ~ ProcExprPrimary ~ ProcExprPostfix?)* }
 
-// Only the operators that bind *tighter* than `->`/`<>` itself.
 ProcExprNoIfInfix = _{
+    | ProcExprChoice
+    | ProcExprLeftMerge
+    | ProcExprParallel
     | ProcExprSeq
     | ProcExprUntil
     | ProcExprSync
