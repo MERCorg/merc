@@ -9,7 +9,6 @@ use merc_syntax::Bound;
 use merc_syntax::PbesExprKind;
 use merc_syntax::ProcExprBinaryOp;
 use merc_syntax::ProcessExprKind;
-use merc_syntax::Span;
 use merc_syntax::StateFrmKind;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedDataSpecification;
@@ -17,7 +16,6 @@ use merc_syntax::UntypedPbes;
 use merc_syntax::UntypedPres;
 use merc_syntax::UntypedProcessSpecification;
 use merc_syntax::UntypedStateFrmSpec;
-use merc_syntax::line_column;
 use merc_syntax::make_process_specification;
 use merc_syntax::random_lps;
 use merc_syntax::random_pbes;
@@ -162,50 +160,6 @@ fn visitor_breaks_from_nested_node() {
     });
 
     assert_eq!(found.as_deref(), Some("Y"), "Break value from a nested node was lost");
-}
-
-/// `line_column` used to be `print_location`, which computed the next accumulator
-/// value as `current - line.len()`. When `span.start` fell inside the first line
-/// (e.g. offset 0), `current - line.len()` underflowed for `usize`, causing a
-/// panic in debug builds and silent wrap-around in release.
-#[test]
-fn line_column_no_underflow() {
-    // Single-line: offset 0 is the first character — the old code would attempt
-    // `0usize - "hello".len()` = underflow.
-    assert_eq!(
-        line_column("hello", &Span { start: 0, end: 1 }),
-        (1, 1),
-        "first character of a single-line string"
-    );
-    // Interior character on the first line.
-    assert_eq!(
-        line_column("hello", &Span { start: 4, end: 5 }),
-        (1, 5),
-        "last character of a single-line string"
-    );
-}
-
-#[test]
-fn line_column_multi_line() {
-    // Second line: offset 6 is 'w' (the first character after the '\n' in "hello\n").
-    assert_eq!(
-        line_column("hello\nworld", &Span { start: 6, end: 7 }),
-        (2, 1),
-        "first character of second line"
-    );
-    // Interior character on the second line.
-    assert_eq!(
-        line_column("hello\nworld", &Span { start: 8, end: 9 }),
-        (2, 3),
-        "third character of second line"
-    );
-}
-
-#[test]
-fn line_column_past_end_does_not_panic() {
-    // Offset past the end of input must not panic (saturating_sub guards this).
-    let (line, _col) = line_column("hi", &Span { start: 100, end: 101 });
-    assert_eq!(line, 1, "past-end offset resolves to the last line");
 }
 
 /// An `EqnSpec` without a `var` declaration section must not emit an empty

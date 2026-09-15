@@ -117,6 +117,5 @@ pub use syntax_tree::UntypedProcessSpecification;
 pub use syntax_tree::UntypedStateFrmSpec;
 pub use syntax_tree::VarId;
 pub use syntax_tree::VarIdAllocator;
-pub use syntax_tree_display::line_column;
 pub use traverse::Recursion;
 pub use traverse::Traverse;
