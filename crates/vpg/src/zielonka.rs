@@ -207,12 +207,7 @@ impl<G: PG, S: Strat> ZielonkaSolver<'_, G, S> {
         // 1. strategy := empty
         let mut strategy = S::new();
 
-        // Initialise the counter of every opponent vertex in V.
-        for v in V.iter_ones().map(VertexIndex::new) {
-            if self.game.owner(v) != alpha {
-                self.attractor_counters[*v] = self.game.outgoing_edges(v).filter(|edge| V[*edge.to()]).count();
-            }
-        }
+        self.initialize_attractor_counters(alpha, V);
 
         // 2. Q = {v \in A}
         self.temp_queue.clear();
@@ -251,6 +246,16 @@ impl<G: PG, S: Strat> ZielonkaSolver<'_, G, S> {
         }
 
         (A, strategy)
+    }
+
+    /// Initialise the counter of every opponent vertex in `V` to the number of
+    /// its successors inside `V`.
+    fn initialize_attractor_counters(&mut self, alpha: Player, V: &Set) {
+        for v in V.iter_ones().map(VertexIndex::new) {
+            if self.game.owner(v) != alpha {
+                self.attractor_counters[*v] = self.game.outgoing_edges(v).filter(|edge| V[*edge.to()]).count();
+            }
+        }
     }
 
     /// Returns the highest priority occurring in the given set of vertices V.

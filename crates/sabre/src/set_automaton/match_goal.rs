@@ -89,54 +89,7 @@ impl MatchGoal {
         let partitions = if goals.iter().any(|g| g.announcement.position.is_empty()) {
             vec![goals]
         } else {
-            // Create a mapping from positions to goals, goals are represented with an index
-            // on function parameter goals
-            let mut position_to_goals = HashMap::new();
-            for (i, g) in goals.iter().enumerate() {
-                if !position_to_goals.contains_key(&g.announcement.position) {
-                    position_to_goals.insert(g.announcement.position.clone(), vec![i]);
-                } else {
-                    let vec = position_to_goals.get_mut(&g.announcement.position).unwrap();
-                    vec.push(i);
-                }
-            }
-
-            // Sort the positions. They are now in depth first order.
-            let mut all_positions: Vec<DataPosition> = position_to_goals.keys().cloned().collect();
-            all_positions.sort_unstable();
-
-            // Compute the partitions, finished when all positions are processed
-            let mut partitions = vec![];
-            let mut p_index = 0; // position index
-            while p_index < all_positions.len() {
-                // Start the partition with a position
-                let p = &all_positions[p_index];
-                let mut goals_in_partition = vec![];
-
-                // put the goals with position p in the partition
-                let g = position_to_goals.get(p).unwrap();
-                for i in g {
-                    goals_in_partition.push(goals[*i].clone());
-                }
-
-                // Go over the positions until we find a position that is not comparable to p
-                // Because all_positions is sorted we know that once we find a position that is not comparable
-                // all subsequent positions will also not be comparable.
-                // Moreover, all positions in the partition are related to p. p is the highest in the partition.
-                p_index += 1;
-                while p_index < all_positions.len() && MatchGoal::pos_comparable(p, &all_positions[p_index]) {
-                    // Put the goals with position all_positions[p_index] in the partition
-                    let g = position_to_goals.get(&all_positions[p_index]).unwrap();
-                    for i in g {
-                        goals_in_partition.push(goals[*i].clone());
-                    }
-                    p_index += 1;
-                }
-
-                partitions.push(goals_in_partition);
-            }
-
-            partitions
+            partition_by_position(&goals)
         };
 
         for goals in &partitions {
@@ -172,6 +125,59 @@ impl MatchGoal {
             index += 1;
         }
     }
+}
+
+/// Partitions goals that all have a non-root announcement position: goals whose
+/// positions are comparable (see [`MatchGoal::pos_comparable`]) are grouped.
+fn partition_by_position(goals: &[MatchGoal]) -> Vec<Vec<MatchGoal>> {
+    // Create a mapping from positions to goals, goals are represented with an index
+    // on function parameter goals
+    let mut position_to_goals = HashMap::new();
+    for (i, g) in goals.iter().enumerate() {
+        if !position_to_goals.contains_key(&g.announcement.position) {
+            position_to_goals.insert(g.announcement.position.clone(), vec![i]);
+        } else {
+            let vec = position_to_goals.get_mut(&g.announcement.position).unwrap();
+            vec.push(i);
+        }
+    }
+
+    // Sort the positions. They are now in depth first order.
+    let mut all_positions: Vec<DataPosition> = position_to_goals.keys().cloned().collect();
+    all_positions.sort_unstable();
+
+    // Compute the partitions, finished when all positions are processed
+    let mut partitions = vec![];
+    let mut p_index = 0; // position index
+    while p_index < all_positions.len() {
+        // Start the partition with a position
+        let p = &all_positions[p_index];
+        let mut goals_in_partition = vec![];
+
+        // put the goals with position p in the partition
+        let g = position_to_goals.get(p).unwrap();
+        for i in g {
+            goals_in_partition.push(goals[*i].clone());
+        }
+
+        // Go over the positions until we find a position that is not comparable to p
+        // Because all_positions is sorted we know that once we find a position that is not comparable
+        // all subsequent positions will also not be comparable.
+        // Moreover, all positions in the partition are related to p. p is the highest in the partition.
+        p_index += 1;
+        while p_index < all_positions.len() && MatchGoal::pos_comparable(p, &all_positions[p_index]) {
+            // Put the goals with position all_positions[p_index] in the partition
+            let g = position_to_goals.get(&all_positions[p_index]).unwrap();
+            for i in g {
+                goals_in_partition.push(goals[*i].clone());
+            }
+            p_index += 1;
+        }
+
+        partitions.push(goals_in_partition);
+    }
+
+    partitions
 }
 
 impl fmt::Debug for MatchGoal {

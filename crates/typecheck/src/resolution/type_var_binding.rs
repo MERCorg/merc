@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
+use merc_syntax::EqnSpec;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
 use merc_syntax::Traverse;
@@ -35,17 +36,23 @@ pub(crate) fn resolve_type_vars(spec: &mut UntypedDataSpecification) {
     }
 
     for equation in &mut spec.equation_declarations {
-        for var in &mut equation.variables {
-            resolve_type_var(&mut var.sort, &names);
-        }
+        resolve_type_vars_in_equation(equation, &names);
+    }
+}
 
-        for eqn in &mut equation.equations {
-            if let Some(condition) = &mut eqn.condition {
-                resolve_type_vars_in_expr(condition, &names);
-            }
-            resolve_type_vars_in_expr(&mut eqn.lhs, &names);
-            resolve_type_vars_in_expr(&mut eqn.rhs, &names);
+/// Rewrites the binder sorts of a single `var ... eqn ...` block: its declared
+/// variables and its equations' conditions, left- and right-hand sides.
+fn resolve_type_vars_in_equation(equation: &mut EqnSpec, names: &HashSet<&str>) {
+    for var in &mut equation.variables {
+        resolve_type_var(&mut var.sort, names);
+    }
+
+    for eqn in &mut equation.equations {
+        if let Some(condition) = &mut eqn.condition {
+            resolve_type_vars_in_expr(condition, names);
         }
+        resolve_type_vars_in_expr(&mut eqn.lhs, names);
+        resolve_type_vars_in_expr(&mut eqn.rhs, names);
     }
 }
 

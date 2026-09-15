@@ -326,6 +326,39 @@ impl GlobalTermPool {
 
     /// Collects garbage terms.
     pub fn collect_garbage(&mut self) {
+        let mark_time = Instant::now();
+        self.mark_roots();
+        let mark_time_elapsed = mark_time.elapsed();
+        let collect_time = Instant::now();
+
+        let (removed_terms, removed_symbols) = self.sweep_terms_and_symbols();
+
+        debug!(
+            "Garbage collection: marking took {}ms, collection took {}ms, {} terms and {} symbols removed",
+            mark_time_elapsed.as_millis(),
+            collect_time.elapsed().as_millis(),
+            removed_terms,
+            removed_symbols
+        );
+
+        debug!("{}", self.metrics());
+
+        // Print information from the protection sets.
+        for pool in self.thread_pools.iter().flatten() {
+            // SAFETY: We have exclusive access to the global term pool, so no other thread can modify the protection sets.
+            let pool = unsafe { &mut *pool.get() };
+            debug!("{}", pool.metrics());
+        }
+
+        // Clear marking data structures
+        self.marked_terms.clear();
+        self.marked_symbols.clear();
+        self.stack.clear();
+    }
+
+    /// Marks the default symbols and every root in every protection set as reachable,
+    /// and reclaims protection sets of threads that have exited.
+    fn mark_roots(&mut self) {
         // Mark the default symbols
         // SAFETY: mark-set entries only live for the duration of this collection pass
         // (the sets are drained by the sweep below), and a marked symbol is by
@@ -341,8 +374,6 @@ impl GlobalTermPool {
             marked_symbols: &mut self.marked_symbols,
             stack: &mut self.stack,
         };
-
-        let mark_time = Instant::now();
 
         // Loop through all protection sets and mark the terms.
         for pool in self.thread_pools.iter().flatten() {
@@ -425,10 +456,11 @@ impl GlobalTermPool {
                 *slot = None;
             }
         }
+    }
 
-        let mark_time_elapsed = mark_time.elapsed();
-        let collect_time = Instant::now();
-
+    /// Removes every term and symbol that was not marked by [`Self::mark_roots`], and
+    /// returns how many of each were removed.
+    fn sweep_terms_and_symbols(&mut self) -> (usize, usize) {
         let num_of_terms = self.len();
         let num_of_symbols = self.symbol_pool.len();
 
@@ -459,27 +491,7 @@ impl GlobalTermPool {
             });
         }
 
-        debug!(
-            "Garbage collection: marking took {}ms, collection took {}ms, {} terms and {} symbols removed",
-            mark_time_elapsed.as_millis(),
-            collect_time.elapsed().as_millis(),
-            num_of_terms - self.len(),
-            num_of_symbols - self.symbol_pool.len()
-        );
-
-        debug!("{}", self.metrics());
-
-        // Print information from the protection sets.
-        for pool in self.thread_pools.iter().flatten() {
-            // SAFETY: We have exclusive access to the global term pool, so no other thread can modify the protection sets.
-            let pool = unsafe { &mut *pool.get() };
-            debug!("{}", pool.metrics());
-        }
-
-        // Clear marking data structures
-        self.marked_terms.clear();
-        self.marked_symbols.clear();
-        self.stack.clear();
+        (num_of_terms - self.len(), num_of_symbols - self.symbol_pool.len())
     }
 
     /// Returns the metrics of the term pool, can be formatted and written to output.

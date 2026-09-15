@@ -188,125 +188,137 @@ fn typecheck_expression(spec: &mut DataSpecification, text: &str) -> Result<Data
 fn handle_command(commands: Option<Commands>, timing: &Timing) -> Result<(), MercError> {
     if let Some(command) = commands {
         match command {
-            Commands::Rewrite(args) => {
-                let format = if let Some(format) = args.format {
-                    format
-                } else if args.specification.extension() == Some(OsStr::new("rec")) {
-                    Format::Rec
-                } else if args.specification.extension() == Some(OsStr::new("mcrl2")) {
-                    Format::Mcrl2
-                } else {
-                    return Err("Unsupported file extension for rewriting, expected .rec or .mcrl2".into());
-                };
-
-                match format {
-                    Format::Rec => {
-                        if args.terms.is_some() {
-                            warn!(
-                                "The --terms option is currently ignored when rewriting REC specifications, the terms are taken from the REC spec."
-                            );
-                        }
-                        if !args.expression.is_empty() {
-                            warn!(
-                                "The --expression option is only supported for mCRL2 specifications, the terms are taken from the REC spec."
-                            );
-                        }
-
-                        let (syntax_spec, syntax_terms) = load_rec_from_file(&args.specification)?;
-
-                        let spec = syntax_spec.to_rewrite_spec();
-
-                        rewrite_rec(args.rewriter, &spec, &syntax_terms, args.output, timing)?;
-                    }
-                    Format::Mcrl2 => {
-                        let mut sources = SourceMap::new();
-                        let (untyped_spec, _import_graph) =
-                            UntypedDataSpecification::parse_with_imports(&args.specification, &mut sources)?;
-
-                        let mut data_spec = match DataSpecification::from_untyped_with(
-                            untyped_spec,
-                            NumberEncoding::default(),
-                            &mut sources,
-                        ) {
-                            Ok(data_spec) => data_spec,
-                            Err(err) => return Err(err.render(&sources).into()),
-                        };
-
-                        // Every term is type checked and lowered against the
-                        // same specification the rules come from, so the two
-                        // share one number encoding and one sort lattice.
-                        let mut terms = Vec::new();
-                        for text in read_expressions(args.terms.as_deref())?.iter().chain(&args.expression) {
-                            terms.push(typecheck_expression(&mut data_spec, text)?);
-                        }
-
-                        let mcrl2_spec = data_spec.lower_data_specification();
-                        let spec = RewriteSpecification::from_data_specification(&mcrl2_spec);
-                        info!("Loaded {} rewrite rule(s)", spec.rewrite_rules().len());
-
-                        if terms.is_empty() {
-                            warn!("No terms to rewrite; pass --expression or a terms file.");
-                        }
-                        rewrite_terms(args.rewriter, &spec, &terms, args.output, timing)?;
-                    }
-                }
-            }
-            Commands::Convert(args) => {
-                if args.specification.extension() == Some(OsStr::new("rec")) {
-                    // Read the data specification
-                    let (spec_text, _) = load_rec_from_file(&args.specification)?;
-                    let spec = spec_text.to_rewrite_spec();
-
-                    let mut output = File::create(args.output)?;
-                    write!(output, "{}", TrsFormatter::new(&spec))?;
-                } else {
-                    return Err("Unsupported file extension for conversion, expected .rec".into());
-                }
-            }
-            Commands::Check(args) => {
-                // With none of the stage flags given, show every stage.
-                let show_all = !args.ast && !args.ir && !args.lowered;
-
-                let mut sources = SourceMap::new();
-                let (untyped_spec, _import_graph) =
-                    UntypedDataSpecification::parse_with_imports(&args.specification, &mut sources)?;
-
-                if show_all || args.ast {
-                    println!("=== AST ===\n");
-                    println!("{untyped_spec}");
-                }
-
-                let data_spec =
-                    match DataSpecification::from_untyped_with(untyped_spec, NumberEncoding::default(), &mut sources) {
-                        Ok(data_spec) => data_spec,
-                        Err(err) => return Err(err.render(&sources).into()),
-                    };
-
-                if show_all || args.ir {
-                    println!("=== IR (resolved user declarations) ===\n");
-                    println!("{}", data_spec.data_specification());
-
-                    // Basic sorts and desugared structs only: a container/
-                    // function-update/comparison instantiation is generated at
-                    // lowering time now, not during type-checking, so it only
-                    // shows up under `--lowered` below, not here — see
-                    // `docs/typecheck.md`'s monomorphization-to-lowering
-                    // milestone.
-                    println!("=== IR (system-defined declarations, unmonomorphized) ===\n");
-                    println!("{}", data_spec.system_defined_specification());
-                }
-
-                if show_all || args.lowered {
-                    let mcrl2_spec = data_spec.lower_data_specification();
-
-                    println!("=== Lowered ===\n");
-                    println!("{mcrl2_spec}");
-                }
-
-                eprintln!("The data specification is well-typed.");
-            }
+            Commands::Rewrite(args) => run_rewrite(args, timing)?,
+            Commands::Convert(args) => run_convert(args)?,
+            Commands::Check(args) => run_check(args)?,
         }
     }
+
+    Ok(())
+}
+
+/// The `rewrite` command: rewrites the terms of a REC or mCRL2 specification.
+fn run_rewrite(args: RewriteArgs, timing: &Timing) -> Result<(), MercError> {
+    let format = if let Some(format) = args.format {
+        format
+    } else if args.specification.extension() == Some(OsStr::new("rec")) {
+        Format::Rec
+    } else if args.specification.extension() == Some(OsStr::new("mcrl2")) {
+        Format::Mcrl2
+    } else {
+        return Err("Unsupported file extension for rewriting, expected .rec or .mcrl2".into());
+    };
+
+    match format {
+        Format::Rec => {
+            if args.terms.is_some() {
+                warn!(
+                    "The --terms option is currently ignored when rewriting REC specifications, the terms are taken from the REC spec."
+                );
+            }
+            if !args.expression.is_empty() {
+                warn!(
+                    "The --expression option is only supported for mCRL2 specifications, the terms are taken from the REC spec."
+                );
+            }
+
+            let (syntax_spec, syntax_terms) = load_rec_from_file(&args.specification)?;
+
+            let spec = syntax_spec.to_rewrite_spec();
+
+            rewrite_rec(args.rewriter, &spec, &syntax_terms, args.output, timing)?;
+        }
+        Format::Mcrl2 => {
+            let mut sources = SourceMap::new();
+            let (untyped_spec, _import_graph) =
+                UntypedDataSpecification::parse_with_imports(&args.specification, &mut sources)?;
+
+            let mut data_spec =
+                match DataSpecification::from_untyped_with(untyped_spec, NumberEncoding::default(), &mut sources) {
+                    Ok(data_spec) => data_spec,
+                    Err(err) => return Err(err.render(&sources).into()),
+                };
+
+            // Every term is type checked and lowered against the
+            // same specification the rules come from, so the two
+            // share one number encoding and one sort lattice.
+            let mut terms = Vec::new();
+            for text in read_expressions(args.terms.as_deref())?.iter().chain(&args.expression) {
+                terms.push(typecheck_expression(&mut data_spec, text)?);
+            }
+
+            let mcrl2_spec = data_spec.lower_data_specification();
+            let spec = RewriteSpecification::from_data_specification(&mcrl2_spec);
+            info!("Loaded {} rewrite rule(s)", spec.rewrite_rules().len());
+
+            if terms.is_empty() {
+                warn!("No terms to rewrite; pass --expression or a terms file.");
+            }
+            rewrite_terms(args.rewriter, &spec, &terms, args.output, timing)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// The `convert` command: converts a REC specification to the TRS format.
+fn run_convert(args: ConvertArgs) -> Result<(), MercError> {
+    if args.specification.extension() == Some(OsStr::new("rec")) {
+        // Read the data specification
+        let (spec_text, _) = load_rec_from_file(&args.specification)?;
+        let spec = spec_text.to_rewrite_spec();
+
+        let mut output = File::create(args.output)?;
+        write!(output, "{}", TrsFormatter::new(&spec))?;
+    } else {
+        return Err("Unsupported file extension for conversion, expected .rec".into());
+    }
+
+    Ok(())
+}
+
+/// The `check` command: parses, resolves and type checks an mCRL2 data
+/// specification, printing the selected stages of the pipeline.
+fn run_check(args: CheckArgs) -> Result<(), MercError> {
+    // With none of the stage flags given, show every stage.
+    let show_all = !args.ast && !args.ir && !args.lowered;
+
+    let mut sources = SourceMap::new();
+    let (untyped_spec, _import_graph) =
+        UntypedDataSpecification::parse_with_imports(&args.specification, &mut sources)?;
+
+    if show_all || args.ast {
+        println!("=== AST ===\n");
+        println!("{untyped_spec}");
+    }
+
+    let data_spec = match DataSpecification::from_untyped_with(untyped_spec, NumberEncoding::default(), &mut sources) {
+        Ok(data_spec) => data_spec,
+        Err(err) => return Err(err.render(&sources).into()),
+    };
+
+    if show_all || args.ir {
+        println!("=== IR (resolved user declarations) ===\n");
+        println!("{}", data_spec.data_specification());
+
+        // Basic sorts and desugared structs only: a container/
+        // function-update/comparison instantiation is generated at
+        // lowering time now, not during type-checking, so it only
+        // shows up under `--lowered` below, not here — see
+        // `docs/typecheck.md`'s monomorphization-to-lowering
+        // milestone.
+        println!("=== IR (system-defined declarations, unmonomorphized) ===\n");
+        println!("{}", data_spec.system_defined_specification());
+    }
+
+    if show_all || args.lowered {
+        let mcrl2_spec = data_spec.lower_data_specification();
+
+        println!("=== Lowered ===\n");
+        println!("{mcrl2_spec}");
+    }
+
+    eprintln!("The data specification is well-typed.");
 
     Ok(())
 }

@@ -342,6 +342,15 @@ pub struct Derivative {
     pub reduced: Vec<MatchGoal>,
 }
 
+/// Classification of a match goal during derivative computation.
+#[derive(Debug)]
+enum MatchGoalClassification {
+    Completed,
+    Discarded,
+    Unchanged,
+    Reducible,
+}
+
 pub struct State {
     label: DataPosition,
     match_goals: Vec<MatchGoal>,
@@ -376,85 +385,169 @@ impl State {
                 destinations.push((DataPosition::empty(), GoalsOrInitial::Goals(new_match_goals)));
             }
         } else {
-            // In case we are building a set automaton we partition the match goals
-            let partitioned = MatchGoal::partition(new_match_goals);
-
-            // Get the greatest common prefix and shorten the positions
-            let mut obligations_per_partition = vec![];
-            let mut gcp_length_per_partition = vec![];
-            for p in partitioned {
-                let mut obligation_positions = vec![];
-                for goal in &p {
-                    for obligation in &goal.obligations {
-                        obligation_positions.push(obligation.position.clone());
-                    }
-                }
-                obligations_per_partition.push(obligation_positions);
-
-                let gcp = MatchGoal::greatest_common_prefix(&p);
-                let gcp_length = gcp.len();
-                gcp_length_per_partition.push(gcp_length);
-                let mut goals = MatchGoal::remove_prefix(p, gcp_length);
-                goals.sort_unstable();
-                destinations.push((gcp, GoalsOrInitial::Goals(goals)));
-            }
-
-            // Handle fresh match goals, they are the positions Label(state).i
-            // where i is between 1 and the arity of the function symbol of
-            // the transition. Position 1 is the first argument.
-            for i in 1..arity + 1 {
-                let mut pos = self.label.clone();
-                pos.push(i);
-
-                // Obligation positions, not announcement positions: the latter are
-                // empty for root-anchored goals and an empty position is a prefix
-                // of every position, so every fresh subtree would be merged and
-                // construction would not terminate in practice.
-                // TODO: this can cost Sabre laziness relative to matching on
-                // announcement positions.
-                let mut partition_key = None;
-                'outer: for (k, obligation_positions) in obligations_per_partition.iter().enumerate() {
-                    for obligation_position in obligation_positions {
-                        if MatchGoal::pos_comparable(&pos, obligation_position) {
-                            partition_key = Some(k);
-                            break 'outer;
-                        }
-                    }
-                }
-
-                if let Some(key) = partition_key {
-                    // If the fresh goals fall in an existing partition
-                    let gcp_length = gcp_length_per_partition[key];
-                    debug_assert!(
-                        gcp_length <= pos.len(),
-                        "greatest common prefix cannot be deeper than the fresh position"
-                    );
-                    let pos = DataPosition::new(&pos.indices()[gcp_length..]);
-
-                    // Add the fresh goals to the partition
-                    for rr in rewrite_rules {
-                        if let GoalsOrInitial::Goals(goals) = &mut destinations[key].1 {
-                            goals.push(MatchGoal {
-                                obligations: vec![MatchObligation::new(rr.lhs.clone(), pos.clone())],
-                                announcement: MatchAnnouncement {
-                                    rule: (*rr).clone(),
-                                    position: pos.clone(),
-                                    symbols_seen: 0,
-                                },
-                            });
-                        }
-                    }
-                } else {
-                    // The transition is simply to the initial state
-                    // GoalsOrInitial::InitialState avoids unnecessary work of creating all these fresh goals
-                    destinations.push((pos, GoalsOrInitial::InitialState));
-                }
-            }
+            Self::build_set_automaton_destinations(
+                &self.label,
+                arity,
+                rewrite_rules,
+                new_match_goals,
+                &mut destinations,
+            );
         }
 
         // Sort the destination such that transitions which do not deepen the position are listed first
         destinations.sort_unstable_by(|(pos1, _), (pos2, _)| pos1.cmp(pos2));
         (outputs, destinations)
+    }
+
+    /// Partitions match goals, computes greatest-common-prefix destinations, and
+    /// adds fresh match goals for each argument position not covered by an
+    /// existing partition.
+    fn build_set_automaton_destinations(
+        label: &DataPosition,
+        arity: usize,
+        rewrite_rules: &[Rule],
+        new_match_goals: Vec<MatchGoal>,
+        destinations: &mut Vec<(DataPosition, GoalsOrInitial)>,
+    ) {
+        let partitioned = MatchGoal::partition(new_match_goals);
+
+        // Get the greatest common prefix and shorten the positions
+        let mut obligations_per_partition = vec![];
+        let mut gcp_length_per_partition = vec![];
+        for p in partitioned {
+            let mut obligation_positions = vec![];
+            for goal in &p {
+                for obligation in &goal.obligations {
+                    obligation_positions.push(obligation.position.clone());
+                }
+            }
+            obligations_per_partition.push(obligation_positions);
+
+            let gcp = MatchGoal::greatest_common_prefix(&p);
+            let gcp_length = gcp.len();
+            gcp_length_per_partition.push(gcp_length);
+            let mut goals = MatchGoal::remove_prefix(p, gcp_length);
+            goals.sort_unstable();
+            destinations.push((gcp, GoalsOrInitial::Goals(goals)));
+        }
+
+        Self::add_fresh_match_goals(
+            label,
+            arity,
+            rewrite_rules,
+            &obligations_per_partition,
+            &gcp_length_per_partition,
+            destinations,
+        );
+    }
+
+    /// Adds fresh match goals for argument positions `1..=arity` that are not
+    /// covered by an existing partition.
+    fn add_fresh_match_goals(
+        label: &DataPosition,
+        arity: usize,
+        rewrite_rules: &[Rule],
+        obligations_per_partition: &[Vec<DataPosition>],
+        gcp_length_per_partition: &[usize],
+        destinations: &mut Vec<(DataPosition, GoalsOrInitial)>,
+    ) {
+        // Handle fresh match goals, they are the positions Label(state).i
+        // where i is between 1 and the arity of the function symbol of
+        // the transition. Position 1 is the first argument.
+        for i in 1..arity + 1 {
+            let mut pos = label.clone();
+            pos.push(i);
+
+            // Obligation positions, not announcement positions: the latter are
+            // empty for root-anchored goals and an empty position is a prefix
+            // of every position, so every fresh subtree would be merged and
+            // construction would not terminate in practice.
+            //
+            // Every obligation lies at or below its announcement position, so
+            // this only ever splits off fresh positions that the announcement
+            // test would have merged. Root-anchored goals still determine the
+            // state label, and the partition's prefix sorts before the split-off
+            // position, so root matches are still attempted first. What changes
+            // is the order in which sibling subterms are explored once the root
+            // goals fail.
+            let partition_key = obligations_per_partition
+                .iter()
+                .enumerate()
+                .find(|(_, obligation_positions)| {
+                    obligation_positions
+                        .iter()
+                        .any(|op| MatchGoal::pos_comparable(&pos, op))
+                })
+                .map(|(k, _)| k);
+
+            if let Some(key) = partition_key {
+                // If the fresh goals fall in an existing partition
+                let gcp_length = gcp_length_per_partition[key];
+                debug_assert!(
+                    gcp_length <= pos.len(),
+                    "greatest common prefix cannot be deeper than the fresh position"
+                );
+                let pos = DataPosition::new(&pos.indices()[gcp_length..]);
+
+                // Add the fresh goals to the partition
+                if let GoalsOrInitial::Goals(goals) = &mut destinations[key].1 {
+                    for rr in rewrite_rules {
+                        goals.push(MatchGoal {
+                            obligations: vec![MatchObligation::new(rr.lhs.clone(), pos.clone())],
+                            announcement: MatchAnnouncement {
+                                rule: (*rr).clone(),
+                                position: pos.clone(),
+                                symbols_seen: 0,
+                            },
+                        });
+                    }
+                }
+            } else {
+                // The transition is simply to the initial state
+                // GoalsOrInitial::InitialState avoids unnecessary work of creating all these fresh goals
+                destinations.push((pos, GoalsOrInitial::InitialState));
+            }
+        }
+    }
+
+    /// Classifies a match goal against the current symbol and label, returning
+    /// which bucket it belongs to.
+    fn classify_match_goal(
+        mg: &MatchGoal,
+        symbol: &DataFunctionSymbol,
+        label: &DataPosition,
+    ) -> MatchGoalClassification {
+        debug_assert!(
+            !mg.obligations.is_empty(),
+            "The obligations should never be empty, should be completed then"
+        );
+
+        // Completed match goals
+        if mg.obligations.len() == 1
+            && mg.obligations.iter().any(|mo| {
+                mo.position == *label
+                    && mo.pattern.data_function_symbol() == symbol.copy()
+                    && mo.pattern.data_arguments().all(|x| is_data_variable(&x))
+            })
+        {
+            return MatchGoalClassification::Completed;
+        }
+
+        // Discarded: head symbol does not match
+        if mg
+            .obligations
+            .iter()
+            .any(|mo| mo.position == *label && mo.pattern.data_function_symbol() != symbol.copy())
+        {
+            return MatchGoalClassification::Discarded;
+        }
+
+        // Unchanged match goals
+        if mg.obligations.iter().all(|mo| mo.position != *label) {
+            return MatchGoalClassification::Unchanged;
+        }
+
+        MatchGoalClassification::Reducible
     }
 
     /// For a transition 'symbol' of state 'self' this function computes which match goals are
@@ -467,72 +560,57 @@ impl State {
         };
 
         for mg in &self.match_goals {
-            debug_assert!(
-                !mg.obligations.is_empty(),
-                "The obligations should never be empty, should be completed then"
-            );
-
-            // Completed match goals
-            if mg.obligations.len() == 1
-                && mg.obligations.iter().any(|mo| {
-                    mo.position == self.label
-                        && mo.pattern.data_function_symbol() == symbol.copy()
-                        && mo.pattern.data_arguments().all(|x| is_data_variable(&x))
-                    // Again skip the function symbol
-                })
-            {
-                result.completed.push(mg.clone());
-            } else if mg
-                .obligations
-                .iter()
-                .any(|mo| mo.position == self.label && mo.pattern.data_function_symbol() != symbol.copy())
-            {
-                // Match goal is discarded since head symbol does not match.
-            } else if mg.obligations.iter().all(|mo| mo.position != self.label) {
-                // Unchanged match goals
-                let mut mg = mg.clone();
-                if mg.announcement.rule.lhs != mg.obligations.first().unwrap().pattern {
-                    mg.announcement.symbols_seen += 1;
+            match Self::classify_match_goal(mg, symbol, &self.label) {
+                MatchGoalClassification::Completed => {
+                    result.completed.push(mg.clone());
                 }
-
-                result.unchanged.push(mg.clone());
-            } else {
-                // Reduce match obligations
-                let mut mg = mg.clone();
-                let mut new_obligations = vec![];
-
-                for mo in mg.obligations {
-                    if mo.pattern.data_function_symbol() == symbol.copy() && mo.position == self.label {
-                        // Reduced match obligation
-                        for (index, t) in mo.pattern.data_arguments().enumerate() {
-                            assert!(
-                                index < arity,
-                                "This pattern associates function symbol {:?} with different arities {} and {}",
-                                symbol,
-                                index + 1,
-                                arity
-                            );
-
-                            if !is_data_variable(&t) {
-                                let mut new_pos = mo.position.clone();
-                                new_pos.push(index + 1);
-                                new_obligations.push(MatchObligation {
-                                    pattern: t.protect(),
-                                    position: new_pos,
-                                });
-                            }
-                        }
-                    } else {
-                        // remains unchanged
-                        new_obligations.push(mo.clone());
+                MatchGoalClassification::Discarded => {
+                    // Match goal is discarded since head symbol does not match.
+                }
+                MatchGoalClassification::Unchanged => {
+                    let mut mg = mg.clone();
+                    if mg.announcement.rule.lhs != mg.obligations.first().unwrap().pattern {
+                        mg.announcement.symbols_seen += 1;
                     }
+                    result.unchanged.push(mg.clone());
                 }
+                MatchGoalClassification::Reducible => {
+                    let mut mg = mg.clone();
+                    let mut new_obligations = vec![];
 
-                new_obligations.sort_unstable_by_key(|mo1| mo1.position.len());
-                mg.obligations = new_obligations;
-                mg.announcement.symbols_seen += 1;
+                    for mo in mg.obligations {
+                        if mo.pattern.data_function_symbol() == symbol.copy() && mo.position == self.label {
+                            // Reduced match obligation
+                            for (index, t) in mo.pattern.data_arguments().enumerate() {
+                                assert!(
+                                    index < arity,
+                                    "This pattern associates function symbol {:?} with different arities {} and {}",
+                                    symbol,
+                                    index + 1,
+                                    arity
+                                );
 
-                result.reduced.push(mg);
+                                if !is_data_variable(&t) {
+                                    let mut new_pos = mo.position.clone();
+                                    new_pos.push(index + 1);
+                                    new_obligations.push(MatchObligation {
+                                        pattern: t.protect(),
+                                        position: new_pos,
+                                    });
+                                }
+                            }
+                        } else {
+                            // remains unchanged
+                            new_obligations.push(mo.clone());
+                        }
+                    }
+
+                    new_obligations.sort_unstable_by_key(|mo1| mo1.position.len());
+                    mg.obligations = new_obligations;
+                    mg.announcement.symbols_seen += 1;
+
+                    result.reduced.push(mg);
+                }
             }
         }
 

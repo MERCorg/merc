@@ -210,50 +210,7 @@ impl<'a, G: PG> PriorityPromotionSolver<'a, G> {
             } else if !self.is_open(prio, false) {
                 // This is a dominion D in the whole game, compute the attractor
                 // for this region.
-                debug_assert!(self.todo.is_empty());
-
-                for &v in &self.unsolved {
-                    if self.region_function[*v] == Some(prio) {
-                        self.todo.push_back(v);
-                    }
-                }
-
-                self.compute_attractor(&mut strategy, prio, false);
-
-                // Remove the dominion from the game and keep the unsolved vertices, also reset
-                // lower priorities and set region of prio to the COMPUTED_REGION.
-                debug!("Found the dominion D, with p = {}", prio);
-                self.print_region(prio);
-
-                // Record the winner for this dominion.
-                let winner = Player::from_priority(prio);
-                for v in self.game.iter_vertices() {
-                    if self.region_function[*v] == Some(prio) {
-                        self.final_winner[*v] = winner;
-                    }
-                }
-
-                // Reset the unsolved set and remove all regions, also add one dominion to statistics.
-                self.unsolved.clear();
-                self.regions.fill(0);
-                self.dominions += 1;
-
-                for v in self.game.iter_vertices() {
-                    if self.region_function[*v] == Some(prio) {
-                        // Assign a special region indicating that it's solved.
-                        self.region_function[*v] = None;
-                    } else if self.region_function[*v].is_some() {
-                        let original_prio = self.game.priority(v);
-                        self.region_function[*v] = Some(original_prio);
-                        strategy.remove(v);
-
-                        // Add the not solved vertices to the unsolved set and add vertices to their region.
-                        self.unsolved.push(v);
-                        self.regions[original_prio.value()] += 1;
-                    }
-                }
-
-                if self.unsolved.is_empty() {
+                if self.solve_dominion(&mut strategy, prio) {
                     break; // Stop the algorithm, as all the vertices were solved.
                 }
 
@@ -274,6 +231,57 @@ impl<'a, G: PG> PriorityPromotionSolver<'a, G> {
         );
 
         strategy
+    }
+
+    /// The current priority region is a dominion `D` in the whole game: attract
+    /// it, record the winners, and remove it from the game, keeping the unsolved
+    /// vertices and resetting lower priorities. Returns `true` when all vertices
+    /// were solved, signalling the caller to stop.
+    fn solve_dominion<S: Strat>(&mut self, strategy: &mut S, prio: Priority) -> bool {
+        debug_assert!(self.todo.is_empty());
+
+        for &v in &self.unsolved {
+            if self.region_function[*v] == Some(prio) {
+                self.todo.push_back(v);
+            }
+        }
+
+        self.compute_attractor(strategy, prio, false);
+
+        // Remove the dominion from the game and keep the unsolved vertices, also reset
+        // lower priorities and set region of prio to the COMPUTED_REGION.
+        debug!("Found the dominion D, with p = {}", prio);
+        self.print_region(prio);
+
+        // Record the winner for this dominion.
+        let winner = Player::from_priority(prio);
+        for v in self.game.iter_vertices() {
+            if self.region_function[*v] == Some(prio) {
+                self.final_winner[*v] = winner;
+            }
+        }
+
+        // Reset the unsolved set and remove all regions, also add one dominion to statistics.
+        self.unsolved.clear();
+        self.regions.fill(0);
+        self.dominions += 1;
+
+        for v in self.game.iter_vertices() {
+            if self.region_function[*v] == Some(prio) {
+                // Assign a special region indicating that it's solved.
+                self.region_function[*v] = None;
+            } else if self.region_function[*v].is_some() {
+                let original_prio = self.game.priority(v);
+                self.region_function[*v] = Some(original_prio);
+                strategy.remove(v);
+
+                // Add the not solved vertices to the unsolved set and add vertices to their region.
+                self.unsolved.push(v);
+                self.regions[original_prio.value()] += 1;
+            }
+        }
+
+        self.unsolved.is_empty()
     }
 
     /// From the state (region_function, strategy, prio) compute the new alpha-region
@@ -305,25 +313,7 @@ impl<'a, G: PG> PriorityPromotionSolver<'a, G> {
     fn compute_attractor<S: Strat>(&mut self, strategy: &mut S, prio: Priority, in_subgraph: bool) {
         let alpha = Player::from_priority(prio);
 
-        // Initialise, for every opponent vertex still under consideration, the
-        // number of its outgoing edges that lead to a vertex which can still
-        // enter the region with priority `prio` (a "poppable" target: not yet
-        // solved, and inside the subgame when `in_subgraph`). The opponent
-        // vertex is attracted once all of those targets have been attracted.
-        for i in 0..self.unsolved.len() {
-            let v = self.unsolved[i];
-            if self.game.owner(v) != alpha {
-                self.attractor_counters[*v] = self
-                    .game
-                    .outgoing_edges(v)
-                    .filter(|edge| {
-                        let x = edge.to();
-                        self.region_function[*x].is_some()
-                            && !(in_subgraph && self.region_function[*x].is_some_and(|region| region > prio))
-                    })
-                    .count();
-            }
-        }
+        self.initialize_attractor_counters(alpha, prio, in_subgraph);
 
         // O(V + E): Compute the attractor set to the alpha-region.
         while let Some(w) = self.todo.pop_front() {
@@ -366,10 +356,36 @@ impl<'a, G: PG> PriorityPromotionSolver<'a, G> {
             }
         }
 
-        // R \ domain(tau restricted to R*), essentially vertices in R belonging to
-        // alpha where no strategy is defined yet. These can pick an arbitrary
-        // successor that can reach R \ R*, these already have an attraction
-        // strategy so that is always fine.
+        self.assign_missing_strategies(strategy, alpha, prio);
+    }
+
+    /// Initialise, for every opponent vertex still under consideration, the
+    /// number of its outgoing edges that lead to a vertex which can still
+    /// enter the region with priority `prio` (a "poppable" target: not yet
+    /// solved, and inside the subgame when `in_subgraph`). The opponent
+    /// vertex is attracted once all of those targets have been attracted.
+    fn initialize_attractor_counters(&mut self, alpha: Player, prio: Priority, in_subgraph: bool) {
+        for i in 0..self.unsolved.len() {
+            let v = self.unsolved[i];
+            if self.game.owner(v) != alpha {
+                self.attractor_counters[*v] = self
+                    .game
+                    .outgoing_edges(v)
+                    .filter(|edge| {
+                        let x = edge.to();
+                        self.region_function[*x].is_some()
+                            && !(in_subgraph && self.region_function[*x].is_some_and(|region| region > prio))
+                    })
+                    .count();
+            }
+        }
+    }
+
+    /// R \ domain(tau restricted to R*), essentially vertices in R belonging to
+    /// alpha where no strategy is defined yet. These can pick an arbitrary
+    /// successor that can reach R \ R*, these already have an attraction
+    /// strategy so that is always fine.
+    fn assign_missing_strategies<S: Strat>(&mut self, strategy: &mut S, alpha: Player, prio: Priority) {
         for &v in &self.unsolved {
             if self.region_function[*v] == Some(prio) && self.game.owner(v) == alpha && strategy.get(v).is_none() {
                 for edge in self.game.outgoing_edges(v) {
@@ -460,6 +476,14 @@ impl<'a, G: PG> PriorityPromotionSolver<'a, G> {
             }
         }
 
+        self.apply_priority_promotion(strategy, prio, promotion);
+
+        promotion
+    }
+
+    /// Promote the current region to `promotion`, reset all lower regions to
+    /// their original priority, and clear their strategies.
+    fn apply_priority_promotion<S: Strat>(&mut self, strategy: &mut S, prio: Priority, promotion: Priority) {
         self.promotions += 1;
 
         // Here the prio region is promoted to the new priority and all lower positions
@@ -480,8 +504,6 @@ impl<'a, G: PG> PriorityPromotionSolver<'a, G> {
                 self.regions[original_prio.value()] += 1;
             }
         }
-
-        promotion
     }
 
     /// Print the vertices with region_function\[v\] equal to prio, representing the region.
