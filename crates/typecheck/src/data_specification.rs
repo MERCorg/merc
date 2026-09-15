@@ -39,10 +39,12 @@ use crate::build_signature;
 use crate::check_aliases;
 use crate::check_comparison_template;
 use crate::check_container_templates;
+use crate::check_equation_well_formedness;
 use crate::check_equations;
 use crate::check_no_system_function_redeclaration;
 use crate::check_products_within_domains;
 use crate::check_system_equations;
+use crate::check_system_specification;
 use crate::desugar_structured_sorts;
 use crate::filter_signature;
 use crate::hoist_anonymous_structs;
@@ -274,7 +276,13 @@ impl DataSpecification {
         // Ties every system equation's own variable occurrences to its `var`-block declaration.
         resolve_data_specification_variables(&mut system);
 
-        is_well_typed(&system)?;
+        // A sanity net over the generated content, the same two checks
+        // `mcrl2_lowering`'s own generated content is checked with: `system`'s
+        // sorts are deliberately never flattened or given resolved `SortId`s of
+        // their own (see `written_target_sort`'s doc comment), so `is_well_typed`
+        // (whose `nonempty_sorts` requires both) cannot run against it directly.
+        check_system_specification(&spec, &system)?;
+        check_equation_well_formedness(&system)?;
         debug!(
             "final system-defined specification has {} sort, {} map and {} equation declaration(s)",
             system.sort_declarations.len(),

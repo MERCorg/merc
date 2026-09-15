@@ -43,18 +43,77 @@ use crate::resolve_sort;
 pub(crate) struct ExprTag;
 
 /// Identifies an expression node of one equation.
-///
-/// Ids are assigned parents before children, and within an application the
-/// arguments before the applied function (so the solver sees argument
-/// constraints before the callee's overload disjunction), over the condition,
-/// left-hand side and right-hand side in that order. Container literals number
-/// their members in syntactic order (a bag member before its multiplicity); a
-/// comprehension numbers only its predicate, and a `lambda`/`forall`/`exists`
-/// only its body — the bound variables have no id, like the equation
-/// variables. A `whr` numbers each assignment's right-hand side, in binding
-/// order, before the body. Phase-4 lowering re-walks the same lowered AST, so
-/// this numbering must stay deterministic.
 pub(crate) type ExprId = TagIndex<usize, ExprTag>;
+
+/// Assigns a stable [ExprId] to every node reachable from `roots`, in one canonical order: parents
+/// before children, an application's arguments before its function, a container literal's members
+/// in syntactic order (a bag member before its multiplicity), a comprehension's predicate only, a
+/// `lambda`/`forall`/`exists`'s body only (their bound variables have no id, like an equation's own
+/// `var`-block variables), and a `whr`'s assignment right-hand sides — in binding order — before its
+/// body.
+/// 
+/// A monomorphized template instantiation relies on [number_expr_nodes] being a pure function of
+/// tree *shape*: numbering the template's own generic equation and numbering a ground clone of it
+/// (same structure, substituted sorts — `replace_sort`'s `spec.clone()`) assigns the same ids to
+/// corresponding nodes, which is how [specialize_template_typing]'s substituted `sorts`/`names` line
+/// up with a later, independent lowering of the instantiated equation.
+pub(crate) fn number_expr_nodes<'a>(roots: impl IntoIterator<Item = &'a DataExpr>) -> HashMap<usize, ExprId> {
+    let mut ids = HashMap::new();
+    for root in roots {
+        number_expr_node(root, &mut ids);
+    }
+    ids
+}
+
+/// The recursive step of [number_expr_nodes].
+fn number_expr_node(expr: &DataExpr, ids: &mut HashMap<usize, ExprId>) {
+    ids.insert(expr as *const DataExpr as usize, ExprId::new(ids.len()));
+
+    match &expr.node {
+        DataExprKind::Application { function, arguments } => {
+            for argument in arguments {
+                number_expr_node(argument, ids);
+            }
+            number_expr_node(function, ids);
+        }
+        DataExprKind::Set(members) => {
+            for member in members {
+                number_expr_node(member, ids);
+            }
+        }
+        DataExprKind::Bag(members) => {
+            for member in members {
+                number_expr_node(&member.expr, ids);
+                number_expr_node(&member.multiplicity, ids);
+            }
+        }
+        DataExprKind::SetBagComp { predicate, .. } => {
+            number_expr_node(predicate, ids);
+        }
+        DataExprKind::Lambda { body, .. } | DataExprKind::Quantifier { body, .. } => {
+            number_expr_node(body, ids);
+        }
+        DataExprKind::Whr { expr, assignments } => {
+            for assignment in assignments {
+                number_expr_node(&assignment.expr, ids);
+            }
+            number_expr_node(expr, ids);
+        }
+        DataExprKind::Id(_)
+        | DataExprKind::Resolved(_, _)
+        | DataExprKind::Number(_)
+        | DataExprKind::Bool(_)
+        | DataExprKind::EmptyList
+        | DataExprKind::EmptySet
+        | DataExprKind::EmptyBag => {}
+        DataExprKind::List(_)
+        | DataExprKind::Unary { .. }
+        | DataExprKind::Binary { .. }
+        | DataExprKind::FunctionUpdate { .. } => {
+            unreachable!("lowering rewrote this expression form")
+        }
+    }
+}
 
 /// What a name (`Id` node) in an equation resolved to.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -659,6 +718,36 @@ fn infer<'a>(
             .expect("resolve_system_signature ran before inference"),
     );
 
+    // Numbered once, up front, from the raw AST alone — independent of the order `generate` below
+    // chooses to recurse in for its own reasons (see [ExprId]'s doc comment). `expr_sorts` is
+    // pre-filled in this same pass so `visit` only ever looks a node's id and sort node up, never
+    // mints either.
+    let expr_roots: Vec<&'a DataExpr> = match &roots {
+        Roots::Equation { condition, lhs, rhs } => {
+            let mut roots = Vec::with_capacity(3);
+            roots.extend(*condition);
+            roots.push(*lhs);
+            roots.push(*rhs);
+            roots
+        }
+        Roots::Expression(expr) | Roots::ExpressionAgainst { expr, .. } => vec![*expr],
+    };
+    let expr_id_of = number_expr_nodes(expr_roots.iter().copied());
+    let node_count = expr_id_of.len();
+    let expr_sorts: Vec<InferSortId> = (0..node_count).map(|_| unifier.fresh_var()).collect();
+    let log_texts = log::log_enabled!(log::Level::Debug);
+    let collect_typing_info = matches!(role, EquationRole::User);
+    let expr_texts = if log_texts {
+        vec![String::new(); node_count]
+    } else {
+        Vec::new()
+    };
+    let expr_spans = if collect_typing_info {
+        vec![Span::default(); node_count]
+    } else {
+        Vec::new()
+    };
+
     let mut generator = ConstraintGenerator {
         ctx: &mut *ctx,
         spec,
@@ -667,14 +756,15 @@ fn infer<'a>(
         builtin_schemes,
         declared_sorts,
         unifier: &mut unifier,
-        expr_sorts: Vec::new(),
-        expr_texts: Vec::new(),
-        log_texts: log::log_enabled!(log::Level::Debug),
-        expr_spans: Vec::new(),
+        expr_id_of,
+        expr_sorts,
+        expr_texts,
+        log_texts,
+        expr_spans,
         expr_names: HashMap::new(),
         expr_declarations: HashMap::new(),
         expr_ids: HashMap::new(),
-        collect_typing_info: matches!(role, EquationRole::User),
+        collect_typing_info,
         names: HashMap::new(),
         constraints: Vec::new(),
     };
@@ -1012,7 +1102,13 @@ struct ConstraintGenerator<'a> {
     /// A `Resolved` node's declaration [VarId], mapped to its sort; see [`infer`]'s doc comment.
     declared_sorts: HashMap<VarId, InferSortId>,
     unifier: &'a mut Unifier,
-    /// The sort node of every expression, indexed by [ExprId].
+    /// Every node's own [ExprId], keyed by its address — computed once, by [number_expr_nodes], from
+    /// `roots` before generation starts. `visit` only ever looks a node's id up here; it never mints
+    /// one, which is what lets it recurse in whatever order its own logic needs (see [ExprId]'s doc
+    /// comment).
+    expr_id_of: HashMap<usize, ExprId>,
+    /// The sort node of every expression, indexed by [ExprId]. Pre-filled with a fresh unifier
+    /// variable per node alongside `expr_id_of`, so `visit` only ever reads a slot, never pushes one.
     expr_sorts: Vec<InferSortId>,
     /// The display text of every expression, parallel to `expr_sorts`; only
     /// filled when [Self::log_texts], to report the solved typing.
@@ -1110,14 +1206,16 @@ impl<'a> ConstraintGenerator<'a> {
     /// Emits the constraints for `expr` and returns its sort node: a fresh
     /// variable constrained by the expression form.
     fn visit(&mut self, expr: &'a DataExpr) -> Result<InferSortId, GenFailure> {
-        let node = self.unifier.fresh_var();
-        let id = ExprId::new(self.expr_sorts.len());
-        self.expr_sorts.push(node);
+        let id = *self
+            .expr_id_of
+            .get(&(expr as *const DataExpr as usize))
+            .expect("number_expr_nodes numbered every node reachable from this generator's roots");
+        let node = self.expr_sorts[*id];
         if self.log_texts {
-            self.expr_texts.push(expr.to_string());
+            self.expr_texts[*id] = expr.to_string();
         }
         if self.collect_typing_info {
-            self.expr_spans.push(expr.span.clone());
+            self.expr_spans[*id] = expr.span.clone();
             self.expr_ids.insert(expr as *const DataExpr as usize, id);
         }
 
