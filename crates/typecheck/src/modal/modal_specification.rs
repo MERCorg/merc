@@ -1,19 +1,17 @@
 use std::collections::HashMap;
-use std::ops::ControlFlow;
 
 use merc_syntax::ActDecl;
 use merc_syntax::SortExpression;
-use merc_syntax::SortExpressionKind;
 use merc_syntax::SourceMap;
 use merc_syntax::Span;
 use merc_syntax::StateFrm;
-use merc_syntax::Traverse;
 use merc_syntax::UntypedStateFrmSpec;
 
 use crate::DataSpecification;
 use crate::NumberEncoding;
 use crate::ResolvedSortId;
 use crate::TypingInfo;
+use crate::find_anonymous_struct;
 
 use super::ModalError;
 use super::check;
@@ -173,12 +171,4 @@ pub(super) fn resolve_declared_sort(
         return Err(ModalError::AnonymousStructInDeclaration { span });
     }
     Ok(data.resolve_declared_sort(sort)?)
-}
-
-/// The span of the first anonymous `struct` anywhere within `sort`, if any.
-fn find_anonymous_struct(sort: &SortExpression) -> Option<Span> {
-    sort.visit(|expr| match &expr.node {
-        SortExpressionKind::Struct { .. } => ControlFlow::Break(expr.span.clone()),
-        _ => ControlFlow::Continue(()),
-    })
 }

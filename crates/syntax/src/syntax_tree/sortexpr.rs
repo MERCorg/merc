@@ -86,7 +86,7 @@ pub struct ConstructorDecl {
     /// Each argument's optional projection-function name.
     pub args: Vec<(Option<Spanned<String>>, SortExpression)>,
     /// The recogniser function's name.
-    pub projection: Option<Spanned<String>>,
+    pub recogniser: Option<Spanned<String>>,
 }
 
 /// Built-in simple sorts.
@@ -97,6 +97,20 @@ pub enum Sort {
     Int,
     Nat,
     Real,
+}
+
+impl Sort {
+    /// This sort's mCRL2 name, matching the literal `SortId` names the binary
+    /// aterm format uses; also `Sort`'s own [`Display`](std::fmt::Display) text.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Sort::Bool => "Bool",
+            Sort::Pos => "Pos",
+            Sort::Int => "Int",
+            Sort::Nat => "Nat",
+            Sort::Real => "Real",
+        }
+    }
 }
 
 /// Complex (parameterized) sorts.
@@ -111,7 +125,7 @@ pub enum ComplexSort {
 
 impl fmt::Display for Sort {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self:?}")
+        write!(f, "{}", self.name())
     }
 }
 
@@ -149,8 +163,8 @@ impl fmt::Display for ConstructorDecl {
         if self.args.is_empty() {
             write!(f, "{}", self.name.node)?;
 
-            if let Some(projection) = &self.projection {
-                write!(f, "?{}", projection.node)?;
+            if let Some(recogniser) = &self.recogniser {
+                write!(f, "?{}", recogniser.node)?;
             }
 
             Ok(())
@@ -167,8 +181,8 @@ impl fmt::Display for ConstructorDecl {
             }
             write!(f, ")")?;
 
-            if let Some(projection) = &self.projection {
-                write!(f, "?{}", projection.node)?;
+            if let Some(recogniser) = &self.recogniser {
+                write!(f, "?{}", recogniser.node)?;
             }
 
             Ok(())
@@ -366,16 +380,16 @@ impl Mcrl2Parser {
     pub(crate) fn ConstrDecl(input: ParseNode) -> ParseResult<ConstructorDecl> {
         match_nodes!(input.into_children();
             [IdAt(name)] => {
-                Ok(ConstructorDecl { name, args: Vec::new(), projection: None })
+                Ok(ConstructorDecl { name, args: Vec::new(), recogniser: None })
             },
             [IdAt(name), ProjDeclList(args)] => {
-                Ok(ConstructorDecl { name, args, projection: None })
+                Ok(ConstructorDecl { name, args, recogniser: None })
             },
-            [IdAt(name), IdAt(projection)] => {
-                Ok(ConstructorDecl { name, args: Vec::new(), projection: Some(projection) })
+            [IdAt(name), IdAt(recogniser)] => {
+                Ok(ConstructorDecl { name, args: Vec::new(), recogniser: Some(recogniser) })
             },
-            [IdAt(name), ProjDeclList(args), IdAt(projection)] => {
-                Ok(ConstructorDecl { name, args, projection: Some(projection) })
+            [IdAt(name), ProjDeclList(args), IdAt(recogniser)] => {
+                Ok(ConstructorDecl { name, args, recogniser: Some(recogniser) })
             },
         )
     }

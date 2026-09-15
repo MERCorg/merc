@@ -36,6 +36,7 @@ use crate::NameTarget;
 use crate::NumberEncoding;
 use crate::ResolvedSort;
 use crate::ResolvedSortId;
+use crate::TemplateId;
 use crate::TypeCheckContext;
 use crate::assign_declaration_ids;
 use crate::build_system_defined_specification;
@@ -48,18 +49,6 @@ use crate::is_system_generated_name;
 use crate::number_expr_nodes;
 use crate::resolve_data_specification_variables;
 use crate::unreachable_not_a_value_sort;
-
-/// The mCRL2 name of a basic sort, matching the literal `SortId` names the
-/// binary aterm format uses.
-fn primitive_name(sort: Sort) -> &'static str {
-    match sort {
-        Sort::Bool => "Bool",
-        Sort::Pos => "Pos",
-        Sort::Nat => "Nat",
-        Sort::Int => "Int",
-        Sort::Real => "Real",
-    }
-}
 
 /// The merc_data container kind for a [ComplexSort]; the two enums are kept
 /// separate because `merc_data` sits below `merc_syntax` in the dependency
@@ -164,7 +153,7 @@ pub(crate) fn lower_sort(
 ) -> DataSortExpression {
     match ctx.sorts.get(id) {
         ResolvedSort::Unit => unreachable_not_a_value_sort("Unit"),
-        ResolvedSort::Primitive(sort) => BasicSort::new(primitive_name(*sort)).into(),
+        ResolvedSort::Primitive(sort) => BasicSort::new(sort.name()).into(),
         ResolvedSort::Generic { op, subsort } => {
             SortCons::new(container_kind(*op), lower_sort(ctx, spec, *subsort)).into()
         }
@@ -863,7 +852,7 @@ impl Lowering<'_> {
 /// unreachable at this point.
 pub(crate) fn lower_syntax_sort(sort: &SortExpression) -> DataSortExpression {
     match &sort.node {
-        SortExpressionKind::Simple(s) => BasicSort::new(primitive_name(*s)).into(),
+        SortExpressionKind::Simple(s) => BasicSort::new(s.name()).into(),
         SortExpressionKind::Complex(op, sub) => SortCons::new(container_kind(*op), lower_syntax_sort(sub)).into(),
         SortExpressionKind::FlattenedFunction { domain, range } => {
             let domain: Vec<DataSortExpression> = domain.iter().map(lower_syntax_sort).collect();
@@ -1117,10 +1106,9 @@ pub(crate) fn lower_data_specification(
     // unconditionally during `from_untyped_with` regardless of usage.
     let mut checked_arities = HashSet::new();
     for instantiation in &instantiations {
-        if let Some(arity) = instantiation.template.strip_prefix("function_update_")
-            && checked_arities.insert(arity.to_string())
+        if let TemplateId::FunctionUpdateN(arity) = instantiation.template
+            && checked_arities.insert(arity)
         {
-            let arity: usize = arity.parse().expect("`function_update_{arity}` names an integer arity");
             check_multi_argument_function_update_template(&mut scratch_ctx, arity).unwrap_or_else(|err| {
                 panic!("the generated arity-{arity} function-update template failed its rigid check: {err}")
             });

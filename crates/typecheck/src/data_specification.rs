@@ -229,7 +229,7 @@ impl DataSpecification {
             let mapping_names: HashSet<String> = constructors
                 .iter()
                 .flat_map(|c| {
-                    c.projection
+                    c.recogniser
                         .clone()
                         .into_iter()
                         .chain(c.args.iter().filter_map(|(name, _)| name.clone()))

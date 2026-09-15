@@ -24,7 +24,6 @@ pub(crate) use resolution::*;
 #[allow(unused_imports)]
 pub(crate) use signature::*;
 
-pub use builtins::BASIC_SORT_NAMES;
 pub use data_specification::DataSpecification;
 pub use inference::InferenceError;
 pub use modal::ModalError;

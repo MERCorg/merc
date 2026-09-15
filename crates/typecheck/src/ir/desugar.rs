@@ -283,7 +283,7 @@ pub(crate) fn desugar_structured_sorts(spec: &mut UntypedDataSpecification) -> V
             ));
 
             // map is_c: D -> Bool  (recogniser), when one is declared.
-            if let Some(recogniser) = &constructor.projection {
+            if let Some(recogniser) = &constructor.recogniser {
                 let recogniser_sort = function_sort(vec![sort.clone()], SortExpressionKind::Simple(Sort::Bool).into());
                 push_unique(
                     &mut mappings,

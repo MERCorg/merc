@@ -194,7 +194,7 @@ fn act_decl_with_args_prints_colon_hash() {
 
 /// A nullary struct constructor's `?is_foo` recognizer was dropped when printing:
 /// `ConstructorDecl::fmt` returned early for the no-`args` case before checking
-/// `self.projection`, so e.g. `struct b1?is_b1 | b2?is_b2` reprinted without either
+/// `self.recogniser`, so e.g. `struct b1?is_b1 | b2?is_b2` reprinted without either
 /// recognizer, silently losing the generated `is_b1`/`is_b2` projection functions.
 #[test]
 fn nullary_struct_constructor_recognizer_is_printed() {

@@ -391,12 +391,12 @@ fn struct_constructor_projection_and_recogniser_get_precise_spans() {
     assert_eq!(&text[a1.span.start..a1.span.end], "a1");
     let (anonymous, _) = &c1.args[1];
     assert!(anonymous.is_none(), "the second argument has no projection name");
-    let is_c1 = c1.projection.as_ref().expect("c1 declares a recogniser");
+    let is_c1 = c1.recogniser.as_ref().expect("c1 declares a recogniser");
     assert_eq!(&text[is_c1.span.start..is_c1.span.end], "is_c1");
 
     let c2 = &inner[1];
     assert_eq!(&text[c2.name.span.start..c2.name.span.end], "c2");
-    assert!(c2.projection.is_none());
+    assert!(c2.recogniser.is_none());
 }
 
 #[test]

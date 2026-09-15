@@ -16,6 +16,7 @@ use merc_syntax::UntypedDataSpecification;
 use crate::NumberEncoding;
 use crate::ResolvedSort;
 use crate::ResolvedSortId;
+use crate::TemplateId;
 use crate::TypeCheckContext;
 use crate::WellTypedError;
 use crate::comparison_operator_equations_with_provenance;
@@ -26,8 +27,7 @@ use crate::polymorphic_operator_names;
 use crate::standard_sort;
 use crate::standard_sort_with_provenance;
 
-/// Which template (bundled or generic, named the same way
-/// `ctx.template_typings` keys it — see `standard_sort_with_provenance`/
+/// Which template (bundled or generic — see `standard_sort_with_provenance`/
 /// `comparison_operator_equations_with_provenance`) produced one contiguous
 /// range of `system.equation_declarations` (`EqnSpecId` block indices), and
 /// the concrete sort(s) substituted for that template's own `type_var`
@@ -39,7 +39,7 @@ use crate::standard_sort_with_provenance;
 /// (`Bag(Nat)`, `Bag(D)`) each carry a copy of its equations, checked once as
 /// the template's own.
 pub(crate) struct TemplateInstantiation {
-    pub(crate) template: String,
+    pub(crate) template: TemplateId,
     pub(crate) substitution: Vec<SortExpression>,
     pub(crate) equation_range: Range<usize>,
 }
@@ -63,42 +63,44 @@ enum SortCollectionMode {
 }
 
 /// Drains `worklist` to a fixpoint like [expand_sorts], merging each popped
-/// sort's generated batch into `result` directly via `generate`. Unlike an
-/// earlier version of this function, batches are no longer partitioned by
-/// element sort before merging: the container/function-update/comparison
-/// operations are looked up as schemes in one pooled signature regardless of
-/// which concrete instantiation an equation came from, so there is nothing
-/// left for two instantiations' equations to collide over. Records a [TemplateInstantiation] for each
-/// batch, so its equations can be specialized from the template's own proven
-/// typing rather than re-checked.
+/// sort's generated batch into `result` directly. Unlike an earlier version
+/// of this function, batches are no longer partitioned by element sort before
+/// merging: the container/function-update/comparison operations are looked up
+/// as schemes in one pooled signature regardless of which concrete
+/// instantiation an equation came from, so there is nothing left for two
+/// instantiations' equations to collide over. Records a [TemplateInstantiation]
+/// for each batch, so its equations can be specialized from the template's
+/// own proven typing rather than re-checked.
 fn merge_generated(
     sources: &mut SourceMap,
     result: &mut UntypedDataSpecification,
-    mut worklist: Vec<SortExpression>,
+    worklist: Vec<SortExpression>,
     seen: &HashSet<SortExpression>,
     scan_mode: SortCollectionMode,
-    mut generate: impl FnMut(&mut SourceMap, &SortExpression) -> (UntypedDataSpecification, (String, Vec<SortExpression>)),
+    generate: impl FnMut(&mut SourceMap, &SortExpression) -> (UntypedDataSpecification, (TemplateId, Vec<SortExpression>)),
 ) -> Vec<TemplateInstantiation> {
     let mut seen = seen.clone();
     let mut instantiations = Vec::new();
-    while let Some(sort) = worklist.pop() {
-        if !seen.insert(sort.clone()) {
-            continue;
-        }
-        let (mut generated, (template, substitution)) = generate(sources, &sort);
-        collect_system_sorts_in_spec(&generated, &mut worklist, scan_mode);
-        lower_data_expressions(&mut generated);
+    expand_sorts(
+        sources,
+        worklist,
+        &mut seen,
+        scan_mode,
+        generate,
+        |mut generated, (template, substitution)| {
+            lower_data_expressions(&mut generated);
 
-        let start = result.equation_declarations.len();
-        result.merge(&generated);
-        let end = result.equation_declarations.len();
+            let start = result.equation_declarations.len();
+            result.merge(&generated);
+            let end = result.equation_declarations.len();
 
-        instantiations.push(TemplateInstantiation {
-            template,
-            substitution,
-            equation_range: start..end,
-        });
-    }
+            instantiations.push(TemplateInstantiation {
+                template,
+                substitution,
+                equation_range: start..end,
+            });
+        },
+    );
     instantiations
 }
 
@@ -272,11 +274,13 @@ fn add_numeric_basic_sort_dependencies(
 }
 
 /// Drains `worklist` to a fixpoint: for every sort popped that has not already
-/// been `seen`, generates its Appendix-B specification via `generate` and
-/// passes it to `on_generated`, then re-scans the generated content (in
-/// `scan_mode`) for further sorts it in turn depends on (a container is
-/// defined in terms of other containers, e.g. `Set(S)` needs `FSet(S)`) and
-/// pushes those too.
+/// been `seen`, generates its Appendix-B specification (plus whatever side
+/// data `generate` wants carried through — [merge_generated] uses this for a
+/// [TemplateInstantiation]'s template id and substitution; a caller with
+/// nothing to carry uses `T = ()`) via `generate` and passes both to
+/// `on_generated`, then re-scans the generated content (in `scan_mode`) for
+/// further sorts it in turn depends on (a container is defined in terms of
+/// other containers, e.g. `Set(S)` needs `FSet(S)`) and pushes those too.
 ///
 /// `scan_mode` should be [SortCollectionMode::ContainersOnly] when `generate`
 /// produces container content: function sorts are not re-collected from
@@ -286,22 +290,22 @@ fn add_numeric_basic_sort_dependencies(
 /// Comparison-operator content has no such concern — a generated
 /// instantiation only ever mentions the sort itself and `Bool` — so
 /// [SortCollectionMode::Every] is safe there.
-fn expand_sorts(
+fn expand_sorts<T>(
     sources: &mut SourceMap,
     mut worklist: Vec<SortExpression>,
     seen: &mut HashSet<SortExpression>,
     scan_mode: SortCollectionMode,
-    mut generate: impl FnMut(&mut SourceMap, &SortExpression) -> UntypedDataSpecification,
-    mut on_generated: impl FnMut(&UntypedDataSpecification),
+    mut generate: impl FnMut(&mut SourceMap, &SortExpression) -> (UntypedDataSpecification, T),
+    mut on_generated: impl FnMut(UntypedDataSpecification, T),
 ) {
     while let Some(sort) = worklist.pop() {
         if !seen.insert(sort.clone()) {
             continue;
         }
 
-        let generated = generate(sources, &sort);
+        let (generated, extra) = generate(sources, &sort);
         collect_system_sorts_in_spec(&generated, &mut worklist, scan_mode);
-        on_generated(&generated);
+        on_generated(generated, extra);
     }
 }
 
@@ -352,8 +356,8 @@ pub(crate) fn extend_system_with_inferred_sorts(
         container_covered,
         &mut container_seen,
         SortCollectionMode::ContainersOnly,
-        |sources, sort| standard_sort(sources, sort, encoding),
-        |_| {},
+        |sources, sort| (standard_sort(sources, sort, encoding), ()),
+        |_, ()| {},
     );
 
     // Every container sort that shows up as the inferred sort of some
@@ -395,8 +399,8 @@ pub(crate) fn extend_system_with_inferred_sorts(
         comparison_covered,
         &mut comparison_seen,
         SortCollectionMode::Every,
-        |sources, sort| comparison_operator_equations_with_provenance(sources, sort).0,
-        |_| {},
+        |sources, sort| (comparison_operator_equations_with_provenance(sources, sort).0, ()),
+        |_, ()| {},
     );
 
     // ...then every sort that shows up as the inferred sort of some

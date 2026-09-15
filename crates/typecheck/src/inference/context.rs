@@ -19,6 +19,7 @@ use crate::ResolvedSortId;
 use crate::Signature;
 use crate::SortInterner;
 use crate::TemplateCheck;
+use crate::TemplateId;
 use crate::TypingInfo;
 
 /// The context shared by all type-checking queries.
@@ -63,7 +64,7 @@ pub(crate) struct TypeCheckContext {
     /// The proven typing of each Appendix-B container/function-update
     /// template's own equations, checked once with its type variable(s) held
     /// rigid by `check_template_equations`.
-    pub(crate) template_typings: HashMap<String, TemplateCheck>,
+    pub(crate) template_typings: HashMap<TemplateId, TemplateCheck>,
 
     /// The memoized result of the public TypingInfo for every equation.
     pub(crate) equation_typing_info: HashMap<(EqnSpecId, EquationId), Arc<TypingInfo>>,

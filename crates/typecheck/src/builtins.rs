@@ -1,15 +1,16 @@
 use std::sync::LazyLock;
 
+use merc_syntax::Sort;
 use merc_syntax::UntypedDataSpecification;
 
 use crate::parse_rigid_template;
 
 /// The five built-in basic sorts. They are always present in a specification.
-pub const BASIC_SORT_NAMES: [&str; 5] = ["Bool", "Pos", "Nat", "Int", "Real"];
+const BASIC_SORTS: [Sort; 5] = [Sort::Bool, Sort::Pos, Sort::Nat, Sort::Int, Sort::Real];
 
-/// Whether `name` is one of the [`BASIC_SORT_NAMES`].
+/// Whether `name` names one of the [`BASIC_SORTS`].
 pub(crate) fn is_basic_sort_name(name: &str) -> bool {
-    BASIC_SORT_NAMES.contains(&name)
+    BASIC_SORTS.iter().any(|sort| sort.name() == name)
 }
 
 /// Whether `name` uses the reserved `@`-prefix convention every system-generated

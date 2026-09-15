@@ -1,10 +1,12 @@
 mod alias;
+mod anonymous_struct;
 mod name_resolution;
 mod non_empty;
 mod normalize;
 mod variable_resolution;
 
 pub(crate) use alias::*;
+pub(crate) use anonymous_struct::*;
 pub(crate) use name_resolution::*;
 pub(crate) use non_empty::*;
 pub(crate) use normalize::*;

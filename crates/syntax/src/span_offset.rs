@@ -139,8 +139,8 @@ fn offset_constructor_decl(constructor: &mut ConstructorDecl, delta: usize) {
         }
         offset_sort_expression(sort, delta);
     }
-    if let Some(projection) = &mut constructor.projection {
-        projection.span.shift(delta);
+    if let Some(recogniser) = &mut constructor.recogniser {
+        recogniser.span.shift(delta);
     }
 }
 
