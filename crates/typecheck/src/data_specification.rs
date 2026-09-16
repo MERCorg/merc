@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::convert::Infallible;
-use std::fmt::Write as _;
+use std::fmt;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -442,61 +442,8 @@ impl DataSpecification {
     /// Renders `self.data_specification()` the same way its own `Display` does
     /// except each equation's own sub-expressions are annotated with their
     /// resolved sort (`expr:Sort`) rather than left implicit.
-    pub fn to_typed_string(&self) -> String {
-        let spec = &self.spec;
-        let mut out = String::new();
-
-        if !spec.type_var_declarations.is_empty() {
-            out.push_str("type_var\n");
-            for decl in &spec.type_var_declarations {
-                let _ = writeln!(out, "   {};", decl.identifier);
-            }
-            out.push('\n');
-        }
-        if !spec.sort_declarations.is_empty() {
-            out.push_str("sort\n");
-            for decl in &spec.sort_declarations {
-                let _ = writeln!(out, "   {decl};");
-            }
-            out.push('\n');
-        }
-        if !spec.constructor_declarations.is_empty() {
-            out.push_str("cons\n");
-            for decl in &spec.constructor_declarations {
-                let _ = writeln!(out, "   {decl};");
-            }
-            out.push('\n');
-        }
-        if !spec.map_declarations.is_empty() {
-            out.push_str("map\n");
-            for decl in &spec.map_declarations {
-                let _ = writeln!(out, "   {decl};");
-            }
-            out.push('\n');
-        }
-
-        for eqn_spec in &spec.equation_declarations {
-            if !eqn_spec.node.variables.is_empty() {
-                out.push_str("var\n");
-                for decl in &eqn_spec.node.variables {
-                    let _ = writeln!(out, "   {decl};");
-                }
-            }
-
-            out.push_str("eqn\n");
-            let eqn_spec_id = eqn_spec
-                .node
-                .id
-                .expect("assign_declaration_ids ran during from_untyped");
-            for equation in &eqn_spec.node.equations {
-                let equation_id = equation.id.expect("assign_declaration_ids ran during from_untyped");
-                let typing = self.equation_typing((eqn_spec_id, equation_id));
-                let text = typed_equation_string(equation, &self.context, &self.spec, typing);
-                let _ = writeln!(out, "   {text};");
-            }
-        }
-
-        out
+    pub fn to_typed_string(&self) -> TypedDataSpecification<'_> {
+        TypedDataSpecification { spec: self }
     }
 
     /// Type checks a single data expression against this specification and
@@ -659,6 +606,71 @@ impl DataSpecification {
                 resolve_sort_id(&flattened, &self.sorts)
             },
         )
+    }
+}
+
+/// Displays a [`DataSpecification`] the same way its own `Display` does, except each equation's
+/// own sub-expressions are annotated with their resolved sort (`expr:Sort`) rather than left
+/// implicit. Returned by [`DataSpecification::to_typed_string`].
+pub struct TypedDataSpecification<'a> {
+    spec: &'a DataSpecification,
+}
+
+impl fmt::Display for TypedDataSpecification<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let spec = &self.spec.spec;
+
+        if !spec.type_var_declarations.is_empty() {
+            writeln!(f, "type_var")?;
+            for decl in &spec.type_var_declarations {
+                writeln!(f, "   {};", decl.identifier)?;
+            }
+            writeln!(f)?;
+        }
+        if !spec.sort_declarations.is_empty() {
+            writeln!(f, "sort")?;
+            for decl in &spec.sort_declarations {
+                writeln!(f, "   {decl};")?;
+            }
+            writeln!(f)?;
+        }
+        if !spec.constructor_declarations.is_empty() {
+            writeln!(f, "cons")?;
+            for decl in &spec.constructor_declarations {
+                writeln!(f, "   {decl};")?;
+            }
+            writeln!(f)?;
+        }
+        if !spec.map_declarations.is_empty() {
+            writeln!(f, "map")?;
+            for decl in &spec.map_declarations {
+                writeln!(f, "   {decl};")?;
+            }
+            writeln!(f)?;
+        }
+
+        for eqn_spec in &spec.equation_declarations {
+            if !eqn_spec.node.variables.is_empty() {
+                writeln!(f, "var")?;
+                for decl in &eqn_spec.node.variables {
+                    writeln!(f, "   {decl};")?;
+                }
+            }
+
+            writeln!(f, "eqn")?;
+            let eqn_spec_id = eqn_spec
+                .node
+                .id
+                .expect("assign_declaration_ids ran during from_untyped");
+            for equation in &eqn_spec.node.equations {
+                let equation_id = equation.id.expect("assign_declaration_ids ran during from_untyped");
+                let typing = self.spec.equation_typing((eqn_spec_id, equation_id));
+                let text = typed_equation_string(equation, &self.spec.context, &self.spec.spec, typing);
+                writeln!(f, "   {text};")?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -1179,7 +1191,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            spec.to_typed_string(),
+            spec.to_typed_string().to_string(),
             // `@NatPair` is the one system-internal nominal sort folded into the
             // shared `sort_declarations` table alongside the user's own, present
             // here regardless of whether this spec ever uses it.
@@ -1218,7 +1230,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            spec.to_typed_string(),
+            spec.to_typed_string().to_string(),
             // `@NatPair`, folded into `sort_declarations` unconditionally — see
             // the other `to_typed_string` test's comment.
             "sort\n\
