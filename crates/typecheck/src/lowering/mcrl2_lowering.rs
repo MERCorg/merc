@@ -1,6 +1,5 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::collections::HashSet;
 
 use merc_data::BasicSort;
 use merc_data::BinderType;
@@ -36,15 +35,11 @@ use crate::NameTarget;
 use crate::NumberEncoding;
 use crate::ResolvedSort;
 use crate::ResolvedSortId;
-use crate::TemplateId;
 use crate::TypeCheckContext;
 use crate::assign_declaration_ids;
 use crate::build_system_defined_specification;
-use crate::check_equation_well_formedness;
-use crate::check_multi_argument_function_update_template;
-use crate::check_system_equations;
-use crate::check_system_specification;
 use crate::extend_system_with_inferred_sorts;
+use crate::instantiate_system_equations;
 use crate::is_system_generated_name;
 use crate::number_expr_nodes;
 use crate::resolve_data_specification_variables;
@@ -1041,14 +1036,16 @@ pub(crate) fn lower_data_specification(
 
     // Every container/function-update/comparison instantiation the
     // specification actually uses is monomorphized here, for this call only,
-    // rather than during type-checking. `ctx` itself proved every
-    // template's own equations exactly once, rigidly
-    // (`check_container_templates`/`check_comparison_template`, run during
-    // `from_untyped_with`); a scratch clone absorbs the work still needed
-    // to turn that into ground content — checking a not-yet-seen
-    // multi-argument function-update arity, interning a substituted sort —
-    // without mutating the context the caller's `DataSpecification` still
-    // holds.
+    // rather than during type-checking. `ctx` itself already proved every
+    // template's own equations exactly once, rigidly — the six bundled
+    // container templates, the comparison template, and every distinct
+    // multi-argument function-update arity alike (`check_container_templates`/
+    // `check_comparison_template`/`check_multi_argument_function_update_template`,
+    // all run unconditionally during `from_untyped_with`, regardless of
+    // usage) — so nothing below ever infers anything: a scratch clone exists
+    // only so interning a substituted sort (`instantiate_system_equations`'s
+    // own `resolve_sort` calls) doesn't mutate the context the caller's
+    // `DataSpecification` still holds.
     let mut scratch_ctx = ctx.clone();
     let mut scratch_sources = SourceMap::new();
 
@@ -1074,52 +1071,10 @@ pub(crate) fn lower_data_specification(
     instantiations.extend(more_instantiations);
 
     resolve_data_specification_variables(&mut generated);
-
-    // A cheap sanity net over the generated content (see
-    // `check_system_specification`'s own doc comment), run before any of the
-    // lowering work below — lowering is only ever reached for the actual
-    // rewriter, so this is the one place nothing else checks `generated` — a
-    // generator bug should fail here, not surface as a silently wrong
-    // rewrite rule further down. Checked against `system`'s own declarations
-    // too (cloned in, not `generated` alone), so a container equation
-    // referencing a basic-sort operator by name (e.g. `+`) resolves
-    // correctly; `system` itself is left untouched; only `generated`'s own
-    // content is ever lowered below, so this never duplicates `system`'s
-    // content in the output. Should never fail for a well-formed template: a
-    // failure here is a bug in the generator, not in the user's
-    // specification (already fully checked before this call), so both checks
-    // panic rather than threading a `Result` through lowering.
-    let mut check_target = system.clone();
-    check_target.merge(&generated);
-    check_system_specification(spec, &check_target)
-        .unwrap_or_else(|err| panic!("the generated system-defined specification is malformed: {err}"));
-    check_equation_well_formedness(&check_target)
-        .unwrap_or_else(|err| panic!("the generated system-defined specification is malformed: {err}"));
-
+    
     assign_declaration_ids(&mut generated);
 
-    // Every distinct arity a generated multi-argument function-update
-    // instantiation uses gets its own generic template, checked once with its
-    // type variable(s) held rigid, exactly like the six bundled container
-    // templates and the comparison template — whose own results this scratch
-    // context already inherited from `ctx`, since those are checked
-    // unconditionally during `from_untyped_with` regardless of usage.
-    let mut checked_arities = HashSet::new();
-    for instantiation in &instantiations {
-        if let TemplateId::FunctionUpdateN(arity) = instantiation.template
-            && checked_arities.insert(arity)
-        {
-            check_multi_argument_function_update_template(&mut scratch_ctx, arity).unwrap_or_else(|err| {
-                panic!("the generated arity-{arity} function-update template failed its rigid check: {err}")
-            });
-        }
-    }
-
-    // Every equation is specialized from its own template's already-proven,
-    // rigid typing by substitution, not re-inferred — see
-    // `check_system_equations`/`specialize_template_typing`.
-    check_system_equations(&mut scratch_ctx, spec, &generated, &instantiations)
-        .unwrap_or_else(|err| panic!("a generated system equation failed to specialize: {err}"));
+    instantiate_system_equations(&mut scratch_ctx, spec, &generated, &instantiations);
 
     for decl in &generated.constructor_declarations {
         constructors.push(DataFunctionSymbol::with_sort(
@@ -1150,7 +1105,7 @@ pub(crate) fn lower_data_specification(
             let typing = scratch_ctx
                 .system_equation_typing
                 .get(&(eqn_spec_id, equation_id))
-                .expect("check_system_equations resolved every generated equation's typing above")
+                .expect("instantiate_system_equations resolved every generated equation's typing above")
                 .as_ref()
                 .expect("a well-typed template specializes to a well-typed instantiation");
             let lowered = lower_equation(
