@@ -498,6 +498,9 @@ define_traversal! {
             recurse(lhs)?;
             recurse(rhs)?;
         }
+        ActFrmKind::At { expr, .. } => {
+            recurse(expr)?;
+        }
         ActFrmKind::True | ActFrmKind::False | ActFrmKind::MultAct(_) | ActFrmKind::DataExprVal(_) => {}
     },
 }

@@ -5,10 +5,12 @@ use std::ops::ControlFlow;
 
 use rand::RngExt;
 
+use merc_syntax::ActFrmKind;
 use merc_syntax::Bound;
 use merc_syntax::PbesExprKind;
 use merc_syntax::ProcExprBinaryOp;
 use merc_syntax::ProcessExprKind;
+use merc_syntax::RegFrmKind;
 use merc_syntax::StateFrmKind;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedDataSpecification;
@@ -81,12 +83,37 @@ fn bare_delay_and_yaled_parse() {
     ));
 }
 
+/// The action-formula `@` (timed action) postfix operator used to panic in the Pratt parser: it
+/// was registered as a postfix operator (`Rule::ActFrmAt`) but had no `ActFrmKind` variant and no
+/// `.map_postfix` handler, so pest's `unwrap()` on the missing mapping crashed.
+#[test]
+fn action_formula_at_parses() {
+    let spec = UntypedStateFrmSpec::parse("<a@3>true").expect("`@` on an action formula should parse");
+    let StateFrmKind::Modality { formula, .. } = &spec.formula.node else {
+        panic!("expected a modality, got {:?}", spec.formula.node);
+    };
+    let RegFrmKind::Action(action) = &formula.node else {
+        panic!("expected an action formula, got {:?}", formula.node);
+    };
+    assert!(
+        matches!(action.node, ActFrmKind::At { .. }),
+        "expected ActFrmKind::At, got {:?}",
+        action.node
+    );
+}
+
 /// The left-merge operator must print as `||_` so that the output reparses.
 #[test]
 fn left_merge_round_trips() {
     let printed = format!("{}", UntypedProcessSpecification::parse("init a ||_ b;").unwrap());
     assert!(printed.contains("||_"), "left merge should print as ||_: {printed}");
     UntypedProcessSpecification::parse(&printed).expect("printed left merge should reparse");
+}
+
+#[test]
+fn action_formula_at_round_trips() {
+    let printed = format!("{}", UntypedStateFrmSpec::parse("<a@3>true").unwrap());
+    UntypedStateFrmSpec::parse(&printed).expect("printed `@` action formula should reparse");
 }
 
 /// A PRES used the `pbes` keyword, dropped infix operators, and mismatched the

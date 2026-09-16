@@ -212,9 +212,7 @@ impl DataSpecification {
         let mut system = basics.clone();
 
         // The defining equations of each structured sort (Appendix B.10) join the system-defined
-        // part, checked the same way as every other system equation — see `EquationRole::System`'s
-        // doc comment (`inference/inference.rs`) for why they resolve names against the one pooled
-        // signature, unfiltered, rather than a per-struct scoped one.
+        // part, checked the same way as every other system equation.
         for constructors in &structs {
             system.merge(&structured_sort_equations(sources, constructors).map_err(WellTypedError::Custom)?);
         }

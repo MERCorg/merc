@@ -415,6 +415,10 @@ fn offset_act_frm(formula: &mut ActFrm, delta: usize) {
             offset_act_frm(lhs, delta);
             offset_act_frm(rhs, delta);
         }
+        ActFrmKind::At { expr, operand } => {
+            offset_act_frm(expr, delta);
+            offset_data_expr(operand, delta);
+        }
     }
 }
 

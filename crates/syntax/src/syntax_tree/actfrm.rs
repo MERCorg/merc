@@ -51,6 +51,12 @@ pub enum ActFrmKind {
         lhs: Box<ActFrm>,
         rhs: Box<ActFrm>,
     },
+    /// `expr@operand`: `expr` restricted to the instant `operand`, mirroring
+    /// [`ProcessExprKind::At`].
+    At {
+        expr: Box<ActFrm>,
+        operand: DataExpr,
+    },
 }
 
 /// An action formula: an [ActFrmKind] paired with the source [Span] it was
@@ -93,6 +99,7 @@ impl fmt::Display for ActFrm {
                 body,
             } => write!(f, "({} {} . {})", quantifier, variables.iter().format(", "), body),
             ActFrmKind::Negation(expr) => write!(f, "(!{expr})"),
+            ActFrmKind::At { expr, operand } => write!(f, "({expr})@({operand})"),
         }
     }
 }
@@ -108,9 +115,7 @@ impl fmt::Display for ActFrmBinaryOp {
 }
 
 /// Precedence table for [ActFrmKind], lowest level first — see [build_pratt_parser] and
-/// [Operator]. `Rule::ActFrmAt` (postfix, level 4) has no [ActFrmKind] variant of its own — it
-/// only participates in [ACTFRM_PRATT_PARSER]'s precedence climbing, so [Operator]'s levels below
-/// skip straight from 3 to 5.
+/// [Operator].
 const ACTFRM_OPERATORS: &[RuleFixity] = &[
     RuleFixity {
         rule: Rule::ActFrmExists,
@@ -221,6 +226,21 @@ pub fn parse_actfrm(pairs: Pairs<Rule>) -> ParseResult<ActFrm> {
         .map_primary(actfrm_primary)
         .map_prefix(actfrm_prefix)
         .map_infix(actfrm_infix)
+        .map_postfix(|expr, postfix| {
+            let expr = expr?;
+            let span = Span {
+                start: expr.span.start,
+                end: postfix.as_span().end(),
+            };
+            match postfix.as_rule() {
+                Rule::ActFrmAt => Ok(ActFrmKind::At {
+                    expr: Box::new(expr),
+                    operand: Mcrl2Parser::ActFrmAt(Node::new(postfix))?,
+                }
+                .spanned(span)),
+                _ => unimplemented!("Unexpected postfix rule: {:?}", postfix.as_rule()),
+            }
+        })
         .parse(pairs)
 }
 
@@ -234,6 +254,7 @@ impl Operator for ActFrmKind {
                 ActFrmBinaryOp::Intersect => Fixity::Infix(3, Assoc::Right),
             },
             ActFrmKind::Negation(_) => Fixity::Prefix(5),
+            ActFrmKind::At { .. } => Fixity::Postfix(4),
             ActFrmKind::True | ActFrmKind::False | ActFrmKind::MultAct(_) | ActFrmKind::DataExprVal(_) => {
                 Fixity::Primary
             }
@@ -244,6 +265,7 @@ impl Operator for ActFrmKind {
         match self {
             ActFrmKind::Negation(inner) => Some(inner),
             ActFrmKind::Quantifier { body, .. } => Some(body),
+            ActFrmKind::At { expr, .. } => Some(expr),
             _ => None,
         }
     }
@@ -255,6 +277,14 @@ impl Mcrl2Parser {
         match_nodes!(input.into_children();
             [VarsDeclList(variables)] => {
                 Ok(variables)
+            },
+        )
+    }
+
+    pub(crate) fn ActFrmAt(input: ParseNode) -> ParseResult<DataExpr> {
+        match_nodes!(input.into_children();
+            [DataExpr(expr)] => {
+                Ok(expr)
             },
         )
     }
