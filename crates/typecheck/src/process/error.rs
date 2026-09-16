@@ -1,12 +1,10 @@
-//! Errors from whole-process-specification type checking ([`crate::ProcessSpecification`]).
-
 use merc_syntax::SourceMap;
 use merc_syntax::Span;
 
 use crate::InferenceError;
 use crate::WellTypedError;
 
-/// An error type checking a whole process specification: an action, process, or `init`
+/// An error type checking a whole [`crate::ProcessSpecification`]: an action, process, or `init`
 /// declaration that doesn't type check, on top of everything [`WellTypedError`]/[`InferenceError`]
 /// already cover for the data-specification subtree.
 ///
@@ -90,9 +88,7 @@ pub enum ProcessError {
 }
 
 impl ProcessError {
-    /// The span of the offending construct. Mirrors [`WellTypedError::span`]/
-    /// [`InferenceError::span`], which every variant here ultimately delegates to or carries
-    /// directly — always `Some` except through a `WellTypedError::Custom`.
+    /// The span of the offending construct.
     pub fn span(&self) -> Option<&Span> {
         match self {
             ProcessError::WellTyped(error) => error.span(),

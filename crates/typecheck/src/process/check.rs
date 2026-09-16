@@ -1,8 +1,3 @@
-//! The scoped walk over every process body (`proc` declarations and `init`), checking each
-//! `DataExpr` it contains — action arguments, process-instantiation arguments, conditions, time
-//! bounds, `dist` weights — against its own expected sort and its own enclosing variable scope,
-//! and accumulating each checked expression's [`TypingInfo`].
-
 use std::cmp::Ordering;
 
 use merc_syntax::ActionName;
@@ -46,11 +41,13 @@ pub(super) fn check_process_specification(
             typing_info::collect_sort_name_references(sort, &mut sort_references);
         }
     }
+
     for decl in &spec.process_declarations {
         for param in &decl.params {
             typing_info::collect_sort_name_references(&param.sort, &mut sort_references);
         }
     }
+
     for decl in &spec.global_variables {
         typing_info::collect_sort_name_references(&decl.sort, &mut sort_references);
     }
@@ -67,6 +64,7 @@ pub(super) fn check_process_specification(
             )
         })
         .collect();
+
     for (decl, &sort) in spec.global_variables.iter().zip(&tables.global_sorts) {
         typing_info::push_binder_declaration(
             data,
@@ -87,6 +85,7 @@ pub(super) fn check_process_specification(
                 decl.identifier.span.clone(),
             )
         }));
+
         for (decl, &(_, sort)) in proc_decl.params.iter().zip(params) {
             typing_info::push_binder_declaration(
                 data,
@@ -96,6 +95,7 @@ pub(super) fn check_process_specification(
                 sort,
             );
         }
+
         collect_scope(data, &proc_decl.body, &mut scope, &mut sort_references, &mut typing)?;
         check_process_expr(data, tables, &scope, &proc_decl.body, &mut typing)?;
     }
@@ -103,6 +103,7 @@ pub(super) fn check_process_specification(
     if let Some(init) = &spec.init {
         let mut scope = globals.clone();
         collect_scope(data, init, &mut scope, &mut sort_references, &mut typing)?;
+
         check_process_expr(data, tables, &scope, init, &mut typing)?;
     }
 
@@ -364,6 +365,8 @@ fn check_arguments(
 ///
 /// Merges only the single successful candidate's `TypingInfo` into `typing`, plus a
 /// [`ResolvedName::Process`] at `name`'s own span — see [`check_action_or_process`]'s doc comment.
+/// Zero successes is reported the same way too: wrapped in [`ProcessError::NoMatchingOverload`]
+/// even for a single candidate, rather than surfacing that candidate's own error bare.
 fn check_instantiation(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
@@ -410,7 +413,13 @@ fn check_instantiation(
     }
 
     match successes {
-        0 => Err(first_error.expect("at least one candidate, so at least one recorded error when none succeed")),
+        0 => Err(ProcessError::NoMatchingOverload {
+            name: name.node.clone(),
+            span: span.clone(),
+            cause: Box::new(
+                first_error.expect("at least one candidate, so at least one recorded error when none succeed"),
+            ),
+        }),
         1 => {
             let (index, mut matched_typing) = matched.expect("successes == 1 implies a matched candidate");
             matched_typing.push(

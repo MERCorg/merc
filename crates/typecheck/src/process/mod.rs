@@ -1,6 +1,3 @@
-//! Whole-process-specification type checking: [`ProcessSpecification`] extends
-//! [`crate::DataSpecification`] to also check actions, process bodies, and `init`.
-
 mod check;
 mod disambiguation;
 mod error;

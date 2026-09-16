@@ -1,6 +1,3 @@
-//! [`ProcessSpecification`]: type checking for a whole `UntypedProcessSpecification` — the data
-//! specification (delegated to [`DataSpecification`]) plus its actions, processes, and `init`.
-
 use std::collections::HashMap;
 use std::collections::HashSet;
 
@@ -23,38 +20,26 @@ use super::ProcessError;
 use super::check;
 use super::disambiguation;
 
-/// A type-checked mCRL2 process specification: the data specification plus its `act`, `proc`,
-/// `glob`, and `init` declarations, all resolved and checked against it.
-///
-/// See the crate README for what's scoped in and out of this.
+/// A type-checked mCRL2 process specification.
 pub struct ProcessSpecification {
     /// The original specification, *minus* its data specification.
     spec: UntypedProcessSpecification,
     data: DataSpecification,
-    /// Every process-body expression's `TypingInfo`, merged during the construction walk (see
-    /// [`Self::typing_info`]).
+    /// Every process-body expression's `TypingInfo`.
     typing: TypingInfo,
 }
 
 impl ProcessSpecification {
-    /// Type checks `spec` against a fresh, throwaway [`SourceMap`], using the default number
-    /// encoding. See [`Self::from_untyped_with`].
-    ///
     /// Prefer [`Self::from_untyped_with`] with a real `sources`.
     pub fn from_untyped(spec: UntypedProcessSpecification) -> Result<Self, ProcessError> {
         Self::from_untyped_with(spec, NumberEncoding::default(), &mut SourceMap::new())
     }
 
-    /// Type checks `spec`: its data specification first (exactly as
-    /// [`DataSpecification::from_untyped_with`] does), then its action declarations' argument
-    /// sorts, its global variables, and every `proc` body and `init` against them.
+    /// Type checks the given untyped process specification.
     ///
-    /// `sources` accumulates the system-defined ("Appendix B") content this generates, the same
-    /// way [`DataSpecification::from_untyped_with`]'s own `sources` parameter does — pass the
-    /// `SourceMap` `spec` was parsed (and, if applicable, `%import`-resolved) against so every
-    /// span, whether from `spec`'s own text, something it imports, or Appendix B, renders
-    /// correctly against one shared offset space; pass a fresh one if nothing else needs to share
-    /// it.
+    /// Type checks the data specification first, see
+    /// [`DataSpecification::from_untyped_with`], and then type checks every
+    /// process and action declaration against it.
     pub fn from_untyped_with(
         mut spec: UntypedProcessSpecification,
         encoding: NumberEncoding,
@@ -63,8 +48,8 @@ impl ProcessSpecification {
         // Semantic-aware disambiguation first.
         disambiguation::disambiguate_process_specification(&mut spec);
 
-        // A pure syntactic pass, before anything else needs `spec` — see
-        // `resolution::variable_resolution`.
+        // Resolve all process variables to ensure each one has a unique
+        // identifier before further checking.
         crate::resolve_process_variables(&mut spec);
 
         let data_spec = std::mem::take(&mut spec.data_specification);
@@ -107,17 +92,7 @@ impl ProcessSpecification {
         self.spec.init.as_ref()
     }
 
-    /// Every checked expression's typing across the *whole* specification — every `eqn` (via
-    /// [`DataSpecification::typing_info`]) plus every process-body expression (action arguments,
-    /// process-instantiation arguments, conditions, time bounds, `dist` weights), span-keyed so
-    /// hover/go-to-definition/inlay-hints can look up a sub-expression by source position anywhere
-    /// in the document (see [`TypingInfo::at_offset`]) without caring which half of the grammar it
-    /// came from.
-    ///
-    /// The process-body half needs no separate memoization: it was already computed once, during
-    /// the construction walk `from_untyped_with` runs anyway, and is just cloned out of the stored
-    /// value here. The `eqn` half *is* memoized, one level down — see
-    /// [`DataSpecification::typing_info`] — so a repeated call is cheap either way.
+    /// Every checked expression's typing across the *whole* specification.
     pub fn typing_info(&mut self) -> TypingInfo {
         let mut info = self.data.typing_info();
         info.merge(self.typing.clone());

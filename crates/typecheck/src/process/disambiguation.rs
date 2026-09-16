@@ -1,26 +1,3 @@
-//! A semantic-aware disambiguation pass, public so it can run independently of type checking (see
-//! [`disambiguate_process_specification`]): mCRL2's concrete grammar shares tokens between the
-//! process algebra and the data language (most notably `.`, `+`, `||`), so a context-free parser
-//! can misparse a [`ProcessExprKind::Condition`]'s `condition` field — the one `DataExpr` slot in
-//! the process grammar with no delimiter bounding how far it extends — swallowing what should
-//! have been the rest of the process expression into it. See the [Process
-//! Specification](https://MERCorg.github.io/merc-website/developer/typechecking/process-specification/)
-//! page for the exact shapes (with parse-tree diagrams) and the known limitations.
-//!
-//! [`super::process_specification::ProcessSpecification::from_untyped_with`] runs this first,
-//! using only the declared action/process *names* (arity and sort don't matter — overload
-//! resolution itself still happens later, during type checking in [`super::check`]), and rewrites
-//! every misparsed `Condition` it finds back into the `ProcessExpr` shape —
-//! `Sequence`/`Choice`/`Parallel`, `Action` steps, `Hide`/`Block`/`Allow` — it should have parsed
-//! as, so [`super::check`]'s walk can then assume every `Condition` it sees is already correctly
-//! shaped.
-//!
-//! [`merc_syntax::Traverse::apply_mut`] drives the walk (see [`disambiguate_mut`]): only [`Condition`]
-//! is special-cased, in [`fix_swallow`]; every other `ProcessExprKind` variant's own recursion
-//! into its children comes for free from `Traverse`'s generated per-type implementation.
-//!
-//! [`Condition`]: ProcessExprKind::Condition
-
 use std::collections::HashSet;
 use std::convert::Infallible;
 
@@ -57,8 +34,16 @@ impl Names {
     }
 }
 
-/// Rewrites every `proc` body and `init` in `spec` in place, fixing every misparsed `Condition`
-/// this module's doc comment describes.
+/// A semantic-aware disambiguation pass. mCRL2's concrete grammar shares tokens
+/// between the process algebra and the data language (most notably `.`, `+`,
+/// `||`), so a context-free parser can misparse a `Condition`'s `condition`
+/// field swallowing what should have been the rest of the process expression
+/// into it.
+///
+/// See the [Process
+/// Specification](https://MERCorg.github.io/merc-website/developer/typechecking/process-specification/)
+/// page for the exact shapes (with parse-tree diagrams) and the known
+/// limitations.
 pub fn disambiguate_process_specification(spec: &mut UntypedProcessSpecification) {
     let names = Names::build(spec);
     for decl in &mut spec.process_declarations {
@@ -69,12 +54,7 @@ pub fn disambiguate_process_specification(spec: &mut UntypedProcessSpecification
     }
 }
 
-/// Recursively rewrites `expr` in place: [`merc_syntax::Traverse::apply_mut`]
-/// provides the descent into every non-`Condition` `ProcessExpr` variant's own
-/// children generically — [`fix_swallow`] only has to know about `Condition` —
-/// top-down, so it always sees a not-yet-rewritten `then`/`else_` in its
-/// original, as-parsed shape, which the swallow it looks for needs (see
-/// [`fix_condition`]'s doc comment).
+/// Recursively rewrites `expr` in place.
 fn disambiguate_mut(names: &Names, expr: &mut ProcessExpr) {
     match expr.apply_mut::<Infallible, _>(|node| Ok(fix_swallow(names, node))) {
         Ok(()) => {}
@@ -82,8 +62,8 @@ fn disambiguate_mut(names: &Names, expr: &mut ProcessExpr) {
     }
 }
 
-/// See [`disambiguate_mut`]; for call sites (inside [`fix_condition`] and friends) that have an owned
-/// `ProcessExpr` rather than a `&mut` one already in hand.
+/// For call sites that have an owned `ProcessExpr` rather than a `&mut` one
+/// already in hand.
 fn disambiguate(names: &Names, mut expr: ProcessExpr) -> ProcessExpr {
     disambiguate_mut(names, &mut expr);
     expr
