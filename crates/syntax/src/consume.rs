@@ -79,6 +79,270 @@ use crate::parse_statefrm;
 pub(crate) type ParseResult<T> = std::result::Result<T, Error<Rule>>;
 pub(crate) type ParseNode<'i> = merc_pest_consume::Node<'i, Rule, ()>;
 
+/// Declarations shared by every `UntypedDataSpecification`-bearing top-level spec
+/// (`MCRL2Spec`, `ActionRenameSpec`, `StateFrmSpec`), collected while walking that spec's own
+/// top-level declaration rules.
+#[derive(Default)]
+struct DataSpecDeclarations {
+    map_declarations: Vec<IdDecl<MapId>>,
+    constructor_declarations: Vec<IdDecl<ConstructorId>>,
+    equation_declarations: Vec<EqnSpec>,
+    sort_declarations: Vec<SortDecl>,
+    type_var_declarations: Vec<TypeVarDecl>,
+}
+
+impl DataSpecDeclarations {
+    fn into_data_specification(self) -> UntypedDataSpecification {
+        UntypedDataSpecification {
+            map_declarations: self.map_declarations,
+            constructor_declarations: self.constructor_declarations,
+            equation_declarations: self.equation_declarations,
+            sort_declarations: self.sort_declarations,
+            type_var_declarations: self.type_var_declarations,
+        }
+    }
+}
+
+struct ProcessSpecDeclarations {
+    data: DataSpecDeclarations,
+    action_declarations: Vec<ActDecl>,
+    global_variables: Vec<IdDecl>,
+    process_declarations: Vec<ProcDecl>,
+    init: Option<ProcessExpr>,
+}
+
+/// Walks `MCRL2Spec`'s own top-level declaration rules, collecting each into its matching field.
+fn collect_process_spec(spec: ParseNode) -> ParseResult<ProcessSpecDeclarations> {
+    let mut decls = ProcessSpecDeclarations {
+        data: DataSpecDeclarations::default(),
+        action_declarations: Vec::new(),
+        global_variables: Vec::new(),
+        process_declarations: Vec::new(),
+        init: None,
+    };
+
+    for child in spec.into_children() {
+        match child.as_rule() {
+            Rule::ActSpec => {
+                decls.action_declarations.extend(Mcrl2Parser::ActSpec(child)?);
+            }
+            Rule::ConsSpec => {
+                decls
+                    .data
+                    .constructor_declarations
+                    .append(&mut Mcrl2Parser::ConsSpec(child)?);
+            }
+            Rule::MapSpec => {
+                decls.data.map_declarations.append(&mut Mcrl2Parser::MapSpec(child)?);
+            }
+            Rule::GlobVarSpec => {
+                decls.global_variables.append(&mut Mcrl2Parser::GlobVarSpec(child)?);
+            }
+            Rule::EqnSpec => {
+                decls
+                    .data
+                    .equation_declarations
+                    .append(&mut Mcrl2Parser::EqnSpec(child)?);
+            }
+            Rule::ProcSpec => {
+                decls.process_declarations.append(&mut Mcrl2Parser::ProcSpec(child)?);
+            }
+            Rule::SortSpec => {
+                decls.data.sort_declarations.append(&mut Mcrl2Parser::SortSpec(child)?);
+            }
+            Rule::TypeVarSpec => {
+                decls
+                    .data
+                    .type_var_declarations
+                    .append(&mut Mcrl2Parser::TypeVarSpec(child)?);
+            }
+            Rule::Init => {
+                if decls.init.is_some() {
+                    return Err(Error::new_from_span(
+                        ErrorVariant::CustomError {
+                            message: "Multiple init expressions are not allowed".to_string(),
+                        },
+                        child.as_span(),
+                    ));
+                }
+
+                decls.init = Some(Mcrl2Parser::Init(child)?);
+            }
+            Rule::EOI => {
+                // End of input
+                break;
+            }
+            _ => {
+                unimplemented!("Unexpected rule: {:?}", child.as_rule());
+            }
+        }
+    }
+
+    Ok(decls)
+}
+
+struct ActionRenameSpecDeclarations {
+    data: DataSpecDeclarations,
+    action_declarations: Vec<ActDecl>,
+    rename_declarations: Vec<ActionRenameDecl>,
+}
+
+/// Walks `ActionRenameSpec`'s own top-level declaration rules, collecting each into its matching
+/// field.
+fn collect_action_rename_spec(spec: ParseNode) -> ParseResult<ActionRenameSpecDeclarations> {
+    let mut decls = ActionRenameSpecDeclarations {
+        data: DataSpecDeclarations::default(),
+        action_declarations: Vec::new(),
+        rename_declarations: Vec::new(),
+    };
+
+    for child in spec.into_children() {
+        match child.as_rule() {
+            Rule::ConsSpec => {
+                decls
+                    .data
+                    .constructor_declarations
+                    .append(&mut Mcrl2Parser::ConsSpec(child)?);
+            }
+            Rule::MapSpec => {
+                decls.data.map_declarations.append(&mut Mcrl2Parser::MapSpec(child)?);
+            }
+            Rule::EqnSpec => {
+                decls
+                    .data
+                    .equation_declarations
+                    .append(&mut Mcrl2Parser::EqnSpec(child)?);
+            }
+            Rule::SortSpec => {
+                decls.data.sort_declarations.append(&mut Mcrl2Parser::SortSpec(child)?);
+            }
+            Rule::TypeVarSpec => {
+                decls
+                    .data
+                    .type_var_declarations
+                    .append(&mut Mcrl2Parser::TypeVarSpec(child)?);
+            }
+            Rule::ActSpec => {
+                decls.action_declarations.append(&mut Mcrl2Parser::ActSpec(child)?);
+            }
+            Rule::ActionRenameRuleSpec => {
+                decls
+                    .rename_declarations
+                    .append(&mut Mcrl2Parser::ActionRenameRuleSpec(child)?);
+            }
+            Rule::EOI => {
+                // End of input
+                break;
+            }
+            _ => {
+                unimplemented!("Unexpected rule: {:?}", child.as_rule());
+            }
+        }
+    }
+
+    Ok(decls)
+}
+
+struct StateFrmSpecDeclarations {
+    data: DataSpecDeclarations,
+    action_declarations: Vec<ActDecl>,
+    formula: Option<StateFrm>,
+}
+
+/// Consumes a single `StateFrmSpecElt` child (already unwrapped to its one inner rule),
+/// collecting it into its matching field.
+fn collect_state_frm_spec_elt(element: ParseNode, decls: &mut StateFrmSpecDeclarations) -> ParseResult<()> {
+    match element.as_rule() {
+        Rule::ConsSpec => {
+            decls
+                .data
+                .constructor_declarations
+                .append(&mut Mcrl2Parser::ConsSpec(element)?);
+        }
+        Rule::MapSpec => {
+            decls.data.map_declarations.append(&mut Mcrl2Parser::MapSpec(element)?);
+        }
+        Rule::EqnSpec => {
+            decls
+                .data
+                .equation_declarations
+                .append(&mut Mcrl2Parser::EqnSpec(element)?);
+        }
+        Rule::SortSpec => {
+            decls
+                .data
+                .sort_declarations
+                .append(&mut Mcrl2Parser::SortSpec(element)?);
+        }
+        Rule::TypeVarSpec => {
+            decls
+                .data
+                .type_var_declarations
+                .append(&mut Mcrl2Parser::TypeVarSpec(element)?);
+        }
+        Rule::ActSpec => {
+            decls.action_declarations.append(&mut Mcrl2Parser::ActSpec(element)?);
+        }
+        _ => {
+            unimplemented!("Unexpected rule in StateFrmSpecElt: {:?}", element.as_rule());
+        }
+    }
+    Ok(())
+}
+
+/// Walks `StateFrmSpec`'s own top-level declaration rules, collecting each into its matching
+/// field.
+fn collect_state_frm_spec(spec: ParseNode) -> ParseResult<StateFrmSpecDeclarations> {
+    let mut decls = StateFrmSpecDeclarations {
+        data: DataSpecDeclarations::default(),
+        action_declarations: Vec::new(),
+        formula: None,
+    };
+
+    for child in spec.into_children() {
+        match child.as_rule() {
+            Rule::StateFrmSpecElt => {
+                let element = child
+                    .into_children()
+                    .next()
+                    .expect("StateFrmSpecElt has exactly one child");
+                collect_state_frm_spec_elt(element, &mut decls)?;
+            }
+            Rule::StateFrm => {
+                if decls.formula.is_some() {
+                    return Err(Error::new_from_span(
+                        ErrorVariant::CustomError {
+                            message: "Multiple state formula specifications are not allowed".to_string(),
+                        },
+                        child.as_span(),
+                    ));
+                }
+                decls.formula = Some(Mcrl2Parser::StateFrm(child)?);
+            }
+            Rule::FormSpec => {
+                if decls.formula.is_some() {
+                    return Err(Error::new_from_span(
+                        ErrorVariant::CustomError {
+                            message: "Multiple state formula specifications are not allowed".to_string(),
+                        },
+                        child.as_span(),
+                    ));
+                }
+                decls.formula = Some(Mcrl2Parser::FormSpec(child)?);
+            }
+            Rule::EOI => {
+                // End of input
+                break;
+            }
+            _ => {
+                unimplemented!("Unexpected rule: {:?}", child.as_rule());
+            }
+        }
+    }
+
+    Ok(decls)
+}
+
 /// Consumes the pest parse tree into syntax tree nodes.
 ///
 /// Private functions are only called from `match_nodes!` arms elsewhere in this module, which
@@ -90,79 +354,13 @@ pub(crate) type ParseNode<'i> = merc_pest_consume::Node<'i, Rule, ()>;
 impl Mcrl2Parser {
     // Although these are not public, they are the main entry points for consuming the parse tree.
     pub(crate) fn MCRL2Spec(spec: ParseNode) -> ParseResult<UntypedProcessSpecification> {
-        let mut action_declarations = Vec::new();
-        let mut map_declarations = Vec::new();
-        let mut constructor_declarations = Vec::new();
-        let mut equation_declarations = Vec::new();
-        let mut global_variables = Vec::new();
-        let mut process_declarations = Vec::new();
-        let mut sort_declarations = Vec::new();
-        let mut type_var_declarations = Vec::new();
-
-        let mut init = None;
-
-        for child in spec.into_children() {
-            match child.as_rule() {
-                Rule::ActSpec => {
-                    action_declarations.extend(Mcrl2Parser::ActSpec(child)?);
-                }
-                Rule::ConsSpec => {
-                    constructor_declarations.append(&mut Mcrl2Parser::ConsSpec(child)?);
-                }
-                Rule::MapSpec => {
-                    map_declarations.append(&mut Mcrl2Parser::MapSpec(child)?);
-                }
-                Rule::GlobVarSpec => {
-                    global_variables.append(&mut Mcrl2Parser::GlobVarSpec(child)?);
-                }
-                Rule::EqnSpec => {
-                    equation_declarations.append(&mut Mcrl2Parser::EqnSpec(child)?);
-                }
-                Rule::ProcSpec => {
-                    process_declarations.append(&mut Mcrl2Parser::ProcSpec(child)?);
-                }
-                Rule::SortSpec => {
-                    sort_declarations.append(&mut Mcrl2Parser::SortSpec(child)?);
-                }
-                Rule::TypeVarSpec => {
-                    type_var_declarations.append(&mut Mcrl2Parser::TypeVarSpec(child)?);
-                }
-                Rule::Init => {
-                    if init.is_some() {
-                        return Err(Error::new_from_span(
-                            ErrorVariant::CustomError {
-                                message: "Multiple init expressions are not allowed".to_string(),
-                            },
-                            child.as_span(),
-                        ));
-                    }
-
-                    init = Some(Mcrl2Parser::Init(child)?);
-                }
-                Rule::EOI => {
-                    // End of input
-                    break;
-                }
-                _ => {
-                    unimplemented!("Unexpected rule: {:?}", child.as_rule());
-                }
-            }
-        }
-
-        let data_specification = UntypedDataSpecification {
-            map_declarations,
-            constructor_declarations,
-            equation_declarations,
-            sort_declarations,
-            type_var_declarations,
-        };
-
+        let decls = collect_process_spec(spec)?;
         Ok(UntypedProcessSpecification {
-            data_specification,
-            global_variables,
-            action_declarations,
-            process_declarations,
-            init,
+            data_specification: decls.data.into_data_specification(),
+            global_variables: decls.global_variables,
+            action_declarations: decls.action_declarations,
+            process_declarations: decls.process_declarations,
+            init: decls.init,
         })
     }
 
@@ -492,59 +690,11 @@ impl Mcrl2Parser {
     }
 
     pub fn ActionRenameSpec(spec: ParseNode) -> ParseResult<UntypedActionRenameSpec> {
-        let mut map_declarations = Vec::new();
-        let mut equation_declarations = Vec::new();
-        let mut constructor_declarations = Vec::new();
-        let mut sort_declarations = Vec::new();
-        let mut type_var_declarations = Vec::new();
-        let mut action_declarations = Vec::new();
-        let mut rename_declarations = Vec::new();
-
-        for child in spec.into_children() {
-            match child.as_rule() {
-                Rule::ConsSpec => {
-                    constructor_declarations.append(&mut Mcrl2Parser::ConsSpec(child)?);
-                }
-                Rule::MapSpec => {
-                    map_declarations.append(&mut Mcrl2Parser::MapSpec(child)?);
-                }
-                Rule::EqnSpec => {
-                    equation_declarations.append(&mut Mcrl2Parser::EqnSpec(child)?);
-                }
-                Rule::SortSpec => {
-                    sort_declarations.append(&mut Mcrl2Parser::SortSpec(child)?);
-                }
-                Rule::TypeVarSpec => {
-                    type_var_declarations.append(&mut Mcrl2Parser::TypeVarSpec(child)?);
-                }
-                Rule::ActSpec => {
-                    action_declarations.append(&mut Mcrl2Parser::ActSpec(child)?);
-                }
-                Rule::ActionRenameRuleSpec => {
-                    rename_declarations.append(&mut Mcrl2Parser::ActionRenameRuleSpec(child)?)
-                }
-                Rule::EOI => {
-                    // End of input
-                    break;
-                }
-                _ => {
-                    unimplemented!("Unexpected rule: {:?}", child.as_rule());
-                }
-            }
-        }
-
-        let data_specification = UntypedDataSpecification {
-            map_declarations,
-            equation_declarations,
-            constructor_declarations,
-            sort_declarations,
-            type_var_declarations,
-        };
-
+        let decls = collect_action_rename_spec(spec)?;
         Ok(UntypedActionRenameSpec {
-            data_specification,
-            action_declarations,
-            rename_declarations,
+            data_specification: decls.data.into_data_specification(),
+            action_declarations: decls.action_declarations,
+            rename_declarations: decls.rename_declarations,
         })
     }
 
@@ -1330,91 +1480,12 @@ impl Mcrl2Parser {
     }
 
     pub(crate) fn StateFrmSpec(spec: ParseNode) -> ParseResult<UntypedStateFrmSpec> {
-        let mut map_declarations = Vec::new();
-        let mut equation_declarations = Vec::new();
-        let mut constructor_declarations = Vec::new();
-        let mut sort_declarations = Vec::new();
-        let mut type_var_declarations = Vec::new();
-        let mut action_declarations = Vec::new();
-
-        let mut form_spec = None;
-
         let span = spec.as_span();
-        for child in spec.into_children() {
-            match child.as_rule() {
-                Rule::StateFrmSpecElt => {
-                    let element = child
-                        .into_children()
-                        .next()
-                        .expect("StateFrmSpecElt has exactly one child");
-                    match element.as_rule() {
-                        Rule::ConsSpec => {
-                            constructor_declarations.append(&mut Mcrl2Parser::ConsSpec(element)?);
-                        }
-                        Rule::MapSpec => {
-                            map_declarations.append(&mut Mcrl2Parser::MapSpec(element)?);
-                        }
-                        Rule::EqnSpec => {
-                            equation_declarations.append(&mut Mcrl2Parser::EqnSpec(element)?);
-                        }
-                        Rule::SortSpec => {
-                            sort_declarations.append(&mut Mcrl2Parser::SortSpec(element)?);
-                        }
-                        Rule::TypeVarSpec => {
-                            type_var_declarations.append(&mut Mcrl2Parser::TypeVarSpec(element)?);
-                        }
-                        Rule::ActSpec => {
-                            action_declarations.append(&mut Mcrl2Parser::ActSpec(element)?);
-                        }
-                        _ => {
-                            unimplemented!("Unexpected rule in StateFrmSpecElt: {:?}", element.as_rule());
-                        }
-                    }
-                }
-                Rule::StateFrm => {
-                    if form_spec.is_some() {
-                        return Err(Error::new_from_span(
-                            ErrorVariant::CustomError {
-                                message: "Multiple state formula specifications are not allowed".to_string(),
-                            },
-                            child.as_span(),
-                        ));
-                    }
-                    form_spec = Some(Mcrl2Parser::StateFrm(child)?);
-                }
-                Rule::FormSpec => {
-                    if form_spec.is_some() {
-                        return Err(Error::new_from_span(
-                            ErrorVariant::CustomError {
-                                message: "Multiple state formula specifications are not allowed".to_string(),
-                            },
-                            child.as_span(),
-                        ));
-                    }
-                    form_spec = Some(Mcrl2Parser::FormSpec(child)?);
-                }
-                Rule::EOI => {
-                    // End of input
-                    break;
-                }
-                _ => {
-                    unimplemented!("Unexpected rule: {:?}", child.as_rule());
-                }
-            }
-        }
-
-        let data_specification = UntypedDataSpecification {
-            map_declarations,
-            equation_declarations,
-            constructor_declarations,
-            sort_declarations,
-            type_var_declarations,
-        };
-
+        let decls = collect_state_frm_spec(spec)?;
         Ok(UntypedStateFrmSpec {
-            data_specification,
-            action_declarations,
-            formula: form_spec.ok_or(Error::new_from_span(
+            data_specification: decls.data.into_data_specification(),
+            action_declarations: decls.action_declarations,
+            formula: decls.formula.ok_or(Error::new_from_span(
                 ErrorVariant::CustomError {
                     message: "No state formula found in the state formula specification".to_string(),
                 },
