@@ -8,7 +8,6 @@ use log::trace;
 use merc_syntax::ComplexSort;
 use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
-use merc_syntax::EqnSpec;
 use merc_syntax::EqnSpecId;
 use merc_syntax::EquationId;
 use merc_syntax::IdDecl;
@@ -28,7 +27,6 @@ use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::Signature;
 use crate::SortInterner;
-use crate::TemplateInstantiation;
 use crate::TypeCheckContext;
 use crate::Unifier;
 use crate::is_lowered;
@@ -50,7 +48,7 @@ pub(crate) type ExprId = TagIndex<usize, ExprTag>;
 /// `var`-block variables), and a `whr`'s assignment right-hand sides — in binding order — before its
 /// body.
 ///
-/// A monomorphized template instantiation relies on [number_expr_nodes] being a pure function of
+/// A monomorphized template instantiation relies on this numbering being a pure function of
 /// tree *shape*: numbering the template's own generic equation and numbering a ground clone of it
 /// (same structure, substituted sorts — `replace_sort`'s `spec.clone()`) assigns the same ids to
 /// corresponding nodes, which is how [specialize_template_typing]'s substituted `sorts`/`names` line
@@ -116,20 +114,21 @@ fn number_expr_node(expr: &DataExpr, ids: &mut HashMap<usize, ExprId>) {
 /// What a name (`Id` node) in an equation resolved to.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum NameTarget {
-    /// An equation variable of the enclosing `var` block.
+    /// A variable in scope: an equation `var`-block variable, a
+    /// process/PBES/PRES parameter or global, or a binder of the expression
+    /// itself.
     Variable,
     /// A declared constructor or mapping (user or system-defined) with the
     /// given overload sort.
     Op { sort: ResolvedSortId },
-    /// A polymorphic built-in (`==`, `!=`, `<`, `<=`, `>`, `>=`, `if`), whose
-    /// concrete sort follows from the inferred argument sorts.
+    /// A polymorphic built-in whose concrete sort follows from the inferred
+    /// argument sorts.
     Builtin,
 }
 
-/// The Phase-3 typing result of a single equation. Every equation that type
-/// checks is fully inferred: a binder over a sort inference cannot model (a
-/// bare product sort, which is not a valid variable sort) is now a hard error
-/// rather than a silently untyped equation.
+/// The Phase-3 typing result of a single equation, or of one standalone
+/// expression. Every input that type checks is fully inferred; there is no
+/// partially-typed outcome.
 #[derive(Debug)]
 pub(crate) struct EquationTyping {
     /// The inferred sort of every expression node, indexed by [ExprId].
@@ -139,19 +138,14 @@ pub(crate) struct EquationTyping {
     ///
     /// A synthesized node (the desugared `Id("+")` of `x + y`, a list
     /// literal's cons chain, …) inherits the span of the whole surface
-    /// expression it was lowered from, since it has no span of its own in the
-    /// original source.
+    /// expression it was lowered from.
     pub(crate) spans: Vec<Span>,
     /// The resolution of every name, keyed by the [ExprId] of its `Id` node.
     pub(crate) names: HashMap<ExprId, NameTarget>,
     /// The identifier text of every `Id` node, keyed the same way as `names`.
     /// Only filled for [EquationRole::User], like `spans`.
     pub(crate) identifier_names: HashMap<ExprId, String>,
-    /// The declaration [VarId] of every `Resolved` node (a variable reference that names its own
-    /// binder), keyed the same way as `names`. Only filled for [EquationRole::User], like
-    /// `spans`. Absent for a plain `Id` node resolving to [NameTarget::Variable] — e.g. an
-    /// occurrence the upstream variable-resolution pass left unresolved because it names no
-    /// binder in scope (rejected separately by [`NameTarget::Variable`]'s own lookup below).
+    /// The declaration [VarId] of every `Resolved` node.
     pub(crate) declarations: HashMap<ExprId, VarId>,
     /// Every visited node's own [ExprId], keyed by that node's address.
     pub(crate) node_ids: HashMap<usize, ExprId>,
@@ -180,9 +174,8 @@ pub enum InferenceError {
     NoTyping {
         expression: String,
         /// The sort the expression was checked against, when inference ran with an
-        /// externally-supplied expected sort (`Roots::ExpressionAgainst`, e.g. via
-        /// `check_expression_against`); `None` when checking a whole equation, where no single
-        /// sort is being blamed.
+        /// externally-supplied expected sort; `None` when checking a whole equation, where no
+        /// single sort is being blamed.
         sort: Option<String>,
         span: Span,
     },
@@ -202,10 +195,8 @@ pub enum InferenceError {
 }
 
 impl InferenceError {
-    /// The span of the offending sub-expression (or, for `NoTyping` /
-    /// `AmbiguousExpression` / `UnderdeterminedSort`, the whole equation, since
-    /// no narrower sub-expression can be blamed for those). Pair with
-    /// [Span::render] to show a source snippet alongside the message.
+    /// The span of the offending sub-expression. Pair with [Span::render] to
+    /// show a source snippet alongside the message.
     pub fn span(&self) -> &Span {
         match self {
             InferenceError::UndeclaredName { span, .. }
@@ -219,35 +210,19 @@ impl InferenceError {
         }
     }
 
-    /// Renders this error's message, followed by a caret-annotated source
-    /// snippet (see [Span::render]). `sources` must contain the original text
-    /// the error was raised against — the specification for an equation
-    /// error, the expression text for one raised by
-    /// [`crate::DataSpecification::typecheck_expression`].
+    /// Renders this error's message.
     pub fn render(&self, sources: &SourceMap) -> String {
         format!("{self}\n{}", self.span().render(sources))
     }
 }
 
 /// Which specification's equations are being checked. All roles share the same [ConstraintGenerator]
-/// and [Solver], resolving names against the same one pooled `ctx.signature`/`ctx.basics_signature`
-/// pair, with every candidate visible unfiltered; only where a binder/equation-variable sort
-/// resolves from, and which spec an `EqnSpecId` indexes into, differs.
-///
-/// A struct's own generated equations (`System`) are deliberately *not* scoped to that struct's own
-/// declarations: an earlier revision of this crate did narrow `System`'s candidates to exactly the
-/// generating struct's own ids, but that scoping was removed as unsound in spirit — it special-cased
-/// compiler-generated equations rather than fixing name resolution in general, so the identical
-/// collision written by hand (`eqn a == a = true;` for two unrelated same-named structs) was still,
-/// and is still, rejected as ambiguous. Pooling `System` with `User`/`Template` instead means a
-/// struct whose own generated equations collide with an unrelated declaration is now genuinely
-/// ambiguous and rejected too, consistently with the hand-written case — see
-/// `docs/typecheck-struct-system-unification-plan.md`'s "Bug 1"/"Bug 2" and their real-specification
-/// regressions (`garage.mcrl2` et al.), which this reopens; those are left as known-failing tests
-/// rather than routed around by scoping.
+/// and [Solver], resolving names against the same one pooled `ctx.signature`, with every candidate
+/// visible unfiltered; only where a binder/equation-variable sort resolves from, and which spec an
+/// `EqnSpecId` indexes into, differs.
 #[derive(Clone, Copy)]
 enum EquationRole {
-    /// Sorts resolve via `resolve_sort`.
+    /// Checking the user specification's own equations, or a standalone expression against them.
     User,
     /// Checking a struct's own compiler-generated equations, or the plain basics equations.
     System,
@@ -255,6 +230,36 @@ enum EquationRole {
     /// un-instantiated equations, once, with its `type_var`-declared sort(s)
     /// held rigid.
     Template,
+}
+
+/// Shared by [query_equation_typing]/[query_system_equation_typing]: both look up `key` in a
+/// per-role cache, computing it via [infer_equation] under `role` on a miss — the only differences
+/// between the two roles are which cache backs them and which spec `key`'s `EqnSpecId` indexes into
+/// (`indexed`, checked by the `debug_assert` below).
+fn query_equation_typing_cached(
+    ctx: &mut TypeCheckContext,
+    spec: &UntypedDataSpecification,
+    system: &UntypedDataSpecification,
+    role: EquationRole,
+    indexed: &UntypedDataSpecification,
+    cache: impl Fn(
+        &mut TypeCheckContext,
+    ) -> &mut HashMap<(EqnSpecId, EquationId), Result<Arc<EquationTyping>, InferenceError>>,
+    key: (EqnSpecId, EquationId),
+) -> Result<Arc<EquationTyping>, InferenceError> {
+    let (eqn_spec_id, equation_id) = key;
+
+    debug_assert!(
+        indexed
+            .equation_declarations
+            .get(*eqn_spec_id)
+            .is_some_and(|eqn_spec| *equation_id < eqn_spec.equations.len()),
+        "equation typing key {key:?} must index an equation of the specification"
+    );
+
+    ctx.get_or_compute(cache, key, |ctx| {
+        infer_equation(ctx, spec, system, role, eqn_spec_id, equation_id).map(Arc::new)
+    })
 }
 
 /// Returns the typing of one user equation, keyed by the id of its enclosing
@@ -267,26 +272,21 @@ pub(crate) fn query_equation_typing(
     system: &UntypedDataSpecification,
     key: (EqnSpecId, EquationId),
 ) -> Result<Arc<EquationTyping>, InferenceError> {
-    let (eqn_spec_id, equation_id) = key;
-
-    debug_assert!(
-        spec.equation_declarations
-            .get(*eqn_spec_id)
-            .is_some_and(|eqn_spec| *equation_id < eqn_spec.equations.len()),
-        "equation typing key {key:?} must index an equation of the specification"
-    );
-
-    ctx.get_or_compute(
+    query_equation_typing_cached(
+        ctx,
+        spec,
+        system,
+        EquationRole::User,
+        spec,
         |ctx| &mut ctx.equation_typing,
         key,
-        |ctx| infer_equation(ctx, spec, system, EquationRole::User, eqn_spec_id, equation_id).map(Arc::new),
     )
 }
 
 /// Infers and validates the sort of every user equation, populating the
-/// `equation_typing` cache (read back during lowering); the first equation
-/// that fails inference is returned as the error. The system-defined
-/// equations are checked the same way, by [check_system_equations].
+/// `equation_typing` cache; the first equation that fails inference is returned
+/// as the error. The system-defined equations are checked the same way, by
+/// [check_system_equations].
 pub(crate) fn check_equations(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
@@ -333,6 +333,7 @@ pub(crate) fn check_template_equations(
             .id
             .expect("assign_declaration_ids ran on the template before check_template_equations");
         let mut block = Vec::with_capacity(eqn_spec.equations.len());
+
         for equation in &eqn_spec.equations {
             let equation_id = equation
                 .id
@@ -346,53 +347,11 @@ pub(crate) fn check_template_equations(
                 equation_id,
             )?));
         }
+
         typings.push(block);
     }
+
     Ok(TemplateCheck { type_vars, typings })
-}
-
-/// Specializes a container/function-update template's own proven
-/// [EquationTyping] into the typing of one concrete instantiation.
-pub(crate) fn specialize_template_typing(
-    ctx: &mut TypeCheckContext,
-    typing: &EquationTyping,
-    vars: &[TypeVarId],
-    substitution: &[ResolvedSortId],
-) -> EquationTyping {
-    debug_assert_eq!(
-        vars.len(),
-        substitution.len(),
-        "one concrete sort per template type variable"
-    );
-    let substitute = |ctx: &mut TypeCheckContext, sort: ResolvedSortId| {
-        vars.iter()
-            .zip(substitution)
-            .fold(sort, |sort, (&var, &with)| ctx.sorts.substitute_var(sort, var, with))
-    };
-
-    let sorts = typing.sorts.iter().map(|&sort| substitute(ctx, sort)).collect();
-    let names = typing
-        .names
-        .iter()
-        .map(|(&id, target)| {
-            let target = match *target {
-                NameTarget::Op { sort } => NameTarget::Op {
-                    sort: substitute(ctx, sort),
-                },
-                other => other,
-            };
-            (id, target)
-        })
-        .collect();
-
-    EquationTyping {
-        sorts,
-        spans: Vec::new(),
-        names,
-        identifier_names: HashMap::new(),
-        declarations: HashMap::new(),
-        node_ids: HashMap::new(),
-    }
 }
 
 /// The system-equation counterpart of [query_equation_typing], memoized on
@@ -403,102 +362,44 @@ pub(crate) fn query_system_equation_typing(
     system: &UntypedDataSpecification,
     key: (EqnSpecId, EquationId),
 ) -> Result<Arc<EquationTyping>, InferenceError> {
-    let (eqn_spec_id, equation_id) = key;
-
-    debug_assert!(
-        system
-            .equation_declarations
-            .get(*eqn_spec_id)
-            .is_some_and(|eqn_spec| *equation_id < eqn_spec.equations.len()),
-        "equation typing key {key:?} must index an equation of the system specification"
-    );
-
-    ctx.get_or_compute(
+    query_equation_typing_cached(
+        ctx,
+        spec,
+        system,
+        EquationRole::System,
+        system,
         |ctx| &mut ctx.system_equation_typing,
         key,
-        |ctx| infer_equation(ctx, spec, system, EquationRole::System, eqn_spec_id, equation_id).map(Arc::new),
     )
 }
 
-/// Infers and validates the sort of every system-defined equation, the same
-/// way [check_equations] does for user equations, populating
-/// `ctx.system_equation_typing`. Requires `resolve_system_signature_full` to
-/// have run, so every binder/equation-variable sort resolves infallibly.
+/// Infers and validates the sort of every equation of `system` — its own
+/// basics and desugared-struct equations, never anything template-generated.
+/// The latter (Appendix-B container/function-update/comparison
+/// instantiations) is monomorphized separately by
+/// [`crate::instantiate_system_equations`], which specializes an
+/// already-proven template typing by substitution instead of inferring it
+/// again here. Populates `ctx.system_equation_typing`, the same way
+/// [check_equations] does for user equations. Requires
+/// `resolve_system_signature_full` to have run, so every binder/
+/// equation-variable sort resolves infallibly.
 pub(crate) fn check_system_equations(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
     system: &UntypedDataSpecification,
-    instantiations: &[TemplateInstantiation],
 ) -> Result<(), InferenceError> {
-    // Which template (and local, within-template block index) generated each
-    // `system.equation_declarations` block index, if any.
-    let mut covered: HashMap<usize, (usize, usize)> = HashMap::new();
-    for (instantiation_index, instantiation) in instantiations.iter().enumerate() {
-        for (local_index, block_index) in instantiation.equation_range.clone().enumerate() {
-            covered.insert(block_index, (instantiation_index, local_index));
-        }
-    }
-
-    for (block_index, eqn_spec) in system.equation_declarations.iter().enumerate() {
+    for eqn_spec in &system.equation_declarations {
         let eqn_spec_id = eqn_spec
             .id
             .expect("assign_declaration_ids ran on system before check_system_equations");
-        match covered.get(&block_index) {
-            Some(&(instantiation_index, local_index)) => specialize_instantiation_equations(
-                ctx,
-                spec,
-                eqn_spec,
-                eqn_spec_id,
-                &instantiations[instantiation_index],
-                local_index,
-            ),
-            None => {
-                for equation in &eqn_spec.equations {
-                    let equation_id = equation
-                        .id
-                        .expect("assign_declaration_ids ran on system before check_system_equations");
-                    query_system_equation_typing(ctx, spec, system, (eqn_spec_id, equation_id))?;
-                }
-            }
+        for equation in &eqn_spec.equations {
+            let equation_id = equation
+                .id
+                .expect("assign_declaration_ids ran on system before check_system_equations");
+            query_system_equation_typing(ctx, spec, system, (eqn_spec_id, equation_id))?;
         }
     }
     Ok(())
-}
-
-/// Specializes one generated `EqnSpecId` block's equations.].
-fn specialize_instantiation_equations(
-    ctx: &mut TypeCheckContext,
-    user_spec: &UntypedDataSpecification,
-    eqn_spec: &EqnSpec,
-    eqn_spec_id: EqnSpecId,
-    instantiation: &TemplateInstantiation,
-    local_index: usize,
-) {
-    let check = ctx.template_typings.get(&instantiation.template).unwrap_or_else(|| {
-        panic!(
-            "template '{}' was not checked before specialization",
-            instantiation.template
-        )
-    });
-    let type_vars = check.type_vars.clone();
-    let block_typings = check.typings[local_index].clone();
-
-    // Drawn from the user's own already-resolved sort tree, so `resolve_sort`
-    // resolves every entry infallibly.
-    let substitution: Vec<ResolvedSortId> = instantiation
-        .substitution
-        .iter()
-        .map(|sort| resolve_sort(ctx, user_spec, sort))
-        .collect();
-
-    for (equation, template_typing) in eqn_spec.equations.iter().zip(&block_typings) {
-        let equation_id = equation
-            .id
-            .expect("assign_declaration_ids ran on system before check_system_equations");
-        let specialized = specialize_template_typing(ctx, template_typing, &type_vars, &substitution);
-        ctx.system_equation_typing
-            .insert((eqn_spec_id, equation_id), Ok(Arc::new(specialized)));
-    }
 }
 
 /// Resolves the declared sort of one equation-block variable, identified by its own `var_id`. The
@@ -534,9 +435,9 @@ fn infer_equation(
     eqn_spec_id: EqnSpecId,
     equation_id: EquationId,
 ) -> Result<EquationTyping, InferenceError> {
-    // `spec`/`system` are always the true user/system pair; `resolve_sort`
-    // resolves a `Resolved` sort's `SortId` against `spec.sort_declarations`
-    // regardless of which spec holds the equation.
+    // `spec` holds the equations for `User` and for `Template` (whose caller passes the template
+    // as both arguments); only `System` indexes `system`. Either way `resolve_sort` resolves a
+    // `Resolved` sort's `SortId` against `spec.sort_declarations`.
     let eqn_spec = match role {
         EquationRole::User | EquationRole::Template => &spec.equation_declarations[eqn_spec_id],
         EquationRole::System => &system.equation_declarations[eqn_spec_id],
@@ -544,8 +445,8 @@ fn infer_equation(
     let equation = &eqn_spec.equations[equation_id];
 
     // `infer` takes a pre-resolved `(declaration, sort)` scope; resolve each equation variable's
-    // sort up front here, keyed by its own `VarId` (assigned by `resolve_data_specification_variables`,
-    // for both roles — see `crate::data_specification`).
+    // sort up front here, keyed by its own `VarId` (assigned for every role by
+    // `resolve_data_specification_variables`).
     let declared_scope: Vec<(VarId, ResolvedSortId)> = eqn_spec
         .variables
         .iter()
@@ -638,10 +539,8 @@ enum Roots<'a> {
     },
     /// A single standalone expression, typed on its own (see [infer_expression]).
     Expression(&'a DataExpr),
-    /// A single expression checked against an already-known expected sort — an action argument
-    /// or a process-instantiation argument's declared sort, a `sum`/`dist` condition or time
-    /// bound — rather than typed purely from its own structure (see
-    /// [infer_expression_in_scope]/[crate::process]).
+    /// A single expression checked against an already-known expected sort, rather than typed
+    /// purely from its own structure (see [infer_expression_in_scope]).
     ExpressionAgainst {
         expr: &'a DataExpr,
         expected: ResolvedSortId,
@@ -649,9 +548,9 @@ enum Roots<'a> {
 }
 
 /// Generates the constraints of `roots`, solves them by ranked backtracking,
-/// and extracts the sorts of the best solution. Shared by [infer_equation],
-/// [infer_expression], and [infer_expression_in_scope]; `text` renders the whole input for
-/// diagnostics and `span` locates it in the source.
+/// and extracts the sorts of the best solution. Shared by [infer_equation] and
+/// [infer_expression_in_scope]; `equation_text` renders the whole input for diagnostics and
+/// `equation_span` locates it in the source.
 ///
 /// `declared_scope` is a pre-resolved `(declaration VarId, sort)` list, resolved by the caller
 /// before this is called — an equation's own `var`-block variables (see [infer_equation]) and a
@@ -682,18 +581,13 @@ fn infer<'a>(
 
     // Cloned out of the context (cheaply, behind `Arc`) because the generator needs the context
     // mutably: resolving a comprehension's binder sort interns sorts and fills the sort-of-def
-    // cache mid-walk. Every role shares this same one pooled pair, unfiltered — see
+    // cache mid-walk. Every role shares this same one pooled signature, unfiltered — see
     // `EquationRole`'s doc comment.
     let signature = Arc::clone(ctx.signature.as_ref().expect("build_signature ran before inference"));
-    let system_signature = Arc::clone(
-        ctx.basics_signature
-            .as_ref()
-            .expect("resolve_system_signature ran before inference"),
-    );
 
     // Numbered once, up front, from the raw AST alone — independent of the order `generate` below
-    // chooses to recurse in for its own reasons (see [ExprId]'s doc comment). `expr_sorts` is
-    // pre-filled in this same pass so `visit` only ever looks a node's id and sort node up, never
+    // chooses to recurse in for its own reasons (see [number_expr_nodes]). `expr_sorts` is
+    // pre-filled alongside it, so `visit` only ever looks a node's id and sort node up, never
     // mints either.
     let expr_roots: Vec<&'a DataExpr> = match &roots {
         Roots::Equation { condition, lhs, rhs } => {
@@ -725,7 +619,6 @@ fn infer<'a>(
         ctx: &mut *ctx,
         spec,
         signature,
-        system_signature,
         declared_sorts,
         unifier: &mut unifier,
         expr_id_of,
@@ -1053,26 +946,24 @@ enum GenFailure {
     Error(InferenceError),
 }
 
-/// Walks the lowered expressions of one equation, assigning [ExprId]s and
-/// emitting the constraints. Structural facts that must hold in every solution
-/// (a callee has a function sort, the condition is boolean) are unified
-/// eagerly, so their failure is a direct error rather than a solver miss.
+/// Walks the lowered expressions of one equation and emits the constraints.
+/// Structural facts that must hold in every solution (a callee has a function
+/// sort, the condition is boolean) are unified eagerly, so their failure is a
+/// direct error rather than a solver miss.
 struct ConstraintGenerator<'a> {
     /// Mutable so a comprehension's binder sort can be resolved (interned)
     /// mid-walk; the signatures below are `Arc` clones out of this same context.
     ctx: &'a mut TypeCheckContext,
-    /// Always the true user spec, regardless of the equation role `infer` built this from.
+    /// The spec every sort resolves against: the user specification, except under
+    /// [EquationRole::Template], where it is the template itself.
     spec: &'a UntypedDataSpecification,
     signature: Arc<Signature>,
-    /// Always the basic-sort system signature, regardless of `role`.
-    system_signature: Arc<Signature>,
     /// A `Resolved` node's declaration [VarId], mapped to its sort; see [`infer`]'s doc comment.
     declared_sorts: HashMap<VarId, InferSortId>,
     unifier: &'a mut Unifier,
     /// Every node's own [ExprId], keyed by its address — computed once, by [number_expr_nodes], from
     /// `roots` before generation starts. `visit` only ever looks a node's id up here; it never mints
-    /// one, which is what lets it recurse in whatever order its own logic needs (see [ExprId]'s doc
-    /// comment).
+    /// one, which is what lets it recurse in whatever order its own logic needs.
     expr_id_of: HashMap<usize, ExprId>,
     /// The sort node of every expression, indexed by [ExprId]. Pre-filled with a fresh unifier
     /// variable per node alongside `expr_id_of`, so `visit` only ever reads a slot, never pushes one.
@@ -1098,8 +989,10 @@ struct ConstraintGenerator<'a> {
     /// Every visited node's own [ExprId], keyed by that node's address; only filled when
     /// [Self::collect_typing_info]. Becomes [EquationTyping::node_ids].
     expr_ids: HashMap<usize, ExprId>,
-    /// Whether [Self::expr_spans]/[Self::expr_names] should be filled — i.e.
-    /// whether `role` is [EquationRole::User]. Sampled once at construction.
+    /// Whether the side tables feeding `TypingInfo` ([Self::expr_spans],
+    /// [Self::expr_names], [Self::expr_declarations], [Self::expr_ids]) should
+    /// be filled — i.e. whether `role` is [EquationRole::User]. Sampled once at
+    /// construction.
     collect_typing_info: bool,
     /// The targets of names resolved during generation (variables and
     /// single-candidate names); disjunction choices are added by the solver.
@@ -1159,7 +1052,7 @@ impl<'a> ConstraintGenerator<'a> {
     }
 
     /// As [`Self::generate_expression`], but additionally constrains `expr`'s sort to be a
-    /// subsort of `expected`, which must already be concrete (not a fresh variable).
+    /// subsort of the caller-supplied `expected`.
     fn generate_against(&mut self, expr: &'a DataExpr, expected: ResolvedSortId) -> Result<(), GenFailure> {
         debug_assert!(is_lowered(expr), "inference requires lowered expressions");
 
@@ -1324,16 +1217,11 @@ impl<'a> ConstraintGenerator<'a> {
                 self.bind_fresh(node, bool_node);
             }
             DataExprKind::Whr { expr, assignments } => {
-                // Each assignment's right-hand side is typed in the outer
-                // scope — bindings do not see each other, only the body does
-                // (every assignment is typed against the original declared
-                // variables, the context being extended once, for the body).
-                // So every right-hand side is visited first, and only
-                // then are the names shadowed as a batch.
-                // The bound variable's sort is the assignment's own inferred
-                // sort node, so it has no [ExprId] of its own to resolve a
-                // declared sort against, unlike a comprehension/lambda/quantifier binder — its
-                // declared sort *is* that inferred node.
+                // Bindings do not see each other, only the body does, so every right-hand side is
+                // visited in the outer scope first and the names are shadowed as a batch only
+                // afterwards. Unlike a lambda/quantifier/comprehension binder a `whr` variable
+                // declares no sort of its own — it binds directly to its right-hand side's
+                // inferred sort node, which is why [Self::with_binder_scope] does not apply here.
                 let mut bindings = Vec::with_capacity(assignments.len());
                 for assignment in assignments {
                     let value_node = self.visit(&assignment.expr)?;
@@ -1403,10 +1291,10 @@ impl<'a> ConstraintGenerator<'a> {
         result
     }
 
-    /// Resolves the declared sort of a comprehension's bound variable onto the
-    /// interned lattice, rejecting a sort that is not a valid variable sort
-    /// (a bare product; see [is_supported_binder_sort]). `span` is the
-    /// binder's declaration span, reported on rejection.
+    /// Resolves a binder's declared sort onto the interned lattice, rejecting a
+    /// sort that is not a valid variable sort (a bare product; see
+    /// [is_supported_binder_sort]). `span` is the binder's declaration span,
+    /// reported on rejection.
     fn binder_sort(&mut self, sort: &SortExpression, span: &Span) -> Result<ResolvedSortId, GenFailure> {
         if !is_supported_binder_sort(sort) {
             return Err(GenFailure::InvalidBinderSort(sort.to_string(), span.clone()));
@@ -1425,9 +1313,8 @@ impl<'a> ConstraintGenerator<'a> {
     /// instantiated fresh per occurrence.
     ///
     /// `declaration` is `Some` exactly when this occurrence is a `Resolved` node, carrying its
-    /// binder's own [VarId]; it is also always recorded (when `Some`, regardless of which
-    /// candidate `name` resolves to), becoming
-    /// `ResolvedName::Variable`'s `declaration` in `typing_info`.
+    /// binder's own [VarId]. It is recorded for every such node, whichever candidate `name` then
+    /// resolves to, and becomes `ResolvedName::Variable`'s declaration span in `typing_info`.
     fn gen_name(
         &mut self,
         id: ExprId,
@@ -1462,9 +1349,7 @@ impl<'a> ConstraintGenerator<'a> {
 
         let mut disjuncts: Vec<(NameTarget, InferSortId)> = Vec::new();
         let signature = Arc::clone(&self.signature);
-        let system_signature = Arc::clone(&self.system_signature);
         self.push_signature_disjuncts(&signature, name, &mut disjuncts);
-        self.push_signature_disjuncts(&system_signature, name, &mut disjuncts);
 
         match disjuncts.as_slice() {
             [] => Err(GenFailure::Error(InferenceError::UndeclaredName {
@@ -1490,10 +1375,9 @@ impl<'a> ConstraintGenerator<'a> {
 
     /// Pushes every overload of `name` found in `signature` — ground
     /// (`constructors`/`mappings`) and polymorphic (`schemes`) alike — onto
-    /// `disjuncts`. `signature` is taken by value (an `Arc` clone, cheap) so
+    /// `disjuncts`. `signature` is borrowed from a local `Arc` clone (cheap) so
     /// this can call [Self::instantiate_scheme] (which needs `&mut self`)
-    /// without borrowing `self.signature`/`self.system_signature` for the
-    /// duration.
+    /// without borrowing `self.signature` for the duration.
     fn push_signature_disjuncts(
         &mut self,
         signature: &Arc<Signature>,
@@ -1523,11 +1407,9 @@ impl<'a> ConstraintGenerator<'a> {
     /// [`ResolvedSort::Var`] it mentions becomes one fresh unification
     /// variable, shared between its occurrences within this one
     /// instantiation — this is what lets `S` mean "the same `S`" on both
-    /// sides of a use like `in: S # List(S) -> Bool`. Unlike the syntax-tree
-    /// walk this replaces, there is no separate `Reference`/name-keyed path
-    /// any more: every polymorphic template now declares its variable(s)
-    /// with a real `type_var` block, so `sort` can only ever contain `Var`,
-    /// never a name to match by string.
+    /// sides of a use like `in: S # List(S) -> Bool`. Every polymorphic
+    /// template declares its variable(s) with a `type_var` block, so `sort`
+    /// can only ever contain `Var`, never a name to match by string.
     fn instantiate_scheme(
         &mut self,
         sort: ResolvedSortId,
@@ -1562,7 +1444,8 @@ struct Candidate {
     /// means the equation is ambiguous.
     duplicate: bool,
     /// `None` when a free variable remained at this leaf, i.e. the sorts were
-    /// underdetermined.
+    /// underdetermined. [`Solver::extract`] defaults such a variable to `Bool`,
+    /// so in practice a leaf always yields a typing.
     typing: Option<(Vec<ResolvedSortId>, HashMap<ExprId, NameTarget>)>,
 }
 
@@ -1571,13 +1454,13 @@ struct Candidate {
 /// tries equality first and widening second, a literal takes its most specific
 /// admissible number sort.
 ///
-/// Each sub and literal constraint contributes one component to the measure
-/// (in generation order, earlier constraints most significant — the arguments
-/// of an application precede the equation-level join — and `0` best), so
-/// solutions compare lexicographically and the minimum is the most specific
-/// typing. Disjunctions contribute no component and are enumerated
-/// exhaustively, so tied leaves through different overloads are still detected
-/// as ambiguity.
+/// Each sub and literal constraint contributes one component to the measure,
+/// and a join one per source (in generation order, earlier constraints most
+/// significant — the arguments of an application precede the equation-level
+/// join — and `0` best), so solutions compare lexicographically and the minimum
+/// is the most specific typing. Disjunctions and comprehensions contribute no
+/// component and are enumerated exhaustively, so tied leaves through different
+/// overloads are still detected as ambiguity.
 struct Solver<'a> {
     sorts: &'a mut SortInterner,
     unifier: &'a mut Unifier,

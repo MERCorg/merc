@@ -45,10 +45,6 @@ pub(crate) struct TypeCheckContext {
     /// equation. See [`crate::EquationRole`]'s doc comment for why an earlier, per-struct-scoped
     /// version of this was removed.
     pub(crate) signature: Option<Arc<Signature>>,
-    /// The basic-sort operators alone (`succ`, `&&`, `@c0`, …) — no schemes, no other user
-    /// declarations. Consulted alongside the full pooled `signature` by every role, a harmless
-    /// extra fallback since `signature` already covers everything it does.
-    pub(crate) basics_signature: Option<Arc<Signature>>,
     /// `(name, resolved sort) -> declaration span` for every system-defined constructor/mapping.
     pub(crate) system_symbol_spans: HashMap<(String, ResolvedSortId), Span>,
 
@@ -78,7 +74,6 @@ impl TypeCheckContext {
             sort_of_map: HashMap::new(),
             sort_of_equation_var: HashMap::new(),
             signature: None,
-            basics_signature: None,
             system_symbol_spans: HashMap::new(),
             equation_typing: HashMap::new(),
             system_equation_typing: HashMap::new(),

@@ -39,6 +39,7 @@ use crate::check_comparison_template;
 use crate::check_container_templates;
 use crate::check_equation_well_formedness;
 use crate::check_equations;
+use crate::check_multi_argument_function_update_template;
 use crate::check_no_system_function_redeclaration;
 use crate::check_products_within_domains;
 use crate::check_system_equations;
@@ -52,6 +53,7 @@ use crate::lower_data_expr;
 use crate::lower_data_expressions;
 use crate::lower_data_specification;
 use crate::lower_expression;
+use crate::multi_argument_function_update_arities;
 use crate::normalize_sorts;
 use crate::resolve_data_expr_variables;
 use crate::resolve_data_specification_variables;
@@ -272,9 +274,16 @@ impl DataSpecification {
 
         resolve_system_signature_full(&mut context, &spec, &system);
 
+        // Every distinct multi-argument function-update arity `spec` needs gets its own generic
+        // template.
+        for arity in multi_argument_function_update_arities(&spec) {
+            check_multi_argument_function_update_template(&mut context, arity)?;
+        }
+        debug!("function-update template equations passed the rigid check");
+
         // `system` at this point holds only `basics` and the desugared
         // structs' own equations).
-        check_system_equations(&mut context, &spec, &system, &[])?;
+        check_system_equations(&mut context, &spec, &system)?;
         debug!("system-equation inference finished; the system specification is well-typed");
 
         Ok(Self {
@@ -390,8 +399,11 @@ impl DataSpecification {
     /// and equations. Call this once after [`Self::from_untyped`] when the
     /// lowered typed specification is needed.
     ///
-    /// `self.system` is already extended and checked by `from_untyped_with`, so
-    /// this is a pure read-only replay.
+    /// `self.system` (basics and desugared-struct equations) is already checked by
+    /// `from_untyped_with`, and every Appendix-B container/function-update/comparison template
+    /// this specification could possibly need is proven once, up front, there too — so lowering
+    /// only ever monomorphizes those templates by substitution (see
+    /// `crate::instantiate_system_equations`), never re-checking anything.
     pub fn lower_data_specification(&self) -> Mcrl2DataSpecification {
         lower_data_specification(&self.context, &self.spec, &self.system, self.encoding)
     }
@@ -1103,29 +1115,30 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_struct_constant_and_unrelated_projection_sharing_a_name_do_not_collide() {
-        // `a` is both struct A's nullary constant and an unrelated struct's
-        // projection — a constructor-vs-mapping overload of one name, which
-        // would make A's own `a == a = true` ambiguous if the two were pooled.
-        let spec = DataSpecification::from_untyped(
+    fn test_struct_constant_and_unrelated_projection_sharing_a_name_is_rejected() {
+        // `a` is both struct A's nullary constant and an unrelated struct's projection — a
+        // constructor-vs-mapping overload of one name. `==` is polymorphic over any single sort,
+        // so once the projection's `a: APos -> A` is pooled in with A's own `a: -> A`, struct A's
+        // own generated, unconstrained reflexivity equation `a == a = true` has two
+        // self-consistent readings with nothing to prefer one over the other. A per-struct
+        // signature scoping fix existed for this (see
+        // `docs/typecheck-struct-system-unification-plan.md`'s "Bug 1"/"Bug 2"), but was removed:
+        // it special-cased compiler-generated equations rather than fixing name resolution in
+        // general (see `signature/system_resolution.rs`'s
+        // `test_struct_nullary_constant_colliding_with_unrelated_struct_function_is_rejected`).
+        // This is now a known, accepted regression.
+        let result = DataSpecification::from_untyped(
             UntypedDataSpecification::parse(
                 "sort A = struct a?is_a; \
                  sort APos = struct ca(a: A)?is_ca | cpos(p: Pos)?is_cpos; \
                  map f: A -> Bool;",
             )
             .unwrap(),
-        )
-        .unwrap();
-        let mcrl2 = spec.lower_data_specification();
-
-        let reflexivity = mcrl2
-            .equations()
-            .iter()
-            .any(|e| e.lhs().to_string() == "==(a, a)" && e.rhs().to_string() == "true");
+        );
         assert!(
-            reflexivity,
-            "struct A's own 'a == a = true' equation must survive, unambiguously: {:#?}",
-            equation_strings(&mcrl2)
+            result.is_err(),
+            "expected struct A's own reflexivity equation to be rejected as ambiguous now that \
+             struct equations pool with the full signature unfiltered"
         );
     }
 

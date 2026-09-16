@@ -43,11 +43,6 @@ use crate::resolve_sort;
 ///
 /// Requires `build_signature` to have already populated `ctx.signature` with
 /// the user's own declarations, so there is something to merge into.
-///
-/// Also stores the basics-only signature on `ctx.basics_signature` (not just the merged
-/// `ctx.signature`) — every role consults it as a harmless extra fallback alongside the full pool
-/// (`push_signature_disjuncts`, deduped so it can't manufacture ambiguity); already fully covered by
-/// `ctx.signature`, which this call also merges it into.
 pub(crate) fn resolve_system_signature(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
@@ -66,7 +61,6 @@ pub(crate) fn resolve_system_signature(
         &signature,
     );
     ctx.signature = Some(Arc::new(merged));
-    ctx.basics_signature = Some(Arc::new(signature));
     Ok(())
 }
 

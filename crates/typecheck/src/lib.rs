@@ -3,6 +3,7 @@ mod checking;
 mod data_specification;
 mod inference;
 mod ir;
+mod lowering;
 mod modal;
 mod number_encoding;
 mod pbes;
@@ -20,6 +21,8 @@ pub(crate) use data_specification::*;
 pub(crate) use inference::*;
 #[allow(unused_imports)]
 pub(crate) use ir::*;
+#[allow(unused_imports)]
+pub(crate) use lowering::*;
 pub(crate) use resolution::*;
 #[allow(unused_imports)]
 pub(crate) use signature::*;
