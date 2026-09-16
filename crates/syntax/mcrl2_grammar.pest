@@ -533,7 +533,7 @@ ActFrmInfix = _{
 ActFrmPostfix = _{
     ActFrmAt
 }
-    ActFrmAt = { "@" ~ DataExpr }
+    ActFrmAt = { "@" ~ DataExprUnit }
 
 MultAct = {
       MultiActTau                                              // Tau, hidden action, empty multi-action
