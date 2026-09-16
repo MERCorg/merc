@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use merc_syntax::UntypedDataSpecification;
 
-use crate::BUILTIN_SCHEME_TEMPLATE;
 use crate::CONTAINER_TEMPLATES;
 use crate::PolySortScheme;
 use crate::ResolvedSortId;
@@ -46,10 +45,9 @@ use crate::resolve_sort;
 /// the user's own declarations, so there is something to merge into.
 ///
 /// Also stores the basics-only signature on `ctx.basics_signature` (not just the merged
-/// `ctx.signature`), for `DataSpecification::from_untyped_with`'s own struct-equation signature
-/// override, which must stay scoped to a struct's own names plus the basic-sort operators — never
-/// the rest of the user's own signature, which could otherwise make an unrelated same-named user
-/// declaration a spurious extra overload of a struct's own constructor/projection.
+/// `ctx.signature`) — every role consults it as a harmless extra fallback alongside the full pool
+/// (`push_signature_disjuncts`, deduped so it can't manufacture ambiguity); already fully covered by
+/// `ctx.signature`, which this call also merges it into.
 pub(crate) fn resolve_system_signature(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
@@ -103,32 +101,6 @@ fn record_system_symbol_spans(
     }
 }
 
-/// The subset of `signature` naming exactly `constructor_names` and
-/// `mapping_names`, used to scope a struct's equations to its own symbols.
-///
-/// Two separate name sets, not one checked against both maps: a struct's
-/// constructor can share a name with an unrelated struct's projection (`a` as
-/// both a constant and a projection in `struct.mcrl2`), and only the
-/// constructor/mapping distinction tells the two apart.
-pub(crate) fn filter_signature(
-    signature: &Signature,
-    constructor_names: &std::collections::HashSet<String>,
-    mapping_names: &std::collections::HashSet<String>,
-) -> Signature {
-    let mut filtered = Signature::default();
-    for name in constructor_names {
-        if let Some(overloads) = signature.constructors.get(name) {
-            filtered.constructors.insert(name.clone(), overloads.clone());
-        }
-    }
-    for name in mapping_names {
-        if let Some(overloads) = signature.mappings.get(name) {
-            filtered.mappings.insert(name.clone(), overloads.clone());
-        }
-    }
-    filtered
-}
-
 /// The union of `a` and `b`'s overload sets, per name — ground overloads
 /// deduplicated by id, scheme overloads simply concatenated (two schemes
 /// never denote the same overload the way a ground redeclaration can).
@@ -166,17 +138,16 @@ pub(crate) fn merge_signatures(a: &Signature, b: &Signature) -> Signature {
 /// the template's own `type_var` block interns to the same [ResolvedSort::Var](crate::ResolvedSort::Var),
 /// on the same footing as any other lattice element.
 ///
-/// Safe to call with any of [CONTAINER_TEMPLATES]/[BUILTIN_SCHEME_TEMPLATE]:
+/// Safe to call with any of [CONTAINER_TEMPLATES]/`crate::BUILTIN_SCHEME_TEMPLATE`:
 /// none of them contains a `Resolved(_, SortId)` node or a nominal `sort X;`
 /// declaration (only `type_var`, primitive, container and function sorts), so
 /// there is no `SortId` to resolve and hence no risk of it being looked up
 /// against the wrong spec's `sort_declarations`.
 ///
-/// This is the one shared mechanism behind both `ctx.signature`'s `schemes`
-/// (containers, function-update and the comparison/`if` builtins, for the
-/// user-facing lookup — see `build_signature`) and
-/// [`build_builtin_scheme_signature`]'s narrower table (the comparison/`if`
-/// builtins only, for a struct-scoped system equation's own lookup).
+/// This is the one shared mechanism behind `ctx.signature`'s `schemes` (containers,
+/// function-update and the comparison/`if` builtins) — see `build_signature`. Every role
+/// (`User`/`Template`/`System`) resolves a name's polymorphic overloads from this same table; there
+/// is no separate, narrower scheme table for struct-scoped system equations any more.
 pub(crate) fn build_polymorphic_schemes<'a>(
     ctx: &mut TypeCheckContext,
     templates: impl IntoIterator<Item = &'a UntypedDataSpecification>,
@@ -202,27 +173,6 @@ pub(crate) fn build_polymorphic_schemes<'a>(
         }
     }
     schemes
-}
-
-/// The narrow scheme table a struct-scoped system equation's own body is checked against: the
-/// comparison operators and `if` only, built once and cached on `ctx`. Deliberately excludes the
-/// container/function-update templates — reached only by a struct's own isolated equations
-/// (`ctx.struct_signature_overrides`) or the plain basics equations
-/// (`ctx.basics_signature`), neither of which ever calls a container operation, so admitting them
-/// here polymorphically would only risk misreporting ambiguity against a struct override's own
-/// real symbols for no benefit. A container/function-update instantiation's own equations are
-/// specialized from their template's proven typing instead of reaching this role at all — see
-/// [`crate::check_system_equations`]'s `instantiations` parameter.
-pub(crate) fn build_builtin_scheme_signature(ctx: &mut TypeCheckContext) -> Arc<HashMap<String, Vec<PolySortScheme>>> {
-    if ctx.builtin_scheme_signature.is_none() {
-        let schemes = build_polymorphic_schemes(ctx, std::iter::once(&*BUILTIN_SCHEME_TEMPLATE));
-        ctx.builtin_scheme_signature = Some(Arc::new(schemes));
-    }
-    Arc::clone(
-        ctx.builtin_scheme_signature
-            .as_ref()
-            .expect("just computed above if it wasn't already"),
-    )
 }
 
 /// The reserved names of every polymorphic built-in operator (containers,
@@ -462,20 +412,87 @@ mod tests {
 
     #[test]
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_struct_desugared_symbols_resolve_in_their_own_group_signature() {
-        // `c1`/`is_c1` are declared on the user spec by struct desugaring, not
-        // on `system`, yet must still resolve in their own isolated override.
+    fn test_struct_desugared_symbols_resolve_in_the_pooled_signature() {
+        // `c1`/`is_c1` are declared on the user spec by struct desugaring, not on `system`, yet
+        // must still resolve — in the one pooled `ctx.signature`, same as any other declaration.
         let spec = resolve_full("sort D = struct c1(pr1: Nat)?is_c1; map f: Set(D);");
         let ctx = spec.context();
         assert!(
-            !ctx.struct_signature_overrides.is_empty(),
-            "the struct's own equations should produce at least one override"
+            ctx.signature.as_ref().unwrap().mappings.contains_key("is_c1"),
+            "is_c1 should resolve in the pooled signature"
+        );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // Test is too slow under miri
+    fn test_struct_nullary_constant_colliding_with_unrelated_struct_function_is_rejected() {
+        // Confirmed bug 1 (`docs/typecheck-struct-system-unification-plan.md`): a nullary
+        // constructor of one struct sharing a literal name with an unrelated struct's ≥1-ary
+        // constructor makes the whole specification rejected with `AmbiguousExpression` on struct
+        // A's own generated, unconstrained reflexivity equation `a == a = true` — `==` is
+        // polymorphic over any single sort, so once B's unrelated `a: Nat -> B` is pooled in there
+        // are two self-consistent readings with nothing to prefer one over the other.
+        //
+        // A per-struct signature scoping fix existed for this (see the plan's "Bug 1"/"Bug 2"), but
+        // was removed: it special-cased compiler-generated equations rather than fixing name
+        // resolution in general, so the byte-identical collision written by hand (see
+        // `test_user_written_equivalent_of_bug_1_is_still_rejected`) was rejected regardless. This
+        // is now a known, accepted regression, left failing rather than routed around by scoping.
+        let result = DataSpecification::from_untyped(
+            UntypedDataSpecification::parse(
+                "sort A = struct a?is_a; \
+                 B = struct a(x: Nat)?is_b;",
+            )
+            .unwrap(),
         );
         assert!(
-            ctx.struct_signature_overrides
-                .values()
-                .any(|signature| signature.mappings.contains_key("is_c1")),
-            "is_c1's own struct override should see it"
+            result.is_err(),
+            "expected struct A's own reflexivity equation to be rejected as ambiguous now that \
+             struct equations pool with the full signature unfiltered"
         );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // Test is too slow under miri
+    fn test_two_structs_sharing_same_arity_constructor_name_is_rejected() {
+        // Confirmed bug 2 (`docs/typecheck-struct-system-unification-plan.md`): two unrelated
+        // structs whose constructors share a name at the same ≥1 arity (differing only in
+        // codomain) make the whole specification rejected with `AmbiguousExpression` on struct C's
+        // own generated equality equation `c(x0_0) == c(y0_0) = x0_0 == y0_0`, for the same
+        // pooling reason as bug 1 above — see that test's doc comment for why this is now a known,
+        // accepted regression rather than one routed around by per-struct signature scoping.
+        let result = DataSpecification::from_untyped(
+            UntypedDataSpecification::parse(
+                "sort C = struct c(v: Nat)?is_c; \
+                 D = struct c(w: Nat)?is_d;",
+            )
+            .unwrap(),
+        );
+        assert!(
+            result.is_err(),
+            "expected struct C's own equality equation to be rejected as ambiguous now that \
+             struct equations pool with the full signature unfiltered"
+        );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // Test is too slow under miri
+    fn test_user_written_equivalent_of_bug_1_is_still_rejected() {
+        // The byte-identical collision to `test_struct_nullary_constant_colliding_with_unrelated_struct_function_is_rejected`,
+        // written by hand as a user equation instead of generated for a struct — resolves against
+        // the full pooled signature exactly the same way, and is rejected exactly the same way.
+        // Real mCRL2 accepts both this and the struct-generated form via a non-backtracking
+        // heuristic that is not actually sound in general — see
+        // `docs/typecheck-struct-system-unification-plan.md`'s "Bug 1" root-cause section.
+        let result = DataSpecification::from_untyped(
+            UntypedDataSpecification::parse(
+                "sort A = struct a?is_a; \
+                 B = struct a(x: Nat)?is_b; \
+                 map t: Bool; \
+                 eqn t = (a == a);",
+            )
+            .unwrap(),
+        );
+        assert!(result.is_err(), "expected this collision to be rejected as ambiguous");
     }
 }

@@ -220,9 +220,14 @@ fn test_assignment_form_instantiation_may_omit_parameters() {
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_assignment_to_an_unknown_parameter_is_rejected() {
     let error = check_err("proc P(n: Nat) = delta; init P(m = 1);");
+    // Even a single candidate's failure is reported through `NoMatchingOverload` (consistent with
+    // `check_action_or_process`), not surfaced as a bare `UnknownProcessParameter`.
+    let ProcessError::NoMatchingOverload { cause, .. } = error else {
+        panic!("expected a NoMatchingOverload, got {error:?}");
+    };
     assert!(
-        matches!(error, ProcessError::UnknownProcessParameter { .. }),
-        "got {error:?}"
+        matches!(*cause, ProcessError::UnknownProcessParameter { .. }),
+        "got {cause:?}"
     );
 }
 
@@ -233,9 +238,28 @@ fn test_duplicate_assignment_target_in_instantiation_is_rejected() {
     // instantiation; unlike test_assignment_form_instantiation_may_omit_parameters (leaving a
     // parameter unassigned is fine), assigning the same one twice never makes sense.
     let error = check_err("proc X(v: Bool) = tau . X(v = true, v = false); init X(true);");
+    let ProcessError::NoMatchingOverload { cause, .. } = error else {
+        panic!("expected a NoMatchingOverload, got {error:?}");
+    };
     assert!(
-        matches!(error, ProcessError::DuplicateAssignment { .. }),
-        "got {error:?}"
+        matches!(*cause, ProcessError::DuplicateAssignment { .. }),
+        "got {cause:?}"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_assignment_instantiation_with_multiple_overloads_none_matching_is_rejected() {
+    // Neither overload of `P` has a parameter `m`; the failure must still be wrapped in
+    // `NoMatchingOverload` naming `P`, not just whichever overload was tried first.
+    let error = check_err("proc P = delta; proc P(n: Nat) = delta; init P(m = 1);");
+    let ProcessError::NoMatchingOverload { name, cause, .. } = error else {
+        panic!("expected a NoMatchingOverload, got {error:?}");
+    };
+    assert_eq!(name, "P");
+    assert!(
+        matches!(*cause, ProcessError::UnknownProcessParameter { .. }),
+        "got {cause:?}"
     );
 }
 

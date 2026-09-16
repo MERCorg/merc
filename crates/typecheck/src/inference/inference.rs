@@ -24,7 +24,6 @@ use merc_utilities::TagIndex;
 use crate::DisplaySortContext;
 use crate::InferSort;
 use crate::InferSortId;
-use crate::PolySortScheme;
 use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::Signature;
@@ -32,7 +31,6 @@ use crate::SortInterner;
 use crate::TemplateInstantiation;
 use crate::TypeCheckContext;
 use crate::Unifier;
-use crate::build_builtin_scheme_signature;
 use crate::is_lowered;
 use crate::is_supported_binder_sort;
 use crate::number_generality;
@@ -231,21 +229,27 @@ impl InferenceError {
     }
 }
 
-/// Which specification's equations are being checked. All roles share the
-/// same [ConstraintGenerator] and [Solver]; only where a name and a
-/// binder/equation-variable sort resolve from differs.
+/// Which specification's equations are being checked. All roles share the same [ConstraintGenerator]
+/// and [Solver], resolving names against the same one pooled `ctx.signature`/`ctx.basics_signature`
+/// pair, with every candidate visible unfiltered; only where a binder/equation-variable sort
+/// resolves from, and which spec an `EqnSpecId` indexes into, differs.
+///
+/// A struct's own generated equations (`System`) are deliberately *not* scoped to that struct's own
+/// declarations: an earlier revision of this crate did narrow `System`'s candidates to exactly the
+/// generating struct's own ids, but that scoping was removed as unsound in spirit — it special-cased
+/// compiler-generated equations rather than fixing name resolution in general, so the identical
+/// collision written by hand (`eqn a == a = true;` for two unrelated same-named structs) was still,
+/// and is still, rejected as ambiguous. Pooling `System` with `User`/`Template` instead means a
+/// struct whose own generated equations collide with an unrelated declaration is now genuinely
+/// ambiguous and rejected too, consistently with the hand-written case — see
+/// `docs/typecheck-struct-system-unification-plan.md`'s "Bug 1"/"Bug 2" and their real-specification
+/// regressions (`garage.mcrl2` et al.), which this reopens; those are left as known-failing tests
+/// rather than routed around by scoping.
 #[derive(Clone, Copy)]
 enum EquationRole {
-    /// Names resolve against `ctx.signature` (which already pools the system-defined basic-sort
-    /// operators and the polymorphic schemes alongside the user's own declarations), then
-    /// `ctx.basics_signature` again as a redundant (harmless — see `push_signature_disjuncts`)
-    /// fallback; sorts via `resolve_sort`.
+    /// Sorts resolve via `resolve_sort`.
     User,
-    /// Names resolve against `ctx.struct_signature_overrides`'s entry for this equation's own
-    /// block when present, falling back to `ctx.basics_signature` and the narrow builtin-scheme
-    /// table otherwise — deliberately never the full `ctx.signature`, which would leak every
-    /// *other* user declaration (including an unrelated struct's same-named symbol) into a
-    /// struct's own isolated equations.
+    /// Checking a struct's own compiler-generated equations, or the plain basics equations.
     System,
     /// Checking one Appendix-B container/function-update template's own,
     /// un-instantiated equations, once, with its `type_var`-declared sort(s)
@@ -560,7 +564,6 @@ fn infer_equation(
         ctx,
         spec,
         role,
-        eqn_spec_id,
         &declared_scope,
         Roots::Equation {
             condition: equation.condition.as_ref(),
@@ -618,9 +621,6 @@ pub(crate) fn infer_expression_in_scope(
         ctx,
         spec,
         EquationRole::User,
-        // Unused: the `User` role reads no per-group state, and a scope here is never an
-        // equation's `var` block.
-        EqnSpecId::new(0),
         declared_scope,
         roots,
         &|| expr.to_string(),
@@ -664,7 +664,6 @@ fn infer<'a>(
     ctx: &mut TypeCheckContext,
     spec: &'a UntypedDataSpecification,
     role: EquationRole,
-    eqn_spec_id: EqnSpecId,
     declared_scope: &[(VarId, ResolvedSortId)],
     roots: Roots<'a>,
     equation_text: &dyn Fn() -> String,
@@ -681,37 +680,11 @@ fn infer<'a>(
         declared_sorts.insert(declaration, node);
     }
 
-    // The signatures are cloned out of the context (cheaply, behind `Arc`)
-    // because the generator needs the context mutably: resolving a
-    // comprehension's binder sort interns sorts and fills the sort-of-def
-    // cache mid-walk.
-    //
-    // `builtin_schemes` is the *only* remaining source of polymorphic
-    // overloads for the System role: `ctx.basics_signature` and a struct's own override never
-    // carry schemes (only `ctx.signature` does, merged in by `resolve_system_signature`/
-    // `build_signature`), and the System role deliberately does *not* fall back to `ctx.signature`
-    // itself — doing so would let a struct's own equation see every *other* user declaration too
-    // (including an unrelated struct's same-named constructor/projection), not just the basic-sort
-    // operators it actually needs.
-    let (signature, builtin_schemes): (Arc<Signature>, Arc<HashMap<String, Vec<PolySortScheme>>>) = match role {
-        EquationRole::User | EquationRole::Template => (
-            Arc::clone(ctx.signature.as_ref().expect("build_signature ran before inference")),
-            Arc::new(HashMap::new()),
-        ),
-        EquationRole::System => (
-            ctx.struct_signature_overrides
-                .get(&eqn_spec_id)
-                .cloned()
-                .unwrap_or_else(|| {
-                    Arc::clone(
-                        ctx.basics_signature
-                            .as_ref()
-                            .expect("resolve_system_signature ran before inference"),
-                    )
-                }),
-            build_builtin_scheme_signature(ctx),
-        ),
-    };
+    // Cloned out of the context (cheaply, behind `Arc`) because the generator needs the context
+    // mutably: resolving a comprehension's binder sort interns sorts and fills the sort-of-def
+    // cache mid-walk. Every role shares this same one pooled pair, unfiltered — see
+    // `EquationRole`'s doc comment.
+    let signature = Arc::clone(ctx.signature.as_ref().expect("build_signature ran before inference"));
     let system_signature = Arc::clone(
         ctx.basics_signature
             .as_ref()
@@ -753,7 +726,6 @@ fn infer<'a>(
         spec,
         signature,
         system_signature,
-        builtin_schemes,
         declared_sorts,
         unifier: &mut unifier,
         expr_id_of,
@@ -1094,11 +1066,6 @@ struct ConstraintGenerator<'a> {
     signature: Arc<Signature>,
     /// Always the basic-sort system signature, regardless of `role`.
     system_signature: Arc<Signature>,
-    /// The narrow comparison/`if`-only scheme table consulted alongside
-    /// `signature`'s own `schemes`; see [`infer`]'s construction of this
-    /// field for why it differs by role. Empty for the User role, since
-    /// `ctx.signature.schemes` already covers everything polymorphic.
-    builtin_schemes: Arc<HashMap<String, Vec<PolySortScheme>>>,
     /// A `Resolved` node's declaration [VarId], mapped to its sort; see [`infer`]'s doc comment.
     declared_sorts: HashMap<VarId, InferSortId>,
     unifier: &'a mut Unifier,
@@ -1498,30 +1465,6 @@ impl<'a> ConstraintGenerator<'a> {
         let system_signature = Arc::clone(&self.system_signature);
         self.push_signature_disjuncts(&signature, name, &mut disjuncts);
         self.push_signature_disjuncts(&system_signature, name, &mut disjuncts);
-
-        // The comparison operators and `if` are not in either signature above
-        // for the System role (see `builtin_schemes`'s doc comment); for the
-        // User role this is always empty, since `self.signature.schemes`
-        // (part of `ctx.signature`, pushed above) already covers everything
-        // polymorphic. Each scheme overload is instantiated with fresh
-        // variables per occurrence, mirroring mCRL2's polymorphic symbol
-        // table; Phase-4 lowering recovers the concrete operation from the
-        // name and the inferred sort.
-        //
-        // Collected into a `Vec` first (rather than iterating `self.builtin_schemes` directly) so
-        // the loop below can call `self.instantiate_scheme`, which needs `&mut self`, without
-        // holding a borrow into `self.builtin_schemes` across it.
-        let builtin_sorts: Vec<ResolvedSortId> = self
-            .builtin_schemes
-            .get(name)
-            .into_iter()
-            .flatten()
-            .map(|scheme| scheme.sort)
-            .collect();
-        for sort in builtin_sorts {
-            let instance = self.instantiate_scheme(sort, &mut HashMap::new());
-            disjuncts.push((NameTarget::Builtin, instance));
-        }
 
         match disjuncts.as_slice() {
             [] => Err(GenFailure::Error(InferenceError::UndeclaredName {

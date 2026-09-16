@@ -14,7 +14,6 @@ use merc_syntax::VarId;
 
 use crate::EquationTyping;
 use crate::InferenceError;
-use crate::PolySortScheme;
 use crate::ResolvedSortId;
 use crate::Signature;
 use crate::SortInterner;
@@ -41,17 +40,15 @@ pub(crate) struct TypeCheckContext {
     /// The memoized resolved sort of each equation variable, keyed by its own [VarId].
     pub(crate) sort_of_equation_var: HashMap<VarId, ResolvedSortId>,
 
-    /// The signature of the specification.
+    /// The signature of the specification — one pooled table for every role (`User`/`Template`/
+    /// `System` alike), consulted unfiltered regardless of which struct (if any) generated a given
+    /// equation. See [`crate::EquationRole`]'s doc comment for why an earlier, per-struct-scoped
+    /// version of this was removed.
     pub(crate) signature: Option<Arc<Signature>>,
     /// The basic-sort operators alone (`succ`, `&&`, `@c0`, …) — no schemes, no other user
-    /// declarations.
+    /// declarations. Consulted alongside the full pooled `signature` by every role, a harmless
+    /// extra fallback since `signature` already covers everything it does.
     pub(crate) basics_signature: Option<Arc<Signature>>,
-    /// A per-block override of the signature a system equation's body is
-    /// checked against, keyed by its enclosing block's `EqnSpecId`.
-    pub(crate) struct_signature_overrides: HashMap<EqnSpecId, Arc<Signature>>,
-    /// The narrow polymorphic scheme table (comparison operators and `if`
-    /// only) a system equation's own body is checked against.
-    pub(crate) builtin_scheme_signature: Option<Arc<HashMap<String, Vec<PolySortScheme>>>>,
     /// `(name, resolved sort) -> declaration span` for every system-defined constructor/mapping.
     pub(crate) system_symbol_spans: HashMap<(String, ResolvedSortId), Span>,
 
@@ -82,8 +79,6 @@ impl TypeCheckContext {
             sort_of_equation_var: HashMap::new(),
             signature: None,
             basics_signature: None,
-            struct_signature_overrides: HashMap::new(),
-            builtin_scheme_signature: None,
             system_symbol_spans: HashMap::new(),
             equation_typing: HashMap::new(),
             system_equation_typing: HashMap::new(),

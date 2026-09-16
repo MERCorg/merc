@@ -1,7 +1,5 @@
-use std::collections::HashSet;
 use std::convert::Infallible;
 use std::fmt;
-use std::ops::Range;
 use std::sync::Arc;
 
 use log::debug;
@@ -46,7 +44,6 @@ use crate::check_products_within_domains;
 use crate::check_system_equations;
 use crate::check_system_specification;
 use crate::desugar_structured_sorts;
-use crate::filter_signature;
 use crate::hoist_anonymous_structs;
 use crate::infer_expression;
 use crate::is_basic_sort_name;
@@ -55,7 +52,6 @@ use crate::lower_data_expr;
 use crate::lower_data_expressions;
 use crate::lower_data_specification;
 use crate::lower_expression;
-use crate::merge_signatures;
 use crate::normalize_sorts;
 use crate::resolve_data_expr_variables;
 use crate::resolve_data_specification_variables;
@@ -215,28 +211,12 @@ impl DataSpecification {
 
         let mut system = basics.clone();
 
-        // The defining equations of each structured sort (Appendix B.10) join
-        // the system-defined part. Each struct's range and symbol names are
-        // recorded so its equations can later be checked against a signature
-        // scoped to that struct alone — pooling them would make a name shared
-        // with an unrelated struct ambiguous, see `filter_signature`.
-        let mut struct_ranges: Vec<(Range<usize>, HashSet<String>, HashSet<String>)> = Vec::new();
+        // The defining equations of each structured sort (Appendix B.10) join the system-defined
+        // part, checked the same way as every other system equation — see `EquationRole::System`'s
+        // doc comment (`inference/inference.rs`) for why they resolve names against the one pooled
+        // signature, unfiltered, rather than a per-struct scoped one.
         for constructors in &structs {
-            let start = system.equation_declarations.len();
             system.merge(&structured_sort_equations(sources, constructors).map_err(WellTypedError::Custom)?);
-            let end = system.equation_declarations.len();
-            let constructor_names: HashSet<String> = constructors.iter().map(|c| c.name.node.clone()).collect();
-            let mapping_names: HashSet<String> = constructors
-                .iter()
-                .flat_map(|c| {
-                    c.recogniser
-                        .clone()
-                        .into_iter()
-                        .chain(c.args.iter().filter_map(|(name, _)| name.clone()))
-                        .map(|spanned| spanned.node)
-                })
-                .collect();
-            struct_ranges.push((start..end, constructor_names, mapping_names));
         }
 
         // A struct's own equations are generated as fresh source text, and so
@@ -293,27 +273,6 @@ impl DataSpecification {
         assign_declaration_ids(&mut system);
 
         resolve_system_signature_full(&mut context, &spec, &system);
-
-        for (range, constructor_names, mapping_names) in &struct_ranges {
-            let struct_signature = filter_signature(
-                context.signature.as_deref().expect("build_signature ran earlier"),
-                constructor_names,
-                mapping_names,
-            );
-            let signature = Arc::new(merge_signatures(
-                &struct_signature,
-                context
-                    .basics_signature
-                    .as_deref()
-                    .expect("resolve_system_signature ran earlier"),
-            ));
-            for i in range.clone() {
-                context
-                    .struct_signature_overrides
-                    .insert(EqnSpecId::new(i), Arc::clone(&signature));
-            }
-        }
-        debug!("resolved the system-equation signatures");
 
         // `system` at this point holds only `basics` and the desugared
         // structs' own equations).

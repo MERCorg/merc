@@ -25,6 +25,7 @@ pub(crate) use resolution::*;
 pub(crate) use signature::*;
 
 pub use data_specification::DataSpecification;
+pub use data_specification::TypedDataSpecification;
 pub use inference::InferenceError;
 pub use modal::ModalError;
 pub use modal::ModalSpecification;
