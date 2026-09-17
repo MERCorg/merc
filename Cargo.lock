@@ -1264,8 +1264,8 @@ dependencies = [
 
 [[package]]
 name = "merc_pest_consume"
-version = "2.0.0"
-source = "git+https://github.com/MERCorg/pest_consume#fcf3af5a01135c0f8906a4fe9a67eed1660b2d2f"
+version = "2.1.0"
+source = "git+https://github.com/MERCorg/pest_consume#54d1bcad0146d7303a1fdde6b908a64f314ff62c"
 dependencies = [
  "itertools 0.15.0",
  "merc_pest_consume_macros",
@@ -1275,12 +1275,12 @@ dependencies = [
 
 [[package]]
 name = "merc_pest_consume_macros"
-version = "2.0.0"
-source = "git+https://github.com/MERCorg/pest_consume#fcf3af5a01135c0f8906a4fe9a67eed1660b2d2f"
+version = "2.1.0"
+source = "git+https://github.com/MERCorg/pest_consume#54d1bcad0146d7303a1fdde6b908a64f314ff62c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.4",
 ]
 
 [[package]]

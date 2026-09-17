@@ -161,8 +161,8 @@ merc_utilities = { version = "3.0", path = "crates/utilities" }
 merc_vpg = { version = "3.0", path = "crates/vpg", features = ["clap"] }
 
 # Vendored libraries
-merc_pest_consume = { version = "2.0", git = "https://github.com/MERCorg/pest_consume" }
-merc_pest_consume_macros = { version = "2.0", git = "https://github.com/MERCorg/pest_consume" }
+merc_pest_consume = { version = "2.1", git = "https://github.com/MERCorg/pest_consume" }
+merc_pest_consume_macros = { version = "2.1", git = "https://github.com/MERCorg/pest_consume" }
 
 # The pest_consume macros generate different enum representations for every build.
 [workspace.metadata.cargo-semver-checks.lints]
