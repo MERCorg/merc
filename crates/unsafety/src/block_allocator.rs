@@ -61,7 +61,9 @@ impl<T, const N: usize> Drop for BlockList<T, N> {
     fn drop(&mut self) {
         // Drop the head block; Block's Drop impl recursively drops the list.
         if let Some(block_ptr) = self.head_block.take() {
-            // Safety: we own all blocks in the list.
+            // SAFETY: we own all blocks in the list, and each was created via
+            // `Box::into_raw` (in `allocate_new_block`), so `Box::from_raw`
+            // reconstructs a matching box.
             unsafe { drop(Box::from_raw(block_ptr.as_ptr())) };
         }
     }
@@ -98,6 +100,14 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
         let offset = state.bump_offset.get();
         if !block_ptr.is_null() && offset < N {
             state.bump_offset.set(offset + 1);
+            // SAFETY: `block_ptr` is non-null and owned by this thread's
+            // state; it stays valid until `remove_free_blocks`, which the
+            // caller must not run concurrently with allocation. `offset < N`
+            // was just checked, so `data_ptr.add(offset)` stays within the
+            // block's `N`-element array. We use `addr_of_mut!` instead of
+            // forming a reference so this does not race with other in-bounds
+            // accesses to the same block via `UnsafeCell`, and the result is
+            // never null.
             return unsafe {
                 let data_ptr = (*block_ptr).data.get() as *mut Entry<T>;
                 let entry_ptr = data_ptr.add(offset);
@@ -134,6 +144,11 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
             state.free.is_empty(),
             "local freelist must be empty before chunk refill"
         );
+        // SAFETY: `current` was popped from `guard.free_chunks`, a
+        // null-terminated freelist of live, allocator-owned entries built by
+        // `remove_free_blocks`/`deallocate_object`, and `state.free` is
+        // empty per the assertion above, so installing it as the new head
+        // does not leak or double-link entries.
         unsafe {
             state.free.set_head(current.as_ptr());
         }
@@ -150,6 +165,7 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
         // Allocate a new block and link it to the existing list.
         let mut new_block = Block::new();
         new_block.next = guard.head_block;
+        // SAFETY: `Box::into_raw` never returns a null pointer.
         let new_block_ptr = unsafe { NonNull::new_unchecked(Box::into_raw(Box::new(new_block))) };
         guard.head_block = Some(new_block_ptr);
 
@@ -160,6 +176,11 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
         state.bump_offset.set(1);
 
         // Return slot 0 of the new block.
+        // SAFETY: `new_block_ptr` was just allocated above and is
+        // exclusively owned by this call until installed into thread-local
+        // state; `N >= 1` since slot 0 is being handed out, so indexing
+        // element 0 of the `N`-element array is in-bounds, and
+        // `addr_of_mut!` yields a pointer that is never null.
         unsafe {
             let data_ptr = (*new_block_ptr.as_ptr()).data.get() as *mut Entry<T>;
             Ok(NonNull::new_unchecked(
@@ -208,6 +229,11 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
         // Helper: walk a freelist and mark every entry with the sentinel.
         // We only update previous entries to ensure that iter keeps working.
         // Returns the number of entries in the freelist.
+        // SAFETY (closure body below): `remove_free_blocks` must not run
+        // concurrently with allocation or deallocation (see the doc comment
+        // above), so every pointer yielded by `list.iter()` is a live
+        // freelist node exclusively owned by this call, safe to dereference
+        // and overwrite through `next`.
         let mark_freelist =
             |list: &FreeList<Entry<T>>,
              #[cfg(debug_assertions)] ptrs: &mut std::collections::HashSet<*mut Entry<T>>| unsafe {
@@ -251,6 +277,10 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
                 #[cfg(debug_assertions)]
                 freelist_ptrs.insert(entry.as_ptr());
 
+                // SAFETY: `entry` is a live node reached by walking
+                // `guard.free_chunks`, exclusively accessed here under the
+                // held mutex while `remove_free_blocks`'s no-concurrent-
+                // allocation contract holds.
                 let next = unsafe { Entry::get_next(entry.as_ptr()) };
                 unsafe {
                     *(*entry.as_ptr()).next = nonexisting_value;
@@ -265,11 +295,20 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
         #[cfg(debug_assertions)]
         {
             for block_ptr in Self::iter_blocks(&guard) {
+                // SAFETY: `block_ptr` is reachable from `guard.head_block`,
+                // so it is allocator-owned and kept alive while the guard is
+                // held; no concurrent allocation/deallocation can be
+                // touching it per this function's synchronization contract.
                 let data = unsafe { &*(*block_ptr.as_ptr()).data.get() };
                 for entry in data {
                     let entry_ptr = entry as *const Entry<T> as *mut Entry<T>;
                     if !freelist_ptrs.contains(&entry_ptr) {
                         // This entry is live — it must not look like the sentinel.
+                        // SAFETY: reading `entry.next` reinterprets the
+                        // union's `data` variant as a pointer; this is sound
+                        // per `BlockAllocatorSafe`'s contract that a live
+                        // `T`'s first pointer-sized word is always fully
+                        // initialized and never equals the sentinel.
                         unsafe {
                             debug_assert!(
                                 !std::ptr::eq(*entry.next, nonexisting_value),
@@ -287,7 +326,16 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
             let mut prev_next_field: *mut Option<NonNull<Block<T, N>>> = &mut guard.head_block;
             let mut removed_blocks = 0;
 
+            // SAFETY (whole loop): `prev_next_field` always points to a live
+            // `Option<NonNull<Block<T, N>>>` link — initially `guard.head_block`,
+            // and afterwards a `next` field of a block reachable from it — that
+            // this call exclusively owns while the mutex guard is held, per
+            // `remove_free_blocks`'s no-concurrent-access contract.
             while let Some(current_ptr) = unsafe { *prev_next_field } {
+                // SAFETY: `current_ptr` was just read from a valid list link
+                // above; reading every entry's `next` field, even for
+                // entries whose live variant is `data`, is sound per
+                // `BlockAllocatorSafe`'s contract (see above).
                 let all_free = unsafe {
                     let data = &*(*current_ptr.as_ptr()).data.get();
                     data.iter().all(|entry| std::ptr::eq(*entry.next, nonexisting_value))
@@ -295,13 +343,21 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
 
                 if all_free {
                     // Unlink and drop the current block.
+                    // SAFETY: `current_ptr` is valid per above.
                     let next = unsafe { (*current_ptr.as_ptr()).next.take() };
+                    // SAFETY: `prev_next_field` is a valid link per above.
                     unsafe { *prev_next_field = next };
+                    // SAFETY: `current_ptr` was just unlinked from the list,
+                    // so this call is its sole owner; like all blocks it was
+                    // originally created via `Box::into_raw`
+                    // (`allocate_new_block`), so `Box::from_raw` reconstructs
+                    // a matching box.
                     unsafe { drop(Box::from_raw(current_ptr.as_ptr())) };
                     removed_blocks += 1;
                     // prev_next_field stays the same — it now points to the next block.
                 } else {
                     // Keep this block; advance to next.
+                    // SAFETY: `current_ptr` is valid per above.
                     prev_next_field = unsafe { &mut (*current_ptr.as_ptr()).next };
                 }
             }
@@ -321,8 +377,16 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
         for block_ptr in Self::iter_blocks(&guard) {
             // Walk entries via raw pointers; deriving `*mut` from `&Entry<T>`
             // would violate Stacked Borrows when we write through that pointer.
+            // SAFETY: `block_ptr` is reachable from `guard.head_block`, so it
+            // is allocator-owned and exclusively accessed here while the
+            // guard is held.
             let data_ptr = unsafe { (*block_ptr.as_ptr()).data.get() as *mut Entry<T> };
             for i in 0..N {
+                // SAFETY: `i < N`, so `data_ptr.add(i)` stays within the
+                // block's `N`-element array, making `entry_ptr` non-null;
+                // reading/writing `.next` is valid under the same union
+                // contract as above (`BlockAllocatorSafe`), done exclusively
+                // under the guard.
                 unsafe {
                     let entry_ptr = data_ptr.add(i);
                     if std::ptr::eq(*(*entry_ptr).next, nonexisting_value) {
@@ -394,6 +458,12 @@ impl<T, const N: usize> ThreadLocalAllocState<T, N> {
     }
 }
 
+// SAFETY: each `ThreadLocalAllocState` is created and dereferenced only by
+// the thread that owns it via `ThreadLocal::get_or`; the raw pointer and
+// bump offset it holds are never read or written from another thread. If the
+// state is dropped from a different thread (e.g. alongside the owning
+// `ThreadLocal`), dropping it performs no dereference, so no thread-affinity
+// requirement is violated.
 unsafe impl<T: Send, const N: usize> Send for ThreadLocalAllocState<T, N> {}
 
 /// Implementing this trait for a type `T` asserts that the special sentinel
@@ -419,6 +489,14 @@ pub unsafe trait BlockAllocatorSafe {}
 const NONEXISTING_VALUE: usize = usize::MAX;
 
 /// The [BlockAllocator] is thread-safe.
+// SAFETY: `blocks: Mutex<BlockList<T, N>>` holds the only `NonNull` pointers
+// (`head_block`, `free_chunks`), and every access to them happens while the
+// mutex is held, giving exclusive access from whichever thread holds the
+// lock; `Mutex<X>` is itself `Send`/`Sync` given `X: Send`, which holds here
+// since `T: Send`. `alloc_state: ThreadLocal<ThreadLocalAllocState<T, N>>` is
+// `Send`/`Sync` under the same `T: Send` bound (see the impl above). So both
+// fields are safe to share/move across threads, making `BlockAllocator`
+// itself sound to mark `Send`/`Sync`.
 unsafe impl<T: Send, const N: usize> Send for BlockAllocator<T, N> {}
 unsafe impl<T: Send, const N: usize> Sync for BlockAllocator<T, N> {}
 
@@ -450,6 +528,13 @@ impl<T: Send, const N: usize> AllocBlock<T, N> {
     }
 }
 
+// SAFETY: `allocate` only ever hands out pointers obtained from
+// `block_allocator.allocate_object()`, which are valid `NonNull<T>` slots
+// owned by this same `block_allocator`; `deallocate` requires (via its own
+// safety contract) that `ptr`/`layout` came from a matching `allocate` call
+// on this allocator, which is exactly what `deallocate_object` expects. Since
+// `allocate` rejects any layout other than `Layout::new::<T>()`, every
+// pointer that reaches `deallocate` was produced for that same layout.
 unsafe impl<T: Send, const N: usize> Allocator for AllocBlock<T, N> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         // The blocks only fit objects with exactly T's layout; returning one for a larger
@@ -485,16 +570,16 @@ union Entry<T> {
     next: ManuallyDrop<*mut Entry<T>>,
 }
 
-// Safety: `Entry<T>` stores a single intrusive next-pointer in `next` used only
+// SAFETY: `Entry<T>` stores a single intrusive next-pointer in `next` used only
 // while the slot is on the freelist.
 unsafe impl<T> FreeListEntry for Entry<T> {
     unsafe fn get_next(ptr: *mut Self) -> *mut Self {
-        // Safety: caller ensures `ptr` is a valid freelist node.
+        // SAFETY: caller ensures `ptr` is a valid freelist node.
         unsafe { *(*ptr).next }
     }
 
     unsafe fn set_next(ptr: *mut Self, next: *mut Self) {
-        // Safety: caller ensures `ptr` is a valid freelist node.
+        // SAFETY: caller ensures `ptr` is a valid freelist node.
         unsafe {
             *(*ptr).next = next;
         }
@@ -514,6 +599,10 @@ impl<'a, T, const N: usize> Iterator for BlockIter<'a, T, N> {
         let current_ptr = self.current?;
 
         // Move to the next block for the next iteration.
+        // SAFETY: `current_ptr` is reachable from the `BlockList` the caller
+        // passed in via `iter_blocks`, whose doc requires the already-
+        // acquired guard, so the block stays valid and exclusively
+        // accessible for the lifetime of this borrow.
         self.current = unsafe { (*current_ptr.as_ptr()).next };
 
         Some(current_ptr)
@@ -546,6 +635,9 @@ impl<T, const N: usize> Drop for Block<T, N> {
         // Iteratively drop the list to avoid stack overflow on long lists.
         let mut current = self.next.take();
         while let Some(block_ptr) = current {
+            // SAFETY: every block in the `next` chain was created via
+            // `Box::into_raw` (in `allocate_new_block`) and is unlinked from
+            // the list here before being dropped, so this is its sole owner.
             let mut block = unsafe { Box::from_raw(block_ptr.as_ptr()) };
             current = block.next.take();
         }
@@ -565,6 +657,8 @@ mod tests {
     use super::BlockAllocatorSafe;
 
     // In practice u64 is used only in tests; real clients must audit their types.
+    // SAFETY: `usize::MAX` (the sentinel) never occurs as an ordinary `usize`
+    // test value here, and `usize`'s bytes are always fully initialized.
     unsafe impl BlockAllocatorSafe for usize {}
 
     #[test]
@@ -578,6 +672,9 @@ mod tests {
             for _ in 0..1000 {
                 let ptr = allocator.allocate_object().unwrap();
                 let value: usize = rng.random_range(0..=usize::MAX - 1);
+                // SAFETY: `ptr` was just returned by `allocate_object` and
+                // points to a freshly-allocated, uninitialized slot exclusively
+                // owned by this test until deallocated.
                 unsafe {
                     ptr.as_ptr().write(value);
                 }
@@ -596,6 +693,8 @@ mod tests {
 
             // All remaining elements must still hold their original values.
             for (ptr, expected) in &remaining {
+                // SAFETY: `ptr` was not deallocated, so it still points to a
+                // live, initialized slot owned by this test.
                 unsafe {
                     assert_eq!(*ptr.as_ref(), *expected);
                 }
@@ -607,6 +706,9 @@ mod tests {
             for _ in 0..500 {
                 let ptr = allocator.allocate_object().unwrap();
                 let value: usize = rng.random_range(0..=usize::MAX - 1);
+                // SAFETY: `ptr` was just returned by `allocate_object` and
+                // points to a freshly-allocated, uninitialized slot exclusively
+                // owned by this test until deallocated.
                 unsafe {
                     ptr.as_ptr().write(value);
                 }
@@ -615,6 +717,8 @@ mod tests {
 
             // All remaining elements must have the correct values.
             for (ptr, expected) in &remaining {
+                // SAFETY: `ptr` was not deallocated, so it still points to a
+                // live, initialized slot owned by this test.
                 unsafe {
                     assert_eq!(*ptr.as_ref(), *expected);
                 }
@@ -637,6 +741,10 @@ mod tests {
                     let mut ptrs = Vec::new();
                     for _ in 0..100 {
                         let ptr = block_allocator.allocate_object().unwrap();
+                        // SAFETY: `ptr` was just returned by `allocate_object`
+                        // and points to a freshly-allocated, uninitialized
+                        // slot exclusively owned by this thread until
+                        // deallocated.
                         unsafe {
                             ptr.as_ptr().write(42);
                         }
@@ -644,6 +752,9 @@ mod tests {
                     }
 
                     for ptr in ptrs {
+                        // SAFETY: `ptr` was not yet deallocated, so it still
+                        // points to a live, initialized slot owned by this
+                        // thread.
                         unsafe {
                             assert_eq!(*ptr.as_ref(), 42);
                         }

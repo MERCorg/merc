@@ -452,7 +452,7 @@ fn handle_refinement(args: &RefinesArgs, timing: &mut Timing) -> Result<(), Merc
                     let mut writer = File::create(path)?;
                     writeln!(&mut writer, "{}", generate_refinement_formula(&counter_example))?;
                 } else {
-                    panic!("Counter example path not provided.");
+                    return Err("Counter example path not provided.".into());
                 }
             }
 
@@ -511,7 +511,7 @@ fn handle_compare(args: &CompareArgs, timing: &mut Timing) -> Result<(), MercErr
                     let mut writer = File::create(path)?;
                     writeln!(&mut writer, "{}", generate_distinguishing_formula(&formula))?;
                 } else {
-                    panic!("Counter example path not provided.");
+                    return Err("Counter example path not provided.".into());
                 }
             }
 

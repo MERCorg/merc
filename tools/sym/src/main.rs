@@ -467,7 +467,7 @@ fn handle_convert(cli: &Cli, args: &ConvertArgs, _timing: &Timing) -> Result<(),
 
         match output_format {
             LtsFormat::Lts => {
-                unimplemented!("Writing LTS format is not yet implemented");
+                return Err("Writing LTS format is not yet supported".into());
             }
             LtsFormat::Aut => {
                 let mut output = File::create(output)?;
@@ -554,7 +554,7 @@ fn handle_reduce(cli: &Cli, args: &ReduceArgs, timing: &Timing) -> Result<(), Me
 
         match output_format {
             LtsFormat::Lts => {
-                unimplemented!("Writing LTS format is not yet implemented");
+                return Err("Writing LTS format is not yet supported".into());
             }
             LtsFormat::Aut => {
                 let mut output = File::create(output)?;

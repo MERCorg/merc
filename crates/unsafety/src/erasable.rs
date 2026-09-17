@@ -45,6 +45,8 @@ impl<T: ?Sized + Erasable> Thin<T> {
     }
 
     pub fn as_nonnull(&self) -> NonNull<T> {
+        // SAFETY: `self.ptr` was produced by `T::erase` in `Thin::new`, the only
+        // way to construct a `Thin<T>`, so it satisfies `unerase`'s precondition.
         unsafe { T::unerase(self.ptr) }
     }
 
@@ -52,6 +54,8 @@ impl<T: ?Sized + Erasable> Thin<T> {
     ///
     /// The caller must ensure that the underlying pointer is valid for reads.
     pub unsafe fn as_ref(&self) -> &T {
+        // SAFETY: `self.ptr` was produced by `T::erase`, satisfying `unerase`'s
+        // preconditio.
         unsafe { T::unerase(self.ptr).as_ref() }
     }
 }
@@ -79,6 +83,9 @@ pub unsafe trait Erasable {
     unsafe fn unerase(this: ErasedPtr) -> NonNull<Self>;
 }
 
+// SAFETY: for a `Sized` `T`, `erase`/`unerase` are inverse pointer casts with
+// no metadata to lose, so `unerase(erase(p)) == p` always holds, satisfying
+// the trait's round-trip contract.
 unsafe impl<T: Sized> Erasable for T {
     fn erase(this: NonNull<Self>) -> ErasedPtr {
         // If the type is Sized, we can safely cast it to a pointer.

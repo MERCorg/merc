@@ -148,6 +148,10 @@ impl AllocCounter {
     }
 
     fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        // SAFETY: callers of this method (the `GlobalAlloc`/`Allocator` impls)
+        // must only pass a `ptr`/`layout` pair previously returned by a
+        // matching `alloc` call on this same allocator, per
+        // `GlobalAlloc::dealloc`'s contract.
         unsafe {
             System.dealloc(ptr, layout);
         }
@@ -158,6 +162,7 @@ impl AllocCounter {
     }
 }
 
+// SAFETY: `alloc`/`dealloc` delegate directly to `System`.
 unsafe impl GlobalAlloc for AllocCounter {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         self.alloc(layout)
@@ -168,12 +173,18 @@ unsafe impl GlobalAlloc for AllocCounter {
     }
 }
 
+// SAFETY: `allocate` returns either a dangling well-aligned pointer for a
+// zero-sized layout (never deallocated, see below) or a pointer from
+// `System.alloc` via `self.alloc`.
 unsafe impl Allocator for AllocCounter {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         if layout.size() == 0 {
             // `Allocator` must support zero-sized layouts, but passing them to
             // `GlobalAlloc::alloc` is undefined behaviour. Return a dangling,
             // well-aligned pointer instead, like the standard allocators do.
+            //
+            // SAFETY: `layout.align()` is a power of two and therefore never
+            // zero, so the pointer built from it is never null.
             let ptr = unsafe { NonNull::new_unchecked(std::ptr::without_provenance_mut::<u8>(layout.align())) };
             return Ok(NonNull::slice_from_raw_parts(ptr, 0));
         }

@@ -33,12 +33,17 @@ pub unsafe trait SliceDst {
 }
 
 /// Blanket implemented for Sized T.
+/// # Safety
+/// 
+/// `length` always reports `0`, so the two agree with each
+/// other for every call.
 unsafe impl<T> SliceDst for T {
     fn layout_for(_length: usize) -> Result<Layout, LayoutError> {
         Ok(Layout::new::<T>())
     }
 
     fn retype(ptr: NonNull<[()]>) -> NonNull<Self> {
+        // SAFETY: casting a pointer preserves non-nullity.
         unsafe {
             let raw_ptr = ptr.as_ptr() as *mut Self;
             NonNull::new_unchecked(raw_ptr)
@@ -88,15 +93,21 @@ pub unsafe trait AllocatorDst {
     fn deallocate_slice_dst<T: ?Sized + SliceDst>(&self, ptr: NonNull<T>, length: usize);
 }
 
+// SAFETY: `allocate_slice_dst` allocates using `T::layout_for(length)` and
+// `deallocate_slice_dst` deallocates using that same `T::layout_for(length)`
+// for the caller-supplied `length.
 unsafe impl<A: Allocator> AllocatorDst for A {
     fn allocate_slice_dst<T: SliceDst + ?Sized>(&self, length: usize) -> Result<NonNull<T>, AllocError> {
         let ptr = self.allocate(T::layout_for(length).expect("Invalid layout for SliceDst"))?;
         // Create a slice of the correct length for proper metadata
+        // SAFETY: `ptr` is `NonNull`, so the cast data pointer is never null,
+        // making the resulting slice pointer non-null too.
         let slice_ptr = unsafe { NonNull::new_unchecked(slice_from_raw_parts_mut(ptr.as_ptr() as *mut (), length)) };
         Ok(T::retype(slice_ptr))
     }
 
     fn deallocate_slice_dst<T: ?Sized + SliceDst>(&self, ptr: NonNull<T>, length: usize) {
+        // SAFETY: `ptr` is `NonNull`, so the cast byte pointer is never null.
         unsafe {
             self.deallocate(
                 NonNull::new_unchecked(ptr.as_ptr() as *mut u8),
@@ -118,6 +129,8 @@ mod tests {
         array: [T],
     }
 
+    // SAFETY: `layout_for` computes the `#[repr(C)]` layout of the header
+    // plus `length` array elements.
     unsafe impl<T> SliceDst for WithHeader<T> {
         fn layout_for(length: usize) -> Result<Layout, LayoutError> {
             let header_layout = Layout::new::<usize>();
@@ -131,6 +144,8 @@ mod tests {
         }
 
         fn retype(ptr: NonNull<[()]>) -> NonNull<Self> {
+            // SAFETY: casting a pointer preserves non-nullity, and `ptr` is
+            // `NonNull`, so `raw_ptr` is never null.
             unsafe {
                 let raw_ptr = ptr.as_ptr() as *mut WithHeader<T>;
                 NonNull::new_unchecked(raw_ptr)
