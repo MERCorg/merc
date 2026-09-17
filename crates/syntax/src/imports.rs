@@ -515,33 +515,76 @@ mod tests {
         dir
     }
 
+    /// Parses `root` (inside `dir`) as a data specification, against a fresh [SourceMap] —
+    /// returned alongside the result since some callers need it afterwards, e.g. for
+    /// [Span::render] or [SourceMap::path].
+    fn parse_data(
+        dir: &tempfile::TempDir,
+        root: &str,
+    ) -> (Result<(UntypedDataSpecification, super::ImportGraph), merc_utilities::MercError>, SourceMap) {
+        let mut sources = SourceMap::new();
+        let result = UntypedDataSpecification::parse_with_imports(&dir.path().join(root), &mut sources);
+        (result, sources)
+    }
+
+    /// As [parse_data], for a process specification.
+    fn parse_process(
+        dir: &tempfile::TempDir,
+        root: &str,
+        text: &str,
+    ) -> (
+        Result<(UntypedProcessSpecification, super::ImportGraph), merc_utilities::MercError>,
+        SourceMap,
+    ) {
+        let mut sources = SourceMap::new();
+        let result = UntypedProcessSpecification::parse_with_imports(&dir.path().join(root), text, &mut sources);
+        (result, sources)
+    }
+
+    /// As [parse_data], for a modal (mu-calculus) state-formula specification.
+    fn parse_modal(
+        dir: &tempfile::TempDir,
+        root: &str,
+        text: &str,
+    ) -> (Result<(UntypedStateFrmSpec, super::ImportGraph), merc_utilities::MercError>, SourceMap) {
+        let mut sources = SourceMap::new();
+        let result = UntypedStateFrmSpec::parse_with_imports(&dir.path().join(root), text, &mut sources);
+        (result, sources)
+    }
+
+    /// Downcasts `error` into the structured [ImportError] a caller like `merc-lsp` needs instead
+    /// of a formatted message, panicking with a descriptive message if it isn't one.
+    fn as_import_error(error: &merc_utilities::MercError) -> &ImportError {
+        error
+            .downcast_ref::<ImportError>()
+            .expect("expected a structured ImportError")
+    }
+
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_parse_with_imports_merges_the_imported_declarations() {
         let dir = temp_project(&[
             ("main.mcrl2", "%import \"common.mcrl2\"\nmap g: D;\n"),
             ("common.mcrl2", "sort D;\n"),
         ]);
 
-        let mut sources = SourceMap::new();
-        let (spec, _import_graph) =
-            UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
-                .expect("should resolve the import");
+        let (result, _sources) = parse_data(&dir, "main.mcrl2");
+        let (spec, _import_graph) = result.expect("should resolve the import");
 
         assert_eq!(spec.sort_declarations.len(), 1);
         assert_eq!(spec.map_declarations.len(), 1);
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_parse_with_imports_gives_every_declaration_a_span_rendering_against_its_own_file() {
         let dir = temp_project(&[
             ("main.mcrl2", "%import \"common.mcrl2\"\nmap g: D;\n"),
             ("common.mcrl2", "sort D;\n"),
         ]);
 
-        let mut sources = SourceMap::new();
-        let (spec, _import_graph) =
-            UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
-                .expect("should resolve the import");
+        let (result, sources) = parse_data(&dir, "main.mcrl2");
+        let (spec, _import_graph) = result.expect("should resolve the import");
 
         // The imported sort declaration's span must render against `common.mcrl2`, not `main.mcrl2`.
         let sort_span = &spec.sort_declarations[0].span;
@@ -553,6 +596,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_parse_with_imports_merges_a_diamond_import_once() {
         let dir = temp_project(&[
             ("main.mcrl2", "%import \"a.mcrl2\"\n%import \"b.mcrl2\"\n"),
@@ -561,50 +605,49 @@ mod tests {
             ("common.mcrl2", "sort D;\n"),
         ]);
 
-        let mut sources = SourceMap::new();
-        let (spec, _import_graph) =
-            UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
-                .expect("should resolve the diamond import");
+        let (result, _sources) = parse_data(&dir, "main.mcrl2");
+        let (spec, _import_graph) = result.expect("should resolve the diamond import");
 
         assert_eq!(spec.sort_declarations.len(), 1);
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_parse_with_imports_rejects_a_cycle() {
         let dir = temp_project(&[
             ("a.mcrl2", "%import \"b.mcrl2\"\n"),
             ("b.mcrl2", "%import \"a.mcrl2\"\n"),
         ]);
 
-        let mut sources = SourceMap::new();
-        let error = UntypedDataSpecification::parse_with_imports(&dir.path().join("a.mcrl2"), &mut sources)
-            .expect_err("a cyclic import must be rejected");
+        let (result, _sources) = parse_data(&dir, "a.mcrl2");
+        let error = result.expect_err("a cyclic import must be rejected");
 
         assert!(error.to_string().contains("import cycle detected"), "got: {error}");
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_parse_with_imports_rejects_a_self_import() {
         let dir = temp_project(&[("a.mcrl2", "%import \"a.mcrl2\"\n")]);
 
-        let mut sources = SourceMap::new();
-        let error = UntypedDataSpecification::parse_with_imports(&dir.path().join("a.mcrl2"), &mut sources)
-            .expect_err("a file importing itself must be rejected");
+        let (result, _sources) = parse_data(&dir, "a.mcrl2");
+        let error = result.expect_err("a file importing itself must be rejected");
 
         assert!(error.to_string().contains("import cycle detected"), "got: {error}");
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_parse_with_imports_reports_a_missing_import() {
         let dir = temp_project(&[("main.mcrl2", "%import \"missing.mcrl2\"\n")]);
 
-        let mut sources = SourceMap::new();
-        let error = UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources);
+        let (result, _sources) = parse_data(&dir, "main.mcrl2");
 
-        assert!(error.is_err());
+        assert!(result.is_err());
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_parse_with_imports_reports_a_missing_import_as_a_structured_error() {
         // A caller with access to the `SourceMap` (`merc-lsp`) needs more than a formatted
         // string to place this as a real diagnostic: the offending `%import` directive's own
@@ -612,13 +655,10 @@ mod tests {
         let text = "%import \"missing.mcrl2\"\ninit delta;\n";
         let dir = temp_project(&[("main.mcrl2", text)]);
 
-        let mut sources = SourceMap::new();
-        let error = UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
-            .expect_err("importing a nonexistent file must fail");
+        let (result, _sources) = parse_data(&dir, "main.mcrl2");
+        let error = result.expect_err("importing a nonexistent file must fail");
 
-        let import_error = error
-            .downcast_ref::<ImportError>()
-            .expect("expected a structured ImportError");
+        let import_error = as_import_error(&error);
         let ImportError::Unresolved { path, .. } = import_error else {
             panic!("expected ImportError::Unresolved, got: {import_error:?}");
         };
@@ -627,24 +667,19 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_parse_with_imports_reports_a_transitively_missing_import_against_the_root_files_own_directive() {
-        // `main.mcrl2` imports `common.mcrl2`, which itself imports something missing. The
-        // structured error that reaches `main.mcrl2`'s own caller must point at *its* own
-        // `%import "common.mcrl2"` line — the only one it can actually edit — not at
-        // `common.mcrl2`'s nested directive.
+        // `main.mcrl2` imports `common.mcrl2`, which itself imports something missing.
         let main_text = "%import \"common.mcrl2\"\ninit delta;\n";
         let dir = temp_project(&[
             ("main.mcrl2", main_text),
             ("common.mcrl2", "%import \"missing.mcrl2\"\n"),
         ]);
 
-        let mut sources = SourceMap::new();
-        let error = UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
-            .expect_err("a transitively missing import must fail");
+        let (result, _sources) = parse_data(&dir, "main.mcrl2");
+        let error = result.expect_err("a transitively missing import must fail");
 
-        let import_error = error
-            .downcast_ref::<ImportError>()
-            .expect("expected a structured ImportError");
+        let import_error = as_import_error(&error);
         let ImportError::Unresolved { path, .. } = import_error else {
             panic!("expected ImportError::Unresolved, got: {import_error:?}");
         };
@@ -661,9 +696,7 @@ mod tests {
         let ImportError::Unresolved { cause, .. } = import_error else {
             unreachable!()
         };
-        let nested = cause
-            .downcast_ref::<ImportError>()
-            .expect("expected the transitively missing import to also be a structured ImportError");
+        let nested = as_import_error(cause);
         let ImportError::Unresolved { path, .. } = nested else {
             panic!("expected ImportError::Unresolved, got: {nested:?}");
         };
@@ -671,19 +704,15 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_parse_with_imports_reports_a_syntax_error_as_a_structured_syntax_error() {
-        // A caller with access to the `SourceMap` (an LSP) needs a structured location/message —
-        // not just a rendered "in <path>: <message>" string — to build a precise diagnostic for a
-        // genuine grammar failure, without depending on `pest` itself.
+        // A caller with access to the `SourceMap` (an LSP) needs a structured location/message.
         let dir = temp_project(&[("main.mcrl2", "sort D\n")]); // missing the trailing `;`
 
-        let mut sources = SourceMap::new();
-        let error = UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
-            .expect_err("a syntax error must fail parsing");
+        let (result, _sources) = parse_data(&dir, "main.mcrl2");
+        let error = result.expect_err("a syntax error must fail parsing");
 
-        let import_error = error
-            .downcast_ref::<ImportError>()
-            .expect("expected a structured ImportError");
+        let import_error = as_import_error(&error);
         assert!(
             matches!(import_error, ImportError::Parse { .. }),
             "expected ImportError::Parse, got: {import_error:?}"
@@ -695,22 +724,18 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_parse_with_imports_recovers_a_transitively_imported_files_syntax_error() {
-        // The broken file here is reached only through `main.mcrl2`'s own `%import`, so the
-        // error surfaces wrapped in an `ImportError::Unresolved` layer — `syntax_error` must
-        // still recover the parser's own error through that layer.
+        // The broken file here is reached only through `main.mcrl2`'s own `%import`
         let dir = temp_project(&[
             ("main.mcrl2", "%import \"common.mcrl2\"\nmap g: D;\n"),
             ("common.mcrl2", "sort D\n"), // missing the trailing `;`
         ]);
 
-        let mut sources = SourceMap::new();
-        let error = UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
-            .expect_err("a transitively broken import must fail");
+        let (result, _sources) = parse_data(&dir, "main.mcrl2");
+        let error = result.expect_err("a transitively broken import must fail");
 
-        let import_error = error
-            .downcast_ref::<ImportError>()
-            .expect("expected a structured ImportError");
+        let import_error = as_import_error(&error);
         assert!(
             matches!(import_error, ImportError::Unresolved { .. }),
             "expected ImportError::Unresolved, got: {import_error:?}"
@@ -733,6 +758,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_process_spec_parse_with_imports_merges_the_imported_declarations() {
         let main_text = "%import \"common.mcrl2\"\nact b: D;\ninit a(c) . b(c);\n";
         let dir = temp_project(&[
@@ -740,10 +766,8 @@ mod tests {
             ("common.mcrl2", "sort D;\ncons c: D;\nact a: D;\n"),
         ]);
 
-        let mut sources = SourceMap::new();
-        let (spec, _import_graph) =
-            UntypedProcessSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), main_text, &mut sources)
-                .expect("should resolve the import");
+        let (result, _sources) = parse_process(&dir, "main.mcrl2", main_text);
+        let (spec, _import_graph) = result.expect("should resolve the import");
 
         assert_eq!(spec.data_specification.sort_declarations.len(), 1);
         assert_eq!(spec.data_specification.constructor_declarations.len(), 1);
@@ -752,14 +776,13 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_process_spec_parse_with_imports_gives_every_declaration_a_span_rendering_against_its_own_file() {
         let main_text = "%import \"common.mcrl2\"\ninit a;\n";
         let dir = temp_project(&[("main.mcrl2", main_text), ("common.mcrl2", "act a;\n")]);
 
-        let mut sources = SourceMap::new();
-        let (spec, _import_graph) =
-            UntypedProcessSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), main_text, &mut sources)
-                .expect("should resolve the import");
+        let (result, sources) = parse_process(&dir, "main.mcrl2", main_text);
+        let (spec, _import_graph) = result.expect("should resolve the import");
 
         let action_span = &spec.action_declarations[0].identifier.span;
         let rendered = action_span.render(&sources);
@@ -770,16 +793,15 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_process_spec_parse_with_imports_keeps_the_importing_files_own_init() {
         // A file being imported is free to carry an `init` of its own (`MCRL2Spec`'s `Init` is
         // optional either way) — it must never override the importing file's own.
         let main_text = "%import \"common.mcrl2\"\nact b;\ninit b;\n";
         let dir = temp_project(&[("main.mcrl2", main_text), ("common.mcrl2", "act a;\ninit a;\n")]);
 
-        let mut sources = SourceMap::new();
-        let (spec, _import_graph) =
-            UntypedProcessSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), main_text, &mut sources)
-                .expect("should resolve the import");
+        let (result, _sources) = parse_process(&dir, "main.mcrl2", main_text);
+        let (spec, _import_graph) = result.expect("should resolve the import");
 
         assert_eq!(spec.action_declarations.len(), 2);
         let init = spec.init.expect("main.mcrl2's own init must survive");
@@ -788,28 +810,26 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_modal_spec_parse_with_imports_pulls_in_action_declarations() {
         let formula_text = "%import \"common.mcrl2\"\nform nu X . [a]X;\n";
         let dir = temp_project(&[("formula.mcf", formula_text), ("common.mcrl2", "act a;\n")]);
 
-        let mut sources = SourceMap::new();
-        let (spec, _import_graph) =
-            UntypedStateFrmSpec::parse_with_imports(&dir.path().join("formula.mcf"), formula_text, &mut sources)
-                .expect("should resolve the import");
+        let (result, _sources) = parse_modal(&dir, "formula.mcf", formula_text);
+        let (spec, _import_graph) = result.expect("should resolve the import");
 
         assert_eq!(spec.action_declarations.len(), 1);
         assert_eq!(spec.action_declarations[0].identifier.node, "a");
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_modal_spec_parse_with_imports_gives_the_imported_action_a_span_rendering_against_its_own_file() {
         let formula_text = "%import \"common.mcrl2\"\nform nu X . [a]X;\n";
         let dir = temp_project(&[("formula.mcf", formula_text), ("common.mcrl2", "act a;\n")]);
 
-        let mut sources = SourceMap::new();
-        let (spec, _import_graph) =
-            UntypedStateFrmSpec::parse_with_imports(&dir.path().join("formula.mcf"), formula_text, &mut sources)
-                .expect("should resolve the import");
+        let (result, sources) = parse_modal(&dir, "formula.mcf", formula_text);
+        let (spec, _import_graph) = result.expect("should resolve the import");
 
         let action_span = &spec.action_declarations[0].identifier.span;
         let rendered = action_span.render(&sources);
@@ -820,23 +840,21 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_modal_spec_parse_with_imports_reports_a_missing_import() {
         let formula_text = "%import \"missing.mcrl2\"\nform true;\n";
         let dir = temp_project(&[("formula.mcf", formula_text)]);
 
-        let mut sources = SourceMap::new();
-        let error =
-            UntypedStateFrmSpec::parse_with_imports(&dir.path().join("formula.mcf"), formula_text, &mut sources);
+        let (result, _sources) = parse_modal(&dir, "formula.mcf", formula_text);
 
-        assert!(error.is_err());
+        assert!(result.is_err());
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_import_graph_has_one_edge_per_directive_including_a_diamonds_two() {
         // `main.mcrl2` reaches `common.mcrl2` twice, once through each of `a.mcrl2`/`b.mcrl2` — a
-        // diamond. `common.mcrl2`'s declarations are only merged once (see
-        // `test_parse_with_imports_merges_a_diamond_import_once`), but the graph itself must
-        // still carry both edges into it: each is a real, independently editable `%import` line.
+        // diamond. `common.mcrl2`'s declarations are only merged once.
         let dir = temp_project(&[
             ("main.mcrl2", "%import \"a.mcrl2\"\n%import \"b.mcrl2\"\n"),
             ("a.mcrl2", "%import \"common.mcrl2\"\n"),
@@ -844,9 +862,8 @@ mod tests {
             ("common.mcrl2", "sort D;\n"),
         ]);
 
-        let mut sources = SourceMap::new();
-        let (_spec, graph) = UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
-            .expect("should resolve the diamond import");
+        let (result, sources) = parse_data(&dir, "main.mcrl2");
+        let (_spec, graph) = result.expect("should resolve the diamond import");
 
         assert!(
             sources.path(graph.root).ends_with("main.mcrl2"),
@@ -878,6 +895,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Uses the filesystem.
     fn test_import_graph_edge_span_covers_the_importing_directive() {
         let dir = temp_project(&[
             ("main.mcrl2", "%import \"common.mcrl2\"\nmap g: D;\n"),
@@ -885,9 +903,8 @@ mod tests {
         ]);
         let main_text = fs::read_to_string(dir.path().join("main.mcrl2")).unwrap();
 
-        let mut sources = SourceMap::new();
-        let (_spec, graph) = UntypedDataSpecification::parse_with_imports(&dir.path().join("main.mcrl2"), &mut sources)
-            .expect("should resolve the import");
+        let (result, sources) = parse_data(&dir, "main.mcrl2");
+        let (_spec, graph) = result.expect("should resolve the import");
 
         assert_eq!(graph.edges.len(), 1);
         let (importer, span, imported) = &graph.edges[0];
