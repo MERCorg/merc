@@ -7,6 +7,7 @@ use std::sync::LazyLock;
 use merc_syntax::ComplexSort;
 use merc_syntax::ConstructorDecl;
 use merc_syntax::OffsetSpans;
+use merc_syntax::Sort;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
 use merc_syntax::SourceMap;
@@ -30,11 +31,8 @@ use crate::merge_signatures;
 use crate::resolve_data_specification_variables;
 use crate::resolve_type_variables;
 
-/// Identifies one Appendix-B template — bundled or generated — the same way
-/// [`TypeCheckContext::template_typings`](crate::TypeCheckContext) keys it and
-/// a [`TemplateInstantiation`](crate::TemplateInstantiation) names its source,
-/// instead of the `String` each of those used to be keyed by (`"list"`,
-/// `format!("function_update_{arity}")`, …).
+/// Identifies one Appendix-B template, either bundled or generated to map to
+/// the scheme typing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum TemplateId {
     List,
@@ -42,12 +40,9 @@ pub(crate) enum TemplateId {
     FSet,
     Bag,
     FBag,
-    /// The generated, generic function-update template of the given arity
-    /// (see [function_update_template]) — every function sort, single- or
-    /// multi-argument alike, is generated this way.
+    /// The generated, generic function-update template of the given arity.
     FunctionUpdateN(usize),
-    /// The reflexive/derived comparison-operator template
-    /// (`crate::BUILTIN_SCHEME_TEMPLATE`).
+    /// The reflexive/derived comparison-operator template.
     Comparison,
 }
 
@@ -67,45 +62,33 @@ impl fmt::Display for TemplateId {
 
 /// Parses a bundled `spec/*.mcrl2` file, or an equally self-contained
 /// hand-written template string (`BUILTIN_SCHEME_TEMPLATE`), with no
-/// `SourceMap` involved: the result's spans are meaningless outside `text`
-/// itself. Used for [CONTAINER_TEMPLATES] and `BUILTIN_SCHEME_TEMPLATE`,
-/// the two sources `build_polymorphic_schemes` draws from — nothing built
-/// this way is ever rendered.
+/// `SourceMap` involved.
 pub(crate) fn parse_template_bare(text: &str) -> UntypedDataSpecification {
     let mut spec = UntypedDataSpecification::parse(text).expect("the bundled templates parse");
     resolve_type_variables(&mut spec).expect("the bundled template's type_var block resolves");
     spec
 }
 
-/// As [parse_template_bare], but also assigns `VarId`s to the template's own
-/// `var`-block variables and `EqnSpecId`/`EquationId`s to its equations.
+/// As [parse_template_bare], but also assings unique ids, and lowers the
+/// specification.
 pub(crate) fn parse_rigid_template(text: &str) -> UntypedDataSpecification {
     let mut spec = parse_template_bare(text);
+
     resolve_data_specification_variables(&mut spec);
     assign_declaration_ids(&mut spec);
-    // Inference requires lowered expressions, exactly like `spec`/`system`;
-    // idempotent, so `standard_sort`'s later `lower_data_expressions(&mut
-    // generated)` on an instantiated clone of this template is a no-op.
     lower_data_expressions(&mut spec);
     spec
 }
 
-/// Registers `text` under `name` as a virtual source in `sources` (see
-/// [SourceMap::add_virtual]) and parses it, then shifts every span it produced
-/// into that registration's base offset — the same offsetting technique
-/// [merc_syntax::imports] uses for `%import`, for content this module
-/// generated itself (`write!` output rather than a bundled `spec/*.mcrl2`
-/// file) and so, unlike a bundled template, might not parse — a bug in the
-/// generator rather than in a `spec/*.mcrl2` file. Returns the parse error
-/// instead of panicking, so a caller can report it.
+/// Registers `text` under `name` as a virtual source and parses it, then shifts
+/// every span it produced into that registration's base offset.
 fn parse_generated(sources: &mut SourceMap, name: &str, text: &str) -> Result<UntypedDataSpecification, MercError> {
     let id = sources.add_virtual(name, text.to_string());
     let base = sources.base_offset(id);
+    
     let mut spec = UntypedDataSpecification::parse(text)?;
     spec.offset_spans(base);
-    // As in `parse_template_bare`: resolves a template's own `type_var` block, if
-    // it has one. Content this module generates itself (`function_update`,
-    // `structured_sort_equations`) never declares one, so this is a no-op there.
+    
     resolve_type_variables(&mut spec)?;
     Ok(spec)
 }
@@ -201,10 +184,7 @@ fn basic_sorts_binary(sources: &mut SourceMap) -> UntypedDataSpecification {
     )
 }
 
-/// The same five basic sorts in the 64-bit machine-word encoding. `Bool` is
-/// shared with the binary encoding; the numeric sorts come from the `*64`
-/// templates, which are defined in terms of the `@word` sort that
-/// `machine_word.mcrl2` declares.
+/// The same five basic sorts in the 64-bit machine-word encoding.
 fn basic_sorts_machine_word(sources: &mut SourceMap) -> UntypedDataSpecification {
     merge_bare_templates(
         sources,
@@ -243,9 +223,7 @@ fn basic_sorts_machine_word(sources: &mut SourceMap) -> UntypedDataSpecification
     )
 }
 
-/// The raw, uninstantiated container templates, parsed once. Function-update
-/// templates are not among them: they're generated (any arity, including a
-/// single argument) rather than bundled — see [function_update_template].
+/// The raw, uninstantiated container templates, parsed once.
 pub(crate) struct ContainerTemplates {
     list: UntypedDataSpecification,
     set: UntypedDataSpecification,
@@ -254,8 +232,7 @@ pub(crate) struct ContainerTemplates {
     fbag: UntypedDataSpecification,
 }
 
-/// The [TemplateId] of each [ContainerTemplates] field, in the same order as
-/// [ContainerTemplates::all]/[ContainerTemplates::all_named].
+/// The [TemplateId] of each [ContainerTemplates] field.
 const CONTAINER_TEMPLATE_IDS: [TemplateId; 5] = [
     TemplateId::List,
     TemplateId::Set,
@@ -280,11 +257,6 @@ impl ContainerTemplates {
 
 /// The container templates in the recursive binary encoding, only used for the
 /// signatures.
-///
-/// This is also the set the polymorphic signature is built from: the `*64`
-/// templates declare exactly the same operations with the same sorts (they
-/// differ only in their defining equations), so the *signature* of the
-/// container operations does not depend on the number encoding.
 pub(crate) static CONTAINER_TEMPLATES: LazyLock<ContainerTemplates> = LazyLock::new(|| ContainerTemplates {
     list: parse_rigid_template(include_str!("../../../syntax/spec/list.mcrl2")),
     set: parse_rigid_template(include_str!("../../../syntax/spec/set.mcrl2")),
@@ -303,25 +275,12 @@ static CONTAINER_TEMPLATES_MACHINE_WORD: LazyLock<ContainerTemplates> = LazyLock
     fbag: parse_rigid_template(include_str!("../../../syntax/spec/fbag64.mcrl2")),
 });
 
-/// The pooled signature's one polymorphic `@func_update` scheme
-/// (`type_var S0, T;`, arity 1): single-argument function-update syntax
-/// (`f[a -> b]`) works structurally for *any* concrete function sort through
-/// this one generic scheme, the same way a container's own `type_var` scheme
-/// (`in: S # List(S) -> Bool`, …) works for any element sort — chained into
-/// `build_polymorphic_schemes` alongside [CONTAINER_TEMPLATES] and
-/// `BUILTIN_SCHEME_TEMPLATE` when the pooled signature is built. Multi-argument
-/// function sorts have no such scheme: their `@func_update` arity varies with
-/// the domain, so [check_function_update_template] checks each arity actually
-/// used on demand instead.
+/// The pooled signature's one polymorphic `@func_update` scheme.
 pub(crate) static FUNCTION_UPDATE_TEMPLATE: LazyLock<UntypedDataSpecification> =
     LazyLock::new(|| function_update_template(1));
 
 /// The container templates in the recursive binary encoding, registered into
-/// `sources` as virtual documents — the content-producing counterpart of
-/// [CONTAINER_TEMPLATES], used wherever the result joins a [DataSpecification]'s
-/// `system` and so needs spans that render correctly.
-///
-/// [DataSpecification]: crate::DataSpecification
+/// `sources` as virtual documents.
 fn container_templates_binary(sources: &mut SourceMap) -> ContainerTemplates {
     ContainerTemplates {
         list: register_bare_template(
@@ -417,10 +376,13 @@ fn container_templates(sources: &mut SourceMap, encoding: NumberEncoding) -> Con
 /// so — exactly like `in: S # List(S) -> Bool` for an arbitrary user mapping
 /// named `in` — there is nothing to merge in first. Checking it the other
 /// way (isolate its own scheme, merge over the pooled signature, as arity
-/// `> 1` must) would let an unrelated user overload of the template's own
-/// bound variable name (`f`) shadow-collide with that variable and report a
-/// spurious ambiguity — see the arity-1 branch this used to take before it
-/// was folded in here.
+/// `> 1` must) used to let an unrelated user overload of the template's own
+/// bound variable name (formerly `f`) shadow-collide with that variable and
+/// report a spurious ambiguity — see the arity-1 branch this used to take
+/// before it was folded in here. [function_update_text]'s bound variables
+/// (`@f`, `@v`, `@w`, `@x{i}`/`@y{i}`) now use the `@`-prefix reserved-name
+/// convention, which rules that out by construction, but arity 1 stays
+/// folded in here regardless since it needs no merge step either way.
 pub(crate) fn check_container_templates(
     ctx: &mut TypeCheckContext,
     encoding: NumberEncoding,
@@ -436,7 +398,7 @@ pub(crate) fn check_container_templates(
         .chain([(TemplateId::FunctionUpdateN(1), &*FUNCTION_UPDATE_TEMPLATE)])
     {
         if !ctx.template_typings.contains_key(&id) {
-            let typings = check_template_equations(ctx, template)?;
+            let typings = check_template_equations(ctx, id, template)?;
             ctx.template_typings.insert(id, typings);
         }
     }
@@ -476,7 +438,7 @@ pub(crate) fn check_function_update_template(ctx: &mut TypeCheckContext, arity: 
     };
     ctx.signature = Some(Arc::new(merge_signatures(&own_signature, &original_signature)));
 
-    let typings = check_template_equations(ctx, &template);
+    let typings = check_template_equations(ctx, id, &template);
     ctx.signature = Some(original_signature);
 
     ctx.template_typings.insert(id, typings?);
@@ -489,7 +451,7 @@ pub(crate) fn check_comparison_template(ctx: &mut TypeCheckContext) -> Result<()
         return Ok(());
     }
 
-    let typings = check_template_equations(ctx, &BUILTIN_SCHEME_TEMPLATE)?;
+    let typings = check_template_equations(ctx, TemplateId::Comparison, &BUILTIN_SCHEME_TEMPLATE)?;
     ctx.template_typings.insert(TemplateId::Comparison, typings);
     Ok(())
 }
@@ -528,6 +490,29 @@ pub(crate) fn comparison_operator_equations_with_provenance(
     let mut generated = replace_sort(&template, "S", sort);
     generated.map_declarations.clear();
     (generated, (TemplateId::Comparison, vec![sort.clone()]))
+}
+
+/// The raw, uninstantiated template of `sort`'s own Appendix-B declarations,
+/// in `encoding` — the same [BASIC_SORT_TEMPLATES] entry
+/// [basic_sorts_binary]/[basic_sorts_machine_word] merges into
+/// [basic_sort_data_specification], exposed individually so `system_defined`'s
+/// `basic_sort_dependencies` can rescan one sort's own text for the other
+/// basic sorts it references (`nat.mcrl2`'s `pred` uses `if` on `Pos`,
+/// `pos64.mcrl2`'s digit operations use `@word`, …), the same way a generated
+/// container's content is rescanned for further container dependencies —
+/// instead of a hand-written dependency table.
+pub(crate) fn basic_sort_own_template(sort: Sort, encoding: NumberEncoding) -> &'static UntypedDataSpecification {
+    match (sort, encoding) {
+        (Sort::Bool, _) => &BASIC_SORT_TEMPLATES.bool,
+        (Sort::Pos, NumberEncoding::Binary) => &BASIC_SORT_TEMPLATES.pos,
+        (Sort::Pos, NumberEncoding::MachineWord) => &BASIC_SORT_TEMPLATES.pos64,
+        (Sort::Nat, NumberEncoding::Binary) => &BASIC_SORT_TEMPLATES.nat,
+        (Sort::Nat, NumberEncoding::MachineWord) => &BASIC_SORT_TEMPLATES.nat64,
+        (Sort::Int, NumberEncoding::Binary) => &BASIC_SORT_TEMPLATES.int,
+        (Sort::Int, NumberEncoding::MachineWord) => &BASIC_SORT_TEMPLATES.int64,
+        (Sort::Real, NumberEncoding::Binary) => &BASIC_SORT_TEMPLATES.real,
+        (Sort::Real, NumberEncoding::MachineWord) => &BASIC_SORT_TEMPLATES.real64,
+    }
 }
 
 /// Returns a standard data specification containing the standard sorts and their
@@ -685,9 +670,9 @@ pub(crate) fn function_update(
 /// general).
 ///
 /// For arity 1 this produces exactly Appendix B.11's single-argument
-/// function-update equations, just with the index variable named `x0`/`y0`
-/// instead of `x`/`y`. For arity `n > 1`, the single index variable `x`/`y`
-/// becomes a tuple `x0, ..., x{n-1}`: two tuples are compared componentwise
+/// function-update equations, just with the index variable named `@x0`/`@y0`
+/// instead of `x`/`y`. For arity `n > 1`, the single index variable `@x0`/`@y0`
+/// becomes a tuple `@x0, ..., @x{n-1}`: two tuples are compared componentwise
 /// for equality (`&&` of `==`) and ordered lexicographically (`<`) wherever
 /// the template orders or compares a single index — `<` canonicalizes the
 /// order nested `@func_update_stable` chains normalize to, so rewriting stays
@@ -695,6 +680,12 @@ pub(crate) fn function_update(
 /// d]`-style updates. This mirrors [structured_sort_equations]'s
 /// `lexicographic` helper, which solves the same problem for a constructor's
 /// argument tuple.
+///
+/// Every bound variable this generates (`@f`, `@v`, `@w`, `@x0`/`@y0`, ...)
+/// uses the `@`-prefix reserved-name convention [`crate::is_system_generated_name`]
+/// checks, so it can never collide with a user-declared map, constructor or
+/// variable of the same name — see [check_container_templates]'s doc comment
+/// for the shadow-collision ambiguity that guards against.
 fn function_update_text(domain_names: &[String], range: &str) -> String {
     let arity = domain_names.len();
     debug_assert!(arity > 0, "a function sort always has at least one domain sort");
@@ -708,8 +699,8 @@ fn function_update_text(domain_names: &[String], range: &str) -> String {
     let function_sort = format!("({} -> {range})", domain_names.join(" # "));
     let domain_sorts = domain_names.join(" # ");
 
-    let xs: Vec<String> = (0..arity).map(|i| format!("x{i}")).collect();
-    let ys: Vec<String> = (0..arity).map(|i| format!("y{i}")).collect();
+    let xs: Vec<String> = (0..arity).map(|i| format!("@x{i}")).collect();
+    let ys: Vec<String> = (0..arity).map(|i| format!("@y{i}")).collect();
     let x_args = xs.join(", ");
     let y_args = ys.join(", ");
 
@@ -756,46 +747,46 @@ fn function_update_text(domain_names: &[String], range: &str) -> String {
 
     writeln!(spec, "var").unwrap();
     for (i, argument_sort) in domain_names.iter().enumerate() {
-        writeln!(spec, "    x{i}, y{i}: {argument_sort};").unwrap();
+        writeln!(spec, "    @x{i}, @y{i}: {argument_sort};").unwrap();
     }
-    writeln!(spec, "    v, w: {range};").unwrap();
-    writeln!(spec, "    f: {domain_sorts} -> {range};").unwrap();
+    writeln!(spec, "    @v, @w: {range};").unwrap();
+    writeln!(spec, "    @f: {domain_sorts} -> {range};").unwrap();
 
     writeln!(
         spec,
-        "eqn @is_not_an_update(f) -> @func_update(f,{x_args},v) = \
-         @if_always_else(f({x_args}) == v,f,@func_update_stable(f,{x_args},v));"
+        "eqn @is_not_an_update(@f) -> @func_update(@f,{x_args},@v) = \
+         @if_always_else(@f({x_args}) == @v,@f,@func_update_stable(@f,{x_args},@v));"
     )
     .unwrap();
     writeln!(
         spec,
-        "    @func_update(@func_update_stable(f,{x_args},w),{x_args},v) = \
-         @if_always_else(f({x_args}) == v,f,@func_update_stable(f,{x_args},v));"
+        "    @func_update(@func_update_stable(@f,{x_args},@w),{x_args},@v) = \
+         @if_always_else(@f({x_args}) == @v,@f,@func_update_stable(@f,{x_args},@v));"
     )
     .unwrap();
     writeln!(
         spec,
-        "    {y_lt_x} -> @func_update(@func_update_stable(f,{y_args},w), {x_args},v) = \
-         @func_update_stable(@func_update(f,{x_args},v),{y_args},w);"
+        "    {y_lt_x} -> @func_update(@func_update_stable(@f,{y_args},@w), {x_args},@v) = \
+         @func_update_stable(@func_update(@f,{x_args},@v),{y_args},@w);"
     )
     .unwrap();
     writeln!(
         spec,
-        "    {x_lt_y} -> @func_update(@func_update_stable(f,{y_args},w), {x_args},v) = \
-         @if_always_else(f({x_args}) == v, \
-         @func_update_stable(f,{y_args},w), \
-         @func_update_stable(@func_update_stable(f,{y_args},w), {x_args},v));"
+        "    {x_lt_y} -> @func_update(@func_update_stable(@f,{y_args},@w), {x_args},@v) = \
+         @if_always_else(@f({x_args}) == @v, \
+         @func_update_stable(@f,{y_args},@w), \
+         @func_update_stable(@func_update_stable(@f,{y_args},@w), {x_args},@v));"
     )
     .unwrap();
     writeln!(
         spec,
-        "    {x_neq_y} -> @func_update_stable(f,{x_args},v)({y_args}) = f({y_args});"
+        "    {x_neq_y} -> @func_update_stable(@f,{x_args},@v)({y_args}) = @f({y_args});"
     )
     .unwrap();
-    writeln!(spec, "    @func_update_stable(f,{x_args},v)({x_args}) = v;").unwrap();
+    writeln!(spec, "    @func_update_stable(@f,{x_args},@v)({x_args}) = @v;").unwrap();
     writeln!(
         spec,
-        "    @func_update(f,{x_args},v)({y_args}) = if({x_eq_y},v,f({y_args}));"
+        "    @func_update(@f,{x_args},@v)({y_args}) = if({x_eq_y},@v,@f({y_args}));"
     )
     .unwrap();
 
@@ -869,6 +860,12 @@ fn replace_type_var(sort: &SortExpression, type_var_id: TypeVarId, result_sort: 
 /// `desugar_structured_sorts`, which also yields the `constructors` passed
 /// here. The result joins the system-defined specification, like the other
 /// Appendix-B content.
+///
+/// The bound variables these equations quantify over (`@x{i}_{j}`, `@y{i}_{j}`)
+/// use the `@`-prefix reserved-name convention [`crate::is_system_generated_name`]
+/// checks, so they can never collide with a user-declared map, constructor or
+/// variable of the same name — see [function_update_text]'s doc comment for
+/// the shadow-collision ambiguity that guards against.
 pub(crate) fn structured_sort_equations(
     sources: &mut SourceMap,
     constructors: &[ConstructorDecl],
@@ -891,11 +888,11 @@ pub(crate) fn structured_sort_equations(
     // Builds the right-hand side of the `<` or `<=` equation between two equal
     // constructors, i.e. the lexicographic comparison of their arguments where
     // the final argument is compared using `last_op` (`<` or `<=`):
-    //   x0 < y0 || (x0 == y0 && (... || (x_{k-2} == y_{k-2} && (x_{k-1} OP y_{k-1}))...))
+    //   @x0 < @y0 || (@x0 == @y0 && (... || (@x_{k-2} == @y_{k-2} && (@x_{k-1} OP @y_{k-1}))...))
     let lexicographic = |i: usize, arity: usize, last_op: &str| -> String {
-        let mut expr = format!("x{i}_{last} {last_op} y{i}_{last}", last = arity - 1);
+        let mut expr = format!("@x{i}_{last} {last_op} @y{i}_{last}", last = arity - 1);
         for j in (0..arity - 1).rev() {
-            expr = format!("x{i}_{j} < y{i}_{j} || (x{i}_{j} == y{i}_{j} && ({expr}))");
+            expr = format!("@x{i}_{j} < @y{i}_{j} || (@x{i}_{j} == @y{i}_{j} && ({expr}))");
         }
         expr
     };
@@ -906,7 +903,7 @@ pub(crate) fn structured_sort_equations(
     let mut vars = String::new();
     for (i, constructor) in constructors.iter().enumerate() {
         for (j, (_, sort)) in constructor.args.iter().enumerate() {
-            writeln!(vars, "    x{i}_{j}, y{i}_{j}: {sort};").unwrap();
+            writeln!(vars, "    @x{i}_{j}, @y{i}_{j}: {sort};").unwrap();
         }
     }
 
@@ -917,10 +914,10 @@ pub(crate) fn structured_sort_equations(
     for (i, constructor) in constructors.iter().enumerate() {
         if let Some(recogniser) = &constructor.recogniser {
             let recogniser = &recogniser.node;
-            writeln!(eqns, "    {recogniser}({}) = true;", application(i, "x")).unwrap();
+            writeln!(eqns, "    {recogniser}({}) = true;", application(i, "@x")).unwrap();
             for j in 0..constructors.len() {
                 if j != i {
-                    writeln!(eqns, "    {recogniser}({}) = false;", application(j, "x")).unwrap();
+                    writeln!(eqns, "    {recogniser}({}) = false;", application(j, "@x")).unwrap();
                 }
             }
         }
@@ -931,7 +928,7 @@ pub(crate) fn structured_sort_equations(
         for (j, (projection, _)) in constructor.args.iter().enumerate() {
             if let Some(projection) = projection {
                 let projection = &projection.node;
-                writeln!(eqns, "    {projection}({}) = x{i}_{j};", application(i, "x")).unwrap();
+                writeln!(eqns, "    {projection}({}) = @x{i}_{j};", application(i, "@x")).unwrap();
             }
         }
     }
@@ -942,20 +939,26 @@ pub(crate) fn structured_sort_equations(
             "true".to_string()
         } else {
             (0..constructor.args.len())
-                .map(|j| format!("x{i}_{j} == y{i}_{j}"))
+                .map(|j| format!("@x{i}_{j} == @y{i}_{j}"))
                 .collect::<Vec<_>>()
                 .join(" && ")
         };
         writeln!(
             eqns,
             "    {} == {} = {equal};",
-            application(i, "x"),
-            application(i, "y")
+            application(i, "@x"),
+            application(i, "@y")
         )
         .unwrap();
         for j in 0..constructors.len() {
             if j != i {
-                writeln!(eqns, "    {} == {} = false;", application(i, "x"), application(j, "y")).unwrap();
+                writeln!(
+                    eqns,
+                    "    {} == {} = false;",
+                    application(i, "@x"),
+                    application(j, "@y")
+                )
+                .unwrap();
             }
         }
     }
@@ -967,12 +970,18 @@ pub(crate) fn structured_sort_equations(
         } else {
             lexicographic(i, constructor.args.len(), "<")
         };
-        writeln!(eqns, "    {} < {} = {less};", application(i, "x"), application(i, "y")).unwrap();
+        writeln!(
+            eqns,
+            "    {} < {} = {less};",
+            application(i, "@x"),
+            application(i, "@y")
+        )
+        .unwrap();
         for j in 0..constructors.len() {
             if i < j {
-                writeln!(eqns, "    {} < {} = true;", application(i, "x"), application(j, "y")).unwrap();
+                writeln!(eqns, "    {} < {} = true;", application(i, "@x"), application(j, "@y")).unwrap();
             } else if i > j {
-                writeln!(eqns, "    {} < {} = false;", application(i, "x"), application(j, "y")).unwrap();
+                writeln!(eqns, "    {} < {} = false;", application(i, "@x"), application(j, "@y")).unwrap();
             }
         }
     }
@@ -987,15 +996,21 @@ pub(crate) fn structured_sort_equations(
         writeln!(
             eqns,
             "    {} <= {} = {less_equal};",
-            application(i, "x"),
-            application(i, "y")
+            application(i, "@x"),
+            application(i, "@y")
         )
         .unwrap();
         for j in 0..constructors.len() {
             if i < j {
-                writeln!(eqns, "    {} <= {} = true;", application(i, "x"), application(j, "y")).unwrap();
+                writeln!(eqns, "    {} <= {} = true;", application(i, "@x"), application(j, "@y")).unwrap();
             } else if i > j {
-                writeln!(eqns, "    {} <= {} = false;", application(i, "x"), application(j, "y")).unwrap();
+                writeln!(
+                    eqns,
+                    "    {} <= {} = false;",
+                    application(i, "@x"),
+                    application(j, "@y")
+                )
+                .unwrap();
             }
         }
     }
@@ -1114,7 +1129,7 @@ mod tests {
             .collect();
 
         assert!(
-            equations.iter().any(|eqn| eqn.contains("@func_update(f, x0, v)")),
+            equations.iter().any(|eqn| eqn.contains("@func_update(@f, @x0, @v)")),
             "expected @func_update applied with the single index argument: {equations:#?}"
         );
     }
@@ -1186,13 +1201,43 @@ mod tests {
         // Both `f` and `@func_update` are applied with the full two-argument
         // index tuple, not the single index the bundled template uses.
         assert!(
-            equations.iter().any(|eqn| eqn.contains("f(x0, x1)")),
+            equations.iter().any(|eqn| eqn.contains("@f(@x0, @x1)")),
             "expected a two-argument application of f: {equations:#?}"
         );
         assert!(
-            equations.iter().any(|eqn| eqn.contains("@func_update(f, x0, x1, v)")),
+            equations
+                .iter()
+                .any(|eqn| eqn.contains("@func_update(@f, @x0, @x1, @v)")),
             "expected @func_update applied with both index arguments: {equations:#?}"
         );
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // Test is too slow under miri
+    fn test_multi_argument_function_update_tolerates_user_overloads_of_its_bound_variable_names() {
+        // The arity-2 function-update template's own equations bind `@f`, `@v`,
+        // `@w`, `@x0`/`@x1`, `@y0`/`@y1` — checking them isolates the template's
+        // scheme and merges it over the pooled signature, so an unrelated user
+        // mapping literally named `f`, `v`, `x0`, ... would previously
+        // shadow-collide with the template's own bound variable of the same
+        // name and get reported as a spurious ambiguity (see
+        // `check_container_templates`'s doc comment for the arity-1 case this
+        // mirrors). The `@`-prefix reserved-name convention rules that out by
+        // construction: no user declaration may start with `@`.
+        let result = DataSpecification::from_untyped(
+            UntypedDataSpecification::parse(
+                "map f: Bool -> Bool; v: Bool -> Bool; w: Bool -> Bool; \
+                 x0: Bool -> Bool; x1: Bool -> Bool; y0: Bool -> Bool; y1: Bool -> Bool; \
+                 g: Nat # Bool -> Nat;",
+            )
+            .unwrap(),
+        );
+        if let Err(err) = result {
+            panic!(
+                "a user mapping sharing a name with the function-update template's own bound \
+                 variables must not be reported as ambiguous: {err}"
+            );
+        }
     }
 
     #[test]
@@ -1218,7 +1263,7 @@ mod tests {
         assert!(
             equations
                 .iter()
-                .any(|eqn| eqn.contains("@func_update(f, x0, x1, x2, v)")),
+                .any(|eqn| eqn.contains("@func_update(@f, @x0, @x1, @x2, @v)")),
             "expected @func_update applied with all three index arguments: {equations:#?}"
         );
     }
