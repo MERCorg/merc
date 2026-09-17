@@ -164,11 +164,6 @@ merc_vpg = { version = "3.0", path = "crates/vpg", features = ["clap"] }
 merc_pest_consume = { version = "2.1", git = "https://github.com/MERCorg/pest_consume" }
 merc_pest_consume_macros = { version = "2.1", git = "https://github.com/MERCorg/pest_consume" }
 
-# The pest_consume macros generate different enum representations for every build.
-[workspace.metadata.cargo-semver-checks.lints]
-enum_no_repr_variant_discriminant_changed = "allow"
-partial_ord_enum_variants_reordered = "allow"
-
 # Use a local checkout of the oxidd fork until the LDD branch is integrated.
 [patch.crates-io]
 oxidd = { git = "https://github.com/mlaveaux/oxidd", rev = "4d959db12026bdd1b9cfe2f477c555b8497b4daf" }
