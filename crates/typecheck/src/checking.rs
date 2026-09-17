@@ -137,21 +137,23 @@ impl ActionTable {
     /// Builds the table from every `act` declaration in `declarations`, resolving each one's
     /// argument sorts via `resolve_declared_sort`.
     ///
-    /// `duplicate_error`, when given, rejects a second declaration with the exact same name *and*
-    /// domain as an earlier one — `modal` does this (`ModalError::DuplicateActionDeclaration`);
-    /// `process` doesn't check for it, unchanged from before this table was shared between them.
+    /// An action's identity is its `(name, domain)` pair — there's no codomain for a second
+    /// declaration to conflict on, so a repeat with the exact same name and domain as an earlier
+    /// one is a harmless restatement, collapsed into the earlier entry the same way
+    /// `signature::push_overload` collapses a repeated `map`/`cons` declaration. A different
+    /// domain under the same name is a legitimate overload, kept as its own entry as always.
     pub(crate) fn build<E, F>(
         data: &mut DataSpecification,
         declarations: &[ActDecl],
         mut resolve_declared_sort: F,
-        duplicate_error: Option<fn(String, Span) -> E>,
-    ) -> Result<Self, E> 
-      where F: FnMut(&mut DataSpecification, &SortExpression) -> Result<ResolvedSortId, E>,
+    ) -> Result<Self, E>
+    where
+        F: FnMut(&mut DataSpecification, &SortExpression) -> Result<ResolvedSortId, E>,
     {
         let mut action_domains = Vec::with_capacity(declarations.len());
         let mut action_decl_spans = Vec::with_capacity(declarations.len());
         let mut actions_by_name: HashMap<String, Vec<usize>> = HashMap::new();
-        for (index, decl) in declarations.iter().enumerate() {
+        for decl in declarations {
             let domain = decl
                 .args
                 .iter()
@@ -159,15 +161,11 @@ impl ActionTable {
                 .collect::<Result<Vec<_>, _>>()?;
 
             let indices = actions_by_name.entry(decl.identifier.node.clone()).or_default();
-            if let Some(duplicate_error) = duplicate_error
-                && indices.iter().any(|&i| action_domains[i] == domain)
-            {
-                return Err(duplicate_error(
-                    decl.identifier.node.clone(),
-                    decl.identifier.span.clone(),
-                ));
+            if indices.iter().any(|&i| action_domains[i] == domain) {
+                continue;
             }
-            indices.push(index);
+            
+            indices.push(action_domains.len());
 
             action_domains.push(domain);
             action_decl_spans.push(decl.identifier.span.clone());

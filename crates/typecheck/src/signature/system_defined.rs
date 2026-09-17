@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::collections::HashSet;
 use std::ops::ControlFlow;
 use std::ops::Range;
@@ -44,8 +45,7 @@ pub(crate) struct TemplateInstantiation {
     pub(crate) equation_range: Range<usize>,
 }
 
-/// Which sort-expression nodes [collect_system_sorts]/[collect_system_sorts_in_expr]/
-/// [collect_system_sorts_in_spec] collect.
+/// Which sort-expression nodes are being collected.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SortCollectionMode {
     /// Container sorts only — used to re-scan already-generated container
@@ -105,10 +105,7 @@ fn merge_generated(
 }
 
 /// Builds the system-defined part of a specification: the Appendix-B
-/// definitions (constructors, mappings and equations) for every basic sort,
-/// container sort and single-argument function sort that occurs in `spec`,
-/// plus the reflexive/derived comparison-operator equations (`==`, `<`, `if`,
-/// …) for *every* sort occurring in `spec`.
+/// definitions (constructors, mappings and equations).
 ///
 /// The five basic sorts are always included. A container sort pulls in the
 /// containers it is defined in terms of — a `Set(S)` needs `FSet(S)`, a
@@ -528,6 +525,21 @@ pub(crate) fn check_no_system_function_redeclaration(
         }
     }
     Ok(())
+}
+
+/// Every distinct multi-argument function-update arity `spec` needs — a pure function of `spec`'s
+/// own textual declarations, computable once, up front, before any system-defined content is
+/// generated.
+pub(crate) fn multi_argument_function_update_arities(spec: &UntypedDataSpecification) -> BTreeSet<usize> {
+    let mut worklist = Vec::new();
+    collect_system_sorts_in_spec(spec, &mut worklist, SortCollectionMode::ContainersAndFunctions);
+    worklist
+        .into_iter()
+        .filter_map(|sort| match sort.node {
+            SortExpressionKind::FlattenedFunction { domain, .. } if domain.len() > 1 => Some(domain.len()),
+            _ => None,
+        })
+        .collect()
 }
 
 /// Collects every container sort — every simple/resolved (basic or
