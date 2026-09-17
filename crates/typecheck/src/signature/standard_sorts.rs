@@ -508,7 +508,7 @@ pub(crate) fn standard_sort(
 /// As [standard_sort], but also returns which template (bundled or generic,
 /// identified the same way `ctx.template_typings` keys it) produced the
 /// result, and the concrete sort(s) substituted for its `type_var`
-/// declaration(s), in declaration order. Used by [`crate::merge_generated`]
+/// declaration(s), in declaration order. Used by `merge_generated`
 /// to record a [`crate::TemplateInstantiation`] for later specialization
 /// instead of re-checking each generated equation from scratch.
 pub(crate) fn standard_sort_with_provenance(

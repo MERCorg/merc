@@ -121,7 +121,7 @@ fn resolve_type_var_names_in_expr(expr: &mut DataExpr, names: &HashSet<&str>) {
 }
 
 /// Rewrites every `TypeVar` node of `sort` to `ResolvedTypeVar(TypeVarId)` using the type-variable
-/// name index built by [resolve_type_var_ids], or fails on a name that names no declared type
+/// name index built by [resolve_type_variables], or fails on a name that names no declared type
 /// variable (which should not arise from parsing, but a hand-built specification could still
 /// construct one).
 fn resolve_type_var_id(sort: &SortExpression, resolved: &IndexedSet<String>) -> Result<SortExpression, WellTypedError> {

@@ -18,7 +18,7 @@ use crate::query_sort_of_constructor;
 use crate::query_sort_of_map;
 use crate::resolve_sort;
 
-/// A polymorphic overload: `sort` is a [ResolvedSortId] built by [`resolve_sort`](crate::resolve_sort)
+/// A polymorphic overload: `sort` is a [ResolvedSortId] built by [`resolve_sort`]
 /// from a template's own declaration, so it may mention [`ResolvedSort::Var`]
 /// at any depth wherever the declaration mentions one of the template's bound
 /// type variables. Two occurrences of the same bound variable within `sort`

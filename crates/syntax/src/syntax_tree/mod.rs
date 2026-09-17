@@ -287,10 +287,7 @@ merc_pest_consume::declare_parser!(parser = Mcrl2Parser, rule = Rule);
 
 /// Consumes the pest parse tree into syntax tree nodes, split by grammar area into
 /// `sortexpr`/`dataexpr`/`procexpr`/`actfrm`/`regfrm`/`statefrm`/`pbesexpr`/`presexpr`/`specs`,
-/// each its own `#[merc_pest_consume::parser_methods]` impl block for `Mcrl2Parser`. This module
-/// holds only the core types/functions shared across most of those files: identifier/variable-list
-/// rule methods, id-allocation tag types, and the Pratt-parsing primitives ([Operator],
-/// [build_pratt_parser]).
+/// each its own `#[merc_pest_consume::parser_methods]` impl block for `Mcrl2Parser`.
 ///
 /// Private consume methods are only called from `match_nodes!` arms within their own file.
 /// `pub(crate)` methods are called across files in this module.

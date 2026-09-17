@@ -34,7 +34,7 @@ pub unsafe trait SliceDst {
 
 /// Blanket implemented for Sized T.
 /// # Safety
-/// 
+///
 /// `length` always reports `0`, so the two agree with each
 /// other for every call.
 unsafe impl<T> SliceDst for T {

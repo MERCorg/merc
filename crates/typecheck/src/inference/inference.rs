@@ -51,7 +51,7 @@ pub(crate) type ExprId = TagIndex<usize, ExprTag>;
 /// `lambda`/`forall`/`exists`'s body only (their bound variables have no id, like an equation's own
 /// `var`-block variables), and a `whr`'s assignment right-hand sides — in binding order — before its
 /// body.
-/// 
+///
 /// A monomorphized template instantiation relies on [number_expr_nodes] being a pure function of
 /// tree *shape*: numbering the template's own generic equation and numbering a ground clone of it
 /// (same structure, substituted sorts — `replace_sort`'s `spec.clone()`) assigns the same ids to
@@ -182,7 +182,7 @@ pub enum InferenceError {
     NoTyping {
         expression: String,
         /// The sort the expression was checked against, when inference ran with an
-        /// externally-supplied expected sort ([`Roots::ExpressionAgainst`], e.g. via
+        /// externally-supplied expected sort (`Roots::ExpressionAgainst`, e.g. via
         /// `check_expression_against`); `None` when checking a whole equation, where no single
         /// sort is being blamed.
         sort: Option<String>,
