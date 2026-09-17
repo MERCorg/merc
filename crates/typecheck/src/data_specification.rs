@@ -39,12 +39,13 @@ use crate::check_comparison_template;
 use crate::check_container_templates;
 use crate::check_equation_well_formedness;
 use crate::check_equations;
-use crate::check_multi_argument_function_update_template;
+use crate::check_function_update_template;
 use crate::check_no_system_function_redeclaration;
 use crate::check_products_within_domains;
 use crate::check_system_equations;
 use crate::check_system_specification;
 use crate::desugar_structured_sorts;
+use crate::function_update_arities;
 use crate::hoist_anonymous_structs;
 use crate::infer_expression;
 use crate::is_basic_sort_name;
@@ -53,7 +54,6 @@ use crate::lower_data_expr;
 use crate::lower_data_expressions;
 use crate::lower_data_specification;
 use crate::lower_expression;
-use crate::multi_argument_function_update_arities;
 use crate::normalize_sorts;
 use crate::resolve_data_expr_variables;
 use crate::resolve_data_specification_variables;
@@ -274,10 +274,9 @@ impl DataSpecification {
 
         resolve_system_signature_full(&mut context, &spec, &system);
 
-        // Every distinct multi-argument function-update arity `spec` needs gets its own generic
-        // template.
-        for arity in multi_argument_function_update_arities(&spec) {
-            check_multi_argument_function_update_template(&mut context, arity)?;
+        // Every distinct function-update arity `spec` needs gets its own generic template.
+        for arity in function_update_arities(&spec) {
+            check_function_update_template(&mut context, arity)?;
         }
         debug!("function-update template equations passed the rigid check");
 

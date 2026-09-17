@@ -527,16 +527,19 @@ pub(crate) fn check_no_system_function_redeclaration(
     Ok(())
 }
 
-/// Every distinct multi-argument function-update arity `spec` needs — a pure function of `spec`'s
-/// own textual declarations, computable once, up front, before any system-defined content is
-/// generated.
-pub(crate) fn multi_argument_function_update_arities(spec: &UntypedDataSpecification) -> BTreeSet<usize> {
+/// Every distinct function-update arity `spec` needs — a pure function of `spec`'s own textual
+/// declarations, computable once, up front, before any system-defined content is generated.
+///
+/// A single-argument function sort reaches this worklist as the un-flattened `Function` form (see
+/// [collect_system_sorts]'s doc comment), so both node kinds are matched here.
+pub(crate) fn function_update_arities(spec: &UntypedDataSpecification) -> BTreeSet<usize> {
     let mut worklist = Vec::new();
     collect_system_sorts_in_spec(spec, &mut worklist, SortCollectionMode::ContainersAndFunctions);
     worklist
         .into_iter()
         .filter_map(|sort| match sort.node {
-            SortExpressionKind::FlattenedFunction { domain, .. } if domain.len() > 1 => Some(domain.len()),
+            SortExpressionKind::Function { .. } => Some(1),
+            SortExpressionKind::FlattenedFunction { domain, .. } => Some(domain.len()),
             _ => None,
         })
         .collect()
@@ -629,9 +632,9 @@ fn collect_system_sorts_in_expr(expr: &DataExpr, out: &mut Vec<SortExpression>, 
 /// collected unless [SortCollectionMode::ContainersOnly] — see the call in
 /// [`build_system_defined_specification`] for why generated container content
 /// is re-scanned without them. A single-argument domain is converted to the
-/// nested `Function` form [`standard_sort`]'s single-argument branch expects;
-/// a multi-argument domain is passed through as `FlattenedFunction`, which
-/// `standard_sort`'s multi-argument branch consumes directly. In
+/// nested `Function` form [`standard_sort`]'s `Function` branch expects; a
+/// multi-argument domain is passed through as `FlattenedFunction`, which
+/// `standard_sort`'s `FlattenedFunction` branch consumes directly. In
 /// [SortCollectionMode::Every], every `Simple`/`Resolved` leaf sort is
 /// collected too — `sort.visit` already recurses into every child regardless
 /// of whether the current node was pushed, so a compound sort like
