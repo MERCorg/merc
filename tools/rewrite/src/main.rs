@@ -28,6 +28,7 @@ use merc_typecheck::NumberEncoding;
 use merc_unsafety::print_allocator_metrics;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
+use merc_utilities::silence_ena_logging;
 
 mod trs_format;
 
@@ -134,10 +135,11 @@ struct CheckArgs {
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
-    env_logger::Builder::new()
+    let mut logger_builder = env_logger::Builder::new();
+    logger_builder
         .filter_level(cli.verbosity.log_level_filter())
-        .parse_default_env()
-        .init();
+        .parse_default_env();
+    silence_ena_logging(&mut logger_builder).init();
 
     if cli.version.into() {
         eprintln!("{}", Version);

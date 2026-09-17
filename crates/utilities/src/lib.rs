@@ -48,6 +48,7 @@ pub use span::respan;
 pub use tagged_index::IdAllocator;
 pub use tagged_index::MercIndex;
 pub use tagged_index::TagIndex;
+pub use test_logger::silence_ena_logging;
 pub use test_logger::test_logger;
 pub use test_logger::test_threads;
 pub use timing::Timing;

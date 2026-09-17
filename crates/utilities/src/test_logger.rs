@@ -1,9 +1,17 @@
+/// Silences the `ena` crate's `unify`/`undo_log` debug! calls.
+pub fn silence_ena_logging(builder: &mut env_logger::Builder) -> &mut env_logger::Builder {
+    builder.filter_module("ena", log::LevelFilter::Off)
+}
+
 /// Initializes the standard logger for tests. Output is routed through the test
 /// harness so it is captured rather than printed unconditionally.
 pub fn test_logger() {
     if !cfg!(miri) {
         // Ignore double initialisations in tests since tests are ran in parallel.
-        let _ = env_logger::builder().is_test(true).try_init();
+        let mut builder = env_logger::builder();
+        builder.is_test(true);
+        silence_ena_logging(&mut builder);
+        let _ = builder.try_init();
     }
 }
 
