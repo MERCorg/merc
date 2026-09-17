@@ -79,8 +79,9 @@ pub(crate) fn collect_binder_sorts<E, F>(
     typing: &mut TypingInfo,
     variables: &[IdDecl],
     mut resolve: F,
-) -> Result<(), E> 
-where F: FnMut(&mut DataSpecification, &SortExpression) -> Result<ResolvedSortId, E>,
+) -> Result<(), E>
+where
+    F: FnMut(&mut DataSpecification, &SortExpression) -> Result<ResolvedSortId, E>,
 {
     for var in variables {
         typing_info::collect_sort_name_references(&var.sort, sort_references);
@@ -104,8 +105,7 @@ where F: FnMut(&mut DataSpecification, &SortExpression) -> Result<ResolvedSortId
 /// fixpoint-variable parameter or binder, …): rejects an anonymous `struct` (never legal in a
 /// declaration position), then defers to [`DataSpecification::resolve_declared_sort`] for the rest.
 /// `anonymous_struct` builds the caller's own error variant for that rejection.
-pub(crate) fn resolve_declared_sort<E, F>
-(
+pub(crate) fn resolve_declared_sort<E, F>(
     data: &mut DataSpecification,
     sort: &SortExpression,
     anonymous_struct: F,
@@ -164,7 +164,7 @@ impl ActionTable {
             if indices.iter().any(|&i| action_domains[i] == domain) {
                 continue;
             }
-            
+
             indices.push(action_domains.len());
 
             action_domains.push(domain);
@@ -193,10 +193,11 @@ pub(crate) fn resolve_single_candidate<C, E, F, G, H>(
     mut check_candidate: F,
     no_matching: G,
     ambiguous: H,
-) -> Result<(&C, TypingInfo), E> 
-    where F: FnMut(&C, &mut TypingInfo) -> Result<(), E>,
-          G: FnOnce(E) -> E,
-          H: FnOnce(usize) -> E,
+) -> Result<(&C, TypingInfo), E>
+where
+    F: FnMut(&C, &mut TypingInfo) -> Result<(), E>,
+    G: FnOnce(E) -> E,
+    H: FnOnce(usize) -> E,
 {
     let mut successes = 0usize;
     let mut first_error = None;

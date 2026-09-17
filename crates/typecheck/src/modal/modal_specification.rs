@@ -44,7 +44,7 @@ impl ModalSpecification {
         Self::from_untyped_with(spec, formula_type, NumberEncoding::default(), &mut SourceMap::new())
     }
 
-    /// Type checks `spec` against the given number encoding and source map, requiring val 
+    /// Type checks `spec` against the given number encoding and source map, requiring val
     /// occurrences to conform to `formula_type`.
     ///
     /// `sources` also accumulates the system-defined ("Appendix B") content this generates.

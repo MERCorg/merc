@@ -10,7 +10,7 @@ use merc_syntax::Traverse;
 use merc_syntax::UntypedDataSpecification;
 
 /// The Appendix-B name of the function update operation, see
-/// `crates/syntax/spec/function_update.mcrl2`.
+/// `signature::standard_sorts::function_update_text`.
 const FUNCTION_UPDATE_NAME: &str = "@func_update";
 
 /// Lowers every data expression in the equations of `spec` with

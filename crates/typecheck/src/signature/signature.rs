@@ -8,6 +8,7 @@ use merc_syntax::UntypedDataSpecification;
 
 use crate::BUILTIN_SCHEME_TEMPLATE;
 use crate::CONTAINER_TEMPLATES;
+use crate::FUNCTION_UPDATE_TEMPLATE;
 use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::TypeCheckContext;
@@ -89,7 +90,10 @@ fn compute_signature(ctx: &mut TypeCheckContext, spec: &UntypedDataSpecification
     // and `if`.
     signature.schemes = build_polymorphic_schemes(
         ctx,
-        CONTAINER_TEMPLATES.all().into_iter().chain([&*BUILTIN_SCHEME_TEMPLATE]),
+        CONTAINER_TEMPLATES
+            .all()
+            .into_iter()
+            .chain([&*BUILTIN_SCHEME_TEMPLATE, &*FUNCTION_UPDATE_TEMPLATE]),
     );
 
     Ok(signature)

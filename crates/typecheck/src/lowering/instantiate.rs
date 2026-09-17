@@ -20,12 +20,9 @@ use crate::TemplateInstantiation;
 use crate::TypeCheckContext;
 use crate::resolve_sort;
 
-/// Specializes a template's own proven [`EquationTyping`] into the typing of one concrete
-/// instantiation, substituting `substitution[i]` for `vars[i]` (the template's own `type_var`
-/// declarations, in declaration order) throughout every sort the typing recorded.
-///
-/// A lowering concern, not an inference one: nothing here can fail or discover anything
-/// `check_template_equations` didn't already prove about the template itself.
+/// Specializes a template's own proven [`EquationTyping`] into the typing of
+/// one concrete instantiation, substituting `substitution[i]` for `vars[i]`
+/// throughout every sort the typing recorded.
 pub(crate) fn specialize_template_typing(
     ctx: &mut TypeCheckContext,
     typing: &EquationTyping,
@@ -37,6 +34,7 @@ pub(crate) fn specialize_template_typing(
         substitution.len(),
         "one concrete sort per template type variable"
     );
+
     let substitute = |ctx: &mut TypeCheckContext, sort: ResolvedSortId| {
         vars.iter()
             .zip(substitution)
@@ -76,7 +74,7 @@ pub(crate) fn specialize_template_typing(
 /// [`TemplateInstantiation`] for every block it appends. So every block has a proven, rigid
 /// template typing (`ctx.template_typings`, populated once up front by
 /// `check_container_templates`/`check_comparison_template`/
-/// `check_multi_argument_function_update_template` during `DataSpecification::from_untyped_with`)
+/// `check_function_update_template` during `DataSpecification::from_untyped_with`)
 /// to specialize from, and this function never calls `infer_equation` — only
 /// [`specialize_template_typing`]'s substitution. The `debug_assert_eq!` below pins that coverage
 /// down as a checked property rather than a comment.
