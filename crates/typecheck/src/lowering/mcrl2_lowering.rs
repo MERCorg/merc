@@ -149,7 +149,7 @@ pub(crate) fn lower_sort(
     match ctx.sorts.get(id) {
         ResolvedSort::Unit => unreachable_not_a_value_sort("Unit"),
         ResolvedSort::Primitive(sort) => BasicSort::new(sort.name()).into(),
-        ResolvedSort::Generic { op, subsort } => {
+        ResolvedSort::Container { op, subsort } => {
             SortCons::new(container_kind(*op), lower_sort(ctx, spec, *subsort)).into()
         }
         ResolvedSort::Function { domain, range } => {
@@ -565,7 +565,7 @@ impl Lowering<'_> {
             (ResolvedSort::Primitive(from_sort), ResolvedSort::Primitive(to_sort)) => {
                 Some(numeric_coerce(term, *from_sort, *to_sort, self.encoding))
             }
-            (ResolvedSort::Generic { op, subsort }, ResolvedSort::Generic { .. }) => {
+            (ResolvedSort::Container { op, subsort }, ResolvedSort::Container { .. }) => {
                 let element = lower_sort(self.ctx, self.spec, *subsort);
                 Some(container_coerce(term, *op, element))
             }
@@ -639,7 +639,7 @@ impl Lowering<'_> {
     /// Builds the empty-container constant for `EmptyList` / `EmptySet` / `EmptyBag`.
     /// The sort for the constant is extracted from the node's own inferred sort.
     fn lower_empty_container(&self, sort: ResolvedSortId, op: ComplexSort) -> DataExpression {
-        let ResolvedSort::Generic {
+        let ResolvedSort::Container {
             subsort: element_id, ..
         } = self.ctx.sorts.get(sort)
         else {
@@ -658,7 +658,7 @@ impl Lowering<'_> {
 
     /// Lowers `{m1, m2, …}` (parsed as `FSet(S)`) to `@fset_insert(m1, @fset_insert(m2, {}))`.
     fn lower_set(&mut self, sort: ResolvedSortId, members: &[DataExpr]) -> Option<DataExpression> {
-        let ResolvedSort::Generic {
+        let ResolvedSort::Container {
             subsort: element_id, ..
         } = self.ctx.sorts.get(sort)
         else {
@@ -688,7 +688,7 @@ impl Lowering<'_> {
     /// Lowers `{e1:m1, e2:m2, …}` (parsed as `FBag(S)`) to
     /// `@fbag_cinsert(e1, m1, @fbag_cinsert(e2, m2, {:}))`.
     fn lower_bag(&mut self, sort: ResolvedSortId, members: &[BagElement]) -> Option<DataExpression> {
-        let ResolvedSort::Generic {
+        let ResolvedSort::Container {
             subsort: element_id, ..
         } = self.ctx.sorts.get(sort)
         else {
@@ -772,7 +772,7 @@ impl Lowering<'_> {
         predicate: &DataExpr,
     ) -> Option<DataExpression> {
         let (op, element_id) = match self.ctx.sorts.get(sort) {
-            ResolvedSort::Generic { op, subsort } => (*op, *subsort),
+            ResolvedSort::Container { op, subsort } => (*op, *subsort),
             _ => unreachable!("SetBagComp always infers to Set or Bag"),
         };
         let element = lower_sort(self.ctx, self.spec, element_id);
@@ -1037,15 +1037,16 @@ pub(crate) fn lower_data_specification(
     // Every container/function-update/comparison instantiation the
     // specification actually uses is monomorphized here, for this call only,
     // rather than during type-checking. `ctx` itself already proved every
-    // template's own equations exactly once, rigidly — the six bundled
-    // container templates, the comparison template, and every distinct
-    // multi-argument function-update arity alike (`check_container_templates`/
-    // `check_comparison_template`/`check_multi_argument_function_update_template`,
-    // all run unconditionally during `from_untyped_with`, regardless of
-    // usage) — so nothing below ever infers anything: a scratch clone exists
-    // only so interning a substituted sort (`instantiate_system_equations`'s
-    // own `resolve_sort` calls) doesn't mutate the context the caller's
-    // `DataSpecification` still holds.
+    // template's own equations exactly once, rigidly — the five bundled
+    // container templates and the comparison template unconditionally, and
+    // every distinct function-update arity the specification actually needs
+    // on demand (`check_container_templates`/`check_comparison_template` run
+    // unconditionally during `from_untyped_with`, `check_function_update_template`
+    // once per arity `function_update_arities` finds) — so nothing below ever
+    // infers anything: a scratch clone exists only so interning a substituted
+    // sort (`instantiate_system_equations`'s own `resolve_sort` calls)
+    // doesn't mutate the context the caller's `DataSpecification` still
+    // holds.
     let mut scratch_ctx = ctx.clone();
     let mut scratch_sources = SourceMap::new();
 
@@ -1071,7 +1072,7 @@ pub(crate) fn lower_data_specification(
     instantiations.extend(more_instantiations);
 
     resolve_data_specification_variables(&mut generated);
-    
+
     assign_declaration_ids(&mut generated);
 
     instantiate_system_equations(&mut scratch_ctx, spec, &generated, &instantiations);
