@@ -8,7 +8,6 @@ use merc_syntax::UntypedDataSpecification;
 
 use crate::BUILTIN_SCHEME_TEMPLATE;
 use crate::CONTAINER_TEMPLATES;
-use crate::FUNCTION_UPDATE_TEMPLATE;
 use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::TypeCheckContext;
@@ -45,9 +44,9 @@ pub(crate) struct PolySortScheme {
 /// collapse into one entry.
 ///
 /// `schemes` is a separate, name-keyed table of polymorphic overloads
-/// (containers, function-update, comparisons/`if`) — not split by
-/// constructor/mapping, since nothing downstream needs that distinction for a
-/// scheme (there is no [`merc_syntax::ConstructorId`]/[`merc_syntax::MapId`]
+/// (containers, comparisons/`if`) — not split by constructor/mapping, since
+/// nothing downstream needs that distinction for a scheme (there is no
+/// [`merc_syntax::ConstructorId`]/[`merc_syntax::MapId`]
 /// for synthesized template content to carry). Empty for every `Signature`
 /// except the one merged into `ctx.signature` and the small per-role table
 /// built for a system equation's own comparison/`if` lookup — see
@@ -86,14 +85,13 @@ fn compute_signature(ctx: &mut TypeCheckContext, spec: &UntypedDataSpecification
     let mut constants: HashMap<String, ResolvedSortId> = HashMap::new();
     push_declarations(ctx, spec, spec, false, &mut signature, &mut constants)?;
 
-    // The polymorphic built-ins — containers, function-update, comparisons
-    // and `if`.
+    // The polymorphic built-ins — containers, comparisons and `if`.
+    // Function-update has no entry here: its scheme is checked per arity, on
+    // demand, by `check_function_update_template` instead — see that
+    // function's doc comment.
     signature.schemes = build_polymorphic_schemes(
         ctx,
-        CONTAINER_TEMPLATES
-            .all()
-            .into_iter()
-            .chain([&*BUILTIN_SCHEME_TEMPLATE, &*FUNCTION_UPDATE_TEMPLATE]),
+        CONTAINER_TEMPLATES.all().into_iter().chain([&*BUILTIN_SCHEME_TEMPLATE]),
     );
 
     Ok(signature)
@@ -107,16 +105,10 @@ fn compute_signature(ctx: &mut TypeCheckContext, spec: &UntypedDataSpecification
 /// when called again for a second spec, across that call too — see `resolve_system_signature`).
 ///
 /// `resolve_spec` is the specification whose `sort_declarations` table a `Resolved(name, SortId)`
-/// node in `decl_spec` indexes into — the same specification as `decl_spec` for the user's own
-/// declarations (`compute_signature`), but the user specification itself for the system-defined
-/// specification's declarations, which resolve their `Resolved` sorts against the user's shared
-/// table rather than their own (see `resolve_system_signature`'s doc comment).
+/// node in `decl_spec` indexes into.
 ///
 /// `trusted` skips the one rule the system-defined specification's own basic-sort constructors
-/// (`@c0: Nat`, `@cNat`, ...) legitimately break: no constructor for a basic sort. Every other rule
-/// runs unconditionally, including for trusted content — a real soundness check, not a user-only
-/// courtesy: a malformed generated specification (an editing mistake in a template, or a broken
-/// substitution) should fail loudly here rather than produce a silently wrong signature.
+/// (`@c0: Nat`, `@cNat`, ...) legitimately break: no constructor for a basic sort.
 pub(crate) fn push_declarations(
     ctx: &mut TypeCheckContext,
     decl_spec: &UntypedDataSpecification,
@@ -126,9 +118,7 @@ pub(crate) fn push_declarations(
     constants: &mut HashMap<String, ResolvedSortId>,
 ) -> Result<(), WellTypedError> {
     // resolve_sort has no meaning for (and panics on) a product sort outside a
-    // function domain, so every sort this query resolves is checked first —
-    // including each alias's own definition, which a constructor/mapping sort
-    // may expand into.
+    // function domain, so every sort this query resolves is checked first.
     for sort in decl_spec
         .sort_declarations
         .iter()

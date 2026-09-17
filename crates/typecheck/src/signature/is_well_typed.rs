@@ -42,19 +42,7 @@ pub(crate) fn is_well_typed(spec: &UntypedDataSpecification) -> Result<(), WellT
 
 /// The equation-block well-formedness rules of 15.1.7 that remain a
 /// type-checking concern: no duplicate variable in a `var` block, no bare
-/// product sort on one. Shared, rather than kept as a hand-rolled copy, by
-/// every caller that owns a set of equations to check — the user's own
-/// specification, the base system-defined specification, and (see
-/// `check_system_specification`'s own doc comment) the lowering-time
-/// monomorphized content generated from it.
-///
-/// Whether every condition/right-hand-side variable occurs in the
-/// left-hand side is *not* checked here: an equation can be well-typed
-/// without that holding, so it is caught later, when the rewriter is
-/// actually built from the equations
-/// (`merc_sabre::set_automaton::automaton::is_supported_rule`), which drops
-/// such an equation with a warning instead of rejecting the specification
-/// outright.
+/// product sort on one.
 pub(crate) fn check_equation_well_formedness(spec: &UntypedDataSpecification) -> Result<(), WellTypedError> {
     for equation in &spec.equation_declarations {
         // Inference resolves a variable by name, so a duplicate would silently

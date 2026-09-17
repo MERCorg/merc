@@ -182,9 +182,10 @@ pub(crate) fn resolve_sort_ids(spec: &mut UntypedDataSpecification) -> Result<In
 }
 
 /// Assigns a unique id to every constructor declaration, map declaration,
-/// equation specification block and equation. These lists can grow after name
-/// resolution by the desugaring of structured sorts, so this must run after
-/// `desugar_structured_sorts`.
+/// equation specification block and equation.
+///
+/// These lists can grow after name resolution by the desugaring of structured
+/// sorts, so this must run after `desugar_structured_sorts`.
 pub(crate) fn assign_declaration_ids(spec: &mut UntypedDataSpecification) {
     for (i, decl) in spec.constructor_declarations.iter_mut().enumerate() {
         decl.id = Some(ConstructorId::new(i));

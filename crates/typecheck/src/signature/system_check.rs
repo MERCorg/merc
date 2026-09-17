@@ -26,23 +26,6 @@ use crate::check_products_within_domains;
 /// - every name in an equation resolves: to a binder or equation variable, a
 ///   constructor or mapping of `system` or `user_spec`, or a builtin scheme.
 ///
-/// The equation-block rules of 15.1.7 that don't need this function's
-/// undeclared-name context — no duplicate `var`-block variable, and every
-/// condition/right-hand-side variable occurring on the left-hand side — are
-/// not this function's job: callers run the shared
-/// `check_equation_well_formedness` for those, the same one the user's own
-/// specification is checked with, rather than this function keeping its own
-/// copy.
-///
-/// The signature-level rules of `build_signature` (no constructor for a function or basic sort,
-/// constructor/mapping disjointness, no zero-arity symbol under two different sorts) are not this
-/// function's job either: `resolve_system_signature` now runs `push_declarations` — the same
-/// checks `build_signature` runs for the user's own declarations, `trusted` — directly over
-/// `system`'s constructor/mapping declarations (in practice always exactly `basics`'s own set: a
-/// struct's own constructor/projection/recogniser are *user* declarations from its `sort D = struct
-/// ...`, desugared onto `user_spec`, not `system` — `structured_sort_equations` contributes only
-/// equations, no declarations of its own).
-///
 /// Full sort inference over the system equations is not run.
 pub(crate) fn check_system_specification(
     user_spec: &UntypedDataSpecification,

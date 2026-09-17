@@ -67,6 +67,11 @@ pub enum ModalError {
         real_cause: Box<ModalError>,
         bool_cause: Box<ModalError>,
     },
+
+    /// A `*`-multiplied sub-formula occurs in a formula declared plain boolean: the multiplier is
+    /// inherently quantitative, so it's only allowed when the formula's type is `Real`.
+    #[error("a constant multiplier ('*') is not allowed in a plain boolean formula")]
+    ConstantMultiplyInBooleanFormula { span: Span },
 }
 
 impl ModalError {
@@ -83,7 +88,8 @@ impl ModalError {
             | ModalError::UndeclaredAction { span, .. }
             | ModalError::NoMatchingOverload { span, .. }
             | ModalError::AmbiguousAction { span, .. }
-            | ModalError::NoMatchingValSort { span, .. } => Some(span),
+            | ModalError::NoMatchingValSort { span, .. }
+            | ModalError::ConstantMultiplyInBooleanFormula { span } => Some(span),
         }
     }
 

@@ -6,6 +6,7 @@ use merc_syntax::SortId;
 use merc_syntax::UntypedDataSpecification;
 use merc_syntax::VarId;
 
+use crate::EquationRole;
 use crate::ResolvedSortId;
 use crate::TypeCheckContext;
 
@@ -46,32 +47,27 @@ pub(crate) fn query_sort_of_map(
 }
 
 /// Returns the resolved sort of the equation `var`-block variable declared by `sort`, identified
-/// by its own `var_id`, memoized on [TypeCheckContext::sort_of_equation_var]. Requires `var_id` to
-/// originate from `resolve_data_specification_variables` on `spec`.
-///
-/// Covers the user specification only; the system-defined specification is
-/// still unresolved content.
+/// by its own `var_id`.
 pub(crate) fn query_sort_of_equation_var(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
+    role: EquationRole,
     var_id: VarId,
     sort: &SortExpression,
 ) -> ResolvedSortId {
-    if let Some(value) = ctx.sort_of_equation_var.get(&var_id) {
+    if let Some(value) = ctx.sort_of_equation_var.get(&(role, var_id)) {
         return *value;
     }
+
     let value = resolve_sort(ctx, spec, sort);
-    ctx.sort_of_equation_var.insert(var_id, value);
+    ctx.sort_of_equation_var.insert((role, var_id), value);
     value
 }
 
-///
-/// Requires names resolved and structured sorts desugared; alias indirection
-/// need not be expanded, since a `Resolved` sort goes through
-/// [query_sort_of_def], which resolves the alias body lazily. Note that
-/// flattening does not recurse into a substituted function sort, so a nested
-/// higher-order sort still appears as `Function` with a `Product` domain spine;
-/// both forms resolve to the same interned function sort.
+/// Resolves a sort expression into its corresponding interned sort identifier.
+/// 
+/// Requires names resolved and structured sorts desugared, and that alias are
+/// already normalised.
 pub(crate) fn resolve_sort(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
@@ -195,7 +191,7 @@ mod tests {
         // `D = Nat` is inlined by normalization, so `List(D)` resolves to `List(Nat)`.
         let spec = typecheck("sort D = Nat; map f: List(D);");
         let sorts = &spec.context().sorts;
-        let ResolvedSort::Generic { op, subsort } = sorts.get(mapping(&spec, 0)) else {
+        let ResolvedSort::Container { op, subsort } = sorts.get(mapping(&spec, 0)) else {
             panic!("expected a container sort");
         };
         assert_eq!(*op, ComplexSort::List);

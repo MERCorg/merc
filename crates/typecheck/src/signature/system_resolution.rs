@@ -13,33 +13,12 @@ use crate::push_declarations;
 use crate::push_overload;
 use crate::resolve_sort;
 
-/// Resolves the constructor and mapping declarations of the *basic-sort* part
-/// of the system-defined specification onto the interned sort lattice, merging
-/// them into `ctx.signature` (the same pooled signature the user's own
-/// declarations resolve through) — so a name like `succ`/`&&`/`@c0` is one
-/// more overload set in the one table `gen_name` searches, not a second
-/// signature to fall back to.
-///
-/// `system` must be the *basic-sort* specification ([`basic_sort_data_specification`](crate::basic_sort_data_specification)),
-/// not the full system-defined specification `build_system_defined_specification`
-/// produces: the container operations are looked up polymorphically instead
-/// (`ctx.signature.schemes`), because resolving their per-sort instantiations
-/// here as well would misreport ambiguity (a name would have both a concrete
-/// and a polymorphic candidate for the same sort).
+/// Resolves the constructor and mapping declarations of the system-defined
+/// specification onto the interned sort lattice, merging them into
+/// `ctx.signature`.
 ///
 /// Every `Reference` node of `system`'s own declarations must already be
-/// resolved to `Resolved(name, SortId)` (see `DataSpecification::from_untyped_with`,
-/// which folds `@NatPair`/`@word` into the shared `sort_declarations` table and
-/// resolves `system` against it the same way it resolves `spec` itself) — so
-/// `resolve_sort` is infallible here, the same call the user's own signature
-/// resolves through.
-///
-/// Runs the same [`push_declarations`] well-typedness checks `build_signature` runs for the user's
-/// own declarations, `trusted` (skipping only the basic-sort-constructor rule `@c0: Nat` and
-/// friends legitimately break) — this is a real soundness check on the generated content, not a
-/// user-only courtesy, and catches what `check_constructor_target` used to hand-check on its own
-/// (no constructor for a function sort), plus disjointness and duplicate-constant-different-sort
-/// checks that specification never ran on system content before.
+/// resolved.
 ///
 /// Requires `build_signature` to have already populated `ctx.signature` with
 /// the user's own declarations, so there is something to merge into.
@@ -64,18 +43,6 @@ pub(crate) fn resolve_system_signature(
     Ok(())
 }
 
-/// Resolves the system-defined specification's declarations onto the interned
-/// sort lattice and records each one's own declaration span
-/// (`ctx.system_symbol_spans`, read back by `TypingInfo` for go-to-
-/// definition).
-pub(crate) fn resolve_system_signature_full(
-    ctx: &mut TypeCheckContext,
-    spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
-) {
-    record_system_symbol_spans(ctx, spec, system);
-}
-
 /// Resolves each of `system`'s constructor/mapping declarations' sorts and records its own
 /// declaration span in `ctx.system_symbol_spans`, read back by `TypingInfo` for go-to-definition.
 fn record_system_symbol_spans(
@@ -88,6 +55,7 @@ fn record_system_symbol_spans(
         ctx.system_symbol_spans
             .insert((decl.identifier.node.clone(), id), decl.identifier.span.clone());
     }
+    
     for decl in &system.map_declarations {
         let id = resolve_sort(ctx, spec, &decl.sort);
         ctx.system_symbol_spans
@@ -169,12 +137,7 @@ pub(crate) fn build_polymorphic_schemes<'a>(
     schemes
 }
 
-/// The reserved names of every polymorphic built-in operator (containers,
-/// function-update, comparisons/`if`) — a user `cons`/`map` declaration may
-/// not redeclare any of them, regardless of its own sort. Derived directly
-/// from the templates rather than from `ctx.signature`'s schemes, since this
-/// check runs early in the pipeline, well before a `TypeCheckContext` (and so
-/// a `Signature`) exists.
+/// The reserved names of every polymorphic built-in operator.
 pub(crate) fn polymorphic_operator_names() -> impl Iterator<Item = &'static str> {
     CONTAINER_TEMPLATES
         .all()
@@ -452,7 +415,7 @@ mod tests {
         // Confirmed bug 2 (`docs/typecheck-struct-system-unification-plan.md`): two unrelated
         // structs whose constructors share a name at the same ≥1 arity (differing only in
         // codomain) make the whole specification rejected with `AmbiguousExpression` on struct C's
-        // own generated equality equation `c(x0_0) == c(y0_0) = x0_0 == y0_0`, for the same
+        // own generated equality equation `c(@x0_0) == c(@y0_0) = @x0_0 == @y0_0`, for the same
         // pooling reason as bug 1 above — see that test's doc comment for why this is now a known,
         // accepted regression rather than one routed around by per-struct signature scoping.
         let result = DataSpecification::from_untyped(
