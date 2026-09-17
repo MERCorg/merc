@@ -15,13 +15,12 @@ use super::check;
 
 /// Whether a state formula's `val(...)` occurrences are `Real`- or `Bool`-sorted.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ValSort {
-    /// Quantitative: every `val(...)` is `Real`-sorted, combined via a `*`-multiplier.
+pub enum FormulaType {
+    /// Quantitative: every state-level `val(...)` is `Real`-sorted, or `Bool`
+    /// sorts mapped to `Real`.
     Real,
-    /// Plain mu-calculus: every `val(...)` is a `Bool`-sorted atom.
+    /// Plain mu-calculus: every state-level `val(...)` is `Bool`-sorted.
     Bool,
-    /// The formula has no state-level `val(...)` at all, so nothing pins the choice down.
-    Unknown,
 }
 
 /// A type-checked modal (mu-calculus) state formula: the data specification plus its `act`
@@ -34,30 +33,24 @@ pub struct ModalSpecification {
     data: DataSpecification,
     /// Every checked expression's `TypingInfo`.
     typing: TypingInfo,
-    /// The sort the formula's `val(...)` occurrences fixed on.
-    val_sort: ValSort,
+    /// The type every state-level `val(...)` occurrence was checked against.
+    formula_type: FormulaType,
 }
 
 impl ModalSpecification {
     /// Type checks `spec` against a fresh, throwaway [`SourceMap`], using the default number
     /// encoding.
-    ///
-    /// Prefer [`Self::from_untyped_with`] with a real `sources` whenever an error may have to be
-    /// rendered afterwards: the `SourceMap` built here is discarded on return, so spans into
-    /// imported or system-defined content have nothing left to render against.
-    pub fn from_untyped(spec: UntypedStateFrmSpec) -> Result<Self, ModalError> {
-        Self::from_untyped_with(spec, NumberEncoding::default(), &mut SourceMap::new())
+    pub fn from_untyped(spec: UntypedStateFrmSpec, formula_type: FormulaType) -> Result<Self, ModalError> {
+        Self::from_untyped_with(spec, formula_type, NumberEncoding::default(), &mut SourceMap::new())
     }
 
-    /// Type checks `spec`: its data specification first, see
-    /// [`DataSpecification::from_untyped_with`], then its `act` declarations' argument sorts, and
-    /// finally the formula itself against them.
+    /// Type checks `spec` against the given number encoding and source map, requiring val 
+    /// occurrences to conform to `formula_type`.
     ///
-    /// `sources` also accumulates the system-defined ("Appendix B") content this generates. Pass
-    /// the `SourceMap` `spec` was parsed (and, if applicable, `%import`-resolved) against, so that
-    /// every span shares one offset space and renders correctly.
+    /// `sources` also accumulates the system-defined ("Appendix B") content this generates.
     pub fn from_untyped_with(
         mut spec: UntypedStateFrmSpec,
+        formula_type: FormulaType,
         encoding: NumberEncoding,
         sources: &mut SourceMap,
     ) -> Result<Self, ModalError> {
@@ -68,19 +61,14 @@ impl ModalSpecification {
         let data_spec = std::mem::take(&mut spec.data_specification);
         let mut data = DataSpecification::from_untyped_with(data_spec, encoding, sources)?;
 
-        let tables = DeclarationTables::build(
-            &mut data,
-            &spec.action_declarations,
-            resolve_declared_sort,
-            Some(|name, span| ModalError::DuplicateActionDeclaration { name, span }),
-        )?;
-        let (typing, val_sort) = check::check_modal_specification(&mut data, &tables, &spec)?;
+        let tables = DeclarationTables::build(&mut data, &spec.action_declarations, resolve_declared_sort)?;
+        let typing = check::check_modal_specification(&mut data, &tables, &spec, formula_type)?;
 
         Ok(ModalSpecification {
             spec,
             data,
             typing,
-            val_sort,
+            formula_type: formula_type,
         })
     }
 
@@ -111,10 +99,9 @@ impl ModalSpecification {
         info
     }
 
-    /// Whether the formula's `val(...)` occurrences are `Real`- or `Bool`-sorted, as fixed by the
-    /// first state-level one; see [`ValSort`].
-    pub fn val_sort(&self) -> ValSort {
-        self.val_sort
+    /// The sort of this modal formula.
+    pub fn val_sort(&self) -> FormulaType {
+        self.formula_type
     }
 }
 

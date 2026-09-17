@@ -143,8 +143,7 @@ fn resolve_in_state_frm(
                 formula.node = StateFrmKind::Resolved(name.clone(), std::mem::take(arguments), declaration);
             }
         }
-        // Already resolved (this pass never runs twice on the same tree, but treating it as a
-        // leaf keeps the rewrite idempotent, the same way `DataExprKind::Resolved` does).
+        // Already resolved: this pass never runs twice on the same tree.
         StateFrmKind::Resolved(_, arguments, _) => {
             for argument in arguments.iter_mut() {
                 resolve_in_data_expr(argument, scope, ids);
@@ -227,6 +226,10 @@ fn resolve_in_act_frm(formula: &mut ActFrm, scope: &mut Scope, ids: &mut VarIdAl
         ActFrmKind::Binary { lhs, rhs, .. } => {
             resolve_in_act_frm(lhs, scope, ids);
             resolve_in_act_frm(rhs, scope, ids);
+        }
+        ActFrmKind::At { expr, operand } => {
+            resolve_in_act_frm(expr, scope, ids);
+            resolve_in_data_expr(operand, scope, ids);
         }
     }
 }

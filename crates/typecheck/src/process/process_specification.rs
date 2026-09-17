@@ -121,7 +121,7 @@ pub(super) struct DeclarationTables {
 
 impl DeclarationTables {
     fn build(data: &mut DataSpecification, spec: &UntypedProcessSpecification) -> Result<Self, ProcessError> {
-        let actions = checking::ActionTable::build(data, &spec.action_declarations, resolve_declared_sort, None)?;
+        let actions = checking::ActionTable::build(data, &spec.action_declarations, resolve_declared_sort)?;
 
         let mut process_params = Vec::with_capacity(spec.process_declarations.len());
         let mut process_decl_spans = Vec::with_capacity(spec.process_declarations.len());

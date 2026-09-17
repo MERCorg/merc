@@ -1,17 +1,16 @@
-//! Errors from whole-state-formula type checking ([`crate::ModalSpecification`]).
-
 use merc_syntax::SourceMap;
 use merc_syntax::Span;
 
 use crate::InferenceError;
 use crate::WellTypedError;
 
-/// An error type checking a whole state formula: an `act` declaration, a fixpoint variable, or the
-/// formula itself that doesn't type check, on top of everything [`WellTypedError`]/
-/// [`InferenceError`] already cover for the data-specification subtree.
+/// An error type checking a whole state formula with [`crate::ModalSpecification`]: an `act`
+/// declaration, a fixpoint variable, or the formula itself that doesn't type check, on top of
+/// everything [`WellTypedError`]/[`InferenceError`] already cover for the data-specification
+/// subtree.
 ///
-/// `#[non_exhaustive]`, as [`crate::PresError`]/[`crate::ProcessError`]: more variants may be
-/// added, so a caller matching on this needs a catch-all arm.
+/// `#[non_exhaustive]`: more variants may be added, so a caller matching on this needs a catch-all
+/// arm.
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum ModalError {
@@ -59,12 +58,20 @@ pub enum ModalError {
     },
     #[error("the use of action '{name}' is ambiguous between {count} declarations")]
     AmbiguousAction { name: String, count: usize, span: Span },
+
+    /// A state-level `val(...)` failed to type check against both `Real` and `Bool`.
+    #[error("this val(...) expression fits neither sort Real ({real_cause}) nor Bool ({bool_cause})")]
+    NoMatchingValSort {
+        span: Span,
+        #[source]
+        real_cause: Box<ModalError>,
+        bool_cause: Box<ModalError>,
+    },
 }
 
 impl ModalError {
-    /// The span of the offending construct. Mirrors [`crate::PresError::span`] — every variant
-    /// here ultimately delegates to or carries a span directly, always `Some` except through a
-    /// `WellTypedError::Custom`.
+    /// The span of the offending construct. Every variant either carries a span directly or
+    /// delegates to one, so this is always `Some` except through a `WellTypedError::Custom`.
     pub fn span(&self) -> Option<&Span> {
         match self {
             ModalError::WellTyped(error) => error.span(),
@@ -75,13 +82,13 @@ impl ModalError {
             | ModalError::ArityMismatch { span, .. }
             | ModalError::UndeclaredAction { span, .. }
             | ModalError::NoMatchingOverload { span, .. }
-            | ModalError::AmbiguousAction { span, .. } => Some(span),
+            | ModalError::AmbiguousAction { span, .. }
+            | ModalError::NoMatchingValSort { span, .. } => Some(span),
         }
     }
 
-    /// Renders this error's message, followed by a caret-annotated source snippet, the same way
-    /// [`crate::PresError::render`] does. `sources` must contain the original specification text
-    /// this error was raised against.
+    /// Renders this error's message, followed by a caret-annotated source snippet. `sources` must
+    /// contain the original specification text this error was raised against.
     pub fn render(&self, sources: &SourceMap) -> String {
         match self.span() {
             Some(span) => format!("{self}\n{}", span.render(sources)),

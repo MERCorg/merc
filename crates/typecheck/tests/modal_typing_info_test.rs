@@ -7,13 +7,14 @@ use merc_syntax::UntypedStateFrmSpec;
 use merc_typecheck::ModalSpecification;
 use merc_typecheck::ResolvedName;
 use merc_typecheck::TypingInfo;
+use merc_typecheck::FormulaType;
 
 /// Type checks `text` as a state formula, returning its full [`TypingInfo`] (every checked
 /// expression, merged).
 #[track_caller]
 fn typing_for(text: &str) -> TypingInfo {
     let spec = UntypedStateFrmSpec::parse(text).expect("the specification should parse");
-    let mut spec = ModalSpecification::from_untyped(spec).expect("the specification should type check");
+    let mut spec = ModalSpecification::from_untyped(spec, FormulaType::Real).expect("the specification should type check");
     spec.typing_info()
 }
 
