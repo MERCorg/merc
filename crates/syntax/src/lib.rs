@@ -1,22 +1,17 @@
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 
-mod consume;
 mod counterexample_formula;
 pub mod imports;
 mod parse;
-mod precedence;
 pub mod random_data_expression;
 pub mod random_lps;
 pub mod random_pbes;
 mod span_offset;
 mod spanned;
 mod syntax_tree;
-mod syntax_tree_display;
 mod traverse;
 
-pub(crate) use consume::*;
-pub(crate) use precedence::*;
 pub(crate) use syntax_tree::*;
 
 pub use counterexample_formula::generate_distinguishing_formula;
@@ -34,10 +29,6 @@ pub use parse::Rule;
 pub use parse::parse_action_names;
 pub use parse::parse_allow_action_names;
 pub use parse::parse_comm_expr_set;
-pub use precedence::Assoc;
-pub use precedence::Fixity;
-pub use precedence::Operator;
-pub use precedence::parse_sortexpr;
 pub use random_data_expression::random_boolean_data_expression;
 pub use random_data_expression::random_integer_data_expression;
 pub use random_lps::make_process_specification;
@@ -54,6 +45,7 @@ pub use syntax_tree::Action;
 pub use syntax_tree::ActionName;
 pub use syntax_tree::Assignment;
 pub use syntax_tree::AssignmentData;
+pub use syntax_tree::Assoc;
 pub use syntax_tree::BagElement;
 pub use syntax_tree::Bound;
 pub use syntax_tree::CommExpr;
@@ -71,11 +63,13 @@ pub use syntax_tree::EqnSpecData;
 pub use syntax_tree::EqnSpecId;
 pub use syntax_tree::EquationId;
 pub use syntax_tree::FixedPointOperator;
+pub use syntax_tree::Fixity;
 pub use syntax_tree::IdDecl;
 pub use syntax_tree::MapId;
 pub use syntax_tree::ModalityOperator;
 pub use syntax_tree::MultiAction;
 pub use syntax_tree::MultiActionLabel;
+pub use syntax_tree::Operator;
 pub use syntax_tree::PbesEquation;
 pub use syntax_tree::PbesExpr;
 pub use syntax_tree::PbesExprKind;
@@ -117,5 +111,6 @@ pub use syntax_tree::UntypedProcessSpecification;
 pub use syntax_tree::UntypedStateFrmSpec;
 pub use syntax_tree::VarId;
 pub use syntax_tree::VarIdAllocator;
+pub use syntax_tree::parse_sortexpr;
 pub use traverse::Recursion;
 pub use traverse::Traverse;
