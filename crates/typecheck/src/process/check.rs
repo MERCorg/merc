@@ -19,6 +19,7 @@ use crate::TypingInfo;
 use crate::checking::Scope;
 use crate::checking::check_expression_against;
 use crate::checking::collect_binder_sorts;
+use crate::checking::resolve_single_candidate;
 use crate::declared_span;
 use crate::typing_info;
 
@@ -237,8 +238,8 @@ fn check_process_expr(
 
 /// Which declaration table an [`check_action_or_process`] candidate came from, kept alongside its
 /// resolved argument domain so the winning candidate's own declaration span can be recovered once
-/// exactly one succeeds — `tables.action_domains`/`process_params` alone don't say which table (or
-/// index) a flattened candidate list entry belongs to.
+/// exactly one succeeds — `tables.actions.action_domains`/`process_params` alone don't say which
+/// table (or index) a flattened candidate list entry belongs to.
 enum Candidate {
     Action(usize),
     Process(usize),
@@ -264,11 +265,12 @@ fn check_action_or_process(
     typing: &mut TypingInfo,
 ) -> Result<(), ProcessError> {
     let candidates: Vec<(Candidate, Vec<ResolvedSortId>)> = tables
+        .actions
         .actions_by_name
         .get(name.as_str())
         .into_iter()
         .flatten()
-        .map(|&index| (Candidate::Action(index), tables.action_domains[index].clone()))
+        .map(|&index| (Candidate::Action(index), tables.actions.action_domains[index].clone()))
         .chain(
             tables
                 .processes_by_name
@@ -291,6 +293,7 @@ fn check_action_or_process(
             arity: args.len(),
             span: span.clone(),
             candidates: tables
+                .actions
                 .actions_by_name
                 .keys()
                 .chain(tables.processes_by_name.keys())
@@ -299,50 +302,34 @@ fn check_action_or_process(
         });
     }
 
-    let mut successes = 0usize;
-    let mut first_error = None;
-    let mut matched: Option<(&Candidate, TypingInfo)> = None;
-    for (candidate, expected) in &candidates {
-        let mut candidate_typing = TypingInfo::default();
-        match check_arguments(data, scope, args, expected, &mut candidate_typing) {
-            Ok(()) => {
-                successes += 1;
-                matched = Some((candidate, candidate_typing));
-            }
-            Err(error) => drop(first_error.get_or_insert(error)),
-        }
-    }
-
-    match successes {
-        0 => Err(ProcessError::NoMatchingOverload {
+    let ((candidate, _), mut matched_typing) = resolve_single_candidate(
+        &candidates,
+        |(_, expected), candidate_typing| check_arguments(data, scope, args, expected, candidate_typing),
+        |cause| ProcessError::NoMatchingOverload {
             name: name.node.clone(),
             span: span.clone(),
-            cause: Box::new(
-                first_error.expect("at least one candidate, so at least one recorded error when none succeed"),
-            ),
-        }),
-        1 => {
-            let (candidate, mut matched_typing) = matched.expect("successes == 1 implies a matched candidate");
-            let resolved = match candidate {
-                Candidate::Action(index) => ResolvedName::Action {
-                    name: name.node.clone(),
-                    declaration: declared_span(&tables.action_decl_spans[*index]),
-                },
-                Candidate::Process(index) => ResolvedName::Process {
-                    name: name.node.clone(),
-                    declaration: declared_span(&tables.process_decl_spans[*index]),
-                },
-            };
-            matched_typing.push(name.span.clone(), resolved);
-            typing.merge(matched_typing);
-            Ok(())
-        }
-        count => Err(ProcessError::AmbiguousActionOrProcess {
+            cause: Box::new(cause),
+        },
+        |count| ProcessError::AmbiguousActionOrProcess {
             name: name.node.clone(),
             count,
             span: span.clone(),
-        }),
-    }
+        },
+    )?;
+
+    let resolved = match candidate {
+        Candidate::Action(index) => ResolvedName::Action {
+            name: name.node.clone(),
+            declaration: declared_span(&tables.actions.action_decl_spans[*index]),
+        },
+        Candidate::Process(index) => ResolvedName::Process {
+            name: name.node.clone(),
+            declaration: declared_span(&tables.process_decl_spans[*index]),
+        },
+    };
+    matched_typing.push(name.span.clone(), resolved);
+    typing.merge(matched_typing);
+    Ok(())
 }
 
 fn check_arguments(
@@ -383,6 +370,7 @@ fn check_instantiation(
             arity: assignments.len(),
             span: span.clone(),
             candidates: tables
+                .actions
                 .actions_by_name
                 .keys()
                 .chain(tables.processes_by_name.keys())
@@ -481,17 +469,17 @@ fn check_action_names(
     typing: &mut TypingInfo,
 ) -> Result<(), ProcessError> {
     for name in names {
-        let Some(indices) = tables.actions_by_name.get(name.as_str()) else {
+        let Some(indices) = tables.actions.actions_by_name.get(name.as_str()) else {
             return Err(ProcessError::UndeclaredAction {
                 name: name.node.clone(),
                 span: name.span.clone(),
-                candidates: tables.actions_by_name.keys().cloned().collect(),
+                candidates: tables.actions.actions_by_name.keys().cloned().collect(),
             });
         };
 
         let declarations = indices
             .iter()
-            .filter_map(|&index| declared_span(&tables.action_decl_spans[index]))
+            .filter_map(|&index| declared_span(&tables.actions.action_decl_spans[index]))
             .collect();
         typing.push(
             name.span.clone(),
@@ -519,6 +507,7 @@ fn check_comm_sorts(
         .iter()
         .map(|name| {
             tables
+                .actions
                 .actions_by_name
                 .get(name.as_str())
                 .map(Vec::as_slice)
@@ -526,6 +515,7 @@ fn check_comm_sorts(
         })
         .collect();
     let to_options: &[usize] = tables
+        .actions
         .actions_by_name
         .get(comm.to.as_str())
         .map(Vec::as_slice)
@@ -590,11 +580,13 @@ fn check_rename_sorts(
     rename: &Rename,
 ) -> Result<(), ProcessError> {
     let from_options: &[usize] = tables
+        .actions
         .actions_by_name
         .get(rename.from.as_str())
         .map(Vec::as_slice)
         .unwrap_or(&[]);
     let to_options: &[usize] = tables
+        .actions
         .actions_by_name
         .get(rename.to.as_str())
         .map(Vec::as_slice)
@@ -627,15 +619,15 @@ fn combined_sort_matches(
     from_indices: &[usize],
     to_index: usize,
 ) -> Result<(), String> {
-    let to_domain = &tables.action_domains[to_index];
+    let to_domain = &tables.actions.action_domains[to_index];
     let arity = to_domain.len();
     if let Some(&mismatched) = from_indices
         .iter()
-        .find(|&&index| tables.action_domains[index].len() != arity)
+        .find(|&&index| tables.actions.action_domains[index].len() != arity)
     {
         return Err(format!(
             "one action takes {} parameter(s), another takes {arity}",
-            tables.action_domains[mismatched].len(),
+            tables.actions.action_domains[mismatched].len(),
         ));
     }
 
@@ -643,9 +635,9 @@ fn combined_sort_matches(
     {
         let (ctx, _) = data.context_and_specs_mut();
         'positions: for (position, &expected) in to_domain.iter().enumerate() {
-            let mut joined = tables.action_domains[from_indices[0]][position];
+            let mut joined = tables.actions.action_domains[from_indices[0]][position];
             for &index in &from_indices[1..] {
-                let candidate = tables.action_domains[index][position];
+                let candidate = tables.actions.action_domains[index][position];
                 joined = match ctx.sorts.join(joined, candidate) {
                     Some(sort) => sort,
                     None => {

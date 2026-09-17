@@ -2,6 +2,9 @@
 //! expression tree that lives *outside* the data specification proper — a
 //! process body (`crate::process::check`), a PBES equation, or a PRES equation.
 
+use std::collections::HashMap;
+
+use merc_syntax::ActDecl;
 use merc_syntax::DataExpr;
 use merc_syntax::IdDecl;
 use merc_syntax::SortExpression;
@@ -69,14 +72,16 @@ where
 /// scope and recording sort references, and records each variable's own declaration occurrence so
 /// it can be hovered/go-to-definition'd the same as a use of it (see
 /// [`typing_info::push_binder_declaration`]).
-pub(crate) fn collect_binder_sorts<E>(
+pub(crate) fn collect_binder_sorts<E, F>(
     data: &mut DataSpecification,
     scope: &mut Vec<(VarId, ResolvedSortId, Span)>,
     sort_references: &mut Vec<typing_info::SortReference>,
     typing: &mut TypingInfo,
     variables: &[IdDecl],
-    mut resolve: impl FnMut(&mut DataSpecification, &SortExpression) -> Result<ResolvedSortId, E>,
-) -> Result<(), E> {
+    mut resolve: F,
+) -> Result<(), E> 
+where F: FnMut(&mut DataSpecification, &SortExpression) -> Result<ResolvedSortId, E>,
+{
     for var in variables {
         typing_info::collect_sort_name_references(&var.sort, sort_references);
         let sort = resolve(data, &var.sort)?;
@@ -93,4 +98,127 @@ pub(crate) fn collect_binder_sorts<E>(
         scope.push((var_id, sort, var.identifier.span.clone()));
     }
     Ok(())
+}
+
+/// Resolves a sort expression occurring in a declaration (an `act`/`proc`/`glob` parameter, a modal
+/// fixpoint-variable parameter or binder, …): rejects an anonymous `struct` (never legal in a
+/// declaration position), then defers to [`DataSpecification::resolve_declared_sort`] for the rest.
+/// `anonymous_struct` builds the caller's own error variant for that rejection.
+pub(crate) fn resolve_declared_sort<E, F>
+(
+    data: &mut DataSpecification,
+    sort: &SortExpression,
+    anonymous_struct: F,
+) -> Result<ResolvedSortId, E>
+where
+    E: From<WellTypedError>,
+    F: FnOnce(Span) -> E,
+{
+    if let Some(span) = crate::find_anonymous_struct(sort) {
+        return Err(anonymous_struct(span));
+    }
+    Ok(data.resolve_declared_sort(sort)?)
+}
+
+/// The resolved `act` declaration table, shared by `process`/`modal`: each declaration's resolved
+/// argument-sort domain and declaring span, plus a name -> declaring-indices map for overload
+/// resolution.
+pub(crate) struct ActionTable {
+    /// Resolved argument-sort domain of each action declaration, parallel to the `declarations`
+    /// slice [`Self::build`] was given.
+    pub(crate) action_domains: Vec<Vec<ResolvedSortId>>,
+    /// Each declaration's own identifier span, parallel to `action_domains`.
+    pub(crate) action_decl_spans: Vec<Span>,
+    /// name -> indices into `action_domains`/`action_decl_spans` declaring it.
+    pub(crate) actions_by_name: HashMap<String, Vec<usize>>,
+}
+
+impl ActionTable {
+    /// Builds the table from every `act` declaration in `declarations`, resolving each one's
+    /// argument sorts via `resolve_declared_sort`.
+    ///
+    /// `duplicate_error`, when given, rejects a second declaration with the exact same name *and*
+    /// domain as an earlier one — `modal` does this (`ModalError::DuplicateActionDeclaration`);
+    /// `process` doesn't check for it, unchanged from before this table was shared between them.
+    pub(crate) fn build<E, F>(
+        data: &mut DataSpecification,
+        declarations: &[ActDecl],
+        mut resolve_declared_sort: F,
+        duplicate_error: Option<fn(String, Span) -> E>,
+    ) -> Result<Self, E> 
+      where F: FnMut(&mut DataSpecification, &SortExpression) -> Result<ResolvedSortId, E>,
+    {
+        let mut action_domains = Vec::with_capacity(declarations.len());
+        let mut action_decl_spans = Vec::with_capacity(declarations.len());
+        let mut actions_by_name: HashMap<String, Vec<usize>> = HashMap::new();
+        for (index, decl) in declarations.iter().enumerate() {
+            let domain = decl
+                .args
+                .iter()
+                .map(|sort| resolve_declared_sort(data, sort))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let indices = actions_by_name.entry(decl.identifier.node.clone()).or_default();
+            if let Some(duplicate_error) = duplicate_error
+                && indices.iter().any(|&i| action_domains[i] == domain)
+            {
+                return Err(duplicate_error(
+                    decl.identifier.node.clone(),
+                    decl.identifier.span.clone(),
+                ));
+            }
+            indices.push(index);
+
+            action_domains.push(domain);
+            action_decl_spans.push(decl.identifier.span.clone());
+        }
+
+        Ok(ActionTable {
+            action_domains,
+            action_decl_spans,
+            actions_by_name,
+        })
+    }
+}
+
+/// Tries every candidate in `candidates`, each checked into its own scratch `TypingInfo` via
+/// `check_candidate`, and requires exactly one to succeed — an mCRL2 overload set, the way
+/// `crate::process::check::check_action_or_process` and `crate::modal::check::check_action` both
+/// use this. A failed or ambiguous candidate's typing must never reach the caller's own
+/// `TypingInfo`, so each candidate gets a fresh scratch one, returned to the caller only for the
+/// single match.
+///
+/// `candidates` must be nonempty: the "no such name at all" case usually needs a different error
+/// shape (e.g. every *other* declared name, as a suggestion), so callers check that separately.
+pub(crate) fn resolve_single_candidate<C, E, F, G, H>(
+    candidates: &[C],
+    mut check_candidate: F,
+    no_matching: G,
+    ambiguous: H,
+) -> Result<(&C, TypingInfo), E> 
+    where F: FnMut(&C, &mut TypingInfo) -> Result<(), E>,
+          G: FnOnce(E) -> E,
+          H: FnOnce(usize) -> E,
+{
+    let mut successes = 0usize;
+    let mut first_error = None;
+    let mut matched: Option<(&C, TypingInfo)> = None;
+    for candidate in candidates {
+        let mut candidate_typing = TypingInfo::default();
+        match check_candidate(candidate, &mut candidate_typing) {
+            Ok(()) => {
+                successes += 1;
+                matched = Some((candidate, candidate_typing));
+            }
+            Err(error) => drop(first_error.get_or_insert(error)),
+        }
+    }
+
+    match successes {
+        0 => Err(no_matching(first_error.expect(
+            "candidates is nonempty, so at least one recorded error when none succeed",
+        ))),
+        1 => Ok(matched.expect("successes == 1 implies a matched candidate")),
+        count => Err(ambiguous(count)),
+    }
 }

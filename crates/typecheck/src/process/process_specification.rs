@@ -14,7 +14,7 @@ use crate::DataSpecification;
 use crate::NumberEncoding;
 use crate::ResolvedSortId;
 use crate::TypingInfo;
-use crate::find_anonymous_struct;
+use crate::checking;
 
 use super::ProcessError;
 use super::check;
@@ -115,34 +115,13 @@ pub(super) struct DeclarationTables {
     pub(super) process_decl_spans: Vec<Span>,
     /// name -> indices into `spec.process_declarations`/`process_params` declaring it.
     pub(super) processes_by_name: HashMap<String, Vec<usize>>,
-    /// Resolved argument-sort domain of each action declaration, parallel to
-    /// `spec.action_declarations`.
-    pub(super) action_domains: Vec<Vec<ResolvedSortId>>,
-    /// `spec.action_declarations[i].identifier.span`, parallel to `action_domains` — see
-    /// `process_decl_spans`.
-    pub(super) action_decl_spans: Vec<Span>,
-    /// name -> indices into `spec.action_declarations`/`action_domains` declaring it.
-    pub(super) actions_by_name: HashMap<String, Vec<usize>>,
+    /// The `act` declaration table, shared with `crate::modal` via [`checking::ActionTable`].
+    pub(super) actions: checking::ActionTable,
 }
 
 impl DeclarationTables {
     fn build(data: &mut DataSpecification, spec: &UntypedProcessSpecification) -> Result<Self, ProcessError> {
-        let mut action_domains = Vec::with_capacity(spec.action_declarations.len());
-        let mut action_decl_spans = Vec::with_capacity(spec.action_declarations.len());
-        let mut actions_by_name: HashMap<String, Vec<usize>> = HashMap::new();
-        for (index, decl) in spec.action_declarations.iter().enumerate() {
-            let domain = decl
-                .args
-                .iter()
-                .map(|sort| resolve_declared_sort(data, sort))
-                .collect::<Result<Vec<_>, _>>()?;
-            actions_by_name
-                .entry(decl.identifier.node.clone())
-                .or_default()
-                .push(index);
-            action_domains.push(domain);
-            action_decl_spans.push(decl.identifier.span.clone());
-        }
+        let actions = checking::ActionTable::build(data, &spec.action_declarations, resolve_declared_sort, None)?;
 
         let mut process_params = Vec::with_capacity(spec.process_declarations.len());
         let mut process_decl_spans = Vec::with_capacity(spec.process_declarations.len());
@@ -200,9 +179,7 @@ impl DeclarationTables {
             process_params,
             process_decl_spans,
             processes_by_name,
-            action_domains,
-            action_decl_spans,
-            actions_by_name,
+            actions,
         })
     }
 }
@@ -214,8 +191,5 @@ pub(super) fn resolve_declared_sort(
     data: &mut DataSpecification,
     sort: &SortExpression,
 ) -> Result<ResolvedSortId, ProcessError> {
-    if let Some(span) = find_anonymous_struct(sort) {
-        return Err(ProcessError::AnonymousStructInDeclaration { span });
-    }
-    Ok(data.resolve_declared_sort(sort)?)
+    checking::resolve_declared_sort(data, sort, |span| ProcessError::AnonymousStructInDeclaration { span })
 }
