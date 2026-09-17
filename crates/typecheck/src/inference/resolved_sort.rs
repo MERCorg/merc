@@ -22,17 +22,9 @@ pub(crate) type ResolvedSortId = TagIndex<usize, ResolvedSortTag>;
 
 /// A type in the mCRL2 type system, called a *sort*.
 ///
-/// The built-in sorts and container constructors reuse the AST enums
-/// [merc_syntax::Sort] and [merc_syntax::ComplexSort]. Sub-sorts are stored as
-/// [ResolvedSortId] indices into the [SortInterner] rather than by value, so a
-/// `ResolvedSort` is small and structural equality coincides with id equality.
-/// Using an index arena rather than reference counting is how the rest of the
-/// MERC workspace models pooled data.
-///
-/// Unlike the book, the number sorts form a lattice (see [SortInterner::join]
-/// and [SortInterner::meet]): `Pos <= Nat <= Int <= Real`, and for containers
-/// `FSet(S) <= Set(S)` and `FBag(S) <= Bag(S)`. This models the implicit
-/// coercions that mCRL2 inserts during type checking.
+/// Sub-sorts are stored as [ResolvedSortId] indices into the [SortInterner]
+/// rather than by value, so a `ResolvedSort` is small and structural equality
+/// coincides with id equality.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum ResolvedSort {
     /// The sort with a single element, used internally for the result of an
@@ -42,7 +34,7 @@ pub(crate) enum ResolvedSort {
     /// A built-in primitive sort such as `Bool` or `Nat`.
     Primitive(Sort),
     /// A container sort such as `List(S)` or `Set(S)`.
-    Generic { op: ComplexSort, subsort: ResolvedSortId },
+    Container { op: ComplexSort, subsort: ResolvedSortId },
     /// A function sort `A_0 # ... # A_n -> B`.
     Function {
         domain: Vec<ResolvedSortId>,
@@ -59,7 +51,7 @@ pub(crate) enum ResolvedSort {
 
 impl ResolvedSort {
     /// Compares two sorts by the sub-sort ordering, assuming both come from the
-    /// same interner (so id equality means sort equality).
+    /// same interner.
     ///
     /// Number sorts are ordered by generality and container sorts by their
     /// finiteness marker when their element sorts are equal; all other distinct
@@ -68,11 +60,11 @@ impl ResolvedSort {
         match (self, other) {
             (ResolvedSort::Primitive(lhs), ResolvedSort::Primitive(rhs)) => primitive_partial_cmp(*lhs, *rhs),
             (
-                ResolvedSort::Generic {
+                ResolvedSort::Container {
                     op: lhs_op,
                     subsort: lhs_sub,
                 },
-                ResolvedSort::Generic {
+                ResolvedSort::Container {
                     op: rhs_op,
                     subsort: rhs_sub,
                 },
@@ -142,7 +134,7 @@ impl fmt::Display for DisplaySortContext<'_> {
         match self.ctx.sorts.get(self.id) {
             ResolvedSort::Unit => write!(f, "@Unit"),
             ResolvedSort::Primitive(sort) => write!(f, "{sort}"),
-            ResolvedSort::Generic { op, subsort } => {
+            ResolvedSort::Container { op, subsort } => {
                 write!(f, "{op}({})", self.sub(*subsort))
             }
             ResolvedSort::Function { domain, range } => {
@@ -160,9 +152,6 @@ impl fmt::Display for DisplaySortContext<'_> {
 
 /// Orders the primitive sorts by the number-sort hierarchy. Distinct sorts that
 /// are not both numbers are incomparable.
-///
-/// This is deliberately not [merc_syntax::Sort]'s derived ordering, which is
-/// lexical by declaration order rather than by generality.
 fn primitive_partial_cmp(lhs: Sort, rhs: Sort) -> Option<Ordering> {
     if lhs == rhs {
         Some(Ordering::Equal)
@@ -266,7 +255,7 @@ impl SortInterner {
 
     /// Interns the container sort `op(subsort)`.
     pub(crate) fn generic(&mut self, op: ComplexSort, subsort: ResolvedSortId) -> ResolvedSortId {
-        self.intern(ResolvedSort::Generic { op, subsort })
+        self.intern(ResolvedSort::Container { op, subsort })
     }
 
     /// Interns the function sort `domain -> range`.
@@ -345,9 +334,6 @@ impl SortInterner {
     ///
     /// This operation is commutative, associative and idempotent. It does not
     /// report errors, it simply returns `None`.
-    // Used by Phase-3 inference to resolve the shared free variable of a group
-    // of `Sub` constraints (a `Join`; see inference.rs) in one step, and by
-    // Phase-4 coercion materialization.
     pub(crate) fn join(&mut self, lhs: ResolvedSortId, rhs: ResolvedSortId) -> Option<ResolvedSortId> {
         if lhs == rhs {
             return Some(lhs);
@@ -360,11 +346,11 @@ impl SortInterner {
                 Some(self.primitive(number_sort_from_generality(lhs.max(rhs))))
             }
             (
-                ResolvedSort::Generic {
+                ResolvedSort::Container {
                     op: lhs_op,
                     subsort: lhs_sub,
                 },
-                ResolvedSort::Generic {
+                ResolvedSort::Container {
                     op: rhs_op,
                     subsort: rhs_sub,
                 },
@@ -397,7 +383,7 @@ impl SortInterner {
     ) -> ResolvedSortId {
         match self.get(sort).clone() {
             ResolvedSort::Var(id) if id == var => with,
-            ResolvedSort::Generic { op, subsort } => {
+            ResolvedSort::Container { op, subsort } => {
                 let subsort = self.substitute_var(subsort, var, with);
                 self.generic(op, subsort)
             }
@@ -418,7 +404,8 @@ impl SortInterner {
 
     /// Finds the greatest common subsort of two sorts, or `None` when they are
     /// incomparable.
-    // The dual of `join`; exercised by tests only for now.
+    ///
+    /// The dual of `join`; exercised by tests only for now.
     #[allow(dead_code)]
     pub(crate) fn meet(&mut self, lhs: ResolvedSortId, rhs: ResolvedSortId) -> Option<ResolvedSortId> {
         if lhs == rhs {
@@ -432,11 +419,11 @@ impl SortInterner {
                 Some(self.primitive(number_sort_from_generality(lhs.min(rhs))))
             }
             (
-                ResolvedSort::Generic {
+                ResolvedSort::Container {
                     op: lhs_op,
                     subsort: lhs_sub,
                 },
-                ResolvedSort::Generic {
+                ResolvedSort::Container {
                     op: rhs_op,
                     subsort: rhs_sub,
                 },

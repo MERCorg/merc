@@ -35,11 +35,9 @@ use crate::assign_declaration_ids;
 use crate::basic_sort_data_specification;
 use crate::build_signature;
 use crate::check_aliases;
-use crate::check_comparison_template;
-use crate::check_container_templates;
 use crate::check_equation_well_formedness;
-use crate::check_equations;
-use crate::check_function_update_template;
+use crate::typecheck_equations;
+use crate::typecheck_function_update_template;
 use crate::check_no_system_function_redeclaration;
 use crate::check_products_within_domains;
 use crate::check_system_equations;
@@ -61,9 +59,9 @@ use crate::resolve_sort;
 use crate::resolve_sort_id;
 use crate::resolve_sort_ids;
 use crate::resolve_system_signature;
-use crate::resolve_system_signature_full;
 use crate::resolve_type_variables;
 use crate::structured_sort_equations;
+use crate::typecheck_templates;
 use crate::typed_equation_string;
 use crate::typing_info;
 
@@ -132,15 +130,13 @@ impl DataSpecification {
         resolve_type_variables(&mut spec)?;
         debug!("resolved type variable name(s)");
 
-        // `basics` depends only on `encoding`, not on `spec`'s own content, so
-        // it can be built before name resolution. Only add the non-basic sorts
-        // from `basics` to `spec`: `Bool`/`Pos`/`Nat`/`Int`/`Real` keep their
-        // dedicated `ResolvedSort::Primitive` representation instead of a nominal
-        // `SortId`, since that's what carries the `Pos <= Nat <= Int <= Real`
-        // subtyping lattice.
-        let mut basics = basic_sort_data_specification(sources, encoding);
+        // `system` starts out as just the basic sorts.
+        let mut system = basic_sort_data_specification(sources, encoding);
+
+        // This is a bit ugly, but we want to give the system-defined sorts
+        // disticts ids in the spec.sort_declarations.
         spec.sort_declarations.extend(
-            basics
+            system
                 .sort_declarations
                 .iter()
                 .filter(|decl| !is_basic_sort_name(&decl.identifier))
@@ -151,8 +147,8 @@ impl DataSpecification {
         let sorts = resolve_sort_ids(&mut spec)?;
         debug!("resolved {} sort name(s)", sorts.len());
 
-        // Resolve the same sort names in `basics` as were resolved in `spec`.
-        apply_sorts_in_spec(&mut basics, |sort| resolve_sort_id(sort, &sorts))?;
+        // Resolve the same sort names in `system` as were resolved in `spec`.
+        apply_sorts_in_spec(&mut system, |sort| resolve_sort_id(sort, &sorts))?;
 
         // Alias checks still need to see the structured sorts, so we perform them before desugaring.
         check_aliases(&spec).map_err(|(err, span)| {
@@ -207,11 +203,9 @@ impl DataSpecification {
         debug!("lowered the user equations");
 
         // The system-defined part of type-checking is deliberately narrow now:
-        // `system` holds only `basics` (the five basic sorts, always present.
-        check_no_system_function_redeclaration(&spec, &basics)?;
+        // `system` holds only the basic sorts so far.
+        check_no_system_function_redeclaration(&spec, &system)?;
         debug!("no user declaration redeclares a system function");
-
-        let mut system = basics.clone();
 
         // The defining equations of each structured sort (Appendix B.10) join the system-defined
         // part, checked the same way as every other system equation.
@@ -235,32 +229,33 @@ impl DataSpecification {
             system.equation_declarations.len()
         );
 
-        // Resolve the system-defined declarations of the *basic* sorts onto
-        // the same lattice, so Phase-3 inference sees the overload sets of the
-        // built-in operators.
-        resolve_system_signature(&mut context, &spec, &basics)?;
+        // Resolve `system`'s own declarations.
+        resolve_system_signature(&mut context, &spec, &system)?;
         debug!("resolved the system signature");
 
-        // Type checks every container/function-update template's own
-        // equations once.
-        check_container_templates(&mut context, encoding)?;
-        // Comparison-operator equations are checked the same way.
-        check_comparison_template(&mut context)?;
+        // Type checks every container template's own equations once.
+        typecheck_templates(&mut context, encoding)?;
         debug!("container template equations passed the rigid check");
+
+        // Every distinct function-update arity `spec` declares gets its own
+        // generic template.
+        let mut function_update_arities_needed = function_update_arities(&spec);
+        function_update_arities_needed.insert(1);
+        for arity in function_update_arities_needed {
+            typecheck_function_update_template(&mut context, arity)?;
+        }
+        debug!("function-update template equations passed the rigid check");
 
         // Inference over every user equation; an equation binding
         // a variable through an invalid sort (a bare product) is rejected here.
-        check_equations(&mut context, &spec, &system)?;
+        typecheck_equations(&mut context, &spec, &system)?;
         debug!("inference finished; the specification is well-typed");
 
         // Ties every system equation's own variable occurrences to its `var`-block declaration.
         resolve_data_specification_variables(&mut system);
 
-        // A sanity net over the generated content, the same two checks
-        // `mcrl2_lowering`'s own generated content is checked with: `system`'s
-        // sorts are deliberately never flattened or given resolved `SortId`s of
-        // their own (see `written_target_sort`'s doc comment), so `is_well_typed`
-        // (whose `nonempty_sorts` requires both) cannot run against it directly.
+        // A sanity net over the generated content, cannot use is_well_typed
+        // directly.
         check_system_specification(&spec, &system)?;
         check_equation_well_formedness(&system)?;
         debug!(
@@ -271,14 +266,6 @@ impl DataSpecification {
         );
 
         assign_declaration_ids(&mut system);
-
-        resolve_system_signature_full(&mut context, &spec, &system);
-
-        // Every distinct function-update arity `spec` needs gets its own generic template.
-        for arity in function_update_arities(&spec) {
-            check_function_update_template(&mut context, arity)?;
-        }
-        debug!("function-update template equations passed the rigid check");
 
         // `system` at this point holds only `basics` and the desugared
         // structs' own equations).
@@ -363,7 +350,7 @@ impl DataSpecification {
     pub(crate) fn sort_of_equation_var(&self, var_id: VarId) -> crate::ResolvedSortId {
         self.context
             .sort_of_equation_var
-            .get(&var_id)
+            .get(&(crate::EquationRole::User, var_id))
             .copied()
             .expect("equation variable sorts are all resolved during from_untyped")
     }
@@ -490,11 +477,13 @@ impl DataSpecification {
         if let Some(cached) = self.context.equation_typing_info.get(&key) {
             return (**cached).clone();
         }
+
         let (eqn_spec_id, _) = key;
         let variable_spans =
             typing_info::collect_equation_variable_declarations(&self.spec.equation_declarations[*eqn_spec_id]);
         let info = Arc::new(typing_info::build(self, self.equation_typing(key), &variable_spans));
         self.context.equation_typing_info.insert(key, Arc::clone(&info));
+        
         (*info).clone()
     }
 
@@ -717,7 +706,7 @@ mod tests {
     use merc_syntax::UntypedDataSpecification;
 
     use crate::DataSpecification;
-    use crate::query_equation_typing;
+    use crate::infer_equation_typing;
 
     #[test]
     #[cfg_attr(miri, ignore)] // Test is too slow under miri
@@ -738,7 +727,7 @@ mod tests {
                 .as_ref()
                 .expect("the equation is well-typed"),
         );
-        let again = query_equation_typing(&mut checked.context, &checked.spec, &checked.system, key).unwrap();
+        let again = infer_equation_typing(&mut checked.context, &checked.spec, &checked.system, key).unwrap();
         assert!(Arc::ptr_eq(&first, &again));
     }
 
@@ -1058,20 +1047,20 @@ mod tests {
         let recogniser = mcrl2
             .equations()
             .iter()
-            .any(|e| e.lhs().to_string() == "is_c1(c1(x0_0, x0_1))" && e.rhs().to_string() == "true");
+            .any(|e| e.lhs().to_string() == "is_c1(c1(@x0_0, @x0_1))" && e.rhs().to_string() == "true");
         assert!(
             recogniser,
-            "the recogniser equation 'is_c1(c1(x0_0, x0_1)) = true' must survive lowering: {:#?}",
+            "the recogniser equation 'is_c1(c1(@x0_0, @x0_1)) = true' must survive lowering: {:#?}",
             equation_strings(&mcrl2)
         );
 
         let projection = mcrl2
             .equations()
             .iter()
-            .any(|e| e.lhs().to_string() == "pr1(c1(x0_0, x0_1))" && e.rhs().to_string() == "x0_0");
+            .any(|e| e.lhs().to_string() == "pr1(c1(@x0_0, @x0_1))" && e.rhs().to_string() == "@x0_0");
         assert!(
             projection,
-            "the projection equation 'pr1(c1(x0_0, x0_1)) = x0_0' must survive lowering: {:#?}",
+            "the projection equation 'pr1(c1(@x0_0, @x0_1)) = @x0_0' must survive lowering: {:#?}",
             equation_strings(&mcrl2)
         );
     }

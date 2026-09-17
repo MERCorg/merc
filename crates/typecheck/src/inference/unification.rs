@@ -218,7 +218,7 @@ impl Unifier {
             (InferSort::Resolved(lhs_id), InferSort::Resolved(rhs_id)) => lhs_id == rhs_id,
             (InferSort::Resolved(resolved), InferSort::Generic { op, subsort })
             | (InferSort::Generic { op, subsort }, InferSort::Resolved(resolved)) => match interner.get(resolved) {
-                ResolvedSort::Generic {
+                ResolvedSort::Container {
                     op: resolved_op,
                     subsort: resolved_subsort,
                 } if *resolved_op == op => {
@@ -397,7 +397,7 @@ impl Unifier {
                         self.resolved_node(resolved)
                     })
                     .collect(),
-                ResolvedSort::Generic { op, subsort } => match related_container(op, direction) {
+                ResolvedSort::Container { op, subsort } => match related_container(op, direction) {
                     Some(op) => {
                         let resolved = interner.generic(op, subsort);
                         vec![self.resolved_node(resolved)]

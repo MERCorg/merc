@@ -11,6 +11,7 @@ use merc_syntax::Span;
 use merc_syntax::UntypedDataSpecification;
 use merc_syntax::VarId;
 
+use crate::EquationRole;
 use crate::EquationTyping;
 use crate::InferenceError;
 use crate::ResolvedSortId;
@@ -36,13 +37,11 @@ pub(crate) struct TypeCheckContext {
     /// The memoized resolved sort of each map declaration, keyed by [MapId].
     /// Populated lazily by `query_sort_of_map`.
     pub(crate) sort_of_map: HashMap<MapId, ResolvedSortId>,
-    /// The memoized resolved sort of each equation variable, keyed by its own [VarId].
-    pub(crate) sort_of_equation_var: HashMap<VarId, ResolvedSortId>,
+    /// The memoized resolved sort of each equation variable, keyed by its own [VarId] together
+    /// with the [EquationRole] that numbered it — see `query_sort_of_equation_var`'s doc comment.
+    pub(crate) sort_of_equation_var: HashMap<(EquationRole, VarId), ResolvedSortId>,
 
-    /// The signature of the specification — one pooled table for every role (`User`/`Template`/
-    /// `System` alike), consulted unfiltered regardless of which struct (if any) generated a given
-    /// equation. See [`crate::EquationRole`]'s doc comment for why an earlier, per-struct-scoped
-    /// version of this was removed.
+    /// The signature of the specification
     pub(crate) signature: Option<Arc<Signature>>,
     /// `(name, resolved sort) -> declaration span` for every system-defined constructor/mapping.
     pub(crate) system_symbol_spans: HashMap<(String, ResolvedSortId), Span>,

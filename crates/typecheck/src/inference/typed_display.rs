@@ -114,10 +114,7 @@ fn typed_expr_shape(
 }
 
 /// Renders `expr` in the same prefix notation `Display for DataExpr` uses, except every
-/// sub-expression is suffixed with `: <sort>` — its own resolved sort, read off `typing` by node
-/// identity (see [`node_sort`]; an applied function's own arrow sort in place of the call's — see
-/// [`typed_expr_shape`]'s doc comment), parenthesized when it is itself an arrow (matching how a
-/// `map`/`cons` declaration's own function sort is parenthesized in this same file's header).
+/// sub-expression is suffixed with `: <sort>` — its own resolved sort.
 pub(crate) fn typed_expr_string(
     expr: &DataExpr,
     ctx: &TypeCheckContext,

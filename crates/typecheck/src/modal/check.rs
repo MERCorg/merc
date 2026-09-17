@@ -216,7 +216,7 @@ fn check_state_formula(
                     span: formula.span.clone(),
                 });
             }
-            
+
             let real_sort = data.context().sorts.real_sort();
             check_expression_against::<ModalError>(data, scope, constant, real_sort, typing)?;
             check_state_formula(data, tables, scope, state_vars, expr, formula_type, typing)

@@ -27,6 +27,7 @@ use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::Signature;
 use crate::SortInterner;
+use crate::TemplateId;
 use crate::TypeCheckContext;
 use crate::Unifier;
 use crate::is_lowered;
@@ -220,8 +221,8 @@ impl InferenceError {
 /// and [Solver], resolving names against the same one pooled `ctx.signature`, with every candidate
 /// visible unfiltered; only where a binder/equation-variable sort resolves from, and which spec an
 /// `EqnSpecId` indexes into, differs.
-#[derive(Clone, Copy)]
-enum EquationRole {
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum EquationRole {
     /// Checking the user specification's own equations, or a standalone expression against them.
     User,
     /// Checking a struct's own compiler-generated equations, or the plain basics equations.
@@ -229,24 +230,24 @@ enum EquationRole {
     /// Checking one Appendix-B container/function-update template's own,
     /// un-instantiated equations, once, with its `type_var`-declared sort(s)
     /// held rigid.
-    Template,
+    Template(TemplateId),
 }
 
-/// Shared by [query_equation_typing]/[query_system_equation_typing]: both look up `key` in a
-/// per-role cache, computing it via [infer_equation] under `role` on a miss — the only differences
-/// between the two roles are which cache backs them and which spec `key`'s `EqnSpecId` indexes into
-/// (`indexed`, checked by the `debug_assert` below).
-fn query_equation_typing_cached(
+/// Shared by [query_equation_typing]/[query_system_equation_typing]: both look up `key` in the
+/// per-role cache `cache` selects, computing it via [infer_equation] under `role` on a miss.
+/// `indexed` is the spec `key`'s `EqnSpecId` indexes into, checked by the `debug_assert` below.
+fn infer_equation_typing_cached<F>(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
     system: &UntypedDataSpecification,
     role: EquationRole,
     indexed: &UntypedDataSpecification,
-    cache: impl Fn(
-        &mut TypeCheckContext,
-    ) -> &mut HashMap<(EqnSpecId, EquationId), Result<Arc<EquationTyping>, InferenceError>>,
+    cache: F,
     key: (EqnSpecId, EquationId),
-) -> Result<Arc<EquationTyping>, InferenceError> {
+) -> Result<Arc<EquationTyping>, InferenceError>
+where
+    F: Fn(&mut TypeCheckContext) -> &mut HashMap<(EqnSpecId, EquationId), Result<Arc<EquationTyping>, InferenceError>>,
+{
     let (eqn_spec_id, equation_id) = key;
 
     debug_assert!(
@@ -257,22 +258,26 @@ fn query_equation_typing_cached(
         "equation typing key {key:?} must index an equation of the specification"
     );
 
-    ctx.get_or_compute(cache, key, |ctx| {
-        infer_equation(ctx, spec, system, role, eqn_spec_id, equation_id).map(Arc::new)
-    })
+    if let Some(value) = cache(ctx).get(&key) {
+        return value.clone();
+    }
+
+    let value = infer_equation(ctx, spec, system, role, eqn_spec_id, equation_id).map(Arc::new);
+    cache(ctx).insert(key, value.clone());
+    value
 }
 
 /// Returns the typing of one user equation, keyed by the id of its enclosing
 /// equation specification block and its own id within that block (assigned by
 /// [assign_declaration_ids](crate::assign_declaration_ids)). Memoized on
 /// [TypeCheckContext::equation_typing].
-pub(crate) fn query_equation_typing(
+pub(crate) fn infer_equation_typing(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
     system: &UntypedDataSpecification,
     key: (EqnSpecId, EquationId),
 ) -> Result<Arc<EquationTyping>, InferenceError> {
-    query_equation_typing_cached(
+    infer_equation_typing_cached(
         ctx,
         spec,
         system,
@@ -287,7 +292,7 @@ pub(crate) fn query_equation_typing(
 /// `equation_typing` cache; the first equation that fails inference is returned
 /// as the error. The system-defined equations are checked the same way, by
 /// [check_system_equations].
-pub(crate) fn check_equations(
+pub(crate) fn typecheck_equations(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
     system: &UntypedDataSpecification,
@@ -298,7 +303,7 @@ pub(crate) fn check_equations(
             let equation_id = equation.id.expect("assign_declaration_ids ran before check_equations");
             // Validate the equation and populate `ctx.equation_typing`; the
             // typing is read back from that cache during lowering.
-            query_equation_typing(ctx, spec, system, (eqn_spec_id, equation_id))?;
+            infer_equation_typing(ctx, spec, system, (eqn_spec_id, equation_id))?;
         }
     }
     Ok(())
@@ -312,13 +317,11 @@ pub(crate) struct TemplateCheck {
     pub(crate) typings: Vec<Vec<Arc<EquationTyping>>>,
 }
 
-/// Checks every equation of one Appendix-B container/function-update
-/// template, once, with its own `type_var`-declared sort(s) held rigid.
-///
-/// The returned typing of each equation specializes into every concrete
-/// instantiation by substitution.
-pub(crate) fn check_template_equations(
+/// Type checks every equation of one Appendix-B container/function-update
+/// template, once.
+pub(crate) fn typecheck_template_equations(
     ctx: &mut TypeCheckContext,
+    template_id: TemplateId,
     template: &UntypedDataSpecification,
 ) -> Result<TemplateCheck, InferenceError> {
     let type_vars = template
@@ -342,7 +345,7 @@ pub(crate) fn check_template_equations(
                 ctx,
                 template,
                 template,
-                EquationRole::Template,
+                EquationRole::Template(template_id),
                 eqn_spec_id,
                 equation_id,
             )?));
@@ -362,7 +365,7 @@ pub(crate) fn query_system_equation_typing(
     system: &UntypedDataSpecification,
     key: (EqnSpecId, EquationId),
 ) -> Result<Arc<EquationTyping>, InferenceError> {
-    query_equation_typing_cached(
+    infer_equation_typing_cached(
         ctx,
         spec,
         system,
@@ -380,9 +383,8 @@ pub(crate) fn query_system_equation_typing(
 /// [`crate::instantiate_system_equations`], which specializes an
 /// already-proven template typing by substitution instead of inferring it
 /// again here. Populates `ctx.system_equation_typing`, the same way
-/// [check_equations] does for user equations. Requires
-/// `resolve_system_signature_full` to have run, so every binder/
-/// equation-variable sort resolves infallibly.
+/// [check_equations] does for user equations. Requires `resolve_system_signature` to have run, so
+/// every binder/equation-variable sort resolves infallibly.
 pub(crate) fn check_system_equations(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
@@ -400,24 +402,6 @@ pub(crate) fn check_system_equations(
         }
     }
     Ok(())
-}
-
-/// Resolves the declared sort of one equation-block variable, identified by its own `var_id`. The
-/// `System`/`Template` roles are unmemoized: nothing reads a system- or template-equation
-/// variable's sort back out later, unlike `DataSpecification::sort_of_equation_var` on the user
-/// side — and their own `var_id` numbering is not guaranteed unique against `spec`'s, so sharing
-/// `ctx.sort_of_equation_var`'s cache with the `User` role would risk a collision.
-fn resolve_equation_variable_sort(
-    ctx: &mut TypeCheckContext,
-    spec: &UntypedDataSpecification,
-    role: EquationRole,
-    var_id: VarId,
-    sort: &SortExpression,
-) -> ResolvedSortId {
-    match role {
-        EquationRole::User => query_sort_of_equation_var(ctx, spec, var_id, sort),
-        EquationRole::System | EquationRole::Template => resolve_sort(ctx, spec, sort),
-    }
 }
 
 /// Infers the sorts of a single equation: generates constraints over the
@@ -439,14 +423,18 @@ fn infer_equation(
     // as both arguments); only `System` indexes `system`. Either way `resolve_sort` resolves a
     // `Resolved` sort's `SortId` against `spec.sort_declarations`.
     let eqn_spec = match role {
-        EquationRole::User | EquationRole::Template => &spec.equation_declarations[eqn_spec_id],
+        EquationRole::User | EquationRole::Template(_) => &spec.equation_declarations[eqn_spec_id],
         EquationRole::System => &system.equation_declarations[eqn_spec_id],
     };
     let equation = &eqn_spec.equations[equation_id];
 
     // `infer` takes a pre-resolved `(declaration, sort)` scope; resolve each equation variable's
-    // sort up front here, keyed by its own `VarId` (assigned for every role by
-    // `resolve_data_specification_variables`).
+    // sort up front here, memoized by `(role, var_id)`: every role shares one cache, keyed on the
+    // role too since `System`/`Template`'s own `var_id` numbering is independent of `spec`'s (each
+    // restarts from `VarIdAllocator::default()`) and would otherwise collide with an unrelated
+    // user variable of the same raw id. `System`/`Template` entries are never read back afterwards
+    // (unlike `DataSpecification::sort_of_equation_var` on the user side) but sharing the one query
+    // keeps every role on the same code path.
     let declared_scope: Vec<(VarId, ResolvedSortId)> = eqn_spec
         .variables
         .iter()
@@ -454,10 +442,7 @@ fn infer_equation(
             let var_id = var
                 .var_id
                 .expect("resolve_data_specification_variables ran before check_equations");
-            (
-                var_id,
-                resolve_equation_variable_sort(ctx, spec, role, var_id, &var.sort),
-            )
+            (var_id, query_sort_of_equation_var(ctx, spec, role, var_id, &var.sort))
         })
         .collect();
 
@@ -1257,18 +1242,16 @@ impl<'a> ConstraintGenerator<'a> {
         debug_assert!(unified, "a fresh variable unifies with any sort");
     }
 
-    /// Resolves the declared sort of each of `variables` (rejecting an invalid binder sort, see
-    /// [Self::binder_sort]), registers each by its own [VarId] in `self.declared_sorts` for the
-    /// duration of `f`, then removes them again. Unlike a name-keyed scope this never needs to
-    /// save/restore a shadowed binding: every binder has its own `VarId`, so nested binders of the
-    /// same name can never collide here. Used for every binder that declares its variables' own
-    /// sorts — `lambda`, `forall`/`exists`, and a set/bag comprehension's single bound variable —
-    /// unlike a `whr` binding, whose sort follows from its right-hand side instead.
-    fn with_binder_scope<T>(
-        &mut self,
-        variables: &'a [IdDecl],
-        f: impl FnOnce(&mut Self, &[ResolvedSortId]) -> Result<T, GenFailure>,
-    ) -> Result<T, GenFailure> {
+    /// Registers each of `variables`' declared sort (rejecting an invalid binder sort, see
+    /// [Self::binder_sort]) in `self.declared_sorts`, keyed by its own [VarId], for the duration
+    /// of `f`. Every binder has its own `VarId`, so nested binders sharing a name never collide
+    /// and no save/restore is needed. Used by binders that declare their own variable sort
+    /// (`lambda`, `forall`/`exists`, comprehension); a `whr` binding's sort follows from its
+    /// right-hand side instead.
+    fn with_binder_scope<T, F>(&mut self, variables: &'a [IdDecl], f: F) -> Result<T, GenFailure>
+    where
+        F: FnOnce(&mut Self, &[ResolvedSortId]) -> Result<T, GenFailure>,
+    {
         let mut sorts = Vec::with_capacity(variables.len());
         let mut var_ids = Vec::with_capacity(variables.len());
         for variable in variables {
@@ -1390,6 +1373,7 @@ impl<'a> ConstraintGenerator<'a> {
         {
             for &overload in overloads {
                 let target = NameTarget::Op { sort: overload };
+                
                 // The user and system specifications may declare the same
                 // symbol; a duplicate disjunct would misreport ambiguity.
                 if !disjuncts.iter().any(|(existing, _)| *existing == target) {
@@ -1397,6 +1381,7 @@ impl<'a> ConstraintGenerator<'a> {
                 }
             }
         }
+
         for scheme in signature.schemes.get(name).into_iter().flatten() {
             let instance = self.instantiate_scheme(scheme.sort, &mut HashMap::new());
             disjuncts.push((NameTarget::Builtin, instance));
@@ -1417,7 +1402,7 @@ impl<'a> ConstraintGenerator<'a> {
     ) -> InferSortId {
         match self.ctx.sorts.get(sort).clone() {
             ResolvedSort::Var(id) => *type_vars.entry(id).or_insert_with(|| self.unifier.fresh_var()),
-            ResolvedSort::Generic { op, subsort } => {
+            ResolvedSort::Container { op, subsort } => {
                 let subsort = self.instantiate_scheme(subsort, type_vars);
                 self.unifier.generic(op, subsort)
             }
@@ -1646,24 +1631,20 @@ impl Solver<'_> {
         self.solve_widening(sub.lhs, sub.rhs, |this| this.solve(index + 1))
     }
 
-    /// Tries to make `lhs` a subsort of `rhs` — equality first (it ranks strictly better than any
-    /// widening, so when it admits a solution the widening choices cannot improve on it and are
-    /// not explored), then the strict widenings ranked by distance, nearest first (ranking them
-    /// all equally would misreport e.g. a `Pos` argument to `mod` as ambiguous between its `Nat`
-    /// and `Int` overloads; the minimal upcast is taken instead) — a concrete `lhs` may be upcast,
-    /// or a concrete `rhs` met from below; two unbound variables admit no enumeration and fail.
-    /// Calls `continue_with` after each tentative unification, pushing/popping the resulting
-    /// measure component around it and rolling the unifier back before the next attempt; the pairs
-    /// are ordered nearest first, so the first success from `continue_with` is the best this pair
-    /// can contribute and the rest need not be explored. Shared by [Self::solve_sub] (a single
-    /// `Sub` constraint) and [Self::solve_join_seq] (the fallback enumeration when a lattice join
-    /// has no fast-path solution).
-    fn solve_widening(
-        &mut self,
-        lhs: InferSortId,
-        rhs: InferSortId,
-        mut continue_with: impl FnMut(&mut Self) -> bool,
-    ) -> bool {
+    /// Tries to make `lhs` a subsort of `rhs`: equality first, then strict widenings ordered
+    /// nearest-first so the minimal upcast wins (treating them as equally good would misreport
+    /// e.g. a `Pos` argument to `mod` as ambiguous between its `Nat` and `Int` overloads). A
+    /// concrete `lhs` may be upcast, or a concrete `rhs` met from below; two unbound variables
+    /// admit no enumeration and fail. Calls `continue_with` after each tentative unification,
+    /// pushing/popping the resulting measure component around it and rolling the unifier back
+    /// before the next attempt; the first success is the best this pair can contribute, so later
+    /// pairs are skipped. Shared by [Self::solve_sub] (a single `Sub` constraint) and
+    /// [Self::solve_join_seq] (the fallback enumeration when a lattice join has no fast-path
+    /// solution).
+    fn solve_widening<F>(&mut self, lhs: InferSortId, rhs: InferSortId, mut continue_with: F) -> bool
+    where
+        F: FnMut(&mut Self) -> bool,
+    {
         let snapshot = self.unifier.snapshot();
         let mut found = false;
         if self.unifier.unify(self.sorts, lhs, rhs) {
@@ -1963,7 +1944,7 @@ mod tests {
         let (sorts, _) = typing(&spec);
         let interner = &spec.context().sorts;
         for &list_sort in &sorts[2..=3] {
-            let ResolvedSort::Generic { op, subsort } = interner.get(list_sort) else {
+            let ResolvedSort::Container { op, subsort } = interner.get(list_sort) else {
                 panic!("expected a container sort");
             };
             assert_eq!(*op, ComplexSort::List);
@@ -2140,7 +2121,7 @@ mod tests {
         // the `Set(Nat)` join — and the literals keep their minimal `Pos`.
         let (sorts, _) = typing(&spec);
         let interner = &spec.context().sorts;
-        let ResolvedSort::Generic { op, subsort } = interner.get(sorts[1]) else {
+        let ResolvedSort::Container { op, subsort } = interner.get(sorts[1]) else {
             panic!("expected a container sort");
         };
         assert_eq!(*op, ComplexSort::FSet);
@@ -2177,7 +2158,7 @@ mod tests {
         // Ids: 0 = `s`, 1 = `{}`, typed `FSet(Nat)` under the `Set(Nat)` join.
         let (sorts, _) = typing(&spec);
         let interner = &spec.context().sorts;
-        let ResolvedSort::Generic { op, subsort } = interner.get(sorts[1]) else {
+        let ResolvedSort::Container { op, subsort } = interner.get(sorts[1]) else {
             panic!("expected a container sort");
         };
         assert_eq!(*op, ComplexSort::FSet);
@@ -2195,7 +2176,7 @@ mod tests {
         let (sorts, _) = typing(&spec);
         let interner = &spec.context().sorts;
         for &set_sort in &sorts[2..=3] {
-            let ResolvedSort::Generic { op, subsort } = interner.get(set_sort) else {
+            let ResolvedSort::Container { op, subsort } = interner.get(set_sort) else {
                 panic!("expected a container sort");
             };
             assert_eq!(*op, ComplexSort::FSet);
@@ -2230,7 +2211,7 @@ mod tests {
 
         let (sorts, _) = typing(&spec);
         let interner = &spec.context().sorts;
-        let ResolvedSort::Generic { op, subsort } = interner.get(sorts[1]) else {
+        let ResolvedSort::Container { op, subsort } = interner.get(sorts[1]) else {
             panic!("expected a container sort");
         };
         assert_eq!(*op, ComplexSort::FBag);
@@ -2352,7 +2333,7 @@ mod tests {
         // 5 = `{a, b}`, 6 = `a`, 7 = `b`, 8 = `in`.
         let (sorts, names) = typing(&spec);
         let interner = &spec.context().sorts;
-        let ResolvedSort::Generic { op, subsort } = interner.get(sorts[5]) else {
+        let ResolvedSort::Container { op, subsort } = interner.get(sorts[5]) else {
             panic!("expected a container sort");
         };
         assert_eq!(*op, ComplexSort::FSet);
