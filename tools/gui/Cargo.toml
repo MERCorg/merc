@@ -28,12 +28,12 @@ members = [
 clap = { version = "4.6", features = ["derive"] }
 cosmic-text = "0.19"
 env_logger = "0.11"
-femtovg = { version = "0.26", features = ["swash", "wgpu"] }
+femtovg = { version = "0.27", features = ["swash", "wgpu"] }
 glam = "0.33"
 log = "0.4"
 rfd = { version = "0.17" }
-slint = { version = "1.17", features = ["compat-1-2", "std", "accessibility", "backend-winit", "renderer-femtovg"], default-features = false }
-slint-build = "1.17"
+slint = { version = "1.18", features = ["compat-1-2", "std", "accessibility", "backend-winit", "renderer-femtovg"], default-features = false }
+slint-build = "1.18"
 tiny-skia = "0.12"
 tokio = { version = "1.52", features = ["rt", "macros"] }
 # This version must be kept in sync with femtovg
