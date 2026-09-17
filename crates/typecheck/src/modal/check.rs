@@ -211,6 +211,12 @@ fn check_state_formula(
         StateFrmKind::DataValExpr(data_expr) => check_val_expr(data, scope, data_expr, formula_type, typing),
 
         StateFrmKind::DataValExprLeftMult(constant, expr) | StateFrmKind::DataValExprRightMult(expr, constant) => {
+            if formula_type == FormulaType::Bool {
+                return Err(ModalError::ConstantMultiplyInBooleanFormula {
+                    span: formula.span.clone(),
+                });
+            }
+            
             let real_sort = data.context().sorts.real_sort();
             check_expression_against::<ModalError>(data, scope, constant, real_sort, typing)?;
             check_state_formula(data, tables, scope, state_vars, expr, formula_type, typing)

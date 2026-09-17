@@ -114,13 +114,9 @@ fn test_delay_and_yaled_with_and_without_a_time_are_accepted() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
-fn test_constant_multiply_is_accepted_regardless_of_val_sort() {
+fn test_constant_multiply_is_accepted_under_real_val_sort() {
     check_ok("val(2) * (mu X. X)", FormulaType::Real);
     check_ok("(mu X. X) * val(2)", FormulaType::Real);
-    // The multiplier's own constant is always checked against `Real`, independently of the
-    // formula's declared `val_sort`.
-    check_ok("val(2) * (mu X. X)", FormulaType::Bool);
-    check_ok("(mu X. X) * val(2)", FormulaType::Bool);
 }
 
 #[test]
@@ -132,19 +128,45 @@ fn test_constant_multiply_rejects_a_non_real_constant() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
-fn test_constant_multiply_after_a_bool_val_expr_is_accepted() {
-    // `val(true)` fits the declared `Bool` sort, but a later multiplier is still accepted —
-    // verified against `lps2pres`, which embeds `true` as the top of the real-valued PRES lattice
-    // rather than rejecting the mix (see `ValSort`'s doc comment).
-    check_ok("val(true) && val(2) * (mu X. X)", FormulaType::Bool);
+fn test_constant_multiply_is_rejected_under_bool_val_sort() {
+    // The multiplier is inherently quantitative, so it's rejected outright under `Bool`, even
+    // before its own constant would be checked against `Real`.
+    let error = check_err("val(2) * (mu X. X)", FormulaType::Bool);
+    assert!(
+        matches!(error, ModalError::ConstantMultiplyInBooleanFormula { .. }),
+        "got {error:?}"
+    );
+    let error = check_err("(mu X. X) * val(2)", FormulaType::Bool);
+    assert!(
+        matches!(error, ModalError::ConstantMultiplyInBooleanFormula { .. }),
+        "got {error:?}"
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_constant_multiply_after_a_bool_val_expr_is_rejected() {
+    // `val(true)` alone fits the declared `Bool` sort, but the later multiplier still makes the
+    // whole formula rejected under `Bool`.
+    let error = check_err("val(true) && val(2) * (mu X. X)", FormulaType::Bool);
+    assert!(
+        matches!(error, ModalError::ConstantMultiplyInBooleanFormula { .. }),
+        "got {error:?}"
+    );
 }
 
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_a_val_expr_matching_both_sorts_is_accepted_under_either_val_sort() {
     // `f`'s two overloads make `f(0)` fit both `Real` and `Bool`.
-    check_ok("map f: Nat -> Real; map f: Nat -> Bool; form val(f(0));", FormulaType::Real);
-    check_ok("map f: Nat -> Real; map f: Nat -> Bool; form val(f(0));", FormulaType::Bool);
+    check_ok(
+        "map f: Nat -> Real; map f: Nat -> Bool; form val(f(0));",
+        FormulaType::Real,
+    );
+    check_ok(
+        "map f: Nat -> Real; map f: Nat -> Bool; form val(f(0));",
+        FormulaType::Bool,
+    );
 }
 
 #[test]
