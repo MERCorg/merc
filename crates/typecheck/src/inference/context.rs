@@ -1,6 +1,5 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::hash::Hash;
 use std::sync::Arc;
 
 use merc_syntax::ConstructorId;
@@ -85,38 +84,6 @@ impl TypeCheckContext {
 }
 
 impl TypeCheckContext {
-    /// Returns the memoized value for `key` in the cache selected by `cache`,
-    /// computing and storing it via `compute` on a miss.
-    ///
-    /// `cache` projects `self` down to the relevant memoization [HashMap] and
-    /// is re-applied on each access rather than borrowed once, so that
-    /// `compute` can use `self` freely in between — including, recursively,
-    /// other queries on `self`. Holding the projected `&mut HashMap` across
-    /// that call would alias `self` and not compile.
-    ///
-    /// Every query built on this currently has no self-referential dependency (an equation's
-    /// typing never depends on another equation's, and alias cycles are already rejected by
-    /// `check_aliases` before `query_sort_of_def` ever recurses), so a query that did re-enter its
-    /// own key would simply recompute rather than being caught — there is no cycle detection here.
-    pub(crate) fn get_or_compute<K, V>(
-        &mut self,
-        cache: impl Fn(&mut Self) -> &mut HashMap<K, V>,
-        key: K,
-        compute: impl FnOnce(&mut Self) -> V,
-    ) -> V
-    where
-        K: Eq + Hash + Clone,
-        V: Clone,
-    {
-        if let Some(value) = cache(self).get(&key) {
-            return value.clone();
-        }
-
-        let value = compute(self);
-        cache(self).insert(key, value.clone());
-        value
-    }
-
     /// The declared name of the sort that [SortId] `def` resolves to — a user
     /// sort or a system-internal one such as `@NatPair` alike, both declared in
     /// `spec.sort_declarations` — or `None` when `def` is out of range.
@@ -137,37 +104,5 @@ impl TypeCheckContext {
 impl Default for TypeCheckContext {
     fn default() -> Self {
         TypeCheckContext::new()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::cell::Cell;
-
-    use merc_syntax::SortId;
-
-    use crate::ResolvedSortId;
-    use crate::TypeCheckContext;
-
-    #[test]
-    fn test_get_or_compute_memoizes() {
-        let mut ctx = TypeCheckContext::new();
-        let key = SortId::new(1);
-        let calls = Cell::new(0);
-
-        let compute = |_: &mut TypeCheckContext| {
-            calls.set(calls.get() + 1);
-            ResolvedSortId::new(7)
-        };
-        let first = ctx.get_or_compute(|ctx| &mut ctx.sort_of_def, key, compute);
-        let second = ctx.get_or_compute(|ctx| &mut ctx.sort_of_def, key, compute);
-
-        assert_eq!(first, ResolvedSortId::new(7));
-        assert_eq!(second, ResolvedSortId::new(7));
-        assert_eq!(
-            calls.get(),
-            1,
-            "the second lookup must hit the cache instead of recomputing"
-        );
     }
 }

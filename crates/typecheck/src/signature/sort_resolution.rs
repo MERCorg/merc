@@ -18,11 +18,12 @@ pub(crate) fn query_sort_of_constructor(
     spec: &UntypedDataSpecification,
     id: ConstructorId,
 ) -> ResolvedSortId {
-    ctx.get_or_compute(
-        |ctx| &mut ctx.sort_of_constructor,
-        id,
-        |ctx| resolve_sort(ctx, spec, &spec.constructor_declarations[id].sort),
-    )
+    if let Some(value) = ctx.sort_of_constructor.get(&id) {
+        return *value;
+    }
+    let value = resolve_sort(ctx, spec, &spec.constructor_declarations[id].sort);
+    ctx.sort_of_constructor.insert(id, value);
+    value
 }
 
 /// Returns the resolved sort of the map with the given [MapId], memoized on
@@ -36,11 +37,12 @@ pub(crate) fn query_sort_of_map(
     spec: &UntypedDataSpecification,
     id: MapId,
 ) -> ResolvedSortId {
-    ctx.get_or_compute(
-        |ctx| &mut ctx.sort_of_map,
-        id,
-        |ctx| resolve_sort(ctx, spec, &spec.map_declarations[id].sort),
-    )
+    if let Some(value) = ctx.sort_of_map.get(&id) {
+        return *value;
+    }
+    let value = resolve_sort(ctx, spec, &spec.map_declarations[id].sort);
+    ctx.sort_of_map.insert(id, value);
+    value
 }
 
 /// Returns the resolved sort of the equation `var`-block variable declared by `sort`, identified
@@ -55,11 +57,12 @@ pub(crate) fn query_sort_of_equation_var(
     var_id: VarId,
     sort: &SortExpression,
 ) -> ResolvedSortId {
-    ctx.get_or_compute(
-        |ctx| &mut ctx.sort_of_equation_var,
-        var_id,
-        |ctx| resolve_sort(ctx, spec, sort),
-    )
+    if let Some(value) = ctx.sort_of_equation_var.get(&var_id) {
+        return *value;
+    }
+    let value = resolve_sort(ctx, spec, sort);
+    ctx.sort_of_equation_var.insert(var_id, value);
+    value
 }
 
 ///
@@ -142,14 +145,15 @@ pub(crate) fn query_sort_of_def(
         "SortId {def:?} does not originate from name resolution of this specification"
     );
 
-    ctx.get_or_compute(
-        |ctx| &mut ctx.sort_of_def,
-        def,
-        |ctx| match &spec.sort_declarations[*def].expr {
-            None => ctx.sorts.def(def),
-            Some(expr) => resolve_sort(ctx, spec, expr),
-        },
-    )
+    if let Some(value) = ctx.sort_of_def.get(&def) {
+        return *value;
+    }
+    let value = match &spec.sort_declarations[*def].expr {
+        None => ctx.sorts.def(def),
+        Some(expr) => resolve_sort(ctx, spec, expr),
+    };
+    ctx.sort_of_def.insert(def, value);
+    value
 }
 
 #[cfg(test)]
