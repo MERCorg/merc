@@ -283,7 +283,7 @@ impl Mcrl2Parser {
 
     pub(crate) fn ActFrmAt(input: ParseNode) -> ParseResult<DataExpr> {
         match_nodes!(input.into_children();
-            [DataExpr(expr)] => {
+            [DataExprUnit(expr)] => {
                 Ok(expr)
             },
         )
