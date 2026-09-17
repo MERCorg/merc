@@ -1,0 +1,23 @@
+% Specification of the polymorphic comparison operators and the conditional
+% `if`, present for every sort.
+
+type_var S;
+
+map ==: S # S -> Bool;
+    !=: S # S -> Bool;
+    <: S # S -> Bool;
+    <=: S # S -> Bool;
+    >: S # S -> Bool;
+    >=: S # S -> Bool;
+    if: Bool # S # S -> S;
+
+var x, y: S;
+eqn x == x = true;
+    x != y = !(x == y);
+    x < x = false;
+    x <= x = true;
+    x > y = y < x;
+    x >= y = y <= x;
+    if(true, x, y) = x;
+    if(false, x, y) = y;
+

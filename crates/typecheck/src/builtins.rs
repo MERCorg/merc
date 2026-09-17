@@ -21,19 +21,7 @@ pub(crate) fn is_system_generated_name(name: &str) -> bool {
 }
 
 /// [BUILTIN_SCHEME_TEMPLATE]'s source text.
-pub(crate) const BUILTIN_SCHEME_TEMPLATE_TEXT: &str = "type_var S; \
-     map ==: S # S -> Bool; !=: S # S -> Bool; \
-     <: S # S -> Bool; <=: S # S -> Bool; >: S # S -> Bool; >=: S # S -> Bool; \
-     if: Bool # S # S -> S; \
-     var x, y: S; \
-     eqn x == x = true; \
-         x != y = !(x == y); \
-         x < x = false; \
-         x <= x = true; \
-         x > y = y < x; \
-         x >= y = y <= x; \
-         if(true, x, y) = x; \
-         if(false, x, y) = y;";
+pub(crate) const BUILTIN_SCHEME_TEMPLATE_TEXT: &str = include_str!("../../syntax/spec/comparison.mcrl2");
 
 /// The polymorphic built-in operators that exist for *every* sort: the
 /// comparison operators and the conditional `if`.
