@@ -15,22 +15,16 @@ env:
 
 jobs:
   test:
-    strategy:
-      fail-fast: false
-      matrix:      
-        os: [ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
 
     steps:          
     - name: Cache APT packages
-      if: matrix.os == 'ubuntu-latest'
       uses: actions/cache@v5
       with:
         path: /var/cache/apt/archives/*.deb
         key: apt-${{ runner.os }}-llvm-fontconfig-freetype-v1
 
     - name: Install Ubuntu Dependencies
-      if: matrix.os == 'ubuntu-latest'
       run: |
         sudo apt-get update
         sudo apt-get install -y llvm libfontconfig1-dev libfreetype6-dev

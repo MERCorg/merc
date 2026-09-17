@@ -14,8 +14,6 @@ env:
 
 jobs:
   kani:
-    strategy:
-      fail-fast: false
     runs-on: ubuntu-latest
 
     steps:
@@ -28,8 +26,10 @@ jobs:
       uses: model-checking/kani-github-action@v1
       with:
         working-directory: crates/unsafety
+        requested_version: 0.68.0
 
     - name: Run Kani on merc_number
       uses: model-checking/kani-github-action@v1
       with:
         working-directory: crates/number
+        requested_version: 0.68.0
