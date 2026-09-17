@@ -191,7 +191,7 @@ pub(crate) fn function_update_text(domain_names: &[String], range: &str) -> Stri
 /// Given the constructors `c_1, ..., c_n` of a structured sort, where every
 /// constructor `c_i` has arguments of sorts `A_{i,1}, ..., A_{i,k_i}`, this
 /// generates the equations defining the recognisers, the projections, and the
-/// comparison operators `==`, `<` and `<=` over the constructors.
+/// comparison operators `==`, `<`, `<=` and `less_total` over the constructors.
 ///
 /// Only equations are generated; the abstract sort and the constructor,
 /// recogniser and projection declarations are introduced by
@@ -296,6 +296,7 @@ pub(crate) fn structured_sort_equations(
     }
 
     // Less-than: lexicographic on equal constructors, by constructor index otherwise.
+    // `<` is already a total order here, so `less_total` just reuses it.
     for (i, constructor) in constructors.iter().enumerate() {
         let less = if constructor.args.is_empty() {
             "false".to_string()
@@ -309,11 +310,34 @@ pub(crate) fn structured_sort_equations(
             application(i, "@y")
         )
         .unwrap();
+        writeln!(
+            eqns,
+            "    less_total({}, {}) = {} < {};",
+            application(i, "@x"),
+            application(i, "@y"),
+            application(i, "@x"),
+            application(i, "@y")
+        )
+        .unwrap();
         for j in 0..constructors.len() {
             if i < j {
                 writeln!(eqns, "    {} < {} = true;", application(i, "@x"), application(j, "@y")).unwrap();
+                writeln!(
+                    eqns,
+                    "    less_total({}, {}) = true;",
+                    application(i, "@x"),
+                    application(j, "@y")
+                )
+                .unwrap();
             } else if i > j {
                 writeln!(eqns, "    {} < {} = false;", application(i, "@x"), application(j, "@y")).unwrap();
+                writeln!(
+                    eqns,
+                    "    less_total({}, {}) = false;",
+                    application(i, "@x"),
+                    application(j, "@y")
+                )
+                .unwrap();
             }
         }
     }

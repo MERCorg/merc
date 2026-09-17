@@ -72,7 +72,8 @@ eqn  @c1 = @most_significant_digit(@one_word);
      (@succ_pos(p1) < p2) = ((@most_significant_digit(@two_word) < p2) && (p1 < @pospred(p2)));
      (p1 < @succ_pos(p2)) = (p1 <= p2);
      @equals_one_word(w1) ->  (p < @most_significant_digit(w1)) = false;
- 
+     less_total(p1, p2) = p1 < p2;
+
      (@most_significant_digit(w1) <= @most_significant_digit(w2)) = @less_equal(w1,w2);
      (@concat_digit(p,w1) <= @most_significant_digit(w2)) = false;
      (@most_significant_digit(w1) <= @concat_digit(p,w2)) = true;

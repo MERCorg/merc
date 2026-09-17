@@ -9,6 +9,9 @@ map ==: S # S -> Bool;
     <=: S # S -> Bool;
     >: S # S -> Bool;
     >=: S # S -> Bool;
+% A total order on S, used by Set, Bag and FSet/FBag to keep their internal
+% element lists canonically sorted even when `<` (e.g. subset) is not total.
+    less_total: S # S -> Bool;
     if: Bool # S # S -> S;
 
 var x, y: S;
@@ -18,6 +21,7 @@ eqn x == x = true;
     x <= x = true;
     x > y = y < x;
     x >= y = y <= x;
+    less_total(x, x) = false;
     if(true, x, y) = x;
     if(false, x, y) = y;
 

@@ -19,6 +19,7 @@ map !: Bool -> Bool;
     =>: Bool # Bool -> Bool;
 
 var b:Bool;
+    c:Bool;
 eqn !true = false;
     !false = true;
     !!b = b;
@@ -46,3 +47,4 @@ eqn !true = false;
     true  <= b = b;
     b <= false = !b;
     b <= true = true;
+    less_total(b, c) = b < c;
