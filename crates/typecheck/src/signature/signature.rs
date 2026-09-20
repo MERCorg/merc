@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 
 use merc_syntax::SortExpression;
@@ -8,6 +9,7 @@ use merc_syntax::UntypedDataSpecification;
 
 use crate::BUILTIN_SCHEME_TEMPLATE;
 use crate::CONTAINER_TEMPLATES;
+use crate::DisplaySortContext;
 use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::TypeCheckContext;
@@ -18,18 +20,8 @@ use crate::query_sort_of_constructor;
 use crate::query_sort_of_map;
 use crate::resolve_sort;
 
-/// A polymorphic overload: `sort` is a [ResolvedSortId] built by [`resolve_sort`]
-/// from a template's own declaration, so it may mention [`ResolvedSort::Var`]
-/// at any depth wherever the declaration mentions one of the template's bound
-/// type variables. Two occurrences of the same bound variable within `sort`
-/// share the same `Var` node — this is what makes `S` mean "the same `S`" on
-/// both sides of a scheme like `in: S # List(S) -> Bool`.
-///
-/// Not a ground overload: using one requires instantiating it
-/// (`ConstraintGenerator::instantiate_scheme`), which discovers the scheme's
-/// bound variables structurally by walking `sort` and substituting each `Var`
-/// it finds for a fresh unification variable, shared across its occurrences
-/// within that one instantiation.
+/// A polymorphic overload: `sort` is a [ResolvedSortId] built by
+/// [`resolve_sort`](crate::resolve_sort) from a template's own declaration.
 #[derive(Clone, Debug)]
 pub(crate) struct PolySortScheme {
     pub(crate) sort: ResolvedSortId,
@@ -42,20 +34,78 @@ pub(crate) struct PolySortScheme {
 /// A symbol is a name together with its sort, so a name maps to one
 /// [ResolvedSortId] per overload; duplicate declarations of the same symbol
 /// collapse into one entry.
-///
-/// `schemes` is a separate, name-keyed table of polymorphic overloads
-/// (containers, comparisons/`if`) — not split by constructor/mapping, since
-/// nothing downstream needs that distinction for a scheme (there is no
-/// [`merc_syntax::ConstructorId`]/[`merc_syntax::MapId`]
-/// for synthesized template content to carry). Empty for every `Signature`
-/// except the one merged into `ctx.signature` and the small per-role table
-/// built for a system equation's own comparison/`if` lookup — see
-/// `build_polymorphic_schemes`.
 #[derive(Default)]
 pub(crate) struct Signature {
     pub(crate) constructors: HashMap<String, Vec<ResolvedSortId>>,
     pub(crate) mappings: HashMap<String, Vec<ResolvedSortId>>,
     pub(crate) schemes: HashMap<String, Vec<PolySortScheme>>,
+}
+
+impl Signature {
+    /// Renders `self` with every overload's [`ResolvedSortId`] resolved to its
+    /// printable sort (via [`DisplaySortContext`]), sorted by name so the
+    /// output is deterministic.
+    pub(crate) fn display<'a>(
+        &'a self,
+        ctx: &'a TypeCheckContext,
+        spec: &'a UntypedDataSpecification,
+    ) -> DisplaySignature<'a> {
+        DisplaySignature {
+            signature: self,
+            ctx,
+            spec,
+        }
+    }
+}
+
+/// See [`Signature::display`].
+pub(crate) struct DisplaySignature<'a> {
+    signature: &'a Signature,
+    ctx: &'a TypeCheckContext,
+    spec: &'a UntypedDataSpecification,
+}
+
+impl fmt::Display for DisplaySignature<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let write_overloads =
+            |f: &mut fmt::Formatter<'_>, keyword: &str, overloads: &HashMap<String, Vec<ResolvedSortId>>| {
+                if overloads.is_empty() {
+                    return Ok(());
+                }
+
+                let mut names: Vec<&String> = overloads.keys().collect();
+                names.sort();
+
+                writeln!(f, "{keyword}")?;
+                for name in names {
+                    for &sort in &overloads[name] {
+                        writeln!(f, "   {name}: {};", DisplaySortContext::new(self.ctx, self.spec, sort))?;
+                    }
+                }
+                Ok(())
+            };
+
+        write_overloads(f, "cons", &self.signature.constructors)?;
+        write_overloads(f, "map", &self.signature.mappings)?;
+
+        if !self.signature.schemes.is_empty() {
+            let mut names: Vec<&String> = self.signature.schemes.keys().collect();
+            names.sort();
+
+            writeln!(f, "schemes")?;
+            for name in names {
+                for scheme in &self.signature.schemes[name] {
+                    writeln!(
+                        f,
+                        "   {name}: {};",
+                        DisplaySortContext::new(self.ctx, self.spec, scheme.sort)
+                    )?;
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Computes the signature of `spec` and stores it on `ctx`, running the
@@ -85,10 +135,7 @@ fn compute_signature(ctx: &mut TypeCheckContext, spec: &UntypedDataSpecification
     let mut constants: HashMap<String, ResolvedSortId> = HashMap::new();
     push_declarations(ctx, spec, spec, false, &mut signature, &mut constants)?;
 
-    // The polymorphic built-ins — containers, comparisons and `if`.
-    // Function-update has no entry here: its scheme is checked per arity, on
-    // demand, by `check_function_update_template` instead — see that
-    // function's doc comment.
+    // The polymorphic built-ins.
     signature.schemes = build_polymorphic_schemes(
         ctx,
         CONTAINER_TEMPLATES.all().into_iter().chain([&*BUILTIN_SCHEME_TEMPLATE]),
@@ -99,9 +146,12 @@ fn compute_signature(ctx: &mut TypeCheckContext, spec: &UntypedDataSpecification
 
 /// Checks and collects `decl_spec`'s own constructor/mapping declarations into `signature`,
 /// running every signature-level well-typedness rule of Definition 15.1.5/15.1.7 `is_well_typed`
-/// doesn't already cover post-normalization: no product sort outside a function domain, no
-/// constructor for a function sort, constructor/mapping disjointness, and no zero-arity symbol
-/// declared twice under different sorts (`constants`, shared across both declaration kinds and,
+/// doesn't already cover post-normalization:
+///
+///     - no product sort outside a function domain,
+///     - no constructor for a function sort,
+///     - constructor/mapping disjointness, and
+///     - no zero-arity symbol declared twice under different sorts (`constants`, shared across both declaration kinds and,
 /// when called again for a second spec, across that call too — see `resolve_system_signature`).
 ///
 /// `resolve_spec` is the specification whose `sort_declarations` table a `Resolved(name, SortId)`
@@ -288,6 +338,17 @@ mod tests {
     fn test_signature_collects_overloads() {
         let spec = typecheck("map f: Nat; f: Bool -> Bool;");
         assert_eq!(spec.signature().mappings["f"].len(), 2);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // Test is too slow under miri
+    fn test_signature_display_renders_resolved_sorts() {
+        let spec = typecheck("sort D; cons c: D; map f: D -> Bool;");
+        let signature = spec.signature();
+        let text = signature.display(spec.context(), spec.data_specification()).to_string();
+
+        assert!(text.contains("c: D;"), "expected a rendered constructor: {text}");
+        assert!(text.contains("f: D -> Bool;"), "expected a rendered mapping: {text}");
     }
 
     #[test]
