@@ -65,7 +65,7 @@ pub(crate) fn query_sort_of_equation_var(
 }
 
 /// Resolves a sort expression into its corresponding interned sort identifier.
-/// 
+///
 /// Requires names resolved and structured sorts desugared, and that alias are
 /// already normalised.
 pub(crate) fn resolve_sort(

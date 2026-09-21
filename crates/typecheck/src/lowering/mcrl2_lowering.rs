@@ -157,7 +157,7 @@ pub(crate) fn lower_sort(
             SortArrow::new(&domain, lower_sort(ctx, spec, *range)).into()
         }
         ResolvedSort::Def(def) => BasicSort::new(ctx.sort_display_name(spec, *def).as_ref()).into(),
-        ResolvedSort::Var(_) => unreachable_not_a_value_sort("Var"),
+        ResolvedSort::TypeVar(_) => unreachable_not_a_value_sort("Var"),
     }
 }
 
@@ -529,9 +529,11 @@ impl Lowering<'_> {
     /// `@bag(@zero_, _)` for the container lattice — see
     /// [numeric_coerce]/[container_coerce]) — or returning `term` unchanged
     /// when the two sorts already coincide. Returns `None` unless `from` is
-    /// `to` or a strict subsort of it (checked via
-    /// [crate::SortInterner::partial_cmp]); a `Def` sort has no coercion either
-    /// way.
+    /// `to` or a strict subsort of it that lowering can actually build a
+    /// coercion for (checked via [crate::SortInterner::is_materializable],
+    /// not [crate::SortInterner::partial_cmp] alone — the relation now also
+    /// relates pairs, such as container-element covariance, that have no
+    /// coercion below to build); a `Def` sort has no coercion either way.
     ///
     /// A bare number literal is the exception: rather than widening the term it
     /// already produced, the literal is *rebuilt* at `to` (see
@@ -553,7 +555,7 @@ impl Lowering<'_> {
         if from == to {
             return Some(term);
         }
-        if self.ctx.sorts.partial_cmp(from, to) != Some(Ordering::Less) {
+        if !self.ctx.sorts.is_materializable(from, to) {
             return None;
         }
 

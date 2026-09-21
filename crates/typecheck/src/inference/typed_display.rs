@@ -13,6 +13,23 @@ use crate::ResolvedSort;
 use crate::ResolvedSortId;
 use crate::TypeCheckContext;
 
+/// Renders `expr` in the same prefix notation `Display for DataExpr` uses, except every
+/// sub-expression is suffixed with `: <sort>` — its own resolved sort.
+pub(crate) fn typed_expr_string(
+    expr: &DataExpr,
+    ctx: &TypeCheckContext,
+    spec: &UntypedDataSpecification,
+    typing: &EquationTyping,
+) -> String {
+    let (shape, sort) = typed_expr_shape(expr, ctx, spec, typing);
+    let display = DisplaySortContext::new(ctx, spec, sort);
+    if matches!(ctx.sorts.get(sort), ResolvedSort::Function { .. }) {
+        format!("{shape}: ({display})")
+    } else {
+        format!("{shape}: {display}")
+    }
+}
+
 /// The `ExprId` `typing` recorded for `expr` (see [`EquationTyping::node_ids`]), looked up by
 /// `expr`'s own address rather than by replaying `ConstraintGenerator::visit`'s traversal order —
 /// `expr` must come from the same tree `typing` was computed against.
@@ -111,42 +128,4 @@ fn typed_expr_shape(
     };
 
     (shape, sort)
-}
-
-/// Renders `expr` in the same prefix notation `Display for DataExpr` uses, except every
-/// sub-expression is suffixed with `: <sort>` — its own resolved sort.
-pub(crate) fn typed_expr_string(
-    expr: &DataExpr,
-    ctx: &TypeCheckContext,
-    spec: &UntypedDataSpecification,
-    typing: &EquationTyping,
-) -> String {
-    let (shape, sort) = typed_expr_shape(expr, ctx, spec, typing);
-    let display = DisplaySortContext::new(ctx, spec, sort);
-    if matches!(ctx.sorts.get(sort), ResolvedSort::Function { .. }) {
-        format!("{shape}: ({display})")
-    } else {
-        format!("{shape}: {display}")
-    }
-}
-
-/// As [`typed_expr_string`], for a whole equation: `condition -> lhs = rhs`, or plain `lhs = rhs`
-/// with no condition.
-pub(crate) fn typed_equation_string(
-    eqn: &EqnDecl,
-    ctx: &TypeCheckContext,
-    spec: &UntypedDataSpecification,
-    typing: &EquationTyping,
-) -> String {
-    let condition = eqn
-        .condition
-        .as_ref()
-        .map(|condition| typed_expr_string(condition, ctx, spec, typing));
-    let lhs = typed_expr_string(&eqn.lhs, ctx, spec, typing);
-    let rhs = typed_expr_string(&eqn.rhs, ctx, spec, typing);
-
-    match condition {
-        Some(condition) => format!("{condition} -> {lhs} = {rhs}"),
-        None => format!("{lhs} = {rhs}"),
-    }
 }

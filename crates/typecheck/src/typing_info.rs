@@ -636,6 +636,6 @@ fn sort_expression(ctx: &TypeCheckContext, spec: &UntypedDataSpecification, id: 
             let name = ctx.sort_display_name(spec, *def).into_owned();
             SortExpressionKind::Resolved(name, *def).into()
         }
-        ResolvedSort::Var(_) => unreachable_not_a_value_sort("Var"),
+        ResolvedSort::TypeVar(_) => unreachable_not_a_value_sort("Var"),
     }
 }

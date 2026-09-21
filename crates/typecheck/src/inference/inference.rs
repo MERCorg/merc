@@ -8,6 +8,7 @@ use log::trace;
 use merc_syntax::ComplexSort;
 use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
+use merc_syntax::EqnDecl;
 use merc_syntax::EqnSpecId;
 use merc_syntax::EquationId;
 use merc_syntax::IdDecl;
@@ -35,6 +36,7 @@ use crate::is_supported_binder_sort;
 use crate::number_generality;
 use crate::query_sort_of_equation_var;
 use crate::resolve_sort;
+use crate::typed_expr_string;
 
 /// A unique type for expression nodes within a single equation.
 pub(crate) struct ExprTag;
@@ -228,43 +230,48 @@ pub(crate) enum EquationRole {
     /// Checking a struct's own compiler-generated equations, or the plain basics equations.
     System,
     /// Checking one Appendix-B container/function-update template's own,
-    /// un-instantiated equations, once, with its `type_var`-declared sort(s)
-    /// held rigid.
+    /// un-instantiated equations.
     Template(TemplateId),
 }
 
-/// Shared by [query_equation_typing]/[query_system_equation_typing]: both look up `key` in the
-/// per-role cache `cache` selects, computing it via [infer_equation] under `role` on a miss.
-/// `indexed` is the spec `key`'s `EqnSpecId` indexes into, checked by the `debug_assert` below.
-fn infer_equation_typing_cached<F>(
+/// The sort an otherwise-underdetermined expression node defaults to once
+/// solving is done (see [Solver::extract]).
+///
+/// For user/system content this is `Bool`: a genuinely arbitrary but harmless
+/// choice, since such a node (e.g. the element sort of `#[]`) is by
+/// definition never observed again. For a container/function-update
+/// template's own single `type_var` (`EquationRole::Template`), defaulting to
+/// `Bool` the same way would be wrong: a bare literal like the `{}` in
+/// `#({}) = @c0` has no `var`-declared argument to unify its element sort
+/// against, so without this it *always* solves to `Bool`, regardless of which
+/// concrete sort the template is later instantiated for — since `Bool` is
+/// then a concrete, already-ground sort, [specialize_template_typing] (which
+/// only rewrites occurrences of the template's own type variable) leaves it
+/// untouched, so the literal stays `Bool`-sorted in every instantiation.
+/// Defaulting instead to the template's own `type_var` here keeps the literal
+/// polymorphic through checking, exactly like a `var`-declared occurrence, so
+/// substitution specializes it correctly. A template with more than one
+/// `type_var` (only function-update) has no such literal in practice and
+/// keeps the `Bool` default, since there is no principled way to pick among
+/// several type variables.
+///
+/// [specialize_template_typing]: crate::specialize_template_typing
+fn underdetermined_default_sort(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
     role: EquationRole,
-    indexed: &UntypedDataSpecification,
-    cache: F,
-    key: (EqnSpecId, EquationId),
-) -> Result<Arc<EquationTyping>, InferenceError>
-where
-    F: Fn(&mut TypeCheckContext) -> &mut HashMap<(EqnSpecId, EquationId), Result<Arc<EquationTyping>, InferenceError>>,
-{
-    let (eqn_spec_id, equation_id) = key;
-
-    debug_assert!(
-        indexed
-            .equation_declarations
-            .get(*eqn_spec_id)
-            .is_some_and(|eqn_spec| *equation_id < eqn_spec.equations.len()),
-        "equation typing key {key:?} must index an equation of the specification"
-    );
-
-    if let Some(value) = cache(ctx).get(&key) {
-        return value.clone();
+) -> ResolvedSortId {
+    if let EquationRole::Template(_) = role
+        && let [type_var_id] = *spec
+            .type_var_declarations
+            .iter()
+            .filter_map(|decl| decl.id)
+            .collect::<Vec<_>>()
+    {
+        return ctx.sorts.var(type_var_id);
     }
 
-    let value = infer_equation(ctx, spec, system, role, eqn_spec_id, equation_id).map(Arc::new);
-    cache(ctx).insert(key, value.clone());
-    value
+    ctx.sorts.bool_sort()
 }
 
 /// Returns the typing of one user equation, keyed by the id of its enclosing
@@ -274,18 +281,9 @@ where
 pub(crate) fn infer_equation_typing(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
     key: (EqnSpecId, EquationId),
 ) -> Result<Arc<EquationTyping>, InferenceError> {
-    infer_equation_typing_cached(
-        ctx,
-        spec,
-        system,
-        EquationRole::User,
-        spec,
-        |ctx| &mut ctx.equation_typing,
-        key,
-    )
+    infer_equation_typing_cached(ctx, spec, EquationRole::User, spec, |ctx| &mut ctx.equation_typing, key)
 }
 
 /// Infers and validates the sort of every user equation, populating the
@@ -295,7 +293,6 @@ pub(crate) fn infer_equation_typing(
 pub(crate) fn typecheck_equations(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
 ) -> Result<(), InferenceError> {
     for eqn_spec in &spec.equation_declarations {
         let eqn_spec_id = eqn_spec.id.expect("assign_declaration_ids ran before check_equations");
@@ -303,7 +300,7 @@ pub(crate) fn typecheck_equations(
             let equation_id = equation.id.expect("assign_declaration_ids ran before check_equations");
             // Validate the equation and populate `ctx.equation_typing`; the
             // typing is read back from that cache during lowering.
-            infer_equation_typing(ctx, spec, system, (eqn_spec_id, equation_id))?;
+            infer_equation_typing(ctx, spec, (eqn_spec_id, equation_id))?;
         }
     }
     Ok(())
@@ -368,7 +365,6 @@ pub(crate) fn query_system_equation_typing(
     infer_equation_typing_cached(
         ctx,
         spec,
-        system,
         EquationRole::System,
         system,
         |ctx| &mut ctx.system_equation_typing,
@@ -404,6 +400,39 @@ pub(crate) fn check_system_equations(
     Ok(())
 }
 
+/// Shared by [query_equation_typing]/[query_system_equation_typing]: both look up `key` in the
+/// per-role cache `cache` selects, computing it via [infer_equation] under `role` on a miss.
+/// `indexed` is the spec `key`'s `EqnSpecId` indexes into, checked by the `debug_assert` below.
+fn infer_equation_typing_cached<F>(
+    ctx: &mut TypeCheckContext,
+    spec: &UntypedDataSpecification,
+    role: EquationRole,
+    indexed: &UntypedDataSpecification,
+    cache: F,
+    key: (EqnSpecId, EquationId),
+) -> Result<Arc<EquationTyping>, InferenceError>
+where
+    F: Fn(&mut TypeCheckContext) -> &mut HashMap<(EqnSpecId, EquationId), Result<Arc<EquationTyping>, InferenceError>>,
+{
+    let (eqn_spec_id, equation_id) = key;
+
+    debug_assert!(
+        indexed
+            .equation_declarations
+            .get(*eqn_spec_id)
+            .is_some_and(|eqn_spec| *equation_id < eqn_spec.equations.len()),
+        "equation typing key {key:?} must index an equation of the specification"
+    );
+
+    if let Some(value) = cache(ctx).get(&key) {
+        return value.clone();
+    }
+
+    let value = infer_equation(ctx, spec, indexed, role, eqn_spec_id, equation_id).map(Arc::new);
+    cache(ctx).insert(key, value.clone());
+    value
+}
+
 /// Infers the sorts of a single equation: generates constraints over the
 /// condition, left-hand side and right-hand side, solves them by ranked
 /// backtracking, and extracts the sorts of the best solution.
@@ -414,27 +443,19 @@ pub(crate) fn check_system_equations(
 fn infer_equation(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
+    indexed: &UntypedDataSpecification,
     role: EquationRole,
     eqn_spec_id: EqnSpecId,
     equation_id: EquationId,
 ) -> Result<EquationTyping, InferenceError> {
-    // `spec` holds the equations for `User` and for `Template` (whose caller passes the template
-    // as both arguments); only `System` indexes `system`. Either way `resolve_sort` resolves a
-    // `Resolved` sort's `SortId` against `spec.sort_declarations`.
-    let eqn_spec = match role {
-        EquationRole::User | EquationRole::Template(_) => &spec.equation_declarations[eqn_spec_id],
-        EquationRole::System => &system.equation_declarations[eqn_spec_id],
-    };
+    // `indexed` is `spec` itself for `User`/`Template` (whose caller passes the template as both
+    // arguments), and `system` for `System`. Either way `resolve_sort` resolves a `Resolved`
+    // sort's `SortId` against `spec.sort_declarations`, never `indexed`'s.
+    let eqn_spec = &indexed.equation_declarations[eqn_spec_id];
     let equation = &eqn_spec.equations[equation_id];
 
     // `infer` takes a pre-resolved `(declaration, sort)` scope; resolve each equation variable's
-    // sort up front here, memoized by `(role, var_id)`: every role shares one cache, keyed on the
-    // role too since `System`/`Template`'s own `var_id` numbering is independent of `spec`'s (each
-    // restarts from `VarIdAllocator::default()`) and would otherwise collide with an unrelated
-    // user variable of the same raw id. `System`/`Template` entries are never read back afterwards
-    // (unlike `DataSpecification::sort_of_equation_var` on the user side) but sharing the one query
-    // keeps every role on the same code path.
+    // sort up front here.
     let declared_scope: Vec<(VarId, ResolvedSortId)> = eqn_spec
         .variables
         .iter()
@@ -461,20 +482,8 @@ fn infer_equation(
     )
 }
 
-/// Infers the sorts of one standalone data expression — a term to be
-/// rewritten, not part of any equation — against the *user* signature of
-/// `spec` (plus the system signature and the full polymorphic scheme table,
-/// exactly as a user equation resolves names).
-///
-/// The expression is closed: it declares no equation variables, so every name
-/// in it must resolve to a declared constructor or mapping, and a free
-/// identifier is an [`InferenceError::UndeclaredName`]. Bound variables
-/// introduced by a `lambda`/`forall`/`exists`/comprehension/`whr` inside the
-/// expression are unaffected — those carry their own declared sorts.
-///
-/// Unlike an equation there is no second side to widen against, so the
-/// expression's sort follows from its own structure alone: `1 + 1` infers at
-/// `Pos`, the minimal sort the ranked search admits.
+/// Infers the sorts of one standalone data expression against the *user*
+/// signature of `spec`.
 pub(crate) fn infer_expression(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
@@ -486,12 +495,6 @@ pub(crate) fn infer_expression(
 /// As [`infer_expression`], but against an externally-supplied `declared_scope` (rather than
 /// none) and, when `expected` is given, additionally constrained to be a subsort of it (rather
 /// than typed purely from the expression's own structure) — see [`Roots::ExpressionAgainst`].
-///
-/// Used by [`crate::process`]/[`crate::pbes`] to check an action argument, a process-instantiation
-/// argument, a `sum`/`dist` condition or time bound, a `PropVarInst` argument, or similar, each
-/// against its own already-known expected sort. `declared_scope` covers every global variable,
-/// process/PBES parameter, and `sum`/`dist`/quantifier binder in scope, keyed by each one's own
-/// declaration [VarId] (see [`infer`]'s doc comment).
 pub(crate) fn infer_expression_in_scope(
     ctx: &mut TypeCheckContext,
     spec: &UntypedDataSpecification,
@@ -503,6 +506,7 @@ pub(crate) fn infer_expression_in_scope(
         Some(expected) => Roots::ExpressionAgainst { expr, expected },
         None => Roots::Expression(expr),
     };
+
     infer(
         ctx,
         spec,
@@ -522,10 +526,10 @@ enum Roots<'a> {
         lhs: &'a DataExpr,
         rhs: &'a DataExpr,
     },
-    /// A single standalone expression, typed on its own (see [infer_expression]).
+    /// A single standalone expression, typed on its own.
     Expression(&'a DataExpr),
     /// A single expression checked against an already-known expected sort, rather than typed
-    /// purely from its own structure (see [infer_expression_in_scope]).
+    /// purely from its own structure.
     ExpressionAgainst {
         expr: &'a DataExpr,
         expected: ResolvedSortId,
@@ -533,16 +537,10 @@ enum Roots<'a> {
 }
 
 /// Generates the constraints of `roots`, solves them by ranked backtracking,
-/// and extracts the sorts of the best solution. Shared by [infer_equation] and
-/// [infer_expression_in_scope]; `equation_text` renders the whole input for diagnostics and
-/// `equation_span` locates it in the source.
+/// and extracts the sorts of the best solution.
 ///
 /// `declared_scope` is a pre-resolved `(declaration VarId, sort)` list, resolved by the caller
-/// before this is called — an equation's own `var`-block variables (see [infer_equation]) and a
-/// process/PBES/PRES scope ([infer_expression_in_scope]/[crate::process]) alike, each looked up by
-/// a `Resolved` node's own declaration [VarId]: [`crate::resolve_data_specification_variables`]/
-/// [`crate::resolve_process_variables`]/[`crate::resolve_pbes_variables`] tie every such occurrence
-/// to its declaration during variable resolution, before inference ever runs.
+/// before this is called.
 #[allow(clippy::too_many_arguments)]
 fn infer<'a>(
     ctx: &mut TypeCheckContext,
@@ -553,7 +551,7 @@ fn infer<'a>(
     equation_text: &dyn Fn() -> String,
     equation_span: &Span,
 ) -> Result<EquationTyping, InferenceError> {
-    debug!("inference: typing '{}'", equation_text());
+    debug!("typing '{}'", equation_text());
 
     let mut unifier = Unifier::new();
 
@@ -564,10 +562,8 @@ fn infer<'a>(
         declared_sorts.insert(declaration, node);
     }
 
-    // Cloned out of the context (cheaply, behind `Arc`) because the generator needs the context
-    // mutably: resolving a comprehension's binder sort interns sorts and fills the sort-of-def
-    // cache mid-walk. Every role shares this same one pooled signature, unfiltered — see
-    // `EquationRole`'s doc comment.
+    // Cloned out of the context because the generator needs the context
+    // mutably.
     let signature = Arc::clone(ctx.signature.as_ref().expect("build_signature ran before inference"));
 
     // Numbered once, up front, from the raw AST alone — independent of the order `generate` below
@@ -584,6 +580,7 @@ fn infer<'a>(
         }
         Roots::Expression(expr) | Roots::ExpressionAgainst { expr, .. } => vec![*expr],
     };
+
     let expr_id_of = number_expr_nodes(expr_roots.iter().copied());
     let node_count = expr_id_of.len();
     let expr_sorts: Vec<InferSortId> = (0..node_count).map(|_| unifier.fresh_var()).collect();
@@ -631,11 +628,12 @@ fn infer<'a>(
         Roots::Expression(expr) => generator.generate_expression(expr),
         Roots::ExpressionAgainst { expr, expected } => generator.generate_against(expr, expected),
     };
+
     match generated {
         Ok(()) => {}
         Err(GenFailure::InvalidBinderSort(sort, span)) => {
             debug!(
-                "inference: rejected '{}', its binder sort '{sort}' is not a valid variable sort",
+                "rejected '{}', its binder sort '{sort}' is not a valid variable sort",
                 equation_text()
             );
             return Err(InferenceError::InvalidBinderSort {
@@ -645,10 +643,7 @@ fn infer<'a>(
             });
         }
         Err(GenFailure::Error(error)) => {
-            debug!(
-                "inference: constraint generation failed for '{}': {error}",
-                equation_text()
-            );
+            debug!("constraint generation failed for '{}': {error}", equation_text());
             return Err(error);
         }
     }
@@ -672,10 +667,12 @@ fn infer<'a>(
     // sensitively.
     let constraints = merge_shared_subs(constraints, &mut unifier);
     trace!(
-        "inference: generated {} constraint(s) over {} expression node(s)",
+        "generated {} constraint(s) over {} expression node(s)",
         constraints.len(),
         expr_sorts.len()
     );
+
+    let default_sort = underdetermined_default_sort(ctx, spec, role);
 
     let mut solver = Solver {
         sorts: &mut ctx.sorts,
@@ -686,6 +683,7 @@ fn infer<'a>(
         choices: Vec::new(),
         measure: Vec::new(),
         best: None,
+        default_sort,
     };
     solver.solve(0);
 
@@ -699,7 +697,7 @@ fn infer<'a>(
 
     match solver.best {
         None => {
-            debug!("inference: no valid sort assignment for '{}'", equation_text());
+            debug!("no valid sort assignment for '{}'", equation_text());
             Err(InferenceError::NoTyping {
                 expression: equation_text(),
                 sort: expected_sort.map(|sort| DisplaySortContext::new(ctx, spec, sort).to_string()),
@@ -708,7 +706,7 @@ fn infer<'a>(
         }
         Some(best) if best.duplicate => {
             debug!(
-                "inference: two solutions tie at measure {:?} for '{}'",
+                "two solutions tie at measure {:?} for '{}'",
                 best.measure,
                 equation_text()
             );
@@ -719,10 +717,7 @@ fn infer<'a>(
         }
         Some(best) => match best.typing {
             None => {
-                debug!(
-                    "inference: the best solution leaves a sort free in '{}'",
-                    equation_text()
-                );
+                debug!("the best solution leaves a sort free in '{}'", equation_text());
                 Err(InferenceError::UnderdeterminedSort {
                     expression: equation_text(),
                     span: equation_span.clone(),
@@ -749,26 +744,41 @@ fn infer<'a>(
                     "every recorded identifier name keys an expression node"
                 );
 
-                debug!("inference: solved '{}' at measure {:?}", equation_text(), best.measure);
-                if log::log_enabled!(log::Level::Debug) {
-                    for &(declaration, sort) in declared_scope {
-                        trace!(
-                            "inference:   variable {declaration:?}: {}",
-                            DisplaySortContext::new(ctx, spec, sort)
-                        );
-                    }
-                    for (&sort, text) in sorts.iter().zip(&expr_texts) {
-                        trace!("inference:   '{text}': {}", DisplaySortContext::new(ctx, spec, sort));
-                    }
-                }
-                Ok(EquationTyping {
+                let typing = EquationTyping {
                     sorts,
                     spans: expr_spans,
                     names,
                     identifier_names: expr_names,
                     declarations: expr_declarations,
                     node_ids: expr_ids,
-                })
+                };
+
+                // `typing.node_ids` is filled for `EquationRole::User` unconditionally, and for
+                // every other role exactly when `log_texts` is set — see `visit` — so it is
+                // always available here to annotate every sub-expression with its resolved sort,
+                // which is what lets this line double as a regression signal for System/Template
+                // equations too, not just the plain unannotated text.
+                if log_texts {
+                    debug!(
+                        "solved '{}' at measure {:?}",
+                        typed_roots_string(&expr_roots, ctx, spec, &typing),
+                        best.measure
+                    );
+                } else {
+                    debug!("solved '{}' at measure {:?}", equation_text(), best.measure);
+                }
+                if log_texts {
+                    for &(declaration, sort) in declared_scope {
+                        trace!(
+                            "   variable {declaration:?}: {}",
+                            DisplaySortContext::new(ctx, spec, sort)
+                        );
+                    }
+                    for (&sort, text) in typing.sorts.iter().zip(&expr_texts) {
+                        trace!("   '{text}': {}", DisplaySortContext::new(ctx, spec, sort));
+                    }
+                }
+                Ok(typing)
             }
         },
     }
@@ -971,11 +981,13 @@ struct ConstraintGenerator<'a> {
     /// binder — keyed by its [ExprId]; only filled when [Self::collect_typing_info]. Becomes
     /// [EquationTyping::declarations].
     expr_declarations: HashMap<ExprId, VarId>,
-    /// Every visited node's own [ExprId], keyed by that node's address; only filled when
-    /// [Self::collect_typing_info]. Becomes [EquationTyping::node_ids].
+    /// Every visited node's own [ExprId], keyed by that node's address; filled when
+    /// [Self::collect_typing_info], or, for any role, when [Self::log_texts] — the latter is what
+    /// lets the "solved" debug log render a System/Template equation with typed display too, not
+    /// just [EquationRole::User]'s. Becomes [EquationTyping::node_ids].
     expr_ids: HashMap<usize, ExprId>,
     /// Whether the side tables feeding `TypingInfo` ([Self::expr_spans],
-    /// [Self::expr_names], [Self::expr_declarations], [Self::expr_ids]) should
+    /// [Self::expr_names], [Self::expr_declarations]) should
     /// be filled — i.e. whether `role` is [EquationRole::User]. Sampled once at
     /// construction.
     collect_typing_info: bool,
@@ -1061,6 +1073,11 @@ impl<'a> ConstraintGenerator<'a> {
         }
         if self.collect_typing_info {
             self.expr_spans[*id] = expr.span.clone();
+        }
+        // Filled for `EquationRole::User` unconditionally (`to_typed_string` needs `node_ids`
+        // regardless of logging) and for every other role only when debug logging is enabled, so
+        // the "solved" log below can render a System/Template equation with typed display too.
+        if self.collect_typing_info || self.log_texts {
             self.expr_ids.insert(expr as *const DataExpr as usize, id);
         }
 
@@ -1345,7 +1362,7 @@ impl<'a> ConstraintGenerator<'a> {
                 Ok(())
             }
             _ => {
-                trace!("inference: name '{name}' has {} candidate(s)", disjuncts.len());
+                trace!("name '{name}' has {} candidate(s)", disjuncts.len());
                 self.constraints.push(Constraint::Disjunction(Disjunction {
                     expr: id,
                     sort: node,
@@ -1373,7 +1390,7 @@ impl<'a> ConstraintGenerator<'a> {
         {
             for &overload in overloads {
                 let target = NameTarget::Op { sort: overload };
-                
+
                 // The user and system specifications may declare the same
                 // symbol; a duplicate disjunct would misreport ambiguity.
                 if !disjuncts.iter().any(|(existing, _)| *existing == target) {
@@ -1401,7 +1418,7 @@ impl<'a> ConstraintGenerator<'a> {
         type_vars: &mut HashMap<TypeVarId, InferSortId>,
     ) -> InferSortId {
         match self.ctx.sorts.get(sort).clone() {
-            ResolvedSort::Var(id) => *type_vars.entry(id).or_insert_with(|| self.unifier.fresh_var()),
+            ResolvedSort::TypeVar(id) => *type_vars.entry(id).or_insert_with(|| self.unifier.fresh_var()),
             ResolvedSort::Container { op, subsort } => {
                 let subsort = self.instantiate_scheme(subsort, type_vars);
                 self.unifier.generic(op, subsort)
@@ -1429,8 +1446,8 @@ struct Candidate {
     /// means the equation is ambiguous.
     duplicate: bool,
     /// `None` when a free variable remained at this leaf, i.e. the sorts were
-    /// underdetermined. [`Solver::extract`] defaults such a variable to `Bool`,
-    /// so in practice a leaf always yields a typing.
+    /// underdetermined. [`Solver::extract`] defaults such a variable (see
+    /// [`Solver::default_sort`]), so in practice a leaf always yields a typing.
     typing: Option<(Vec<ResolvedSortId>, HashMap<ExprId, NameTarget>)>,
 }
 
@@ -1457,6 +1474,9 @@ struct Solver<'a> {
     /// The measure components pushed on the current branch.
     measure: Vec<u8>,
     best: Option<Candidate>,
+    /// What [Solver::extract] substitutes for a sort variable still free at a
+    /// leaf; see [underdetermined_default_sort].
+    default_sort: ResolvedSortId,
 }
 
 impl Solver<'_> {
@@ -1507,6 +1527,16 @@ impl Solver<'_> {
             }
         }
 
+        // `join` now also relates sorts (container-element covariance,
+        // function contravariance) that lowering cannot yet materialize; a
+        // `lub` reachable only through one of those falls back to the
+        // per-source widening below, which fails the same way `solve_widening`
+        // already does for such a pair (its enumeration only ever offers
+        // materializable candidates).
+        if !resolved.iter().all(|&source| self.sorts.is_materializable(source, lub)) {
+            return self.solve_join_seq(&join.sources, join.target, 0, index);
+        }
+
         let lub_node = self.unifier.resolved_node(lub);
         if !self.unifier.unify(self.sorts, join.target, lub_node) {
             return false;
@@ -1515,36 +1545,21 @@ impl Solver<'_> {
         // One widening-distance measure component per source (0 for an exact
         // branch, the number of widening steps otherwise), matching the
         // `solve_sub` convention so the ranking is identical to the two-`Sub`
-        // form.
+        // form. Every source here is materializable into `lub` (just
+        // checked), so its interior distance is always 0 and only the head
+        // component ever contributes.
         for &source in &resolved {
-            self.measure.push(self.join_distance(source, lub));
+            let (head, _interior) = self
+                .sorts
+                .widening_distance(source, lub)
+                .expect("materializable into lub, hence comparable");
+            self.measure.push(head);
         }
         let found = self.solve(index + 1);
         for _ in &resolved {
             self.measure.pop();
         }
         found
-    }
-
-    /// The number of lattice widening steps from `source` up to `target`
-    /// (`source` a subsort of `target`), the measure a `Sub(source, target)`
-    /// would contribute: number-sort generality difference, or one step for a
-    /// finite-to-infinite container widening (`FSet` → `Set`, `FBag` → `Bag`).
-    fn join_distance(&self, source: ResolvedSortId, target: ResolvedSortId) -> u8 {
-        if source == target {
-            return 0;
-        }
-        match (self.sorts.get(source), self.sorts.get(target)) {
-            (ResolvedSort::Primitive(source), ResolvedSort::Primitive(target)) => {
-                match (number_generality(*source), number_generality(*target)) {
-                    (Some(source), Some(target)) if target >= source => (target - source) as u8,
-                    _ => 1,
-                }
-            }
-            // A single container-head step; the element sorts are equal (the
-            // lattice join keeps them so).
-            _ => 1,
-        }
     }
 
     /// The fallback of [Self::solve_join] for underdetermined or non-joinable
@@ -1772,14 +1787,13 @@ impl Solver<'_> {
     ///
     /// Any sort variable that is still free after solving (e.g. the element
     /// sort of `#[]` where only the container length is observed, never the
-    /// element) defaults to `Bool`. This accepts such equations rather than
-    /// raising a spurious `UnderdeterminedSort` error.
+    /// element) defaults to [Solver::default_sort]. This accepts such
+    /// equations rather than raising a spurious `UnderdeterminedSort` error.
     fn extract(&mut self) -> Candidate {
-        let bool_sort = self.sorts.bool_sort();
         let sorts: Vec<ResolvedSortId> = self
             .expr_sorts
             .iter()
-            .map(|&node| self.unifier.resolve_or_default(self.sorts, node, bool_sort))
+            .map(|&node| self.unifier.resolve_or_default(self.sorts, node, self.default_sort))
             .collect();
 
         let mut names = self.base_names.clone();
@@ -1793,6 +1807,51 @@ impl Solver<'_> {
         }
     }
 }
+
+
+/// As [`typed_expr_string`], for a whole equation: `condition -> lhs = rhs`, or plain `lhs = rhs`
+/// with no condition.
+fn typed_equation_string(
+    eqn: &EqnDecl,
+    ctx: &TypeCheckContext,
+    spec: &UntypedDataSpecification,
+    typing: &EquationTyping,
+) -> String {
+    let mut roots: Vec<&DataExpr> = Vec::with_capacity(3);
+    roots.extend(eqn.condition.as_ref());
+    roots.push(&eqn.lhs);
+    roots.push(&eqn.rhs);
+    typed_roots_string(&roots, ctx, spec, typing)
+}
+
+/// As [`typed_expr_string`], for whichever expressions one inference run covers: a single
+/// standalone expression, or an equation's `lhs`/`rhs` with an optional leading `condition`, in
+/// that order.
+fn typed_roots_string(
+    roots: &[&DataExpr],
+    ctx: &TypeCheckContext,
+    spec: &UntypedDataSpecification,
+    typing: &EquationTyping,
+) -> String {
+    match roots {
+        [expr] => typed_expr_string(expr, ctx, spec, typing),
+        [lhs, rhs] => format!(
+            "{} = {}",
+            typed_expr_string(lhs, ctx, spec, typing),
+            typed_expr_string(rhs, ctx, spec, typing)
+        ),
+        [condition, lhs, rhs] => format!(
+            "{} -> {} = {}",
+            typed_expr_string(condition, ctx, spec, typing),
+            typed_expr_string(lhs, ctx, spec, typing),
+            typed_expr_string(rhs, ctx, spec, typing)
+        ),
+        _ => {
+            unreachable!("inference roots are a single expression, or an equation's lhs/rhs with an optional condition")
+        }
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

@@ -35,9 +35,6 @@ use merc_syntax::UntypedDataSpecification;
 
 use crate::BUILTIN_SCHEME_TEMPLATE;
 use crate::BUILTIN_SCHEME_TEMPLATE_TEXT;
-use crate::CONTAINER_TEMPLATES;
-use crate::CONTAINER_TEMPLATES_MACHINE_WORD;
-use crate::ContainerTemplates;
 use crate::EquationTyping;
 use crate::NameTarget;
 use crate::NumberEncoding;
@@ -47,6 +44,7 @@ use crate::TemplateId;
 use crate::TypeCheckContext;
 use crate::apply_sorts_in_spec;
 use crate::basic_sort_own_template;
+use crate::container_templates;
 use crate::function_update_template;
 use crate::function_update_text;
 use crate::is_supported_binder_sort;
@@ -129,89 +127,6 @@ fn merge_generated(
         },
     );
     instantiations
-}
-
-/// The container templates in the recursive binary encoding, registered into
-/// `sources` as virtual documents.
-fn container_templates_binary(sources: &mut SourceMap) -> ContainerTemplates {
-    ContainerTemplates {
-        list: register_bare_template(
-            sources,
-            "<builtin>/list.mcrl2",
-            include_str!("../../../syntax/spec/list.mcrl2"),
-            &CONTAINER_TEMPLATES.list,
-        ),
-        set: register_bare_template(
-            sources,
-            "<builtin>/set.mcrl2",
-            include_str!("../../../syntax/spec/set.mcrl2"),
-            &CONTAINER_TEMPLATES.set,
-        ),
-        fset: register_bare_template(
-            sources,
-            "<builtin>/fset.mcrl2",
-            include_str!("../../../syntax/spec/fset.mcrl2"),
-            &CONTAINER_TEMPLATES.fset,
-        ),
-        bag: register_bare_template(
-            sources,
-            "<builtin>/bag.mcrl2",
-            include_str!("../../../syntax/spec/bag.mcrl2"),
-            &CONTAINER_TEMPLATES.bag,
-        ),
-        fbag: register_bare_template(
-            sources,
-            "<builtin>/fbag.mcrl2",
-            include_str!("../../../syntax/spec/fbag.mcrl2"),
-            &CONTAINER_TEMPLATES.fbag,
-        ),
-    }
-}
-
-/// The container templates whose equations are expressed in terms of the
-/// machine-word numeric sorts.
-fn container_templates_machine_word(sources: &mut SourceMap) -> ContainerTemplates {
-    ContainerTemplates {
-        list: register_bare_template(
-            sources,
-            "<builtin>/list64.mcrl2",
-            include_str!("../../../syntax/spec/list64.mcrl2"),
-            &CONTAINER_TEMPLATES_MACHINE_WORD.list,
-        ),
-        set: register_bare_template(
-            sources,
-            "<builtin>/set64.mcrl2",
-            include_str!("../../../syntax/spec/set64.mcrl2"),
-            &CONTAINER_TEMPLATES_MACHINE_WORD.set,
-        ),
-        fset: register_bare_template(
-            sources,
-            "<builtin>/fset64.mcrl2",
-            include_str!("../../../syntax/spec/fset64.mcrl2"),
-            &CONTAINER_TEMPLATES_MACHINE_WORD.fset,
-        ),
-        bag: register_bare_template(
-            sources,
-            "<builtin>/bag64.mcrl2",
-            include_str!("../../../syntax/spec/bag64.mcrl2"),
-            &CONTAINER_TEMPLATES_MACHINE_WORD.bag,
-        ),
-        fbag: register_bare_template(
-            sources,
-            "<builtin>/fbag64.mcrl2",
-            include_str!("../../../syntax/spec/fbag64.mcrl2"),
-            &CONTAINER_TEMPLATES_MACHINE_WORD.fbag,
-        ),
-    }
-}
-
-/// The container templates to instantiate for `encoding`, registered into
-/// `sources` so their spans render correctly.
-fn container_templates(sources: &mut SourceMap, encoding: NumberEncoding) -> ContainerTemplates {
-    match encoding {
-        NumberEncoding::Binary => container_templates_binary(sources),
-        NumberEncoding::MachineWord => container_templates_machine_word(sources),
-    }
 }
 
 /// Constructs a data specification for a standard sort, in the given
@@ -699,7 +614,7 @@ fn resolved_sort_to_syntax(
         // instantiated to a fresh unification variable before Phase-3
         // solving produces a node's final ResolvedSortId, so this case does
         // not happen for a sort inference actually produced either.
-        ResolvedSort::Var(_) => None,
+        ResolvedSort::TypeVar(_) => None,
         ResolvedSort::Unit => None,
         ResolvedSort::Primitive(sort) => Some(SortExpressionKind::Simple(*sort).into()),
         ResolvedSort::Container { op, subsort } => {
@@ -725,6 +640,91 @@ fn resolved_sort_to_syntax(
             Some(SortExpressionKind::Resolved(name.to_string(), *def).into())
         }
     }
+}
+
+/// Collects every container sort — every simple/resolved (basic or
+/// user-declared) sort too, in [SortCollectionMode::Every] — and, unless
+/// [SortCollectionMode::ContainersOnly], every single-argument function sort,
+/// occurring in the specification into `out`, including the sorts on binders
+/// inside the equation expressions.
+pub(crate) fn collect_system_sorts_in_spec(
+    spec: &UntypedDataSpecification,
+    out: &mut Vec<SortExpression>,
+    mode: SortCollectionMode,
+) {
+    for declaration in &spec.sort_declarations {
+        if let Some(expr) = &declaration.expr {
+            collect_system_sorts(expr, out, mode);
+        }
+    }
+
+    for constructor in &spec.constructor_declarations {
+        collect_system_sorts(&constructor.sort, out, mode);
+    }
+
+    for map in &spec.map_declarations {
+        collect_system_sorts(&map.sort, out, mode);
+    }
+
+    for equation in &spec.equation_declarations {
+        collect_system_sorts_in_equation(equation, out, mode);
+    }
+}
+
+/// Collects the system-defined sorts occurring in a single `var ... eqn ...`
+/// block: its declared variable sorts and its equations' conditions, left- and
+/// right-hand sides (including binder sorts inside those expressions).
+fn collect_system_sorts_in_equation(equation: &EqnSpec, out: &mut Vec<SortExpression>, mode: SortCollectionMode) {
+    for variable in &equation.variables {
+        collect_system_sorts(&variable.sort, out, mode);
+    }
+
+    for eqn in &equation.equations {
+        if let Some(condition) = &eqn.condition {
+            collect_system_sorts_in_expr(condition, out, mode);
+        }
+
+        collect_system_sorts_in_expr(&eqn.lhs, out, mode);
+        collect_system_sorts_in_expr(&eqn.rhs, out, mode);
+    }
+}
+
+/// Collects the system-defined sorts mentioned syntactically inside a data
+/// expression: the sorts on binders, and around a set/bag comprehension's
+/// element sort also `Set(S)` and `Bag(S)` — the comprehension denotes one of
+/// the two, which reading applies is only decided by sort inference, so the
+/// operators of both are provided. The element sorts of enumeration literals
+/// (`{1, 2}`) are not syntactically apparent and are not collected.
+///
+/// Binder sorts that are not valid variable sorts (see
+/// [is_supported_binder_sort]) are skipped: inference rejects the constructs
+/// that bind them, so their operators are never looked up.
+fn collect_system_sorts_in_expr(expr: &DataExpr, out: &mut Vec<SortExpression>, mode: SortCollectionMode) {
+    expr.visit::<(), _>(|expr| {
+        match &expr.node {
+            DataExprKind::SetBagComp { variable, predicate: _ } => {
+                if is_supported_binder_sort(&variable.sort) {
+                    collect_system_sorts(&variable.sort, out, mode);
+                    out.push(SortExpressionKind::Complex(ComplexSort::Set, Box::new(variable.sort.clone())).into());
+                    out.push(SortExpressionKind::Complex(ComplexSort::Bag, Box::new(variable.sort.clone())).into());
+                }
+            }
+            DataExprKind::Lambda { variables, body: _ }
+            | DataExprKind::Quantifier {
+                op: _,
+                variables,
+                body: _,
+            } => {
+                for variable in variables {
+                    if is_supported_binder_sort(&variable.sort) {
+                        collect_system_sorts(&variable.sort, out, mode);
+                    }
+                }
+            }
+            _ => {}
+        }
+        ControlFlow::Continue(())
+    });
 }
 
 /// Collects the system-defined sorts in a single sort expression, recursing

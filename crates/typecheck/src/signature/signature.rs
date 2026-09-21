@@ -182,12 +182,7 @@ pub(crate) fn push_declarations(
     for decl in &decl_spec.constructor_declarations {
         // Resolve through the memoized, `ConstructorId`-keyed query for the user's own
         // specification, so lowering can later read the interned constructor sort straight from
-        // the context. `trusted` content resolves directly against `resolve_spec` instead — never
-        // through the id-keyed cache, even when `decl.id` happens to be `Some`: a system
-        // declaration's id (when one exists at all) can be borrowed from an unrelated, template-
-        // local numbering space, so keying `ctx.sort_of_constructor` on it risks both resolving the
-        // wrong declaration (`decl_spec`'s own list, indexed by a foreign id) and colliding with an
-        // unrelated user `ConstructorId` that happens to have the same numeric value.
+        // the context. `trusted` content resolves directly against `resolve_spec` instead.
         let sort_id = if trusted {
             resolve_sort(ctx, resolve_spec, &decl.sort)
         } else {
