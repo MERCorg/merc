@@ -120,6 +120,15 @@ impl<T> ProtectionSet<T> {
     ///
     /// The caller must ensure that `index` refers to a currently protected
     /// entry and that it is not unprotected more than once.
+    #[cfg_attr(kani, kani::requires(self.contains_root(index)))]
+    #[cfg_attr(
+        kani,
+        kani::modifies(
+            &self.size,
+            &self.free,
+            core::ptr::slice_from_raw_parts_mut(self.roots.as_mut_ptr(), self.roots.len())
+        )
+    )]
     pub unsafe fn unprotect(&mut self, index: ProtectionIndex) {
         let index = self.generation_counter.get_index(index.0);
         self.size -= 1;
@@ -421,6 +430,33 @@ mod tests {
 #[cfg(kani)]
 mod verification {
     use super::*;
+
+    /// Checks the `unprotect` contract — `self.contains_root(index)` must
+    /// hold at the call — against a symbolic-length set of live protections
+    /// (1 to 3 slots) and a symbolic choice of which one to unprotect,
+    /// instead of the single fixed slot the scenario proofs below use.
+    #[kani::proof_for_contract(ProtectionSet::unprotect)]
+    #[kani::unwind(4)]
+    fn unprotect_contract_holds() {
+        let mut ps: ProtectionSet<u32> = ProtectionSet::new();
+        let mut indices: Vec<ProtectionIndex> = Vec::new();
+
+        let count: usize = kani::any();
+        kani::assume(count >= 1 && count <= 3);
+        for _ in 0..count {
+            indices.push(ps.protect(kani::any()));
+        }
+
+        let pick: usize = kani::any();
+        kani::assume(pick < indices.len());
+        let index = indices[pick];
+
+        // SAFETY: every entry in `indices` is still live, satisfying the
+        // `unprotect` contract checked below.
+        unsafe {
+            ps.unprotect(index);
+        }
+    }
 
     /// Covers the protect/index/replace/unprotect round trip and the empty-set
     /// pre/post conditions in a single harness.
