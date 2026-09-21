@@ -152,6 +152,8 @@ mod tests {
 
     use merc_utilities::random_test;
 
+    use crate::LDD_CACHE_CAPACITY;
+    use crate::LDD_NODE_CAPACITY;
     use crate::from_iter;
     use crate::random_vector_set;
 
@@ -163,7 +165,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_intersect() {
         random_test(100, |rng| {
-            let manager = oxidd::ldd::new_manager(2048, 1024, 1);
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
 
             let a = random_vector_set(rng, 16, 5, 5);
             let b = random_vector_set(rng, 16, 5, 5);
@@ -187,7 +189,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_merge() {
         random_test(100, |rng| {
-            let manager = oxidd::ldd::new_manager(2048, 1024, 1);
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
 
             let a = random_vector_set(rng, 8, 3, 5);
             let b = random_vector_set(rng, 8, 3, 5);
@@ -221,7 +223,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_fix_element() {
         random_test(100, |rng| {
-            let manager = oxidd::ldd::new_manager(2048, 1024, 1);
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
 
             let length = 5;
             let max_value = 5;
@@ -253,7 +255,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_fix_element_empty_set() {
-        let manager = oxidd::ldd::new_manager(2048, 1024, 1);
+        let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let empty = manager.with_manager_shared(LDDFunction::empty_set).unwrap();
 
         for level in 0..5 {

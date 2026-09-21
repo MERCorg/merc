@@ -11,6 +11,10 @@ use std::process::Command;
 
 use merc_io::temp_dir;
 use merc_io::traced_command;
+use merc_symbolic::BDD_CACHE_CAPACITY;
+use merc_symbolic::BDD_NODE_CAPACITY;
+use merc_symbolic::LDD_CACHE_CAPACITY;
+use merc_symbolic::LDD_NODE_CAPACITY;
 use merc_symbolic::SatCountCache;
 use merc_symbolic::SymbolicLtsBdd;
 use merc_symbolic::approx_satcount;
@@ -25,7 +29,7 @@ use merc_utilities::random_test;
 /// and asserts the reachable-state counts agree.
 fn compare_ldd_bdd_reachability(sym_path: &Path) {
     // LDD path: read into its own manager and run symbolic reachability.
-    let ldd_storage = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+    let ldd_storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
     let mut lts_ldd = read_symbolic_lts(&ldd_storage, File::open(sym_path).expect("Failed to open sym file"))
         .expect("Failed to read sym file for LDD path");
     let ldd_count = reachability(&ldd_storage, &mut lts_ldd, &Timing::new())
@@ -33,10 +37,10 @@ fn compare_ldd_bdd_reachability(sym_path: &Path) {
         .len();
 
     // BDD path: read a second time so the two paths are fully independent.
-    let bdd_ldd_storage = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+    let bdd_ldd_storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
     let lts_for_bdd = read_symbolic_lts(&bdd_ldd_storage, File::open(sym_path).expect("Failed to open sym file"))
         .expect("Failed to read sym file for BDD path");
-    let bdd_manager = oxidd::bdd::new_manager(1 << 16, 1 << 16, 1);
+    let bdd_manager = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
     let lts_bdd =
         SymbolicLtsBdd::from_symbolic_lts(&bdd_ldd_storage, &bdd_manager, &lts_for_bdd).expect("BDD conversion failed");
     let reachable = reachability_bdd(&bdd_manager, &lts_bdd, false).expect("BDD reachability failed");

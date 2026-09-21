@@ -123,6 +123,10 @@ mod tests {
     use merc_utilities::Timing;
     use merc_utilities::random_test;
 
+    use crate::BDD_CACHE_CAPACITY;
+    use crate::BDD_NODE_CAPACITY;
+    use crate::LDD_CACHE_CAPACITY;
+    use crate::LDD_NODE_CAPACITY;
     use crate::SymbolicLtsBdd;
     use crate::random_symbolic_lts;
     use crate::reachability;
@@ -132,14 +136,14 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_reachability() {
         random_test(100, |rng| {
-            let manager = oxidd::ldd::new_manager(2048, 1024, 1);
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
 
             // We don't really check anything here, just ensure that reachability runs without errors.
             let mut lts = random_symbolic_lts(rng, &manager, 10, 5).unwrap();
             let reachable_states = reachability(&manager, &mut lts, &Timing::new()).unwrap();
             let num_reachable_states = reachable_states.len();
 
-            let manager_ref = oxidd::bdd::new_manager(2028, 2028, 1);
+            let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
             let lts_bdd = SymbolicLtsBdd::from_symbolic_lts(&manager, &manager_ref, &lts).unwrap();
 
             let reachable_states_bdd = reachability_bdd(&manager_ref, &lts_bdd, false).unwrap();

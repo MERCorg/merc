@@ -257,10 +257,13 @@ mod tests {
     use super::PG;
     use super::read_vpg;
 
+    use merc_symbolic::BDD_CACHE_CAPACITY;
+    use merc_symbolic::BDD_NODE_CAPACITY;
+
     #[test]
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_read_vpg() {
-        let manager = oxidd::bdd::new_manager(2048, 1024, 8);
+        let manager = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 8);
 
         let parity_game = read_vpg(
             &manager,

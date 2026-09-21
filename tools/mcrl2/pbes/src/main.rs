@@ -75,7 +75,7 @@ use merc_vpg::verify_symbolic_strategy;
 use merc_vpg::write_pg;
 
 /// Default number of nodes for the Oxidd LDD manager.
-const DEFAULT_OXIDD_NODE_CAPACITY: usize = 1 << 24;
+const DEFAULT_OXIDD_NODE_CAPACITY: usize = 1 << 29;
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug)]
 enum PbesFormat {

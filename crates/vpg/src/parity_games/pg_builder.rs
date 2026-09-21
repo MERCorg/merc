@@ -435,6 +435,8 @@ mod tests {
     use oxidd::bdd::BDDFunction;
     use rand::RngExt;
 
+    use merc_symbolic::BDD_CACHE_CAPACITY;
+    use merc_symbolic::BDD_NODE_CAPACITY;
     use merc_symbolic::random_bdd;
     use merc_utilities::random_test;
 
@@ -476,7 +478,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // oxidd is incompatible with miri.
     fn test_random_variability_remove_duplicates() {
         random_test(20, |rng| {
-            let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+            let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
             let variables: Vec<BDDFunction> = manager_ref.with_manager_exclusive(|manager| {
                 manager
                     .add_vars(3)
@@ -517,7 +519,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // oxidd is incompatible with miri.
     fn test_variability_remove_duplicates_merges_configurations() {
-        let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+        let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
         let (a, b) = manager_ref.with_manager_exclusive(|manager| {
             let vars = manager
                 .add_vars(2)

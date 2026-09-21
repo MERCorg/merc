@@ -507,6 +507,8 @@ mod tests {
     use oxidd::bdd::BDDFunction;
     use oxidd::util::AllocResult;
 
+    use crate::BDD_CACHE_CAPACITY;
+    use crate::BDD_NODE_CAPACITY;
     use crate::FormatConfigSet;
     use crate::compute_vars_bdd;
     use crate::random_bdd;
@@ -517,7 +519,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_bdd_variable_rename() {
-        let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+        let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
 
         let vars: Vec<BDDFunction> = manager_ref
             .with_manager_exclusive(|manager| {
@@ -534,7 +536,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_bdd_support() {
         random_test(25, |rng| {
-            let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+            let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
 
             let vars = manager_ref
                 .with_manager_exclusive(|manager| {
@@ -556,7 +558,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_bdd_renaming() {
         random_test(25, |rng| {
-            let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+            let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
 
             let vars = manager_ref
                 .with_manager_exclusive(|manager| {
@@ -587,7 +589,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_bdd_renaming_reverse() {
         random_test(25, |rng| {
-            let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+            let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
 
             let vars = manager_ref
                 .with_manager_exclusive(|manager| {

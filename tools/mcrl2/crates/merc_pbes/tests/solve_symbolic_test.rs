@@ -4,6 +4,8 @@ use mcrl2::Pbes;
 use mcrl2::SrfPbes;
 use merc_explore::CachingStrategy;
 use merc_explore::ExplorationStrategy;
+use merc_symbolic::LDD_CACHE_CAPACITY;
+use merc_symbolic::LDD_NODE_CAPACITY;
 use merc_symbolic::SymbolicLpsOptions;
 use merc_utilities::Timing;
 use merc_vpg::ExtendedParityGame;
@@ -71,7 +73,7 @@ fn assert_symbolic_matches_explicit(pbes: &Pbes) {
         Player::Odd
     };
 
-    let storage = oxidd::ldd::new_manager(1 << 20, 1 << 20, 1);
+    let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
     let symbolic = explore_pbes_symbolic_game(
         &storage,
         unified_symbolic_srf(pbes),

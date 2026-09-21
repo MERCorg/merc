@@ -107,6 +107,8 @@ pub(crate) fn random_variability_parity_game<R: Rng>(
 
 #[cfg(test)]
 mod tests {
+    use merc_symbolic::BDD_CACHE_CAPACITY;
+    use merc_symbolic::BDD_NODE_CAPACITY;
     use merc_utilities::random_test;
 
     use crate::PG;
@@ -136,7 +138,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_variability_parity_game() {
         random_test(100, |rng| {
-            let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+            let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
             let vpg = random_variability_parity_game(&manager_ref, rng, false, 10, 5, 3, 3).unwrap();
             assert_eq!(vpg.num_of_vertices(), 10);
         })
@@ -146,7 +148,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_total_variability_parity_game() {
         random_test(100, |rng| {
-            let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+            let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
             let vpg = random_variability_parity_game(&manager_ref, rng, true, 10, 5, 3, 3).unwrap();
             assert!(
                 vpg.num_of_vertices() >= 10 && vpg.num_of_vertices() <= 12,

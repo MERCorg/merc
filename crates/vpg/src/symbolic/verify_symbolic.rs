@@ -160,6 +160,8 @@ mod tests {
     use oxidd::ManagerRef;
     use oxidd::ldd::LDDFunction;
 
+    use merc_symbolic::LDD_CACHE_CAPACITY;
+    use merc_symbolic::LDD_NODE_CAPACITY;
     use merc_utilities::random_test;
 
     use crate::ExtendedParityGame;
@@ -179,7 +181,7 @@ mod tests {
         random_test(100, |rng| {
             let game = random_parity_game(rng, true, 60, 5, 3);
 
-            let manager = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
             let radix = rng.random_range(2..=5);
             let num_groups = rng.random_range(1..=3);
             let (symbolic, all_vertices, cubes) =
@@ -206,7 +208,7 @@ mod tests {
         random_test(100, |rng| {
             let game = random_parity_game(rng, false, 60, 5, 3);
 
-            let manager = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
             let radix = rng.random_range(2..=5);
             let num_groups = rng.random_range(1..=3);
             let (symbolic, all_vertices, cubes) =
@@ -232,7 +234,7 @@ mod tests {
         random_test(100, |rng| {
             let game = random_parity_game(rng, true, 60, 5, 3);
 
-            let manager = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
             let radix = rng.random_range(2..=5);
             let num_groups = rng.random_range(1..=3);
             let (symbolic, all_vertices, cubes) =
@@ -258,7 +260,7 @@ mod tests {
         random_test(100, |rng| {
             let game = random_parity_game(rng, false, 60, 5, 3);
 
-            let manager = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
             let radix = rng.random_range(2..=5);
             let num_groups = rng.random_range(1..=3);
             let (symbolic, all_vertices, cubes) =

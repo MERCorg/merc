@@ -357,7 +357,11 @@ mod tests {
 
     use merc_utilities::random_test;
 
+    use crate::BDD_CACHE_CAPACITY;
+    use crate::BDD_NODE_CAPACITY;
     use crate::FormatConfigSet;
+    use crate::LDD_CACHE_CAPACITY;
+    use crate::LDD_NODE_CAPACITY;
     use crate::LddDisplay;
     use crate::bdd_to_ldd;
     use crate::compute_bits;
@@ -371,7 +375,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_compute_highest() {
         random_test(100, |rng| {
-            let manager = oxidd::ldd::new_manager(2048, 1024, 1);
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
             let set = random_vector_set(rng, 4, 3, 5);
             let ldd = from_iter(&manager, set.iter());
             println!("LDD: {}", LddDisplay::new(&ldd));
@@ -409,7 +413,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_ldd_to_bdd() {
         random_test(100, |rng| {
-            let manager = oxidd::ldd::new_manager(2048, 1024, 1);
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
             let set = random_vector_set(rng, 50, 3, 5);
 
             let ldd = from_iter(&manager, set.iter());
@@ -421,7 +425,7 @@ mod tests {
                 .with_manager_shared(|m| LDDFunction::singleton(m, &bits))
                 .unwrap();
 
-            let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+            let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
 
             let total_bits: u32 = bits.iter().sum();
             println!("Total bits: {}", total_bits);

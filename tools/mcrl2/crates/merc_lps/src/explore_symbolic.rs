@@ -172,6 +172,10 @@ mod tests {
     use mcrl2::preprocess;
     use mcrl2::read_lps;
     use merc_io::traced_command;
+    use merc_symbolic::BDD_CACHE_CAPACITY;
+    use merc_symbolic::BDD_NODE_CAPACITY;
+    use merc_symbolic::LDD_CACHE_CAPACITY;
+    use merc_symbolic::LDD_NODE_CAPACITY;
     use merc_symbolic::ReachabilityOptions;
     use merc_symbolic::SatCountCache;
     use merc_symbolic::SymbolicLPS;
@@ -305,7 +309,7 @@ mod tests {
         // the `merc-lps` tool does.
         let lps = preprocess(&lps, &PreprocessOptions::default()).expect("Failed to preprocess LPS");
 
-        let storage = oxidd::ldd::new_manager(1 << 20, 1 << 20, 1);
+        let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let timing = Timing::new();
 
         let states = explore_lps_symbolic(
@@ -349,7 +353,7 @@ mod tests {
         let lps_path = temp_dir.path().join("spec.lps");
         let sym_path = temp_dir.path().join("spec.sym");
 
-        let storage = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+        let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let timing = Timing::new();
 
         random_test(10, |rng| {
@@ -398,7 +402,7 @@ mod tests {
             // 3. lpsreach .sym, BDD reachability (fresh read since reachability_with_options mutates the LTS).
             let sym_lts_bdd = read_symbolic_lts(&storage, File::open(&sym_path).expect("Failed to open .sym"))
                 .expect("Failed to read .sym (BDD path)");
-            let bdd_manager = oxidd::bdd::new_manager(1 << 16, 1 << 16, 1);
+            let bdd_manager = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
             let lts_bdd = SymbolicLtsBdd::from_symbolic_lts(&storage, &bdd_manager, &sym_lts_bdd)
                 .expect("Failed to convert .sym to BDD");
             assert!(

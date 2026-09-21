@@ -2,6 +2,8 @@ use std::path::Path;
 
 use mcrl2::Pbes;
 use mcrl2::SrfPbes;
+use merc_symbolic::LDD_CACHE_CAPACITY;
+use merc_symbolic::LDD_NODE_CAPACITY;
 use merc_explore::CachingStrategy;
 use merc_explore::ExplorationStrategy;
 use merc_symbolic::SymbolicLpsOptions;
@@ -46,7 +48,7 @@ fn assert_symbolic_matches_explicit(text_pbes_relative_path: &str) {
     )
     .expect("Failed to build parity game");
 
-    let storage = oxidd::ldd::new_manager(1 << 20, 1 << 20, 1);
+    let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
     let timing = Timing::new();
     let mut symbolic_srf = SrfPbes::from(&pbes).expect("Failed to convert to SRF");
     symbolic_srf

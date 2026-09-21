@@ -51,7 +51,7 @@ use merc_lps::explore_lps_symbolic;
 use merc_lps::explore_lps_symbolic_to_sym;
 
 /// Default number of nodes for the Oxidd LDD manager.
-const DEFAULT_OXIDD_NODE_CAPACITY: usize = 1 << 24;
+const DEFAULT_OXIDD_NODE_CAPACITY: usize = 1 << 29;
 
 /// A command line tool for linear process specifications (LPSs)
 #[derive(clap::Parser, Debug)]

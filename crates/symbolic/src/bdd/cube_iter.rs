@@ -258,6 +258,8 @@ mod tests {
     use oxidd::bdd::BDDFunction;
     use oxidd::util::OptBool;
 
+    use crate::BDD_CACHE_CAPACITY;
+    use crate::BDD_NODE_CAPACITY;
     use crate::CubeIter;
     use crate::CubeIterAll;
     use crate::FormatConfig;
@@ -268,7 +270,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_cube_iter_all() {
         random_test(100, |rng| {
-            let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+            let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
             let set = random_bitvectors(rng, 5, 20);
             println!("Set: {:?}", set.iter().format_with(", ", |v, f| f(&FormatConfig(v))));
 
@@ -312,7 +314,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_cube_iter() {
         random_test(100, |rng| {
-            let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+            let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
             let set = random_bitvectors(rng, 5, 20);
             println!("Set: {:?}", set.iter().format_with(", ", |v, f| f(&FormatConfig(v))));
 

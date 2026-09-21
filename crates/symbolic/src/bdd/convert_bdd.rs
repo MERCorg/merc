@@ -302,6 +302,10 @@ mod tests {
     use merc_utilities::random_test;
     use merc_utilities::test_logger;
 
+    use crate::BDD_CACHE_CAPACITY;
+    use crate::BDD_NODE_CAPACITY;
+    use crate::LDD_CACHE_CAPACITY;
+    use crate::LDD_NODE_CAPACITY;
     use crate::SymbolicLtsBdd;
     use crate::convert_symbolic_lts;
     use crate::convert_symbolic_lts_bdd;
@@ -315,8 +319,8 @@ mod tests {
 
         let input = include_bytes!("../../../../examples/lts/abp.sym");
 
-        let ldd_manager = oxidd::ldd::new_manager(2048, 1024, 1);
-        let bdd_manager = oxidd::bdd::new_manager(2048, 1024, 1);
+        let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+        let bdd_manager = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
         let symbolic_lts = read_symbolic_lts(&ldd_manager, &input[..]).unwrap();
         let symbolic_lts_bdd = SymbolicLtsBdd::from_symbolic_lts(&ldd_manager, &bdd_manager, &symbolic_lts).unwrap();
 
@@ -331,13 +335,13 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_convert_symbolic_lts_bdd() {
         random_test(100, |rng| {
-            let ldd_manager = oxidd::ldd::new_manager(2048, 1024, 1);
+            let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
 
             let lts = random_symbolic_lts(rng, &ldd_manager, 10, 5).unwrap();
             let mut builder = LtsBuilderMem::new(Vec::new(), Vec::new());
             let explicit_lts = convert_symbolic_lts(&ldd_manager, &mut builder, &lts).unwrap();
 
-            let bdd_manager = oxidd::bdd::new_manager(2028, 2028, 1);
+            let bdd_manager = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
             let lts_bdd = SymbolicLtsBdd::from_symbolic_lts(&ldd_manager, &bdd_manager, &lts).unwrap();
 
             let mut builder = LtsBuilderMem::new(Vec::new(), Vec::new());

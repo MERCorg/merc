@@ -14,6 +14,8 @@ use criterion::BenchmarkId;
 use criterion::Criterion;
 
 use merc_symbolic::ExplorationStrategy;
+use merc_symbolic::LDD_CACHE_CAPACITY;
+use merc_symbolic::LDD_NODE_CAPACITY;
 use merc_symbolic::ReachabilityOptions;
 use merc_symbolic::SymbolicLPS;
 use merc_symbolic::reachability_with_options;
@@ -44,7 +46,7 @@ fn bench_example(c: &mut Criterion, group_name: &str, path: PathBuf) {
         group.bench_function(BenchmarkId::new("strategy", format!("{strategy:?}")), |b| {
             b.iter_batched(
                 || {
-                    let manager = oxidd::ldd::new_manager(1 << 20, 1 << 20, 1);
+                    let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
                     let lts = read_symbolic_lts(&manager, File::open(&path).unwrap()).unwrap();
                     (manager, lts)
                 },

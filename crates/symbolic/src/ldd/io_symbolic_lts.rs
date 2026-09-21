@@ -230,6 +230,8 @@ mod tests {
     use merc_utilities::random_test;
     use merc_utilities::test_logger;
 
+    use crate::LDD_CACHE_CAPACITY;
+    use crate::LDD_NODE_CAPACITY;
     use crate::SymbolicLPS;
     use crate::SymbolicLTS;
     use crate::TransitionGroup;
@@ -244,7 +246,7 @@ mod tests {
         test_logger();
         let input = include_bytes!("../../../../examples/lts/WMS.sym");
 
-        let ldd_manager = oxidd::ldd::new_manager(2048, 1024, 1);
+        let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let _lts = read_symbolic_lts(&ldd_manager, &input[..]).unwrap();
     }
 
@@ -252,7 +254,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_symbolic_lts_io() {
         random_test(20, |rng| {
-            let ldd_manager = oxidd::ldd::new_manager(2048, 1024, 1);
+            let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
             let lts = random_symbolic_lts(rng, &ldd_manager, 5, 3).unwrap();
 
             let mut buffer: Vec<u8> = Vec::new();

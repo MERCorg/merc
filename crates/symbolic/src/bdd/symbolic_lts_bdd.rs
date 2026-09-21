@@ -590,6 +590,10 @@ mod tests {
     use merc_utilities::random_test;
     use merc_utilities::test_logger;
 
+    use crate::BDD_CACHE_CAPACITY;
+    use crate::BDD_NODE_CAPACITY;
+    use crate::LDD_CACHE_CAPACITY;
+    use crate::LDD_NODE_CAPACITY;
     use crate::SymbolicLtsBdd;
     use crate::convert_symbolic_lts;
     use crate::convert_symbolic_lts_bdd;
@@ -603,8 +607,8 @@ mod tests {
 
         let input = include_bytes!("../../../../examples/lts/abp.sym");
 
-        let ldd_manager = oxidd::ldd::new_manager(2048, 1024, 1);
-        let bdd_manager = oxidd::bdd::new_manager(2048, 1024, 1);
+        let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+        let bdd_manager = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
         let symbolic_lts = read_symbolic_lts(&ldd_manager, &input[..]).unwrap();
 
         // This only tests that the conversion does not panic.
@@ -615,8 +619,8 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_to_symbolic_lts_conversion() {
         random_test(10, |rng| {
-            let ldd_manager = oxidd::ldd::new_manager(2048, 1024, 1);
-            let bdd_manager = oxidd::bdd::new_manager(2048, 1024, 1);
+            let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+            let bdd_manager = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
 
             let mut chosen = None;
             for _ in 0..20 {
