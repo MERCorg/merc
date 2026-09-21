@@ -485,7 +485,9 @@ mod tests {
     use crate::ExplorationStrategy;
     use crate::LDD_CACHE_CAPACITY;
     use crate::LDD_NODE_CAPACITY;
+    use crate::LddLenCache;
     use crate::ReachabilityOptions;
+    use crate::ldd_len;
     use crate::reachability_with_options;
 
     use super::*;
@@ -592,7 +594,7 @@ mod tests {
             SymbolicLps::with_options(&storage, GridLps::new(bounds), options).expect("the encoding is valid");
 
         let mut context = symbolic.create_context();
-        reachability_with_options(
+        let states = reachability_with_options(
             &storage,
             &mut symbolic,
             &mut context,
@@ -603,8 +605,10 @@ mod tests {
             &Timing::new(),
         )
         .expect("reachability succeeds")
-        .states
-        .len()
+        .states;
+        ldd_len(&states, &mut LddLenCache::new())
+            .exact()
+            .expect("the grids are small") as usize
     }
 
     #[test]

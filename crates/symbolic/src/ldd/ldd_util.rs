@@ -154,11 +154,20 @@ mod tests {
 
     use crate::LDD_CACHE_CAPACITY;
     use crate::LDD_NODE_CAPACITY;
+    use crate::LddLenCache;
     use crate::from_iter;
+    use crate::ldd_len;
     use crate::random_vector_set;
 
     use super::fix_element;
     use super::merge;
+
+    /// The number of vectors in `ldd`, which is small enough for every test in this module to be exact.
+    fn count(ldd: &LDDFunction) -> usize {
+        ldd_len(ldd, &mut LddLenCache::new())
+            .exact()
+            .expect("the count of a test set is exact") as usize
+    }
 
     /// Cross-checks [`LDDFunction::intersect`] against a `HashSet` reference implementation.
     #[test]
@@ -176,7 +185,7 @@ mod tests {
             let result = ldd_a.intersect(&ldd_b).unwrap();
             let expected: HashSet<Vec<u32>> = a.intersection(&b).cloned().collect();
 
-            assert_eq!(result.len(), expected.len());
+            assert_eq!(count(&result), expected.len());
             for vector in &expected {
                 assert!(crate::element_of(&manager, vector, &result), "missing {vector:?}");
             }
@@ -211,7 +220,7 @@ mod tests {
                 }
             }
 
-            assert_eq!(result.len(), expected.len());
+            assert_eq!(count(&result), expected.len());
             for vector in &expected {
                 assert!(crate::element_of(&manager, vector, &result), "missing {vector:?}");
             }
@@ -236,10 +245,10 @@ mod tests {
                     let expected: HashSet<Vec<u32>> = set.iter().filter(|v| v[level] == value).cloned().collect();
 
                     assert_eq!(
-                        result.len(),
+                        count(&result),
                         expected.len(),
                         "level {level}, value {value}: {:?} vs {:?}",
-                        result.len(),
+                        count(&result),
                         expected.len()
                     );
                     for vector in &expected {

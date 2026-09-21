@@ -76,11 +76,13 @@ pub use symbolic_lps::SymbolicLPS;
 pub use symbolic_lps::TransitionGroup;
 pub use symbolic_lps_explore::SymbolicLps;
 pub use symbolic_lps_explore::SymbolicLpsOptions;
+pub use util::LddLenCache;
 pub use util::SatCount;
 pub use util::SatCountCache;
 pub use util::approx_satcount;
 pub use util::element_of;
 pub use util::height;
+pub use util::ldd_len;
 pub use variable_order::Order;
 pub use variable_order::VariableOrder;
 #[cfg(feature = "clap")]

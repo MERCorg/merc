@@ -34,8 +34,10 @@
 //! reachable set, as opposed to [`LDDFunction::len`]'s vector count.
 
 use merc_symbolic::ExplorationStrategy;
+use merc_symbolic::LddLenCache;
 use merc_symbolic::ReachabilityOptions;
 use merc_symbolic::SymbolicLPS;
+use merc_symbolic::ldd_len;
 use merc_symbolic::read_sylvan;
 use merc_utilities::Timing;
 use oxidd::Function;
@@ -129,7 +131,10 @@ fn run(bytes: &[u8], capacity: usize, strategy: ExplorationStrategy) -> (usize, 
     let result = merc_symbolic::reachability_with_options(&storage, &mut lts, &mut context, &options, &Timing::new())
         .expect("reachability should succeed on a checked-in fixture");
 
-    (result.states.len(), result.states.node_count())
+    let states = ldd_len(&result.states, &mut LddLenCache::new())
+        .exact()
+        .expect("the fixtures are small") as usize;
+    (states, result.states.node_count())
 }
 
 /// Sweeps every fixture in [FIXTURES] over every strategy in [STRATEGIES] and prints a final

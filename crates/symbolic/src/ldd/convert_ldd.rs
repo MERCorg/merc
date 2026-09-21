@@ -13,10 +13,12 @@ use merc_lts::LtsBuilder;
 use merc_lts::StateIndex;
 use merc_utilities::MercError;
 
+use crate::LddLenCache;
 use crate::SymbolicLTS;
 use crate::TransitionGroup;
 use crate::height;
 use crate::iter;
+use crate::ldd_len;
 
 /// Converts a symbolic LDD LTS to an explicit LTS.
 ///
@@ -24,6 +26,11 @@ use crate::iter;
 ///
 /// This basically applies the symbolic transitions to every state in the state
 /// space, and constructs the explicit LTS.
+///
+/// The transition groups do not need to have an action label position (see
+/// [`TransitionGroup::action_label_index`]). The transitions of a group without
+/// one are all labelled with the first of [`SymbolicLTS::action_labels`], which
+/// is then the single default label provided by the caller.
 pub fn convert_symbolic_lts<B: LtsBuilder<String>, L: SymbolicLTS>(
     manager: &LDDManagerRef,
     output: &mut B,
@@ -48,7 +55,7 @@ pub fn convert_symbolic_lts<B: LtsBuilder<String>, L: SymbolicLTS>(
     }
 
     // Total number of states for progress reporting.
-    let total_number_of_states = lts.states().len();
+    let total_number_of_states = ldd_len(lts.states(), &mut LddLenCache::new()).as_f64() as usize;
     info!(
         "Converting symbolic LTS to explicit LTS with {} states",
         LargeFormatter(total_number_of_states)
@@ -123,11 +130,18 @@ pub fn convert_symbolic_lts<B: LtsBuilder<String>, L: SymbolicLTS>(
                     target[*i as usize] = transition[write_positions[group_index][index]];
                 }
 
-                // Find the action label.
-                let action_value = transition[group
-                    .action_label_index()
-                    .ok_or("Transition vector should at least have the action label")?];
-                let label = lts.action_labels()[action_value as usize].to_string();
+                // Find the action label. A group without an action label position, e.g. one read from a
+                // Sylvan file, does not distinguish its transitions, so they all get the first action label
+                // of the LTS as their single default label.
+                let action_value = match group.action_label_index() {
+                    Some(index) => transition[index],
+                    None => 0,
+                };
+                let label = lts
+                    .action_labels()
+                    .get(action_value as usize)
+                    .ok_or("Transition has an action label that is not among the action labels of the LTS")?
+                    .to_string();
 
                 // Find the target state index.
                 let target_index = discovered
