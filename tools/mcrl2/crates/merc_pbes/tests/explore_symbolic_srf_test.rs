@@ -4,9 +4,11 @@ use mcrl2::Pbes;
 use mcrl2::SrfPbes;
 use merc_symbolic::LDD_CACHE_CAPACITY;
 use merc_symbolic::LDD_NODE_CAPACITY;
+use merc_symbolic::LddLenCache;
 use merc_explore::CachingStrategy;
 use merc_explore::ExplorationStrategy;
 use merc_symbolic::SymbolicLpsOptions;
+use merc_symbolic::ldd_len;
 use merc_utilities::Timing;
 use merc_vpg::PG;
 use merc_vpg::ParityGameBuilder;
@@ -57,9 +59,12 @@ fn assert_symbolic_matches_explicit(text_pbes_relative_path: &str) {
     let states = explore_pbes_symbolic(&storage, symbolic_srf, &SymbolicLpsOptions::default(), false, &timing)
         .expect("Failed to explore PBES symbolically");
 
+    let num_states = ldd_len(&states, &mut LddLenCache::new())
+        .exact()
+        .expect("The number of states fits in a u128");
     assert_eq!(
-        states.len() as usize,
-        game.num_of_vertices(),
+        num_states,
+        game.num_of_vertices() as u128,
         "Symbolic state count and explicit vertex count differ for {text_pbes_relative_path}"
     );
 }

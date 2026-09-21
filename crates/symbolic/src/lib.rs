@@ -61,6 +61,7 @@ pub use ldd::from_iter;
 pub use ldd::iter;
 pub use ldd::merge;
 pub use ldd::reachability;
+pub use ldd::reachability_with_callback;
 pub use ldd::reachability_with_options;
 pub use ldd::read_sylvan;
 pub use ldd::read_symbolic_lts;
