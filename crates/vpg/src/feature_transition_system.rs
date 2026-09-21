@@ -315,6 +315,8 @@ impl<L: TransitionLabel> LTS for FeatureTransitionSystem<L> {
 #[cfg(test)]
 mod tests {
     use merc_macros::merc_test;
+    use merc_symbolic::BDD_CACHE_CAPACITY;
+    use merc_symbolic::BDD_NODE_CAPACITY;
 
     use crate::FeatureDiagram;
     use crate::read_fts;
@@ -322,7 +324,7 @@ mod tests {
     #[merc_test]
     #[cfg_attr(miri, ignore)] // Oxidd does not support miri (specifically the crossbeam-epoch dependency)
     fn test_read_minepump_fts() {
-        let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+        let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
 
         let feature_diagram = FeatureDiagram::from_reader(
             &manager_ref,

@@ -1,5 +1,3 @@
-//! Tests for the partial symbolic solving accelerators (`partial_solve`, `detect_solitair_cycles`,
-//! `detect_forced_cycles`, `detect_fatal_attractors`), which only exercise `merc_vpg`'s public API.
 use rand::RngExt;
 use rand::SeedableRng;
 
@@ -9,6 +7,8 @@ use oxidd::ldd::LDDFunction;
 use merc_io::DumpFiles;
 use merc_utilities::random_test;
 
+use merc_symbolic::LDD_CACHE_CAPACITY;
+use merc_symbolic::LDD_NODE_CAPACITY;
 use merc_vpg::AttractorProgress;
 use merc_vpg::ExtendedParityGame;
 use merc_vpg::PG;
@@ -54,7 +54,7 @@ fn test_partial_solve_is_sound() {
         let game = random_parity_game(rng, true, 60, 5, 3);
         let (expected, _) = solve_zielonka(&game, false);
 
-        let manager = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+        let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let radix = rng.random_range(2..=5);
         let num_groups = rng.random_range(1..=3);
         let (symbolic, all_vertices, cubes) =
@@ -123,7 +123,7 @@ fn test_cycle_detectors_are_sound() {
         let game = random_parity_game(rng, true, 60, 5, 3);
         let (expected, _) = solve_zielonka(&game, false);
 
-        let manager = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+        let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let radix = rng.random_range(2..=5);
         let num_groups = rng.random_range(1..=3);
         let (symbolic, all_vertices, cubes) =
@@ -221,7 +221,7 @@ fn test_partial_solving_is_sound_with_incomplete_vertices() {
         let game = random_parity_game(rng, true, 60, 5, 3);
         let (expected, _) = solve_zielonka(&game, false);
 
-        let manager = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+        let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let radix = rng.random_range(2..=5);
         let num_groups = rng.random_range(1..=3);
         let (symbolic, all_vertices, cubes) =
@@ -341,7 +341,7 @@ fn test_partial_solving_computes_a_valid_strategy() {
     random_test(100, |rng| {
         let game = random_parity_game(rng, true, 60, 5, 3);
 
-        let manager = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+        let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let radix = rng.random_range(2..=5);
         let num_groups = rng.random_range(1..=3);
         let (symbolic, all_vertices, cubes) =
@@ -410,7 +410,7 @@ fn test_detect_solitair_cycles_finds_the_fixture_cycle() {
     let game = solitair_cycle_fixture();
     files.dump("input.pg", |writer| write_pg(writer, &game)).unwrap();
 
-    let manager = oxidd::ldd::new_manager(1 << 12, 1 << 12, 1);
+    let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
     let mut rng = rand::rngs::SmallRng::seed_from_u64(0);
     let (symbolic, all_vertices, cubes) = encode_parity_game(&manager, &game, &mut rng, 2, 1, false).unwrap();
 
@@ -479,7 +479,7 @@ fn test_detect_forced_cycles_finds_the_fixture_cycle() {
         );
     }
 
-    let manager = oxidd::ldd::new_manager(1 << 12, 1 << 12, 1);
+    let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
     let mut rng = rand::rngs::SmallRng::seed_from_u64(0);
     let (symbolic, all_vertices, cubes) = encode_parity_game(&manager, &game, &mut rng, 2, 1, false).unwrap();
 
@@ -546,7 +546,7 @@ fn test_detect_forced_cycles_finds_the_fixture_cycle() {
 fn test_detect_fatal_attractors_finds_the_fixture_cycle() {
     let game = forced_cycle_fixture();
 
-    let manager = oxidd::ldd::new_manager(1 << 12, 1 << 12, 1);
+    let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
     let mut rng = rand::rngs::SmallRng::seed_from_u64(0);
     let (symbolic, all_vertices, cubes) = encode_parity_game(&manager, &game, &mut rng, 2, 1, false).unwrap();
 

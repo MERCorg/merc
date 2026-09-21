@@ -209,6 +209,8 @@ mod tests {
     use merc_lts::LtsBuilderMem;
     use merc_utilities::test_logger;
 
+    use crate::LDD_CACHE_CAPACITY;
+    use crate::LDD_NODE_CAPACITY;
     use crate::read_symbolic_lts;
 
     use super::convert_symbolic_lts;
@@ -220,7 +222,7 @@ mod tests {
 
         let input = include_bytes!("../../../../examples/lts/abp.sym");
 
-        let manager = oxidd::ldd::new_manager(2048, 1024, 1);
+        let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let symbolic_lts = read_symbolic_lts(&manager, &input[..]).unwrap();
 
         let mut builder = LtsBuilderMem::new(Vec::new(), Vec::new());

@@ -262,12 +262,15 @@ impl fmt::Debug for Submap {
 
 #[cfg(test)]
 mod tests {
-    use merc_macros::merc_test;
     use oxidd::BooleanFunction;
     use oxidd::Manager;
     use oxidd::ManagerRef;
     use oxidd::bdd::BDDFunction;
     use oxidd::util::AllocResult;
+
+    use merc_macros::merc_test;
+    use merc_symbolic::BDD_CACHE_CAPACITY;
+    use merc_symbolic::BDD_NODE_CAPACITY;
 
     use crate::Submap;
     use crate::VertexIndex;
@@ -275,7 +278,7 @@ mod tests {
     #[merc_test]
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_submap() {
-        let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+        let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
         let vars: Vec<BDDFunction> = manager_ref
             .with_manager_exclusive(|manager| {
                 AllocResult::from_iter(manager.add_vars(3).map(|i| BDDFunction::var(manager, i)))

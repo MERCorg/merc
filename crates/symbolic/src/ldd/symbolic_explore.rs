@@ -162,7 +162,10 @@ pub fn reachability_with_options<L: SymbolicLPS>(
             #[cfg(feature = "metrics")]
             {
                 let nodes = storage.with_manager_shared(|m| m.num_inner_nodes());
-                info!("iteration {iteration}: manager has {} inner node(s)", LargeFormatter(nodes));
+                info!(
+                    "iteration {iteration}: manager has {} inner node(s)",
+                    LargeFormatter(nodes)
+                );
                 oxidd::ldd::print_stats();
             }
 
@@ -198,8 +201,9 @@ pub fn reachability_with_options<L: SymbolicLPS>(
 ///   saturated = true
 /// ```
 ///
-/// If learning finds nothing new, then `states` (the result of the previous call) is already closed
-/// under the current events, so there is nothing left to do and the fixpoint check is free.
+/// If learning finds nothing new, then `states` (the result of the previous
+/// call) is already closed under the current events, so there is nothing left
+/// to do and the fixpoint check is free.
 ///
 /// This is a coarse-grained version of the paper's per-local-state `Confirm`
 /// (§4): learning is triggered per whole state set per group rather than per
@@ -214,7 +218,8 @@ pub fn reachability_with_options<L: SymbolicLPS>(
 /// silently (and wrongly) reused as if it still were, so those entries are
 /// cleared *before* the `saturate` call that uses a grown relation. Every other
 /// cached operation does not depend on the events and stays. The first round
-/// clears as well, since the manager may have been used for another exploration.
+/// clears as well, since the manager may have been used for another
+/// exploration.
 fn saturation_reachability<L: SymbolicLPS>(
     storage: &LDDManagerRef,
     lts: &mut L,
@@ -266,9 +271,6 @@ fn saturation_reachability<L: SymbolicLPS>(
 
             #[cfg(feature = "metrics")]
             {
-                // Node-count logging, matching what the other reachability loop above already does —
-                // added so a run can be checked against the "unbounded unique-table growth" hypothesis
-                // from the round-177+ saturation investigation (docs/saturation-implementation-plan.md).
                 let nodes = storage.with_manager_shared(|m| m.num_inner_nodes());
                 info!("round {round}: manager has {} inner node(s)", LargeFormatter(nodes));
                 oxidd::ldd::print_stats();
@@ -459,6 +461,8 @@ fn remove_states_with_successor(
 
 #[cfg(test)]
 mod test {
+    use crate::LDD_CACHE_CAPACITY;
+    use crate::LDD_NODE_CAPACITY;
     use merc_utilities::Timing;
     use oxidd::ManagerRef;
     use oxidd::ldd::LDDFunction;
@@ -479,7 +483,7 @@ mod test {
         // because manager-pointer silently ignores it; manager-index enforces it as a hard cap and
         // this fixture needs more than 2048 live nodes at once. Revert alongside the rest of the
         // manager-index experiment if it's abandoned.
-        let ldd_manager = oxidd::ldd::new_manager(1 << 22, 1 << 22, 1);
+        let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let bytes = include_bytes!("../../../../examples/ldd/anderson.4.ldd");
         let mut lts = read_sylvan(&ldd_manager, &mut &bytes[..]).expect("Loading should work correctly");
 
@@ -569,7 +573,7 @@ mod test {
             ExplorationStrategy::FixpointChaining,
             ExplorationStrategy::Saturation,
         ] {
-            let manager = oxidd::ldd::new_manager(1 << 22, 1 << 22, 1);
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
             let mut lts = line_lts(&manager);
 
             let options = ReachabilityOptions {

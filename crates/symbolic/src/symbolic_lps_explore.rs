@@ -366,17 +366,11 @@ impl<L: LPS> TransitionGroup for SymbolicLpsGroup<L> {
             labels,
         } = context;
 
-        // Reusable full-length state buffer. Non-read positions keep the initial
-        // state's values: they are never read by this summand (guaranteed by the
-        // read-positions contract), so any valid value works; the read positions
-        // are overlaid from each short state below.
+        // Reusable full-length state buffer.
         let mut full_state = self.lps.initial_state();
 
         // The trailing dimension of `interleaved` carries the interned action label, one past the
-        // read/write positions — matching the convention [`crate::SummandGroup`] uses for relations
-        // read from a real `.sym` file. Generators with no notion of an action (`L::HAS_LABELS` is
-        // `false`, e.g. a PBES in SRF form) omit this dimension entirely rather than pad every
-        // relation with a dummy value that always interns to the same index.
+        // read/write positions.
         let action_position = self.read_indices.len() + self.write_indices.len();
         let vector_len = if L::HAS_LABELS {
             action_position + 1
@@ -489,6 +483,8 @@ mod tests {
     use merc_utilities::Timing;
 
     use crate::ExplorationStrategy;
+    use crate::LDD_CACHE_CAPACITY;
+    use crate::LDD_NODE_CAPACITY;
     use crate::ReachabilityOptions;
     use crate::reachability_with_options;
 
@@ -591,7 +587,7 @@ mod tests {
     /// Explores the grid over `bounds` with the given encoding and strategy,
     /// and returns the reachable state count.
     fn explored_count(bounds: &[usize], options: &SymbolicLpsOptions, strategy: ExplorationStrategy) -> usize {
-        let storage = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+        let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let mut symbolic =
             SymbolicLps::with_options(&storage, GridLps::new(bounds), options).expect("the encoding is valid");
 
@@ -656,7 +652,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // miri does not work with oxidd.
     fn test_variable_order_permutes_the_transition_groups() {
-        let storage = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+        let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let options = SymbolicLpsOptions {
             grouping: SummandGrouping::None,
             order: VariableOrder::Explicit(vec![2, 1, 0]),
@@ -677,7 +673,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // miri does not work with oxidd.
     fn test_invalid_variable_order_is_rejected() {
-        let storage = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+        let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let options = SymbolicLpsOptions {
             grouping: SummandGrouping::None,
             order: VariableOrder::Explicit(vec![0, 1]),

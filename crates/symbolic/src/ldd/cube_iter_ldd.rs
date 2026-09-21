@@ -166,6 +166,8 @@ mod tests {
 
     use merc_utilities::random_test;
 
+    use crate::LDD_CACHE_CAPACITY;
+    use crate::LDD_NODE_CAPACITY;
     use crate::from_iter;
     use crate::random_vector_set;
 
@@ -174,7 +176,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_random_iter() {
         random_test(100, |rng| {
-            let manager = oxidd::ldd::new_manager(2048, 1024, 1);
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
 
             let set = random_vector_set(rng, 32, 10, 10);
             let ldd = from_iter(&manager, set.iter());

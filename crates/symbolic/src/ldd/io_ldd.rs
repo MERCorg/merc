@@ -225,6 +225,8 @@ mod tests {
     use merc_io::BitStreamWriter;
     use merc_utilities::random_test;
 
+    use crate::LDD_CACHE_CAPACITY;
+    use crate::LDD_NODE_CAPACITY;
     use crate::from_iter;
     use crate::random_vector_set;
 
@@ -233,7 +235,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_binary_ldd_stream_terminals() {
-        let manager = oxidd::ldd::new_manager(2048, 1024, 1);
+        let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
 
         let terminals = manager.with_manager_shared(|m| {
             [
@@ -260,7 +262,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_binary_ldd_stream() {
         random_test(100, |rng| {
-            let manager = oxidd::ldd::new_manager(2048, 1024, 1);
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
 
             let input: Vec<_> = (0..20)
                 .map(|_| {

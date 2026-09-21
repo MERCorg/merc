@@ -658,6 +658,8 @@ impl<'a> VariabilityZielonkaSolver<'a> {
 mod tests {
     use merc_io::DumpFiles;
     use merc_macros::merc_test;
+    use merc_symbolic::BDD_CACHE_CAPACITY;
+    use merc_symbolic::BDD_NODE_CAPACITY;
     use merc_utilities::Timing;
 
     use merc_utilities::random_test;
@@ -677,7 +679,7 @@ mod tests {
         random_test(100, |rng| {
             let files = DumpFiles::new("test_random_variability_parity_game_solve");
 
-            let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+            let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
             let vpg = random_variability_parity_game(&manager_ref, rng, true, 20, 3, 3, 3).unwrap();
 
             files.dump("input.vpg", |w| write_vpg(w, &vpg)).unwrap();
@@ -693,7 +695,7 @@ mod tests {
         random_test(100, |rng| {
             let files = DumpFiles::new("test_random_variability_parity_game_solve_optimised_left");
 
-            let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+            let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
             let vpg = random_variability_parity_game(&manager_ref, rng, true, 20, 3, 3, 3).unwrap();
 
             files.dump("input.vpg", |w| write_vpg(w, &vpg)).unwrap();

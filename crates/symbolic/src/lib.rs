@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod bdd;
+mod constants;
 mod dependency_graph;
 mod io;
 mod ldd;
@@ -39,6 +40,10 @@ pub use bdd::random_bdd;
 pub use bdd::reachability_bdd;
 pub use bdd::refine_bisimulation;
 pub use bdd::sigref_symbolic;
+pub use constants::BDD_CACHE_CAPACITY;
+pub use constants::BDD_NODE_CAPACITY;
+pub use constants::LDD_CACHE_CAPACITY;
+pub use constants::LDD_NODE_CAPACITY;
 pub use dependency_graph::parse_compacted_dependency_graph;
 pub use io::SymFormat;
 pub use io::guess_format_from_extension;

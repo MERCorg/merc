@@ -1,25 +1,17 @@
-//! Compares [`merc_vpg::SymbolicParityGame::attractor`] (incremental `todo` frontier) against
-//! [`merc_vpg::SymbolicParityGame::attractor_naive`] (recomputes control predecessors of the
-//! whole set every round) on synthetic symbolic parity games of a known vertex count, out-degree
-//! and priority count. Both compute the same attractor set — see
-//! `crates/vpg/tests/random_symbolic_game_test.rs` — so this is purely about how much redundant
-//! work `attractor_naive` trades away simplicity for.
-//!
-//! Sizes here are kept modest on purpose so the whole suite finishes in a few minutes (see the
-//! `benchmark` skill: this isn't part of CI, only run manually) - raise the constants below for a
-//! fuller local stress test.
-
-use benchmarks_vpg::AttractorCase;
-use benchmarks_vpg::generate_attractor_case;
-use benchmarks_vpg::silent_attractor_progress;
 use criterion::BenchmarkId;
 use criterion::Criterion;
 use oxidd::Function;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
-/// Fixed seed so every run (and every `before`/`after` baseline comparison, see the `benchmark`
-/// skill) generates and attracts over the exact same synthetic games.
+use benchmarks_vpg::AttractorCase;
+use benchmarks_vpg::generate_attractor_case;
+use benchmarks_vpg::silent_attractor_progress;
+use merc_symbolic::LDD_CACHE_CAPACITY;
+use merc_symbolic::LDD_NODE_CAPACITY;
+
+/// Fixed seed so every run generates and attracts over the exact same synthetic
+/// games.
 const SEED: u64 = 0xa771_1eaf_5ac7_0125;
 
 /// Times both attractor variants on `case`, reporting the resulting attractor set's cardinality
@@ -70,7 +62,7 @@ pub fn bench_attractor_vs_num_vertices(c: &mut Criterion) {
     const NUM_PRIORITIES: usize = 6;
     const OUT_DEGREE: usize = 4;
     for num_vertices in [100, 1_000, 5_000, 20_000] {
-        let manager = oxidd::ldd::new_manager(1 << 20, 1 << 20, 1);
+        let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let case = generate_attractor_case(&manager, &mut rng, num_vertices, NUM_PRIORITIES, OUT_DEGREE, 3, 2).unwrap();
         bench_attractor(&mut group, num_vertices, &case);
     }
@@ -86,7 +78,7 @@ pub fn bench_attractor_vs_out_degree(c: &mut Criterion) {
     const NUM_VERTICES: usize = 5_000;
     const NUM_PRIORITIES: usize = 6;
     for out_degree in [2, 4, 8, 16] {
-        let manager = oxidd::ldd::new_manager(1 << 20, 1 << 20, 1);
+        let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let case = generate_attractor_case(&manager, &mut rng, NUM_VERTICES, NUM_PRIORITIES, out_degree, 3, 2).unwrap();
         bench_attractor(&mut group, out_degree, &case);
     }
@@ -103,7 +95,7 @@ pub fn bench_attractor_vs_num_priorities(c: &mut Criterion) {
     const NUM_VERTICES: usize = 5_000;
     const OUT_DEGREE: usize = 4;
     for num_priorities in [2, 4, 8, 16] {
-        let manager = oxidd::ldd::new_manager(1 << 20, 1 << 20, 1);
+        let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let case = generate_attractor_case(&manager, &mut rng, NUM_VERTICES, num_priorities, OUT_DEGREE, 3, 2).unwrap();
         bench_attractor(&mut group, num_priorities, &case);
     }
@@ -122,7 +114,7 @@ pub fn bench_attractor_vs_threads(c: &mut Criterion) {
     const NUM_PRIORITIES: usize = 6;
     const OUT_DEGREE: usize = 4;
     for threads in [1, 2, 4, 8, 16] {
-        let manager = oxidd::ldd::new_manager(1 << 20, 1 << 20, threads);
+        let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, threads);
         let case = generate_attractor_case(&manager, &mut rng, NUM_VERTICES, NUM_PRIORITIES, OUT_DEGREE, 3, 2).unwrap();
         bench_attractor(&mut group, threads as usize, &case);
     }
@@ -159,7 +151,7 @@ pub fn bench_attractor_vs_num_groups(c: &mut Criterion) {
     const NUM_PRIORITIES: usize = 6;
     const OUT_DEGREE: usize = 4;
     for num_groups in [1, 2, 4, 8] {
-        let manager = oxidd::ldd::new_manager(1 << 20, 1 << 20, 1);
+        let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let case = generate_attractor_case(
             &manager,
             &mut rng,

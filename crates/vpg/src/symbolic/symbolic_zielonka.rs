@@ -326,6 +326,8 @@ pub(crate) fn empty_set(game: &SymbolicParityGame) -> Result<LDDFunction, MercEr
 
 #[cfg(test)]
 mod tests {
+    use merc_symbolic::LDD_CACHE_CAPACITY;
+    use merc_symbolic::LDD_NODE_CAPACITY;
     use rand::RngExt;
 
     use oxidd::ManagerRef;
@@ -357,7 +359,7 @@ mod tests {
 
             let (expected, _) = solve_zielonka(&game, false);
 
-            let manager = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
             let radix = rng.random_range(2..=5);
             let num_groups = rng.random_range(1..=3);
             let (symbolic, all_vertices, cubes) =
@@ -408,7 +410,7 @@ mod tests {
             let expected_game = make_parity_game_total(&game);
             let (expected, _) = solve_zielonka(&expected_game, false);
 
-            let manager = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
             let radix = rng.random_range(2..=5);
             let num_groups = rng.random_range(1..=3);
             let (symbolic, all_vertices, cubes) =

@@ -1,10 +1,11 @@
-//! Tests for [`merc_vpg::encode_parity_game`], which only exercises `merc_vpg`'s public API.
 use rand::RngExt;
 
 use merc_io::DumpFiles;
 use merc_symbolic::element_of;
 use merc_utilities::random_test;
 
+use merc_symbolic::LDD_CACHE_CAPACITY;
+use merc_symbolic::LDD_NODE_CAPACITY;
 use merc_vpg::AttractorProgress;
 use merc_vpg::PG;
 use merc_vpg::Player;
@@ -31,7 +32,7 @@ fn test_random_symbolic_game_round_trip() {
         let game = random_parity_game(rng, true, 40, 5, 3);
         files.dump("input.pg", |writer| write_pg(writer, &game)).unwrap();
 
-        let manager = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+        let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let radix = rng.random_range(2..=5);
         let num_groups = rng.random_range(1..=3);
         let (symbolic, all_vertices, cubes) =
@@ -71,7 +72,7 @@ fn test_random_symbolic_game_sinks_match_explicit_deadlocks() {
     random_test(100, |rng| {
         let game = random_parity_game(rng, false, 40, 5, 3);
 
-        let manager = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+        let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let radix = rng.random_range(2..=5);
         let num_groups = rng.random_range(1..=3);
         let (symbolic, all_vertices, cubes) =
@@ -99,7 +100,7 @@ fn test_attractor_naive_matches_attractor() {
     random_test(100, |rng| {
         let game = random_parity_game(rng, true, 40, 5, 3);
 
-        let manager = oxidd::ldd::new_manager(1 << 16, 1 << 16, 1);
+        let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let radix = rng.random_range(2..=5);
         let num_groups = rng.random_range(1..=3);
         let compute_strategy = rng.random_bool(0.5);

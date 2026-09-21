@@ -1025,6 +1025,10 @@ mod tests {
     use super::decode_block;
     use super::encode_block;
     use super::is_bdd_cube_edge;
+    use crate::BDD_CACHE_CAPACITY;
+    use crate::BDD_NODE_CAPACITY;
+    use crate::LDD_CACHE_CAPACITY;
+    use crate::LDD_NODE_CAPACITY;
     use crate::SymbolicLtsBdd;
     use crate::convert_symbolic_lts;
     use crate::convert_symbolic_lts_bdd;
@@ -1039,7 +1043,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_encode_blocks() {
         random_test(100, |rng| {
-            let manager_ref = oxidd::bdd::new_manager(2048, 1024, 1);
+            let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
 
             let block_number: u64 = rng.random();
 
@@ -1074,18 +1078,18 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_sigref_split_signature() {
         random_test(100, |rng| {
-            let ldd_manager = oxidd::ldd::new_manager(2048, 1024, 1);
+            let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
 
             let lts = random_symbolic_lts(rng, &ldd_manager, 10, 5).unwrap();
 
-            let bdd_manager = oxidd::bdd::new_manager(2028, 2028, 1);
+            let bdd_manager = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
             let lts_bdd = SymbolicLtsBdd::from_symbolic_lts(&ldd_manager, &bdd_manager, &lts).unwrap();
 
             let (_, _, expected_num_blocks) =
                 sigref_symbolic(&bdd_manager, &lts_bdd, &Timing::new(), false, false, false, false).unwrap();
 
             // Create a separate manager since sigref_symbolic creates new block variables.
-            let bdd_manager_split = oxidd::bdd::new_manager(2028, 2028, 1);
+            let bdd_manager_split = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
             let lts_bdd_split = SymbolicLtsBdd::from_symbolic_lts(&ldd_manager, &bdd_manager_split, &lts).unwrap();
             let (_, _, split_num_blocks) = sigref_symbolic(
                 &bdd_manager_split,
@@ -1108,14 +1112,14 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_szymanski_symbolic_refinement() {
-        let ldd_manager = oxidd::ldd::new_manager(2048, 1024, 1);
+        let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let lts_bdd = read_symbolic_lts(
             &ldd_manager,
             include_bytes!("../../../../examples/lts/Szymanski_3-bit_lin_wait_alt.sym") as &[u8],
         )
         .unwrap();
 
-        let bdd_manager = oxidd::bdd::new_manager(2048, 1024, 1);
+        let bdd_manager = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
         let lts_bdd = SymbolicLtsBdd::from_symbolic_lts(&ldd_manager, &bdd_manager, &lts_bdd).unwrap();
 
         let (_, _, num_of_blocks) =
@@ -1129,14 +1133,14 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_symbolic_signature_refinement_abp() {
-        let ldd_manager = oxidd::ldd::new_manager(2048, 1024, 1);
+        let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let lts = read_symbolic_lts(
             &ldd_manager,
             include_bytes!("../../../../examples/lts/abp.sym") as &[u8],
         )
         .unwrap();
 
-        let bdd_manager = oxidd::bdd::new_manager(2028, 2028, 1);
+        let bdd_manager = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
         let lts_bdd = SymbolicLtsBdd::from_symbolic_lts(&ldd_manager, &bdd_manager, &lts).unwrap();
 
         let (_, _, num_of_blocks) =
@@ -1148,7 +1152,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_is_cube() {
         random_test(100, |rng| {
-            let ldd_manager = oxidd::bdd::new_manager(2048, 1024, 1);
+            let ldd_manager = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
 
             // Create variables in the BDD manager
             let vars: Vec<VarNo> =
@@ -1177,11 +1181,11 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_random_sigref() {
         random_test(100, |rng| {
-            let ldd_manager = oxidd::ldd::new_manager(2048, 1024, 1);
+            let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
 
             let lts = random_symbolic_lts(rng, &ldd_manager, 10, 5).unwrap();
 
-            let bdd_manager = oxidd::bdd::new_manager(2028, 2028, 1);
+            let bdd_manager = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
             let lts_bdd = SymbolicLtsBdd::from_symbolic_lts(&ldd_manager, &bdd_manager, &lts).unwrap();
 
             let mut builder = LtsBuilderMem::new(Vec::new(), Vec::new());
