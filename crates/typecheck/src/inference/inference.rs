@@ -1808,7 +1808,6 @@ impl Solver<'_> {
     }
 }
 
-
 /// As [`typed_expr_string`], for a whole equation: `condition -> lhs = rhs`, or plain `lhs = rhs`
 /// with no condition.
 fn typed_equation_string(
@@ -1851,7 +1850,6 @@ fn typed_roots_string(
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -512,14 +512,14 @@ impl SortInterner {
     }
 
     /// The compositional widening distance from `from` up to `to`, or `None`
-    /// unless `from` is `to` or a strict subsort of it. 
-    /// 
+    /// unless `from` is `to` or a strict subsort of it.
+    ///
     ///  - `head` counts steps taken at the sorts' own head position
-    /// (number-sort generality, or the FSet/Set — FBag/Bag — finiteness step); 
-    /// 
+    /// (number-sort generality, or the FSet/Set — FBag/Bag — finiteness step);
+    ///
     ///  - `interior` counts every step taken anywhere underneath it (a
-    /// container's element, a function's domain or range). 
-    /// 
+    /// container's element, a function's domain or range).
+    ///
     /// The split matters for ranking: a caller that only ever reaches a nonzero
     /// `interior` through [SortInterner::is_materializable]-gated pairs is
     /// guaranteed `interior == 0` in practice today.

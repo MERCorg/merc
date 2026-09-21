@@ -52,17 +52,42 @@ pub(crate) fn basic_sort_data_specification(
 
 /// The generic function-update template of arity `arity >= 1`.
 pub(crate) fn function_update_template(arity: usize) -> UntypedDataSpecification {
+    build_function_update_template(&function_update_template_text(arity), arity)
+}
+
+/// As [function_update_template], but registered into `sources` as a virtual
+/// document first, so a genuine type error found while rigidly checking the
+/// generic template (`typecheck_function_update_template`) renders against
+/// real source text instead of a span that resolves to nothing.
+pub(crate) fn register_function_update_template(sources: &mut SourceMap, arity: usize) -> UntypedDataSpecification {
+    let text = function_update_template_text(arity);
+    let id = sources.add_virtual(format!("<builtin>/function_update_{arity}.mcrl2"), text.clone());
+    let base = sources.base_offset(id);
+
+    let mut spec = build_function_update_template(&text, arity);
+    spec.offset_spans(base);
+    spec
+}
+
+/// The source text of the generic, arity-`arity` function-update template,
+/// shared by [function_update_template] and [register_function_update_template].
+fn function_update_template_text(arity: usize) -> String {
     debug_assert!(arity > 0, "a function sort always has at least one domain sort");
 
     let domain_names: Vec<String> = (0..arity).map(|i| format!("S{i}")).collect();
     let range_name = "T";
-    let text = format!(
+    format!(
         "type_var {}, {range_name};\n{}",
         domain_names.join(", "),
         function_update_text(&domain_names, range_name)
-    );
+    )
+}
 
-    let mut spec = UntypedDataSpecification::parse(&text).unwrap_or_else(|err| {
+/// Parses and fully lowers `text`, the arity-`arity` function-update
+/// template's own source, shared by [function_update_template] and
+/// [register_function_update_template].
+fn build_function_update_template(text: &str, arity: usize) -> UntypedDataSpecification {
+    let mut spec = UntypedDataSpecification::parse(text).unwrap_or_else(|err| {
         panic!("the generated arity-{arity} function-update template does not parse: {err}\n{text}")
     });
 
@@ -619,16 +644,100 @@ pub(crate) static CONTAINER_TEMPLATES_MACHINE_WORD: LazyLock<ContainerTemplates>
         fbag: parse_rigid_template(include_str!("../../../syntax/spec/fbag64.mcrl2")),
     });
 
+/// [CONTAINER_TEMPLATES], registered into `sources` as virtual documents.
+fn container_templates_binary(sources: &mut SourceMap) -> ContainerTemplates {
+    ContainerTemplates {
+        list: register_bare_template(
+            sources,
+            "<builtin>/list.mcrl2",
+            include_str!("../../../syntax/spec/list.mcrl2"),
+            &CONTAINER_TEMPLATES.list,
+        ),
+        set: register_bare_template(
+            sources,
+            "<builtin>/set.mcrl2",
+            include_str!("../../../syntax/spec/set.mcrl2"),
+            &CONTAINER_TEMPLATES.set,
+        ),
+        fset: register_bare_template(
+            sources,
+            "<builtin>/fset.mcrl2",
+            include_str!("../../../syntax/spec/fset.mcrl2"),
+            &CONTAINER_TEMPLATES.fset,
+        ),
+        bag: register_bare_template(
+            sources,
+            "<builtin>/bag.mcrl2",
+            include_str!("../../../syntax/spec/bag.mcrl2"),
+            &CONTAINER_TEMPLATES.bag,
+        ),
+        fbag: register_bare_template(
+            sources,
+            "<builtin>/fbag.mcrl2",
+            include_str!("../../../syntax/spec/fbag.mcrl2"),
+            &CONTAINER_TEMPLATES.fbag,
+        ),
+    }
+}
+
+/// [CONTAINER_TEMPLATES_MACHINE_WORD], registered into `sources` as virtual
+/// documents.
+fn container_templates_machine_word(sources: &mut SourceMap) -> ContainerTemplates {
+    ContainerTemplates {
+        list: register_bare_template(
+            sources,
+            "<builtin>/list64.mcrl2",
+            include_str!("../../../syntax/spec/list64.mcrl2"),
+            &CONTAINER_TEMPLATES_MACHINE_WORD.list,
+        ),
+        set: register_bare_template(
+            sources,
+            "<builtin>/set64.mcrl2",
+            include_str!("../../../syntax/spec/set64.mcrl2"),
+            &CONTAINER_TEMPLATES_MACHINE_WORD.set,
+        ),
+        fset: register_bare_template(
+            sources,
+            "<builtin>/fset64.mcrl2",
+            include_str!("../../../syntax/spec/fset64.mcrl2"),
+            &CONTAINER_TEMPLATES_MACHINE_WORD.fset,
+        ),
+        bag: register_bare_template(
+            sources,
+            "<builtin>/bag64.mcrl2",
+            include_str!("../../../syntax/spec/bag64.mcrl2"),
+            &CONTAINER_TEMPLATES_MACHINE_WORD.bag,
+        ),
+        fbag: register_bare_template(
+            sources,
+            "<builtin>/fbag64.mcrl2",
+            include_str!("../../../syntax/spec/fbag64.mcrl2"),
+            &CONTAINER_TEMPLATES_MACHINE_WORD.fbag,
+        ),
+    }
+}
+
+/// The container templates to instantiate for `encoding`, registered into
+/// `sources` so their spans render correctly — shared by the rigid check
+/// (`typecheck_templates`) and by concrete instantiation
+/// (`crate::standard_sort`).
+pub(crate) fn container_templates(sources: &mut SourceMap, encoding: NumberEncoding) -> ContainerTemplates {
+    match encoding {
+        NumberEncoding::Binary => container_templates_binary(sources),
+        NumberEncoding::MachineWord => container_templates_machine_word(sources),
+    }
+}
+
 /// Type checks every template's own equations once populating
-/// `ctx.template_typings`.
+/// `ctx.template_typings`. `sources` is where the container/comparison
+/// templates' own bundled text is registered, so that a genuine type error
+/// found here.
 pub(crate) fn typecheck_templates(
     ctx: &mut TypeCheckContext,
+    sources: &mut SourceMap,
     encoding: NumberEncoding,
 ) -> Result<(), InferenceError> {
-    let templates: &ContainerTemplates = match encoding {
-        NumberEncoding::Binary => &CONTAINER_TEMPLATES,
-        NumberEncoding::MachineWord => &CONTAINER_TEMPLATES_MACHINE_WORD,
-    };
+    let templates = container_templates(sources, encoding);
 
     for (id, template) in templates.all_named() {
         if !ctx.template_typings.contains_key(&id) {
@@ -636,8 +745,14 @@ pub(crate) fn typecheck_templates(
             ctx.template_typings.insert(id, typings);
         }
     }
-    
-    let typings = typecheck_template_equations(ctx, TemplateId::Comparison, &BUILTIN_SCHEME_TEMPLATE)?;
+
+    let comparison_template = register_bare_template(
+        sources,
+        "<builtin>/schemes/comparison.mcrl2",
+        BUILTIN_SCHEME_TEMPLATE_TEXT,
+        &BUILTIN_SCHEME_TEMPLATE,
+    );
+    let typings = typecheck_template_equations(ctx, TemplateId::Comparison, &comparison_template)?;
     ctx.template_typings.insert(TemplateId::Comparison, typings);
     Ok(())
 }
@@ -646,12 +761,16 @@ pub(crate) fn typecheck_templates(
 /// equations once populating `ctx.template_typings` under
 /// [`TemplateId::FunctionUpdateN`], and merges the arity's own scheme into
 /// `ctx.signature` permanently.
-pub(crate) fn typecheck_function_update_template(ctx: &mut TypeCheckContext, arity: usize) -> Result<(), InferenceError> {
+pub(crate) fn typecheck_function_update_template(
+    ctx: &mut TypeCheckContext,
+    sources: &mut SourceMap,
+    arity: usize,
+) -> Result<(), InferenceError> {
     let id = TemplateId::FunctionUpdateN(arity);
     if ctx.template_typings.contains_key(&id) {
         return Ok(());
     }
-    let template = function_update_template(arity);
+    let template = register_function_update_template(sources, arity);
 
     // This arity's own `@func_update`/`@func_update_stable`/`@is_not_an_update`/
     // `@if_always_else` are declared only inside `template` itself — the
@@ -833,6 +952,51 @@ mod tests {
             "expected the Bool sort declaration to render against bool.mcrl2, got: {rendered}"
         );
         let id = sources.lookup(bool_decl.span.start);
+        assert!(sources.is_virtual(id), "a builtin template's source must be virtual");
+    }
+
+    /// As [test_basic_sort_declaration_renders_against_its_builtin_source], but
+    /// for a generic container template: [typecheck_templates] must rigidly
+    /// check a clone registered into the caller's own `SourceMap`, not the raw
+    /// static [CONTAINER_TEMPLATES], whose spans resolve against nothing.
+    #[test]
+    #[cfg_attr(miri, ignore)] // Test is too slow under miri
+    fn test_container_template_declaration_renders_against_its_builtin_source() {
+        let mut sources = SourceMap::new();
+        let templates = super::container_templates(&mut sources, crate::NumberEncoding::Binary);
+        let map_decl = templates
+            .list
+            .map_declarations
+            .first()
+            .expect("list.mcrl2 declares at least one map");
+
+        let id = sources.lookup(map_decl.identifier.span.start);
+        assert!(
+            sources.path(id).contains("list.mcrl2"),
+            "expected the List map declaration to be registered against list.mcrl2, got: {}",
+            sources.path(id)
+        );
+        assert!(sources.is_virtual(id), "a builtin template's source must be virtual");
+    }
+
+    /// As the container-template test above, for the generic function-update
+    /// template that [typecheck_function_update_template] rigidly checks.
+    #[test]
+    #[cfg_attr(miri, ignore)] // Test is too slow under miri
+    fn test_function_update_template_declaration_renders_against_a_registered_source() {
+        let mut sources = SourceMap::new();
+        let template = super::register_function_update_template(&mut sources, 1);
+        let map_decl = template
+            .map_declarations
+            .first()
+            .expect("the function-update template declares at least one map");
+
+        let id = sources.lookup(map_decl.identifier.span.start);
+        assert!(
+            sources.path(id).contains("function_update_1.mcrl2"),
+            "expected the function-update map declaration to be registered against function_update_1.mcrl2, got: {}",
+            sources.path(id)
+        );
         assert!(sources.is_virtual(id), "a builtin template's source must be virtual");
     }
 }

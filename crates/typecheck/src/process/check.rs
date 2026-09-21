@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use merc_syntax::ActionName;
 use merc_syntax::Assignment;
 use merc_syntax::CommExpr;
@@ -638,7 +636,10 @@ fn combined_sort_matches(
             let mut joined = tables.actions.action_domains[from_indices[0]][position];
             for &index in &from_indices[1..] {
                 let candidate = tables.actions.action_domains[index][position];
-                joined = match ctx.sorts.join(joined, candidate) {
+                let next = ctx.sorts.join(joined, candidate).filter(|&sort| {
+                    ctx.sorts.is_materializable(joined, sort) && ctx.sorts.is_materializable(candidate, sort)
+                });
+                joined = match next {
                     Some(sort) => sort,
                     None => {
                         failure = Some((position, joined, candidate));
@@ -646,12 +647,9 @@ fn combined_sort_matches(
                     }
                 };
             }
-            match ctx.sorts.partial_cmp(joined, expected) {
-                Some(Ordering::Less | Ordering::Equal) => {}
-                _ => {
-                    failure = Some((position, joined, expected));
-                    break;
-                }
+            if !ctx.sorts.is_materializable(joined, expected) {
+                failure = Some((position, joined, expected));
+                break;
             }
         }
     }
