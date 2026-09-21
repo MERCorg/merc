@@ -181,34 +181,40 @@ pub fn reachability_with_options<L: SymbolicLPS>(
 /// growing state set, rather than the whole-set fixpoint schedules the other
 /// strategies use.
 ///
-/// **On-the-fly relation learning.** 
-/// 
+/// **On-the-fly relation learning.**
+///
 /// Inside a single `saturate` call no new local value can appear: firing only
 /// ever installs values already present on the write side of an already-learned
-/// relation:
+/// relation. New values, and new transitions out of them, only show up between
+/// calls, so the driver alternates learning and saturating:
 ///
 /// ```text
-/// states = initial; epoch = 0
+/// states = initial; saturated = false
 /// loop:
 ///   changed = for each group: group.learn_successors(context, storage, &states, options.cached)
-///   next = states.saturate(&events, num_levels, epoch)   // epoch: see below
-///   if changed: epoch += 1
-///   if next == states: break
-///   states = next
+///   if !changed && saturated: break     // states is closed under exactly these events
+///   clear_saturation_cache()            // the events differ from those of the previous saturate call
+///   states = states.saturate(&events)
+///   saturated = true
 /// ```
+///
+/// If learning finds nothing new, then `states` (the result of the previous call) is already closed
+/// under the current events, so there is nothing left to do and the fixpoint check is free.
 ///
 /// This is a coarse-grained version of the paper's per-local-state `Confirm`
 /// (§4): learning is triggered per whole state set per group rather than per
 /// single newly-touched local value, so it does strictly more enumeration work
 /// than necessary. It is correct and terminating regardless.
 ///
-/// **`epoch`.** 
-/// 
+/// **The saturation cache.**
+///
 /// `saturate`'s `Saturate`/`SatRecFire` cache entries are keyed on node
 /// identity, which does not change when a group's relation grows — a node
 /// cached as saturated under an earlier, smaller relation would otherwise be
-/// silently (and wrongly) reused as if it still were, so `epoch` must be bumped
-/// whenever any group's relation actually grew since the last round.
+/// silently (and wrongly) reused as if it still were, so those entries are
+/// cleared *before* the `saturate` call that uses a grown relation. Every other
+/// cached operation does not depend on the events and stays. The first round
+/// clears as well, since the manager may have been used for another exploration.
 fn saturation_reachability<L: SymbolicLPS>(
     storage: &LDDManagerRef,
     lts: &mut L,
@@ -229,11 +235,11 @@ fn saturation_reachability<L: SymbolicLPS>(
 
     timing.measure("reachability", || {
         let mut states = lts.initial_state().clone();
-        let mut epoch: u32 = 0;
         let mut round: u32 = 0;
+        // Whether `states` is the result of a `saturate` call under the current relations.
+        let mut saturated = false;
 
         loop {
-            // Only bump `epoch` when a group's relation actually grew this round.
             let mut relation_changed = false;
             for group in lts.transition_groups_mut() {
                 let before = group.relation().clone();
@@ -243,24 +249,29 @@ fn saturation_reachability<L: SymbolicLPS>(
                 }
             }
 
-            let events = saturation_events(lts);
-            let num_levels = vector_length(&states);
-
-            let next = states.saturate(&events, num_levels, epoch)?;
-            if relation_changed {
-                epoch += 1;
+            if !relation_changed && saturated {
+                break;
             }
+
+            // Here the relations have grown or this is the first round: entries cached under any
+            // earlier events are stale.
+            storage.with_manager_shared(|m| LDDFunction::clear_saturation_cache(m));
+
+            let events = saturation_events(lts);
+            states = states.saturate(&events)?;
+            saturated = true;
             round += 1;
 
             progress.print((round, states.len()));
 
             #[cfg(feature = "metrics")]
-            oxidd::ldd::print_stats();
-
-            let fixpoint = next == states;
-            states = next;
-            if fixpoint {
-                break;
+            {
+                // Node-count logging, matching what the other reachability loop above already does —
+                // added so a run can be checked against the "unbounded unique-table growth" hypothesis
+                // from the round-177+ saturation investigation (docs/saturation-implementation-plan.md).
+                let nodes = storage.with_manager_shared(|m| m.num_inner_nodes());
+                info!("round {round}: manager has {} inner node(s)", LargeFormatter(nodes));
+                oxidd::ldd::print_stats();
             }
         }
 
@@ -310,18 +321,6 @@ fn saturation_events<L: SymbolicLPS>(lts: &L) -> Vec<SaturationEvent> {
             })
         })
         .collect()
-}
-
-/// Returns the length of the vectors in `set`, by walking down its leftmost spine. Every vector in
-/// `set` is assumed to have the same length, as required by [`SymbolicLPS`].
-fn vector_length(set: &LDDFunction) -> u32 {
-    let mut level = set.clone();
-    let mut length = 0;
-    while let Some((_, down, _)) = level.node() {
-        length += 1;
-        level = down;
-    }
-    length
 }
 
 /// Performs a single exploration step from the frontier `todo`.
@@ -476,7 +475,11 @@ mod test {
 
     /// Explores the `anderson.4` fixture with the given strategy and returns the reachable state count.
     fn explored_count(strategy: ExplorationStrategy) -> usize {
-        let ldd_manager = oxidd::ldd::new_manager(2048, 1024, 1);
+        // TEMPORARY (manager-index experiment): bumped from 2048 — that capacity only ever "worked"
+        // because manager-pointer silently ignores it; manager-index enforces it as a hard cap and
+        // this fixture needs more than 2048 live nodes at once. Revert alongside the rest of the
+        // manager-index experiment if it's abandoned.
+        let ldd_manager = oxidd::ldd::new_manager(1 << 22, 1 << 22, 1);
         let bytes = include_bytes!("../../../../examples/ldd/anderson.4.ldd");
         let mut lts = read_sylvan(&ldd_manager, &mut &bytes[..]).expect("Loading should work correctly");
 
@@ -566,7 +569,7 @@ mod test {
             ExplorationStrategy::FixpointChaining,
             ExplorationStrategy::Saturation,
         ] {
-            let manager = oxidd::ldd::new_manager(2048, 1024, 1);
+            let manager = oxidd::ldd::new_manager(1 << 22, 1 << 22, 1);
             let mut lts = line_lts(&manager);
 
             let options = ReachabilityOptions {
