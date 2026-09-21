@@ -29,14 +29,14 @@ use oxidd_rules_ldd::LDDTerminal;
 use rustc_hash::FxBuildHasher;
 use rustc_hash::FxHashMap;
 
-/// Result of [`approx_satcount`], either an exact integer count or an f64 approximation.
+/// Result of [`approx_satcount`] and [`ldd_len`], either an exact integer count or an f64 approximation.
 ///
 /// The underlying [`BooleanFunction::sat_count`] initializes its accumulator to
 /// `2^vars`, so a u64 accumulator overflows once `vars >= 64` regardless of the
 /// actual count.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SatCount {
-    Exact(u64),
+    Exact(u128),
     Approximate(f64),
 }
 
@@ -50,7 +50,7 @@ impl SatCount {
     }
 
     /// The exact count, or `None` if only an f64 approximation is available.
-    pub fn exact(&self) -> Option<u64> {
+    pub fn exact(&self) -> Option<u128> {
         match self {
             SatCount::Exact(n) => Some(*n),
             SatCount::Approximate(_) => None,
@@ -89,9 +89,43 @@ impl SatCountCache {
 /// [`SatCount::Approximate`] otherwise (see [`SatCount`] for the reason).
 pub fn approx_satcount(bdd: &BDDFunction, vars: VarNo, cache: &mut SatCountCache) -> SatCount {
     if vars < 64 {
-        SatCount::Exact(bdd.sat_count::<u64, FxBuildHasher>(vars, &mut cache.exact))
+        SatCount::Exact(bdd.sat_count::<u64, FxBuildHasher>(vars, &mut cache.exact).into())
     } else {
         SatCount::Approximate(bdd.sat_count::<F64, FxBuildHasher>(vars, &mut cache.approximate).0)
+    }
+}
+
+/// Reusable cache for [`ldd_len`], the counterpart of [`SatCountCache`] for LDDs. Its entries
+/// belong to the LDD manager of the counted sets, so it must not be shared with another manager.
+#[derive(Default)]
+pub struct LddLenCache {
+    exact: OxiddSatCountCache<u128, FxBuildHasher>,
+    approximate: OxiddSatCountCache<F64, FxBuildHasher>,
+}
+
+impl LddLenCache {
+    /// Create an empty cache.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+/// Counts the number of vectors in `ldd`.
+///
+/// Returns [`SatCount::Exact`] as long as the count comfortably fits in a `u128`, and falls back
+/// to [`SatCount::Approximate`] otherwise. Counting in `u128` directly would silently wrap in a
+/// release build, so the count is first computed in `f64`, which cannot overflow, and the exact
+/// count is only computed if the approximation shows that it fits.
+pub fn ldd_len(ldd: &LDDFunction, cache: &mut LddLenCache) -> SatCount {
+    // Powers of two up to `2^100` are exactly representable, and an approximation below it
+    // leaves plenty of room for the rounding error of the `f64` accumulation.
+    const EXACT_LIMIT: f64 = (1u128 << 100) as f64;
+
+    let approximate = ldd.len::<F64, FxBuildHasher>(&mut cache.approximate).0;
+    if approximate < EXACT_LIMIT {
+        SatCount::Exact(ldd.len::<u128, FxBuildHasher>(&mut cache.exact))
+    } else {
+        SatCount::Approximate(approximate)
     }
 }
 

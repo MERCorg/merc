@@ -127,7 +127,9 @@ mod tests {
     use crate::BDD_NODE_CAPACITY;
     use crate::LDD_CACHE_CAPACITY;
     use crate::LDD_NODE_CAPACITY;
+    use crate::LddLenCache;
     use crate::SymbolicLtsBdd;
+    use crate::ldd_len;
     use crate::random_symbolic_lts;
     use crate::reachability;
     use crate::reachability_bdd;
@@ -141,7 +143,9 @@ mod tests {
             // We don't really check anything here, just ensure that reachability runs without errors.
             let mut lts = random_symbolic_lts(rng, &manager, 10, 5).unwrap();
             let reachable_states = reachability(&manager, &mut lts, &Timing::new()).unwrap();
-            let num_reachable_states = reachable_states.len();
+            let num_reachable_states = ldd_len(&reachable_states, &mut LddLenCache::new())
+                .exact()
+                .expect("the random test sets are small") as usize;
 
             let manager_ref = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
             let lts_bdd = SymbolicLtsBdd::from_symbolic_lts(&manager, &manager_ref, &lts).unwrap();

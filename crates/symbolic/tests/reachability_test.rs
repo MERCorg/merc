@@ -15,9 +15,11 @@ use merc_symbolic::BDD_CACHE_CAPACITY;
 use merc_symbolic::BDD_NODE_CAPACITY;
 use merc_symbolic::LDD_CACHE_CAPACITY;
 use merc_symbolic::LDD_NODE_CAPACITY;
+use merc_symbolic::LddLenCache;
 use merc_symbolic::SatCountCache;
 use merc_symbolic::SymbolicLtsBdd;
 use merc_symbolic::approx_satcount;
+use merc_symbolic::ldd_len;
 use merc_symbolic::reachability;
 use merc_symbolic::reachability_bdd;
 use merc_symbolic::read_symbolic_lts;
@@ -32,9 +34,11 @@ fn compare_ldd_bdd_reachability(sym_path: &Path) {
     let ldd_storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
     let mut lts_ldd = read_symbolic_lts(&ldd_storage, File::open(sym_path).expect("Failed to open sym file"))
         .expect("Failed to read sym file for LDD path");
-    let ldd_count = reachability(&ldd_storage, &mut lts_ldd, &Timing::new())
-        .expect("LDD reachability failed")
-        .len();
+    let ldd_count = ldd_len(
+        &reachability(&ldd_storage, &mut lts_ldd, &Timing::new()).expect("LDD reachability failed"),
+        &mut LddLenCache::new(),
+    )
+    .as_f64() as usize;
 
     // BDD path: read a second time so the two paths are fully independent.
     let bdd_ldd_storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
