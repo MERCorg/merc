@@ -18,12 +18,14 @@ use merc_syntax::SortId;
 use merc_syntax::SourceMap;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedDataSpecification;
+#[cfg(test)]
 use merc_syntax::VarId;
 
 use crate::AliasError;
 use crate::EquationTyping;
 use crate::InferenceError;
 use crate::NumberEncoding;
+#[cfg(test)]
 use crate::Signature;
 use crate::TypeCheckContext;
 use crate::TypingInfo;
@@ -36,8 +38,6 @@ use crate::basic_sort_data_specification;
 use crate::build_signature;
 use crate::check_aliases;
 use crate::check_equation_well_formedness;
-use crate::typecheck_equations;
-use crate::typecheck_function_update_template;
 use crate::check_no_system_function_redeclaration;
 use crate::check_products_within_domains;
 use crate::check_system_equations;
@@ -61,6 +61,8 @@ use crate::resolve_sort_ids;
 use crate::resolve_system_signature;
 use crate::resolve_type_variables;
 use crate::structured_sort_equations;
+use crate::typecheck_equations;
+use crate::typecheck_function_update_template;
 use crate::typecheck_templates;
 use crate::typed_equation_string;
 use crate::typing_info;
@@ -233,8 +235,17 @@ impl DataSpecification {
         resolve_system_signature(&mut context, &spec, &system)?;
         debug!("resolved the system signature");
 
+        debug!(
+            "Signature: \n{}",
+            context
+                .signature
+                .as_ref()
+                .expect("Signature was constructed at this point")
+                .display(&context, &spec)
+        );
+
         // Type checks every container template's own equations once.
-        typecheck_templates(&mut context, encoding)?;
+        typecheck_templates(&mut context, sources, encoding)?;
         debug!("container template equations passed the rigid check");
 
         // Every distinct function-update arity `spec` declares gets its own
@@ -242,13 +253,13 @@ impl DataSpecification {
         let mut function_update_arities_needed = function_update_arities(&spec);
         function_update_arities_needed.insert(1);
         for arity in function_update_arities_needed {
-            typecheck_function_update_template(&mut context, arity)?;
+            typecheck_function_update_template(&mut context, sources, arity)?;
         }
         debug!("function-update template equations passed the rigid check");
 
         // Inference over every user equation; an equation binding
         // a variable through an invalid sort (a bare product) is rejected here.
-        typecheck_equations(&mut context, &spec, &system)?;
+        typecheck_equations(&mut context, &spec)?;
         debug!("inference finished; the specification is well-typed");
 
         // Ties every system equation's own variable occurrences to its `var`-block declaration.
@@ -308,7 +319,6 @@ impl DataSpecification {
     /// The query context holding the sorts interned during type checking,
     /// backing the declaration-sort accessors below.
     // Currently exercised by tests only.
-    #[allow(dead_code)]
     pub(crate) fn context(&self) -> &TypeCheckContext {
         &self.context
     }
@@ -345,8 +355,7 @@ impl DataSpecification {
     /// The resolved sort of the equation `var`-block variable identified by `var_id`. Requires
     /// `var_id` to be valid from this specification; panics if called before `from_untyped` has
     /// completed.
-    // Currently exercised by tests only.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn sort_of_equation_var(&self, var_id: VarId) -> crate::ResolvedSortId {
         self.context
             .sort_of_equation_var
@@ -357,8 +366,7 @@ impl DataSpecification {
 
     /// The (S, C, M) signature: the resolved overload sets of every constructor
     /// and mapping name.
-    // Currently exercised by tests only.
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn signature(&self) -> &Signature {
         self.context
             .signature
@@ -366,7 +374,7 @@ impl DataSpecification {
             .expect("build_signature ran in from_untyped")
     }
 
-    /// The Phase-3 typing of the equation identified by `key`, read from the
+    /// Typing of the equation identified by `key`, read from the
     /// `equation_typing` cache that `from_untyped` populated. Requires `key` to
     /// index an equation of this specification.
     pub(crate) fn equation_typing(&self, key: (EqnSpecId, EquationId)) -> &EquationTyping {
@@ -384,12 +392,6 @@ impl DataSpecification {
     /// Includes the user sort declarations, aliases, constructors, mappings,
     /// and equations. Call this once after [`Self::from_untyped`] when the
     /// lowered typed specification is needed.
-    ///
-    /// `self.system` (basics and desugared-struct equations) is already checked by
-    /// `from_untyped_with`, and every Appendix-B container/function-update/comparison template
-    /// this specification could possibly need is proven once, up front, there too — so lowering
-    /// only ever monomorphizes those templates by substitution (see
-    /// `crate::instantiate_system_equations`), never re-checking anything.
     pub fn lower_data_specification(&self) -> Mcrl2DataSpecification {
         lower_data_specification(&self.context, &self.spec, &self.system, self.encoding)
     }
@@ -402,36 +404,17 @@ impl DataSpecification {
     }
 
     /// Type checks a single data expression against this specification and
-    /// lowers it to the same aterm form [`Self::lower_data_specification`]
-    /// produces, so the result can be handed straight to a rewriter built from
-    /// that specification.
-    ///
-    /// `expr` is a *closed* term: it may use any constructor or mapping this
-    /// specification declares (user or system-defined) and may introduce its own
-    /// bound variables through `lambda`/`forall`/`exists`/a comprehension/`whr`,
-    /// but a free identifier is an [`InferenceError::UndeclaredName`] — there is
-    /// no enclosing `var` block to draw equation variables from. Sorts are
-    /// inferred exactly as in a user equation, except that no other side widens
-    /// the result: `1 + 1` types at `Pos`, its minimal sort.
+    /// lowers it to the aterm form, so the result can be handed straight to a
+    /// rewriter built from that specification.
     ///
     /// Takes `&mut self` because inference interns the sorts it discovers into
     /// the shared context; the specification itself is not modified.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the expression type checks but Phase-4 lowering cannot render
-    /// it — an internal inconsistency between the two phases, treated the same
-    /// way as for a user equation in [`Self::lower_data_specification`].
     pub fn typecheck_expression(&mut self, expr: &DataExpr) -> Result<DataExpression, InferenceError> {
         self.typecheck_expression_with_typing(expr)
             .map(|(lowered, _typing_info)| lowered)
     }
 
-    /// As [`Self::typecheck_expression`], additionally returning `expr`'s [`TypingInfo`] — the
-    /// same information [`Self::equation_typing_info`] exposes for a user equation, span-keyed so
-    /// a caller can look up the sort or name resolution of any sub-expression by source position
-    /// (see [`TypingInfo::at_offset`]). `expr` here is the caller's own, unlowered expression, so
-    /// `TypingInfo`'s spans line up with the text the caller parsed it from.
+    /// As [`Self::typecheck_expression`], additionally returning `expr`'s [`TypingInfo`].
     ///
     /// # Panics
     ///
@@ -466,13 +449,10 @@ impl DataSpecification {
     /// The typing of one user equation, span-keyed so hover/go-to-definition can look up a
     /// sub-expression by source position (see [`TypingInfo::at_offset`]).
     ///
+    /// # Panics
+    ///
     /// `key` must index an equation of this specification (the `EqnSpecId`/`EquationId` on
     /// [`Self::data_specification`]); panics otherwise.
-    ///
-    /// Memoized in `self.context`'s `equation_typing_info` cache: `self` is immutable once built,
-    /// so a given `key`'s `TypingInfo` is only ever built once and every later call reuses the
-    /// cached `Arc`. Takes `&mut self` to populate that cache, and returns an owned `TypingInfo`
-    /// cloned out of it.
     pub fn equation_typing_info(&mut self, key: (EqnSpecId, EquationId)) -> TypingInfo {
         if let Some(cached) = self.context.equation_typing_info.get(&key) {
             return (**cached).clone();
@@ -483,7 +463,7 @@ impl DataSpecification {
             typing_info::collect_equation_variable_declarations(&self.spec.equation_declarations[*eqn_spec_id]);
         let info = Arc::new(typing_info::build(self, self.equation_typing(key), &variable_spans));
         self.context.equation_typing_info.insert(key, Arc::clone(&info));
-        
+
         (*info).clone()
     }
 
@@ -510,6 +490,7 @@ impl DataSpecification {
             .iter()
             .flat_map(|eqn_spec| {
                 let eqn_spec_id = eqn_spec.id.expect("assign_declaration_ids ran during from_untyped");
+
                 eqn_spec.equations.iter().map(move |equation| {
                     let equation_id = equation.id.expect("assign_declaration_ids ran during from_untyped");
                     (eqn_spec_id, equation_id)
@@ -521,6 +502,7 @@ impl DataSpecification {
         for key in keys {
             info.merge(self.equation_typing_info(key));
         }
+
         typing_info::push_sort_references(self, &self.sort_references, &mut info);
         self.context.whole_typing_info = Some(Arc::new(info.clone()));
         info
@@ -727,7 +709,7 @@ mod tests {
                 .as_ref()
                 .expect("the equation is well-typed"),
         );
-        let again = infer_equation_typing(&mut checked.context, &checked.spec, &checked.system, key).unwrap();
+        let again = infer_equation_typing(&mut checked.context, &checked.spec, key).unwrap();
         assert!(Arc::ptr_eq(&first, &again));
     }
 
