@@ -1,11 +1,13 @@
 use std::fs::File;
 use std::io::BufWriter;
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
 use clap::Subcommand;
 use log::info;
+use log::warn;
 
 use merc_explore::CachingStrategy;
 use merc_explore::ExplorationStrategy;
@@ -17,12 +19,14 @@ use merc_lts::LtsStream;
 use merc_lts::MutexLtsBuilder;
 use merc_lts::guess_lts_output_format;
 use merc_symbolic::ExplorationStrategy as SymbolicExplorationStrategy;
+use merc_symbolic::LddLenCache;
 use merc_symbolic::Order;
 use merc_symbolic::ReachabilityOptions;
 use merc_symbolic::SummandGrouping;
 use merc_symbolic::SymbolicLTS;
 use merc_symbolic::SymbolicLpsOptions;
 use merc_symbolic::VariableOrder;
+use merc_symbolic::ldd_len;
 use merc_symbolic::parse_order;
 use merc_symbolic::write_symbolic_lts;
 use merc_tools::KaHyParArgs;
@@ -33,6 +37,7 @@ use merc_tools::report_error;
 use merc_unsafety::print_allocator_metrics;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
+use oxidd::ldd::LDDFunction;
 
 use mcrl2::LinearProcessSpecification;
 use mcrl2::PreprocessOptions;
@@ -166,6 +171,11 @@ struct ExploreArgs {
     #[arg(long)]
     cached: bool,
 
+    /// Stop the exploration after this many iterations (rounds for saturation), and report what has
+    /// been found until then. The reported states and deadlocks may then be incomplete.
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    max_iterations: Option<u32>,
+
     /// Write the reachable symbolic LTS to this .sym file, including the data specification,
     /// process parameters, parameter values and action labels. If not given, the LTS is not written.
     #[arg(long, short('o'))]
@@ -276,21 +286,37 @@ fn handle_explore(cli: &Cli, args: &ExploreArgs, timing: &Timing, preprocess_lps
         order: args.variable_order()?,
     };
 
+    // Stops the exploration once `--max-iterations` iterations are done, and remembers that it did.
+    let mut stopped_after = None;
+    let on_iteration = |iteration: usize, _states: &LDDFunction| match args.max_iterations {
+        Some(max) if iteration >= max as usize => {
+            stopped_after = Some(iteration);
+            ControlFlow::Break(())
+        }
+        _ => ControlFlow::Continue(()),
+    };
+
     if let Some(output) = &args.output {
-        let (lts, deadlocks) = explore_lps_symbolic_to_sym(&storage, lps, &encoding, &options, timing)?;
-        println!("Number of states: {}", lts.states().len());
+        let (lts, deadlocks) = explore_lps_symbolic_to_sym(&storage, lps, &encoding, &options, timing, on_iteration)?;
+        println!("Number of states: {}", ldd_len(lts.states(), &mut LddLenCache::new()));
         if let Some(deadlocks) = &deadlocks {
-            println!("Number of deadlocks: {}", deadlocks.len());
+            println!("Number of deadlocks: {}", ldd_len(deadlocks, &mut LddLenCache::new()));
         }
 
         let mut file = BufWriter::new(File::create(output)?);
         write_symbolic_lts(&storage, &mut file, &lts)?;
     } else {
-        let result = explore_lps_symbolic(&storage, lps, &encoding, &options, timing)?;
-        println!("Number of states: {}", result.states.len());
+        let result = explore_lps_symbolic(&storage, lps, &encoding, &options, timing, on_iteration)?;
+        println!("Number of states: {}", ldd_len(&result.states, &mut LddLenCache::new()));
         if let Some(deadlocks) = &result.deadlocks {
-            println!("Number of deadlocks: {}", deadlocks.len());
+            println!("Number of deadlocks: {}", ldd_len(deadlocks, &mut LddLenCache::new()));
         }
+    }
+
+    if let Some(iteration) = stopped_after {
+        warn!(
+            "Stopped after {iteration} iteration(s) because of --max-iterations, the reported states and deadlocks may be incomplete"
+        );
     }
 
     Ok(())

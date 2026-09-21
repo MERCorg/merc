@@ -15,10 +15,12 @@ use mcrl2::Pbes;
 use mcrl2::SrfPbes;
 use mcrl2::set_reporting_level;
 use mcrl2::verbosity_to_log_level;
+use merc_symbolic::LddLenCache;
 use merc_symbolic::Order;
 use merc_symbolic::SummandGrouping;
 use merc_symbolic::SymbolicLpsOptions;
 use merc_symbolic::VariableOrder;
+use merc_symbolic::ldd_len;
 use merc_symbolic::parse_order;
 use merc_tools::KaHyParArgs;
 use merc_tools::VerbosityFlag;
@@ -671,7 +673,7 @@ fn handle_explore_symbolic(
 
     let srf_pbes = args.symbolic.build_srf(&pbes)?;
     let states = explore_pbes_symbolic(&storage, srf_pbes, &encoding, args.symbolic.cached, timing)?;
-    println!("Number of states: {}", states.len());
+    println!("Number of states: {}", ldd_len(&states, &mut LddLenCache::new()));
     Ok(())
 }
 

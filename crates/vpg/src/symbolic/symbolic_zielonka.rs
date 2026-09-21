@@ -7,8 +7,8 @@ use log::trace;
 use oxidd::ManagerRef;
 use oxidd::ldd::LDDFunction;
 
-use merc_io::LargeFormatter;
 use merc_io::TimeProgress;
+use merc_symbolic::SatCount;
 use merc_symbolic::merge;
 use merc_utilities::MercError;
 
@@ -16,9 +16,10 @@ use crate::Player;
 use crate::Repeat;
 use crate::SymbolicParityGame;
 use crate::symbolic::AttractorProgress;
+use crate::symbolic::symbolic_parity_game::num_vertices;
 
 /// Progress reported by `zielonka`'s recursion.
-pub type RecursionProgress = TimeProgress<(usize, usize)>;
+pub type RecursionProgress = TimeProgress<(usize, SatCount)>;
 
 /// The winning sets of both players in a symbolic parity game, indexed by [`Player::to_index`].
 ///
@@ -150,10 +151,7 @@ pub fn solve_symbolic_zielonka(
 fn new_attractor_progress() -> AttractorProgress {
     TimeProgress::new(
         |(iteration, size)| {
-            info!(
-                "attractor: iteration {iteration}, {} vertices so far",
-                LargeFormatter(size)
-            );
+            info!("attractor: iteration {iteration}, {size} vertices so far");
         },
         5,
     )
@@ -164,10 +162,7 @@ fn new_attractor_progress() -> AttractorProgress {
 fn new_recursion_progress() -> RecursionProgress {
     TimeProgress::new(
         |(depth, size)| {
-            info!(
-                "zielonka: recursion depth {depth}, {} vertices remaining",
-                LargeFormatter(size)
-            );
+            info!("zielonka: recursion depth {depth}, {size} vertices remaining");
         },
         5,
     )
@@ -233,7 +228,7 @@ fn zielonka_rec(
         });
     }
 
-    recursion_progress.print((depth, v.len()));
+    recursion_progress.print((depth, num_vertices(v)));
 
     let vplayer = game.players(v)?;
     let (priority, u) = game
@@ -244,12 +239,15 @@ fn zielonka_rec(
 
     debug!(
         "{indent}zielonka: |V| = {}, priority = {priority}, player = {alpha}",
-        v.len()
+        num_vertices(v)
     );
-    trace!("{indent}U (highest priority vertices) has {} elements", u.len());
+    trace!(
+        "{indent}U (highest priority vertices) has {} elements",
+        num_vertices(&u)
+    );
 
     let (a, a_strategy) = game.attractor(alpha, &u, v, &vplayer, None, None, attractor_progress)?;
-    trace!("{indent}A (attractor of U) has {} elements", a.len());
+    trace!("{indent}A (attractor of U) has {} elements", num_vertices(&a));
 
     let v_minus_a = v.minus(&a)?;
     let solution_v_minus_a = zielonka_rec(game, &v_minus_a, depth + 1, recursion_progress, attractor_progress)?;
@@ -290,7 +288,7 @@ fn zielonka_rec(
         )?;
         trace!(
             "{indent}B (attractor of the opponent's win in V \\ A) has {} elements",
-            b.len()
+            num_vertices(&b)
         );
 
         let v_minus_b = v.minus(&b)?;

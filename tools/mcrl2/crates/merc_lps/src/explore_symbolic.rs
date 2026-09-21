@@ -1,3 +1,5 @@
+use std::ops::ControlFlow;
+
 use log::debug;
 use oxidd::ldd::LDDFunction;
 use oxidd::ldd::LDDManagerRef;
@@ -17,7 +19,7 @@ use merc_symbolic::SymbolicLps;
 use merc_symbolic::SymbolicLpsOptions;
 use merc_symbolic::SymbolicLts;
 use merc_symbolic::TransitionGroup;
-use merc_symbolic::reachability_with_options;
+use merc_symbolic::reachability_with_callback;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
 
@@ -39,12 +41,17 @@ use crate::explore_explicit::ExplicitLinearProcessSpecification;
 /// count; it does not retain the transition relation or action labels
 /// discovered along the way. Use [`explore_lps_symbolic_to_sym`] to keep those
 /// and write a real symbolic LTS.
-pub fn explore_lps_symbolic(
+///
+/// `on_iteration` is called after every iteration of the exploration with the number of iterations that
+/// have completed and the states found so far, and stops the exploration early by returning
+/// [`ControlFlow::Break`], see [`merc_symbolic::reachability_with_callback`].
+pub fn explore_lps_symbolic<F: FnMut(usize, &LDDFunction) -> ControlFlow<()>>(
     storage: &LDDManagerRef,
     lps: LinearProcessSpecification,
     encoding: &SymbolicLpsOptions,
     options: &ReachabilityOptions,
     timing: &Timing,
+    on_iteration: F,
 ) -> Result<ReachabilityResult, MercError> {
     let lps = ExplicitLinearProcessSpecification::new(lps)?;
     let mut symbolic = SymbolicLps::with_options(storage, lps, encoding)?;
@@ -52,7 +59,7 @@ pub fn explore_lps_symbolic(
     debug!("{symbolic:?}");
 
     let mut context = symbolic.create_context();
-    reachability_with_options(storage, &mut symbolic, &mut context, options, timing)
+    reachability_with_callback(storage, &mut symbolic, &mut context, options, timing, on_iteration)
 }
 
 /// Explore the linear process specification using symbolic reachability and
@@ -65,12 +72,17 @@ pub fn explore_lps_symbolic(
 /// the observed parameter values, the action labels) into the pure-Rust
 /// `merc_aterm`/`merc_data` representation via [`mcrl2::mcrl2_aterm_to_merc`],
 /// so the result no longer depends on the mCRL2 C++ term pool.
-pub fn explore_lps_symbolic_to_sym(
+///
+/// `on_iteration` is called after every iteration of the exploration with the number of iterations that
+/// have completed and the states found so far, and stops the exploration early by returning
+/// [`ControlFlow::Break`], see [`merc_symbolic::reachability_with_callback`].
+pub fn explore_lps_symbolic_to_sym<F: FnMut(usize, &LDDFunction) -> ControlFlow<()>>(
     storage: &LDDManagerRef,
     lps: LinearProcessSpecification,
     encoding: &SymbolicLpsOptions,
     options: &ReachabilityOptions,
     timing: &Timing,
+    on_iteration: F,
 ) -> Result<(SymbolicLts<LtsMultiAction<LtsAction>>, Option<LDDFunction>), MercError> {
     let lps = ExplicitLinearProcessSpecification::new(lps)?;
     let mut symbolic = SymbolicLps::with_options(storage, lps, encoding)?;
@@ -78,7 +90,7 @@ pub fn explore_lps_symbolic_to_sym(
     debug!("{symbolic:?}");
 
     let mut context = symbolic.create_context();
-    let result = reachability_with_options(storage, &mut symbolic, &mut context, options, timing)?;
+    let result = reachability_with_callback(storage, &mut symbolic, &mut context, options, timing, on_iteration)?;
 
     // Converts a single FFI term into its `merc_aterm` counterpart.
     let convert = |term: Mcrl2ATerm| mcrl2_aterm_to_merc(&term.copy());
@@ -165,6 +177,7 @@ pub fn explore_lps_symbolic_to_sym(
 #[cfg(test)]
 mod tests {
     use std::fs::File;
+    use std::ops::ControlFlow;
     use std::path::Path;
     use std::process::Command;
 
@@ -176,12 +189,14 @@ mod tests {
     use merc_symbolic::BDD_NODE_CAPACITY;
     use merc_symbolic::LDD_CACHE_CAPACITY;
     use merc_symbolic::LDD_NODE_CAPACITY;
+    use merc_symbolic::LddLenCache;
     use merc_symbolic::ReachabilityOptions;
     use merc_symbolic::SatCountCache;
     use merc_symbolic::SymbolicLPS;
     use merc_symbolic::SymbolicLpsOptions;
     use merc_symbolic::SymbolicLtsBdd;
     use merc_symbolic::approx_satcount;
+    use merc_symbolic::ldd_len;
     use merc_symbolic::reachability_bdd;
     use merc_symbolic::reachability_with_options;
     use merc_symbolic::read_symbolic_lts;
@@ -189,6 +204,7 @@ mod tests {
     use merc_utilities::Timing;
     use merc_utilities::random_test;
     use oxidd::BooleanFunction;
+    use oxidd::ldd::LDDFunction;
 
     use mcrl2::DataSpecification;
     use mcrl2::mcrl2_aterm_to_merc;
@@ -199,6 +215,16 @@ mod tests {
 
     use super::explore_lps_symbolic;
     use super::explore_lps_symbolic_to_sym;
+
+    /// A callback that never stops the exploration.
+    fn keep_going(_iteration: usize, _states: &LDDFunction) -> ControlFlow<()> {
+        ControlFlow::Continue(())
+    }
+
+    /// The number of vectors in `ldd`, as a `usize` so that it compares with the BDD state counts.
+    fn count(ldd: &LDDFunction) -> usize {
+        ldd_len(ldd, &mut LddLenCache::new()).as_f64() as usize
+    }
 
     /// Converts every declaration of a data specification parsed from mCRL2 text into its
     /// `merc_data` counterpart, exercising the same `mcrl2_aterm_to_merc` conversion
@@ -318,10 +344,11 @@ mod tests {
             &SymbolicLpsOptions::default(),
             &ReachabilityOptions::default(),
             &timing,
+            keep_going,
         )
         .expect("Failed to explore LPS")
         .states;
-        let num_of_states = states.len();
+        let num_of_states = count(&states);
 
         assert_eq!(
             num_of_states, 74,
@@ -373,31 +400,34 @@ mod tests {
             // 1. merc-lps LDD path: explore the .lps directly via merc's symbolic engine.
             let lps = read_lps(lps_path.to_str().unwrap()).expect("Failed to read LPS");
             let lps = preprocess(&lps, &PreprocessOptions::default()).expect("Failed to preprocess LPS");
-            let lps_ldd_count = explore_lps_symbolic(
-                &storage,
-                lps,
-                &SymbolicLpsOptions::default(),
-                &ReachabilityOptions::default(),
-                &timing,
-            )
-            .expect("Failed to explore LPS symbolically")
-            .states
-            .len();
+            let lps_ldd_count = count(
+                &explore_lps_symbolic(
+                    &storage,
+                    lps,
+                    &SymbolicLpsOptions::default(),
+                    &ReachabilityOptions::default(),
+                    &timing,
+                    keep_going,
+                )
+                .expect("Failed to explore LPS symbolically")
+                .states,
+            );
 
             // 2. lpsreach .sym, LDD reachability.
             let mut sym_lts_ldd = read_symbolic_lts(&storage, File::open(&sym_path).expect("Failed to open .sym"))
                 .expect("Failed to read .sym (LDD path)");
             let mut sym_context = sym_lts_ldd.create_context();
-            let sym_ldd_count = reachability_with_options(
-                &storage,
-                &mut sym_lts_ldd,
-                &mut sym_context,
-                &ReachabilityOptions::default(),
-                &timing,
-            )
-            .expect("Failed to run LDD reachability on .sym")
-            .states
-            .len();
+            let sym_ldd_count = count(
+                &reachability_with_options(
+                    &storage,
+                    &mut sym_lts_ldd,
+                    &mut sym_context,
+                    &ReachabilityOptions::default(),
+                    &timing,
+                )
+                .expect("Failed to run LDD reachability on .sym")
+                .states,
+            );
 
             // 3. lpsreach .sym, BDD reachability (fresh read since reachability_with_options mutates the LTS).
             let sym_lts_bdd = read_symbolic_lts(&storage, File::open(&sym_path).expect("Failed to open .sym"))
@@ -430,6 +460,7 @@ mod tests {
                 &SymbolicLpsOptions::default(),
                 &ReachabilityOptions::default(),
                 &timing,
+                keep_going,
             )
             .expect("Failed to explore LPS into a symbolic LTS");
 
@@ -447,16 +478,17 @@ mod tests {
             )
             .expect("Failed to read the written symbolic LTS back");
             let mut reread_context = reread_lts.create_context();
-            let written_sym_count = reachability_with_options(
-                &storage,
-                &mut reread_lts,
-                &mut reread_context,
-                &ReachabilityOptions::default(),
-                &timing,
-            )
-            .expect("Failed to run LDD reachability on the written symbolic LTS")
-            .states
-            .len();
+            let written_sym_count = count(
+                &reachability_with_options(
+                    &storage,
+                    &mut reread_lts,
+                    &mut reread_context,
+                    &ReachabilityOptions::default(),
+                    &timing,
+                )
+                .expect("Failed to run LDD reachability on the written symbolic LTS")
+                .states,
+            );
 
             assert_eq!(
                 lps_ldd_count, sym_ldd_count,

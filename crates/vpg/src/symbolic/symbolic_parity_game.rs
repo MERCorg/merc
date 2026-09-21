@@ -9,8 +9,11 @@ use oxidd::ldd::LDDManagerRef;
 use oxidd::ldd::Value;
 
 use merc_io::TimeProgress;
+use merc_symbolic::LddLenCache;
+use merc_symbolic::SatCount;
 use merc_symbolic::TransitionGroup;
 use merc_symbolic::fix_element;
+use merc_symbolic::ldd_len;
 use merc_symbolic::merge;
 use merc_utilities::MercError;
 
@@ -19,7 +22,12 @@ use crate::Priority;
 
 /// Progress reported by [`SymbolicParityGame::attractor`]: the iteration number and the size of
 /// the attractor set built so far.
-pub type AttractorProgress = TimeProgress<(usize, usize)>;
+pub type AttractorProgress = TimeProgress<(usize, SatCount)>;
+
+/// The number of vertices in `set`, exact unless the count does not fit in a `u128`.
+pub(crate) fn num_vertices(set: &LDDFunction) -> SatCount {
+    ldd_len(set, &mut LddLenCache::new())
+}
 
 /// A max-parity game over sets of vertices represented as LDDs.
 pub struct SymbolicParityGame {
@@ -321,11 +329,11 @@ impl SymbolicParityGame {
                 return Ok((z, strategy));
             }
 
-            progress.print((iteration, z.len()));
+            progress.print((iteration, num_vertices(&z)));
             trace!(
                 "attractor: iteration {iteration}, |Z| = {}, |todo| = {}",
-                z.len(),
-                todo.len()
+                num_vertices(&z),
+                num_vertices(&todo)
             );
 
             let (pred, step_strategy) =
@@ -377,8 +385,8 @@ impl SymbolicParityGame {
                 return Ok((z, strategy));
             }
 
-            progress.print((iteration, z.len()));
-            trace!("attractor_naive: iteration {iteration}, |Z| = {}", z.len());
+            progress.print((iteration, num_vertices(&z)));
+            trace!("attractor_naive: iteration {iteration}, |Z| = {}", num_vertices(&z));
 
             let outside = v.minus(&z)?;
             let (pred, step_strategy) =
@@ -634,14 +642,14 @@ impl SymbolicParityGame {
 impl fmt::Display for SymbolicParityGame {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (priority, block) in &self.priorities {
-            writeln!(f, "priority {priority}: {} vertices", block.len())?;
+            writeln!(f, "priority {priority}: {} vertices", num_vertices(block))?;
         }
 
         write!(
             f,
             "{} even vertices and {} odd vertices",
-            self.owned[Player::Even.to_index()].len(),
-            self.owned[Player::Odd.to_index()].len()
+            num_vertices(&self.owned[Player::Even.to_index()]),
+            num_vertices(&self.owned[Player::Odd.to_index()])
         )
     }
 }

@@ -1,3 +1,7 @@
+use std::ops::ControlFlow;
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
+
 use log::debug;
 use log::info;
 use log::trace;
@@ -12,10 +16,9 @@ use oxidd::ldd::SaturationEvent;
 
 use merc_data::DataExpression;
 use merc_io::TimeProgress;
+use merc_lts::TransitionLabel;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
-
-use merc_lts::TransitionLabel;
 
 use crate::LddDisplay;
 use crate::LddLenCache;
@@ -82,7 +85,15 @@ pub struct ReachabilityResult {
 
     /// The deadlock states (reachable states with no outgoing transition), or `None` when
     /// [ReachabilityOptions::detect_deadlocks] was not requested.
+    ///
+    /// If the exploration was stopped early (see [ReachabilityResult::complete]), these are only the
+    /// deadlocks among the states that were explored, and saturation finds none.
     pub deadlocks: Option<LDDFunction>,
+
+    /// Whether the fixpoint was reached. This is `false` if the callback of
+    /// [reachability_with_callback] stopped the exploration first, in which case
+    /// [ReachabilityResult::states] is only an under-approximation of the reachable states.
+    pub complete: bool,
 }
 
 /// Performs reachability analysis using the given initial state and transitions.
@@ -110,8 +121,30 @@ pub fn reachability_with_options<L: SymbolicLPS>(
     options: &ReachabilityOptions,
     timing: &Timing,
 ) -> Result<ReachabilityResult, MercError> {
+    reachability_with_callback(storage, lts, context, options, timing, |_, _| ControlFlow::Continue(()))
+}
+
+/// Like [reachability_with_options], but calls `on_iteration` after every iteration of the outer loop.
+///
+/// The arguments are the number of iterations that have completed so far, starting at one, and the
+/// states that have been found up to and including that iteration. What an iteration is depends on
+/// [ExplorationStrategy]: for the breadth-first, chaining and fixpoint strategies it is one step over
+/// the frontier, and for saturation it is one round of learning relations and saturating.
+///
+/// If `on_iteration` returns [ControlFlow::Break] the exploration stops, and the states found so far
+/// are returned with [ReachabilityResult::complete] set to `false`, unless that iteration had
+/// already reached the fixpoint. This allows, for example, to limit the number of iterations or the
+/// time spent, or to report on the progress.
+pub fn reachability_with_callback<L: SymbolicLPS, F: FnMut(usize, &LDDFunction) -> ControlFlow<()>>(
+    storage: &LDDManagerRef,
+    lts: &mut L,
+    context: &mut <L::Group as TransitionGroup>::Context,
+    options: &ReachabilityOptions,
+    timing: &Timing,
+    mut on_iteration: F,
+) -> Result<ReachabilityResult, MercError> {
     if options.strategy == ExplorationStrategy::Saturation {
-        return saturation_reachability(storage, lts, context, options, timing);
+        return saturation_reachability(storage, lts, context, options, timing, on_iteration);
     }
 
     let mut todo = lts.initial_state().clone();
@@ -122,16 +155,13 @@ pub fn reachability_with_options<L: SymbolicLPS>(
         None
     };
     let mut iteration = 0;
+    let mut complete = true;
     let mut len_cache = LddLenCache::new();
 
     trace!("states = {}", LddDisplay::new(&states));
     let progress = TimeProgress::new(
         |(iteration, num_of_states)| {
-            info!(
-                "explored {} state(s) after {} iteration(s)",
-                num_of_states,
-                iteration
-            );
+            info!("explored {} state(s) after {} iteration(s)", num_of_states, iteration);
         },
         1,
     );
@@ -140,18 +170,18 @@ pub fn reachability_with_options<L: SymbolicLPS>(
     // progress above can stay silent for a very long time. This one reports the frontier as it grows.
     let step_progress = TimeProgress::new(
         |(group, num_of_states)| {
-            info!(
-                "found {} todo state(s) up to transition group {}",
-                num_of_states,
-                group
-            );
+            info!("found {} todo state(s) up to transition group {}", num_of_states, group);
         },
         10,
     );
 
     timing.measure("reachability", || {
         while !todo.is_empty() {
-            debug!("Iteration {}: todo size = {}", iteration, ldd_len(&todo, &mut len_cache));
+            debug!(
+                "Iteration {}: todo size = {}",
+                iteration,
+                ldd_len(&todo, &mut len_cache)
+            );
 
             let (todo1, step_deadlocks) = step(storage, lts, context, &todo, options, timing, &step_progress)?;
 
@@ -179,10 +209,29 @@ pub fn reachability_with_options<L: SymbolicLPS>(
             }
 
             iteration += 1;
+
+            if on_iteration(iteration, &states).is_break() {
+                // The iteration that is stopped can also be the one that found nothing new.
+                complete = todo.is_empty();
+                break;
+            }
         }
 
-        Ok(ReachabilityResult { states, deadlocks })
+        Ok(ReachabilityResult {
+            states,
+            deadlocks,
+            complete,
+        })
     })
+}
+
+/// The epoch of the next set of events that is saturated, see [saturation_reachability].
+static NEXT_SATURATION_EPOCH: AtomicU32 = AtomicU32::new(0);
+
+/// Returns an epoch that no earlier call of this function returned, until the counter wraps after
+/// 2^32 calls.
+fn fresh_saturation_epoch() -> u32 {
+    NEXT_SATURATION_EPOCH.fetch_add(1, Ordering::Relaxed)
 }
 
 /// Performs reachability via repeated [`LDDFunction::saturate`] calls over the
@@ -201,8 +250,8 @@ pub fn reachability_with_options<L: SymbolicLPS>(
 /// loop:
 ///   changed = for each group: group.learn_successors(context, storage, &states, options.cached)
 ///   if !changed && saturated: break     // states is closed under exactly these events
-///   clear_saturation_cache()            // the events differ from those of the previous saturate call
-///   states = states.saturate(&events)
+///   if changed: epoch = fresh_epoch()   // the events differ from those of the previous saturate call
+///   states = states.saturate(&events, epoch)
 ///   saturated = true
 /// ```
 ///
@@ -217,28 +266,26 @@ pub fn reachability_with_options<L: SymbolicLPS>(
 ///
 /// **The saturation cache.**
 ///
-/// `saturate`'s `Saturate`/`SatRecFire` cache entries are keyed on node
-/// identity, which does not change when a group's relation grows — a node
-/// cached as saturated under an earlier, smaller relation would otherwise be
-/// silently (and wrongly) reused as if it still were, so those entries are
-/// cleared *before* the `saturate` call that uses a grown relation. Every other
-/// cached operation does not depend on the events and stays. The first round
-/// clears as well, since the manager may have been used for another
-/// exploration.
-fn saturation_reachability<L: SymbolicLPS>(
+/// `saturate` memoises on node identity, which does not change when a group's relation grows, so a
+/// node cached as saturated under an earlier, smaller relation must never be reused. The cache entries
+/// are keyed on the `epoch` that is passed to `saturate`, which is a new one whenever any relation
+/// grew since the previous call, and the same one otherwise, so that the entries of that call stay
+/// usable. Nothing has to be cleared, and the cost of a round does not depend on the size of the
+/// manager's caches.
+///
+/// Epochs are drawn from a counter of the whole process, so that explorations that share a manager
+/// (which have different relations) never share an epoch either.
+fn saturation_reachability<L: SymbolicLPS, F: FnMut(usize, &LDDFunction) -> ControlFlow<()>>(
     storage: &LDDManagerRef,
     lts: &mut L,
     context: &mut <L::Group as TransitionGroup>::Context,
     options: &ReachabilityOptions,
     timing: &Timing,
+    mut on_iteration: F,
 ) -> Result<ReachabilityResult, MercError> {
     let progress = TimeProgress::new(
         |(iteration, num_of_states)| {
-            info!(
-                "explored {} state(s) after {} iteration(s)",
-                num_of_states,
-                iteration
-            );
+            info!("explored {} state(s) after {} iteration(s)", num_of_states, iteration);
         },
         1,
     );
@@ -249,6 +296,9 @@ fn saturation_reachability<L: SymbolicLPS>(
         let mut len_cache = LddLenCache::new();
         // Whether `states` is the result of a `saturate` call under the current relations.
         let mut saturated = false;
+        let mut complete = true;
+        // Identifies the relations that `states` was last saturated under, see `saturate`.
+        let mut epoch = fresh_saturation_epoch();
 
         loop {
             let mut relation_changed = false;
@@ -264,12 +314,14 @@ fn saturation_reachability<L: SymbolicLPS>(
                 break;
             }
 
-            // Here the relations have grown or this is the first round: entries cached under any
-            // earlier events are stale.
-            storage.with_manager_shared(|m| LDDFunction::clear_saturation_cache(m));
+            // Every cached result depends on the relations, so those of an earlier epoch are of no use
+            // once one has grown.
+            if relation_changed {
+                epoch = fresh_saturation_epoch();
+            }
 
             let events = saturation_events(lts);
-            states = states.saturate(&events)?;
+            states = states.saturate(&events, epoch)?;
             saturated = true;
             round += 1;
 
@@ -283,19 +335,33 @@ fn saturation_reachability<L: SymbolicLPS>(
                 info!("round {round}: manager has {} inner node(s)", LargeFormatter(nodes));
                 oxidd::ldd::print_stats();
             }
+
+            if on_iteration(round as usize, &states).is_break() {
+                // Whether `states` is closed under the relations is only known after learning again.
+                complete = false;
+                break;
+            }
         }
 
-        let deadlocks = if options.detect_deadlocks {
+        let deadlocks = if !options.detect_deadlocks {
+            None
+        } else if !complete {
+            // The relations only cover the states that were learned from so far, so every state that
+            // was not would show up as a deadlock. Nothing is reported instead.
+            Some(storage.with_manager_shared(|m| LDDFunction::empty_set(m))?)
+        } else {
             let mut candidates = states.clone();
             for group in lts.transition_groups() {
                 candidates = remove_states_with_successor(&states, group, &candidates)?;
             }
             Some(candidates)
-        } else {
-            None
         };
 
-        Ok(ReachabilityResult { states, deadlocks })
+        Ok(ReachabilityResult {
+            states,
+            deadlocks,
+            complete,
+        })
     })
 }
 
@@ -469,6 +535,8 @@ fn remove_states_with_successor(
 
 #[cfg(test)]
 mod test {
+    use std::ops::ControlFlow;
+
     use crate::LDD_CACHE_CAPACITY;
     use crate::LDD_NODE_CAPACITY;
     use merc_aterm::ATermString;
@@ -503,6 +571,7 @@ mod test {
     use crate::from_iter;
     use crate::ldd_len;
     use crate::random_symbolic_lts;
+    use crate::reachability_with_callback;
     use crate::reachability_with_options;
     use crate::read_sylvan;
 
@@ -620,6 +689,118 @@ mod test {
             default_label: vec![LtsMultiAction::from_index(0)],
         };
         assert_is_reachable_set(name, &manager, &lts, None);
+    }
+
+    /// The callback is called once after every iteration, and can stop the exploration: what is found
+    /// up to that iteration is returned, and the result says that it is not complete.
+    #[test]
+    #[cfg_attr(miri, ignore)] // Miri is too slow
+    fn test_reachability_callback() {
+        let bytes = include_bytes!("../../../../examples/ldd/anderson.4.ldd");
+
+        for strategy in ALL_STRATEGIES {
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+            let options = ReachabilityOptions {
+                strategy,
+                detect_deadlocks: true,
+                cached: false,
+            };
+
+            // Without stopping, every iteration is reported once, in order, and the sets only grow.
+            let mut lts = read_sylvan(&manager, &mut &bytes[..]).expect("Loading should work correctly");
+            let mut context = lts.create_context();
+            let mut seen: Vec<(usize, usize)> = Vec::new();
+            let full = reachability_with_callback(
+                &manager,
+                &mut lts,
+                &mut context,
+                &options,
+                &Timing::new(),
+                |iteration, states| {
+                    seen.push((iteration, count(states)));
+                    ControlFlow::Continue(())
+                },
+            )
+            .expect("Reachability should work correctly");
+
+            assert!(
+                full.complete,
+                "{strategy:?}: an exploration that is not stopped is complete"
+            );
+            assert!(!seen.is_empty(), "{strategy:?}: the callback is never called");
+            assert!(
+                seen.iter()
+                    .enumerate()
+                    .all(|(index, (iteration, _))| *iteration == index + 1),
+                "{strategy:?}: the iterations are not numbered consecutively from one: {seen:?}"
+            );
+            assert!(
+                seen.windows(2).all(|pair| pair[0].1 <= pair[1].1),
+                "{strategy:?}: the states shrink: {seen:?}"
+            );
+            assert_eq!(seen.last().unwrap().1, count(&full.states), "{strategy:?}");
+            let iterations = seen.len();
+
+            // Stopping after the first iteration returns exactly what the callback saw.
+            let mut lts = read_sylvan(&manager, &mut &bytes[..]).expect("Loading should work correctly");
+            let mut context = lts.create_context();
+            let mut calls = 0;
+            let partial = reachability_with_callback(
+                &manager,
+                &mut lts,
+                &mut context,
+                &options,
+                &Timing::new(),
+                |iteration, _| {
+                    calls += 1;
+                    assert_eq!(iteration, 1, "{strategy:?}: called again after breaking");
+                    ControlFlow::Break(())
+                },
+            )
+            .expect("Reachability should work correctly");
+
+            assert_eq!(calls, 1, "{strategy:?}");
+            assert_eq!(count(&partial.states), seen[0].1, "{strategy:?}");
+            assert!(
+                partial.states.minus(&full.states).expect("minus works").is_empty(),
+                "{strategy:?}: the states found so far are not reachable"
+            );
+            // Saturation only knows that it is done after another round that learns nothing new, the
+            // other strategies know when the iteration that is stopped was the last one.
+            assert_eq!(
+                partial.complete,
+                iterations == 1 && strategy != ExplorationStrategy::Saturation,
+                "{strategy:?}"
+            );
+            if strategy == ExplorationStrategy::Saturation {
+                // The relations only cover what was learned from so far, so nothing is reported.
+                assert_eq!(count(partial.deadlocks.as_ref().expect("requested")), 0);
+            }
+
+            // Stopping in the last iteration still gives the complete result, except for saturation.
+            if strategy != ExplorationStrategy::Saturation {
+                let mut lts = read_sylvan(&manager, &mut &bytes[..]).expect("Loading should work correctly");
+                let mut context = lts.create_context();
+                let last = reachability_with_callback(
+                    &manager,
+                    &mut lts,
+                    &mut context,
+                    &options,
+                    &Timing::new(),
+                    |iteration, _| {
+                        if iteration == iterations {
+                            ControlFlow::Break(())
+                        } else {
+                            ControlFlow::Continue(())
+                        }
+                    },
+                )
+                .expect("Reachability should work correctly");
+
+                assert!(last.complete, "{strategy:?}");
+                assert!(last.states == full.states, "{strategy:?}");
+            }
+        }
     }
 
     #[test]

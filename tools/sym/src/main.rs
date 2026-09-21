@@ -1,5 +1,6 @@
 use std::ffi::OsStr;
 use std::fs::File;
+use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -7,6 +8,7 @@ use clap::Parser;
 use clap::Subcommand;
 
 use itertools::Itertools;
+use log::warn;
 use merc_io::LargeFormatter;
 use merc_lts::AutStream;
 use merc_lts::LtsAction;
@@ -16,6 +18,7 @@ use merc_lts::LtsMultiAction;
 use merc_lts::guess_lts_format_from_extension;
 use merc_lts::write_bcg;
 use merc_symbolic::ExplorationStrategy;
+use merc_symbolic::LddLenCache;
 use merc_symbolic::ReachabilityOptions;
 use merc_symbolic::SatCountCache;
 use merc_symbolic::SymFormat;
@@ -26,10 +29,11 @@ use merc_symbolic::approx_satcount;
 use merc_symbolic::convert_symbolic_lts;
 use merc_symbolic::convert_symbolic_lts_bdd;
 use merc_symbolic::guess_format_from_extension;
+use merc_symbolic::ldd_len;
 use merc_symbolic::parse_compacted_dependency_graph;
 use merc_symbolic::quotient_symbolic;
 use merc_symbolic::reachability_bdd;
-use merc_symbolic::reachability_with_options;
+use merc_symbolic::reachability_with_callback;
 use merc_symbolic::read_sylvan;
 use merc_symbolic::read_symbolic_lts;
 use merc_symbolic::refine_bisimulation;
@@ -45,6 +49,8 @@ use merc_unsafety::print_allocator_metrics;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
 use oxidd::BooleanFunction;
+use oxidd::Function;
+use oxidd::ldd::LDDFunction;
 use which::which_in;
 
 /// Default node capacity for the Oxidd decision diagram manager.
@@ -120,6 +126,11 @@ struct ReachabilityArgs {
     /// Detect deadlock states (states without outgoing transitions).
     #[arg(long)]
     detect_deadlocks: bool,
+
+    /// Stop the exploration after this many iterations (rounds for saturation), and report what has
+    /// been found until then. The reported states and deadlocks may then be incomplete.
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    max_iterations: Option<u32>,
 
     /// Write the reachable symbolic LTS to this .sym output file.
     #[arg(long)]
@@ -285,7 +296,7 @@ fn handle_info(cli: &Cli, args: &InfoArgs, timing: &Timing) -> Result<(), MercEr
         read_symbolic_lts(&storage, File::open(&args.filename)?)
     })?;
 
-    println!("Number of states: {}", LargeFormatter(lts.states().len()));
+    println!("Number of states: {}", ldd_len(lts.states(), &mut LddLenCache::new()));
     println!("Number of summand groups: {}", lts.transition_groups().len());
 
     Ok(())
@@ -305,6 +316,16 @@ fn handle_reachability(cli: &Cli, args: &ReachabilityArgs, timing: &Timing) -> R
         cached: false,
     };
 
+    // Stops the exploration once `--max-iterations` iterations are done, and remembers that it did.
+    let mut stopped_after = None;
+    let on_iteration = |iteration: usize, _states: &LDDFunction| match args.max_iterations {
+        Some(max) if iteration >= max as usize => {
+            stopped_after = Some(iteration);
+            ControlFlow::Break(())
+        }
+        _ => ControlFlow::Continue(()),
+    };
+
     let mut file = File::open(&args.filename)?;
     match format {
         SymFormat::Sylvan => {
@@ -316,20 +337,20 @@ fn handle_reachability(cli: &Cli, args: &ReachabilityArgs, timing: &Timing) -> R
 
             let mut context = lts.create_context();
             let result = timing.measure("reachability", || {
-                reachability_with_options(&storage, &mut lts, &mut context, &options, timing)
+                reachability_with_callback(&storage, &mut lts, &mut context, &options, timing, on_iteration)
             })?;
 
-            println!("LTS has {} states", result.states.len());
+            print_reachable_states(&result.states);
         }
         SymFormat::Sym => {
             let mut lts = timing.measure("read_symbolic_lts", || read_symbolic_lts(&storage, &mut file))?;
 
             let mut context = lts.create_context();
             let result = timing.measure("reachability", || {
-                reachability_with_options(&storage, &mut lts, &mut context, &options, timing)
+                reachability_with_callback(&storage, &mut lts, &mut context, &options, timing, on_iteration)
             })?;
 
-            println!("LTS has {} states", result.states.len());
+            print_reachable_states(&result.states);
 
             if let Some(output) = &args.output {
                 lts.set_states(result.states);
@@ -340,7 +361,25 @@ fn handle_reachability(cli: &Cli, args: &ReachabilityArgs, timing: &Timing) -> R
         }
     }
 
+    if let Some(iteration) = stopped_after {
+        warn!(
+            "Stopped after {iteration} iteration(s) because of --max-iterations, the reported states and deadlocks may be incomplete"
+        );
+    }
+
     Ok(())
+}
+
+/// Prints the number of reachable states, and the number of LDD nodes that represent them.
+///
+/// The number of nodes is the size of this diagram only (shared nodes and the two terminals are
+/// counted once), and not the total number of nodes in the manager, which also holds garbage.
+fn print_reachable_states(states: &LDDFunction) {
+    println!("LTS has {} states", ldd_len(states, &mut LddLenCache::new()));
+    println!(
+        "The reachable states use {} LDD nodes",
+        LargeFormatter(states.node_count())
+    );
 }
 
 /// Computes the reachable state count of the given symbolic LTS using BDD-based reachability.
