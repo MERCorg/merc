@@ -46,3 +46,7 @@ thread_local.workspace = true
 
 mimalloc = { workspace = true, optional = true }
 tikv-jemallocator = { workspace = true, optional = true }
+
+# Makes it possible to check functional contracts in kani.
+[package.metadata.kani]
+unstable = { function-contracts = true, mem-predicates = true }

@@ -186,9 +186,27 @@ mod verification {
     #[kani::proof]
     #[kani::unwind(5)]
     fn repr_c_is_at_least_as_large_as_any_field() {
-        let a: Layout = Layout::new::<u32>();
-        let b: Layout = Layout::new::<u8>();
-        let composite = repr_c(&[a, b]).expect("layout composes for fixed inputs");
+        let align_a: u32 = kani::any();
+        let align_b: u32 = kani::any();
+        kani::assume(align_a.is_power_of_two());
+        kani::assume(align_b.is_power_of_two());
+
+        let size_a: usize = kani::any();
+        let size_b: usize = kani::any();
+        // Keep both fields comfortably inside `isize::MAX` so the padded
+        // composite layout has room to be constructed without overflowing.
+        kani::assume(size_a <= isize::MAX as usize / 4);
+        kani::assume(size_b <= isize::MAX as usize / 4);
+
+        let Ok(a) = Layout::from_size_align(size_a, align_a as usize) else {
+            return;
+        };
+        let Ok(b) = Layout::from_size_align(size_b, align_b as usize) else {
+            return;
+        };
+        let Ok(composite) = repr_c(&[a, b]) else {
+            return;
+        };
 
         // pad_to_align preserves the maximum field alignment.
         assert!(composite.align() >= a.align());

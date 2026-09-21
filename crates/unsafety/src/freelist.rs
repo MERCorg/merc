@@ -58,6 +58,11 @@ impl<T: FreeListEntry> FreeList<T> {
     ///
     /// Relies on the freelist invariant that every node on the list is valid, which is
     /// guaranteed by the contracts of [`FreeList::push`] and [`FreeList::set_head`].
+    #[cfg_attr(
+        kani,
+        kani::requires(self.head.get().is_null() || kani::mem::can_dereference(self.head.get()))
+    )]
+    #[cfg_attr(kani, kani::modifies(&self.head))]
     pub fn try_pop(&self) -> Option<NonNull<T>> {
         let node = NonNull::new(self.head.get())?;
 
@@ -74,6 +79,8 @@ impl<T: FreeListEntry> FreeList<T> {
     ///
     /// `entry` must point to a valid node whose link field may be written, and the node must
     /// remain valid until it is popped from the list (the list takes ownership of it).
+    #[cfg_attr(kani, kani::requires(kani::mem::can_dereference(entry.as_ptr())))]
+    #[cfg_attr(kani, kani::modifies(&self.head, entry.as_ptr()))]
     pub unsafe fn push(&self, entry: NonNull<T>) {
         let ptr = entry.as_ptr();
         let head = self.head.get();
@@ -165,6 +172,48 @@ mod verification {
             // SAFETY: caller guarantees `ptr` points to a valid node.
             unsafe { (*ptr).next.set(next) };
         }
+    }
+
+    /// Checks the `push` contract: given a dereferenceable node pointer, the
+    /// call must not violate memory safety (the documented spatial half of
+    /// its `# Safety` precondition).
+    #[kani::proof_for_contract(FreeList::push)]
+    fn freelist_push_contract() {
+        let fl: FreeList<Node> = FreeList::new();
+        let mut node = Node::new();
+        let ptr = NonNull::from(&mut node);
+
+        // SAFETY: `node` is a valid local node that outlives the push call.
+        unsafe {
+            fl.push(ptr);
+        }
+    }
+
+    /// Checks the `try_pop` contract with a non-null head.
+    ///
+    /// `proof_for_contract` only supports a single top-level call to the
+    /// contracted function per harness, so the null-head branch gets its own
+    /// harness below.
+    #[kani::proof_for_contract(FreeList::try_pop)]
+    fn freelist_try_pop_contract_non_empty() {
+        let fl: FreeList<Node> = FreeList::new();
+        let mut node = Node::new();
+        let ptr = NonNull::from(&mut node);
+
+        // SAFETY: `node` is a valid local node that outlives the freelist operations.
+        unsafe {
+            fl.push(ptr);
+        }
+
+        fl.try_pop();
+    }
+
+    /// Checks the `try_pop` contract with a null head (the empty-list branch
+    /// of its precondition).
+    #[kani::proof_for_contract(FreeList::try_pop)]
+    fn freelist_try_pop_contract_empty() {
+        let fl: FreeList<Node> = FreeList::new();
+        fl.try_pop();
     }
 
     #[kani::proof]
