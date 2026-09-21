@@ -1,7 +1,7 @@
 //! Regression tests for `less_total`, the total order that `Set`, `Bag`,
 //! `FSet` and `FBag` use internally to keep their element lists canonically
 //! sorted (see `crates/syntax/spec/comparison.mcrl2`).
-//! 
+//!
 use merc_sabre::InnermostRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
@@ -60,11 +60,12 @@ fn test_nested_fset_union_reduces_to_a_canonical_normal_form() {
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_nested_fset_cardinality_and_membership_after_union() {
-    // `#` on `FSet` does not fully collapse its `succ(...)` chain down to a
-    // literal here.
     let card_forward = rewrite("#({ {1, 2} } + { {3} })", "Nat");
     let card_backward = rewrite("#({ {3} } + { {1, 2} })", "Nat");
-    assert!(!card_forward.contains('+'), "got a stuck normal form: {card_forward}");
+    assert_eq!(
+        card_forward, "@cNat(@cDub(false, @c1))",
+        "should fully reduce to the literal 2"
+    );
     assert_eq!(card_forward, card_backward);
 
     assert_holds("{1, 2} in ({ {1, 2} } + { {3} })");
@@ -85,6 +86,9 @@ fn test_nested_fbag_union_reduces_to_a_canonical_normal_form() {
 
     let card_forward = rewrite("#({ {1, 2}: 1 } + { {3}: 1 })", "Nat");
     let card_backward = rewrite("#({ {3}: 1 } + { {1, 2}: 1 })", "Nat");
-    assert!(!card_forward.contains('+'), "got a stuck normal form: {card_forward}");
+    assert_eq!(
+        card_forward, "@cNat(@cDub(false, @c1))",
+        "should fully reduce to the literal 2"
+    );
     assert_eq!(card_forward, card_backward);
 }

@@ -55,7 +55,7 @@ fn record_system_symbol_spans(
         ctx.system_symbol_spans
             .insert((decl.identifier.node.clone(), id), decl.identifier.span.clone());
     }
-    
+
     for decl in &system.map_declarations {
         let id = resolve_sort(ctx, spec, &decl.sort);
         ctx.system_symbol_spans
@@ -72,18 +72,21 @@ pub(crate) fn merge_signatures(a: &Signature, b: &Signature) -> Signature {
         mappings: a.mappings.clone(),
         schemes: a.schemes.clone(),
     };
+
     for (name, overloads) in &b.constructors {
         let entry = merged.constructors.entry(name.clone()).or_default();
         for &id in overloads {
             push_overload(entry, id);
         }
     }
+
     for (name, overloads) in &b.mappings {
         let entry = merged.mappings.entry(name.clone()).or_default();
         for &id in overloads {
             push_overload(entry, id);
         }
     }
+
     for (name, schemes) in &b.schemes {
         merged
             .schemes
@@ -188,9 +191,6 @@ mod tests {
         // `resolve_system_signature` merges into `ctx.signature`, so there must be one to merge
         // into, exactly as in the real pipeline.
         crate::build_signature(&mut ctx, spec.data_specification()).unwrap();
-        // Mirrors `from_untyped_with`'s own resolution of `basics` against the
-        // spec's shared `sort_declarations` table (which already carries
-        // `@NatPair`/`@word`, folded in by that same pipeline run).
         let mut basics = basic_sort_data_specification(&mut sources, NumberEncoding::Binary);
         crate::apply_sorts_in_spec(&mut basics, |sort| crate::resolve_sort_id(sort, spec.sorts())).unwrap();
         resolve_system_signature(&mut ctx, spec.data_specification(), &basics).unwrap();
