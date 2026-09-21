@@ -148,11 +148,12 @@ fn compute_signature(ctx: &mut TypeCheckContext, spec: &UntypedDataSpecification
 /// running every signature-level well-typedness rule of Definition 15.1.5/15.1.7 `is_well_typed`
 /// doesn't already cover post-normalization:
 ///
-///     - no product sort outside a function domain,
-///     - no constructor for a function sort,
-///     - constructor/mapping disjointness, and
-///     - no zero-arity symbol declared twice under different sorts (`constants`, shared across both declaration kinds and,
-/// when called again for a second spec, across that call too — see `resolve_system_signature`).
+/// - no product sort outside a function domain,
+/// - no constructor for a function sort,
+/// - constructor/mapping disjointness, and
+/// - no zero-arity symbol declared twice under different sorts — the shared `constants` table
+///   means this holds across both declaration kinds and, when called again for a second spec,
+///   across that call too (see `resolve_system_signature`).
 ///
 /// `resolve_spec` is the specification whose `sort_declarations` table a `Resolved(name, SortId)`
 /// node in `decl_spec` indexes into.

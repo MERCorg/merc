@@ -8,7 +8,6 @@ use log::trace;
 use merc_syntax::ComplexSort;
 use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
-use merc_syntax::EqnDecl;
 use merc_syntax::EqnSpecId;
 use merc_syntax::EquationId;
 use merc_syntax::IdDecl;
@@ -30,13 +29,13 @@ use crate::Signature;
 use crate::SortInterner;
 use crate::TemplateId;
 use crate::TypeCheckContext;
+use crate::TypedExpr;
 use crate::Unifier;
 use crate::is_lowered;
 use crate::is_supported_binder_sort;
 use crate::number_generality;
 use crate::query_sort_of_equation_var;
 use crate::resolve_sort;
-use crate::typed_expr_string;
 
 /// A unique type for expression nodes within a single equation.
 pub(crate) struct ExprTag;
@@ -1808,24 +1807,9 @@ impl Solver<'_> {
     }
 }
 
-/// As [`typed_expr_string`], for a whole equation: `condition -> lhs = rhs`, or plain `lhs = rhs`
-/// with no condition.
-fn typed_equation_string(
-    eqn: &EqnDecl,
-    ctx: &TypeCheckContext,
-    spec: &UntypedDataSpecification,
-    typing: &EquationTyping,
-) -> String {
-    let mut roots: Vec<&DataExpr> = Vec::with_capacity(3);
-    roots.extend(eqn.condition.as_ref());
-    roots.push(&eqn.lhs);
-    roots.push(&eqn.rhs);
-    typed_roots_string(&roots, ctx, spec, typing)
-}
-
-/// As [`typed_expr_string`], for whichever expressions one inference run covers: a single
-/// standalone expression, or an equation's `lhs`/`rhs` with an optional leading `condition`, in
-/// that order.
+/// Renders whichever expressions one inference run covers — a single standalone expression,
+/// or an equation's `lhs`/`rhs` with an optional leading `condition`, in that order — each
+/// annotated with its resolved sort (see [`crate::TypedExpr`]).
 fn typed_roots_string(
     roots: &[&DataExpr],
     ctx: &TypeCheckContext,
@@ -1833,17 +1817,17 @@ fn typed_roots_string(
     typing: &EquationTyping,
 ) -> String {
     match roots {
-        [expr] => typed_expr_string(expr, ctx, spec, typing),
+        [expr] => TypedExpr::new(expr, ctx, spec, typing).to_string(),
         [lhs, rhs] => format!(
             "{} = {}",
-            typed_expr_string(lhs, ctx, spec, typing),
-            typed_expr_string(rhs, ctx, spec, typing)
+            TypedExpr::new(lhs, ctx, spec, typing),
+            TypedExpr::new(rhs, ctx, spec, typing)
         ),
         [condition, lhs, rhs] => format!(
             "{} -> {} = {}",
-            typed_expr_string(condition, ctx, spec, typing),
-            typed_expr_string(lhs, ctx, spec, typing),
-            typed_expr_string(rhs, ctx, spec, typing)
+            TypedExpr::new(condition, ctx, spec, typing),
+            TypedExpr::new(lhs, ctx, spec, typing),
+            TypedExpr::new(rhs, ctx, spec, typing)
         ),
         _ => {
             unreachable!("inference roots are a single expression, or an equation's lhs/rhs with an optional condition")

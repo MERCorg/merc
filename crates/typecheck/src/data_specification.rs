@@ -28,6 +28,7 @@ use crate::NumberEncoding;
 #[cfg(test)]
 use crate::Signature;
 use crate::TypeCheckContext;
+use crate::TypedEquation;
 use crate::TypingInfo;
 use crate::VariableSpans;
 use crate::WellTypedError;
@@ -64,7 +65,6 @@ use crate::structured_sort_equations;
 use crate::typecheck_equations;
 use crate::typecheck_function_update_template;
 use crate::typecheck_templates;
-use crate::typed_equation_string;
 use crate::typing_info;
 
 /// A type checked and well-typed data specification.
@@ -604,7 +604,7 @@ impl fmt::Display for TypedDataSpecification<'_> {
             for equation in &eqn_spec.node.equations {
                 let equation_id = equation.id.expect("assign_declaration_ids ran during from_untyped");
                 let typing = self.spec.equation_typing((eqn_spec_id, equation_id));
-                let text = typed_equation_string(equation, &self.spec.context, &self.spec.spec, typing);
+                let text = TypedEquation::new(equation, &self.spec.context, &self.spec.spec, typing);
                 writeln!(f, "   {text};")?;
             }
         }

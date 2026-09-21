@@ -521,7 +521,10 @@ mod tests {
     fn parse_data(
         dir: &tempfile::TempDir,
         root: &str,
-    ) -> (Result<(UntypedDataSpecification, super::ImportGraph), merc_utilities::MercError>, SourceMap) {
+    ) -> (
+        Result<(UntypedDataSpecification, super::ImportGraph), merc_utilities::MercError>,
+        SourceMap,
+    ) {
         let mut sources = SourceMap::new();
         let result = UntypedDataSpecification::parse_with_imports(&dir.path().join(root), &mut sources);
         (result, sources)
@@ -546,7 +549,10 @@ mod tests {
         dir: &tempfile::TempDir,
         root: &str,
         text: &str,
-    ) -> (Result<(UntypedStateFrmSpec, super::ImportGraph), merc_utilities::MercError>, SourceMap) {
+    ) -> (
+        Result<(UntypedStateFrmSpec, super::ImportGraph), merc_utilities::MercError>,
+        SourceMap,
+    ) {
         let mut sources = SourceMap::new();
         let result = UntypedStateFrmSpec::parse_with_imports(&dir.path().join(root), text, &mut sources);
         (result, sources)
