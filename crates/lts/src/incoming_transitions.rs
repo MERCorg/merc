@@ -98,15 +98,17 @@ impl<'a> IncomingTransitions<'a> {
         }
     }
 
-    /// Returns an iterator over the incoming transitions for the given state.
+    /// Returns the incoming transitions for the given state.
     ///
     /// # Panics
     ///
     /// Panics if `state_index` is not less than the number of states in the underlying LTS.
-    pub fn incoming_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = FromTransition> + '_ {
+    pub fn incoming_transitions(&self, state_index: StateIndex) -> Vec<FromTransition> {
         let start = self.state2incoming.index(state_index.value());
         let end = self.state2incoming.index(state_index.value() + 1);
-        (start..end).map(move |i| FromTransition::new(self.transition_labels.index(i), self.transition_from.index(i)))
+        (start..end)
+            .map(|i| FromTransition::new(self.transition_labels.index(i), self.transition_from.index(i)))
+            .collect()
     }
 
     /// Returns an iterator over the incoming silent (tau-labelled) transitions for the given state.
@@ -162,6 +164,7 @@ mod tests {
                 for transition in lts.outgoing_transitions(state_index) {
                     let found = incoming
                         .incoming_transitions(transition.to)
+                        .into_iter()
                         .any(|incoming| incoming.label == transition.label && incoming.from == state_index);
                     assert!(
                         found,
@@ -175,6 +178,7 @@ mod tests {
                 for transition in incoming.incoming_transitions(state_index) {
                     let found = lts
                         .outgoing_transitions(transition.from)
+                        .into_iter()
                         .any(|outgoing| outgoing.label == transition.label && outgoing.to == state_index);
                     assert!(
                         found,
