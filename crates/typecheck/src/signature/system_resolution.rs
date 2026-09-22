@@ -100,7 +100,7 @@ pub(crate) fn merge_signatures(a: &Signature, b: &Signature) -> Signature {
 /// Builds one [PolySortScheme] per constructor/mapping declaration of each
 /// `template` in `templates`, keyed by name, via [`resolve_sort`] against the
 /// template's own (self-contained) spec — legal because every occurrence of
-/// the template's own `type_var` block interns to the same [ResolvedSort::Var](crate::ResolvedSort::Var),
+/// the template's own `type_var` block interns to the same [`ResolvedSort::TypeVar`](crate::ResolvedSort::TypeVar),
 /// on the same footing as any other lattice element.
 ///
 /// Safe to call with any of [CONTAINER_TEMPLATES]/`crate::BUILTIN_SCHEME_TEMPLATE`:

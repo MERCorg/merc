@@ -230,7 +230,7 @@ fn function_update(
 /// `type_var S` and no branching on `sort`'s shape.
 ///
 /// Registers a fresh virtual document per call, the same way
-/// [container_templates_binary]/[container_templates_machine_word] do for a
+/// `container_templates_binary`/`container_templates_machine_word` do for a
 /// bundled container template: `BUILTIN_SCHEME_TEMPLATE` itself is parsed
 /// once with no `SourceMap` involved (see `crate::parse_template_bare`), so
 /// without this its spans would render against nothing.
@@ -478,7 +478,7 @@ fn expand_sorts<T>(
 /// the same sort does not also occur, spelled out, elsewhere in the
 /// specification.
 ///
-/// `ctx` must be the context [crate::check_equations] populated: every sort
+/// `ctx` must be the context [`crate::typecheck_equations`] populated: every sort
 /// reachable from a successfully typed equation's per-node sorts is a
 /// candidate. Which of those `system` already covers is not recorded anywhere
 /// (containers are structural, not named, so `system` carries no direct list
