@@ -19,6 +19,7 @@ use merc_lts::guess_lts_format_from_extension;
 use merc_lts::write_bcg;
 use merc_symbolic::ExplorationStrategy;
 use merc_symbolic::LddLenCache;
+use merc_symbolic::OxiddArgs;
 use merc_symbolic::ReachabilityOptions;
 use merc_symbolic::SatCountCache;
 use merc_symbolic::SymFormat;
@@ -53,9 +54,6 @@ use oxidd::Function;
 use oxidd::ldd::LDDFunction;
 use which::which_in;
 
-/// Default node capacity for the Oxidd decision diagram manager.
-const DEFAULT_OXIDD_NODE_CAPACITY: usize = 2048;
-
 /// A command line tool for symbolic labelled transition systems
 #[derive(clap::Parser, Debug)]
 #[command(arg_required_else_help = true)]
@@ -69,17 +67,8 @@ struct Cli {
     #[command(subcommand)]
     commands: Option<Commands>,
 
-    /// Number of workers for the Oxidd decision diagram manager.
-    #[arg(long, global = true, default_value_t = 1)]
-    oxidd_workers: u32,
-
-    /// Node capacity for the Oxidd decision diagram manager.
-    #[arg(long, global = true, default_value_t = DEFAULT_OXIDD_NODE_CAPACITY)]
-    oxidd_node_capacity: usize,
-
-    /// Cache capacity for the Oxidd decision diagram manager, if `None` it is set to the node capacity.
-    #[arg(long, global = true)]
-    oxidd_cache_capacity: Option<usize>,
+    #[command(flatten)]
+    oxidd: OxiddArgs,
 
     #[arg(long, global = true)]
     timings: bool,
@@ -224,24 +213,6 @@ struct ReduceArgs {
     merge_transitions: bool,
 }
 
-/// Initializes the Oxidd BDD manager based on CLI arguments.
-fn init_bdd_manager(cli: &Cli) -> oxidd::bdd::BDDManagerRef {
-    oxidd::bdd::new_manager(
-        cli.oxidd_node_capacity,
-        cli.oxidd_cache_capacity.unwrap_or(cli.oxidd_node_capacity),
-        cli.oxidd_workers,
-    )
-}
-
-/// Initializes the Oxidd LDD manager based on CLI arguments.
-fn init_ldd_manager(cli: &Cli) -> oxidd::ldd::LDDManagerRef {
-    oxidd::ldd::new_manager(
-        cli.oxidd_node_capacity,
-        cli.oxidd_cache_capacity.unwrap_or(cli.oxidd_node_capacity),
-        cli.oxidd_workers,
-    )
-}
-
 fn main() -> ExitCode {
     let cli = Cli::parse();
 
@@ -283,7 +254,7 @@ fn handle_command(cli: &Cli, timing: &Timing) -> Result<(), MercError> {
 
 /// Reads the given symbolic LTS and prints information about it.
 fn handle_info(cli: &Cli, args: &InfoArgs, timing: &Timing) -> Result<(), MercError> {
-    let storage = init_ldd_manager(cli);
+    let storage = cli.oxidd.init_ldd_manager();
 
     let format =
         guess_format_from_extension(&args.filename, args.format).ok_or("Cannot determine input symbolic LTS format")?;
@@ -304,7 +275,7 @@ fn handle_info(cli: &Cli, args: &InfoArgs, timing: &Timing) -> Result<(), MercEr
 
 /// Computes the reachable state count of the given symbolic LTS using LDD-based reachability.
 fn handle_reachability(cli: &Cli, args: &ReachabilityArgs, timing: &Timing) -> Result<(), MercError> {
-    let storage = init_ldd_manager(cli);
+    let storage = cli.oxidd.init_ldd_manager();
 
     let format = guess_format_from_extension(&args.filename, args.format).ok_or("Cannot determine input format")?;
 
@@ -384,7 +355,7 @@ fn print_reachable_states(states: &LDDFunction) {
 
 /// Computes the reachable state count of the given symbolic LTS using BDD-based reachability.
 fn handle_reachability_bdd(cli: &Cli, args: &ReachabilityBddArgs, timing: &Timing) -> Result<(), MercError> {
-    let storage = init_ldd_manager(cli);
+    let storage = cli.oxidd.init_ldd_manager();
 
     let format = guess_format_from_extension(&args.filename, args.format).ok_or("Cannot determine input format")?;
 
@@ -396,7 +367,7 @@ fn handle_reachability_bdd(cli: &Cli, args: &ReachabilityBddArgs, timing: &Timin
     let mut file = File::open(&args.filename)?;
     let lts = timing.measure("read_symbolic_lts", || read_symbolic_lts(&storage, &mut file))?;
 
-    let manager_ref = init_bdd_manager(cli);
+    let manager_ref = cli.oxidd.init_bdd_manager();
 
     let lts_bdd = timing.measure("convert_bdd", || {
         SymbolicLtsBdd::from_symbolic_lts(&storage, &manager_ref, &lts)
@@ -489,7 +460,7 @@ fn handle_reorder(args: &ReorderArgs, _timing: &Timing) -> Result<(), MercError>
 
 /// Converts a symbolic LTS to an explicit LTS.
 fn handle_convert(cli: &Cli, args: &ConvertArgs, _timing: &Timing) -> Result<(), MercError> {
-    let storage = init_ldd_manager(cli);
+    let storage = cli.oxidd.init_ldd_manager();
 
     let format =
         guess_format_from_extension(&args.filename, args.format).ok_or("Cannot determine input symbolic LTS format")?;
@@ -537,8 +508,8 @@ fn handle_reduce(cli: &Cli, args: &ReduceArgs, timing: &Timing) -> Result<(), Me
         return Err("Currently only the .sym format is supported for reduction".into());
     }
 
-    let storage = init_ldd_manager(cli);
-    let manager_ref = init_bdd_manager(cli);
+    let storage = cli.oxidd.init_ldd_manager();
+    let manager_ref = cli.oxidd.init_bdd_manager();
 
     let mut file = File::open(&args.filename)?;
     let lts = read_symbolic_lts(&storage, &mut file)?;

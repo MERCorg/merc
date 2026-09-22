@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
+mod args;
 mod bdd;
-mod constants;
 mod dependency_graph;
 mod io;
 mod ldd;
@@ -27,6 +27,14 @@ pub(crate) use random_symbolic_lts::*;
 #[cfg(test)]
 pub(crate) use random_vector_set::*;
 
+pub use args::BDD_CACHE_CAPACITY;
+pub use args::BDD_NODE_CAPACITY;
+pub use args::LDD_CACHE_CAPACITY;
+pub use args::LDD_NODE_CAPACITY;
+#[cfg(feature = "clap")]
+pub use args::OxiddArgs;
+#[cfg(feature = "clap")]
+pub use args::ReorderArgs;
 pub use bdd::CubeIterAll;
 pub use bdd::FormatConfig;
 pub use bdd::FormatConfigSet;
@@ -40,10 +48,6 @@ pub use bdd::random_bdd;
 pub use bdd::reachability_bdd;
 pub use bdd::refine_bisimulation;
 pub use bdd::sigref_symbolic;
-pub use constants::BDD_CACHE_CAPACITY;
-pub use constants::BDD_NODE_CAPACITY;
-pub use constants::LDD_CACHE_CAPACITY;
-pub use constants::LDD_NODE_CAPACITY;
 pub use dependency_graph::parse_compacted_dependency_graph;
 pub use io::SymFormat;
 pub use io::guess_format_from_extension;

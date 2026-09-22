@@ -16,13 +16,11 @@ use mcrl2::SrfPbes;
 use mcrl2::set_reporting_level;
 use mcrl2::verbosity_to_log_level;
 use merc_symbolic::LddLenCache;
-use merc_symbolic::Order;
+use merc_symbolic::OxiddArgs;
+use merc_symbolic::ReorderArgs;
 use merc_symbolic::SummandGrouping;
 use merc_symbolic::SymbolicLpsOptions;
-use merc_symbolic::VariableOrder;
 use merc_symbolic::ldd_len;
-use merc_symbolic::parse_order;
-use merc_tools::KaHyParArgs;
 use merc_tools::VerbosityFlag;
 use merc_tools::Version;
 use merc_tools::VersionFlag;
@@ -76,9 +74,6 @@ use merc_vpg::verify_solution;
 use merc_vpg::verify_symbolic_strategy;
 use merc_vpg::write_pg;
 
-/// Default number of nodes for the Oxidd LDD manager.
-const DEFAULT_OXIDD_NODE_CAPACITY: usize = 1 << 29;
-
 #[derive(clap::ValueEnum, Clone, Copy, Debug)]
 enum PbesFormat {
     Text,
@@ -102,29 +97,11 @@ struct Cli {
     #[arg(long, global = true, default_value_t = false)]
     no_preprocess: bool,
 
-    /// The number of worker threads for the Oxidd LDD manager.
-    #[arg(long, global = true, default_value_t = 1)]
-    oxidd_workers: u32,
-
-    /// The number of nodes for the Oxidd LDD manager.
-    #[arg(long, global = true, default_value_t = DEFAULT_OXIDD_NODE_CAPACITY)]
-    oxidd_node_capacity: usize,
-
-    /// The apply cache capacity for the Oxidd LDD manager, defaults to the node capacity.
-    #[arg(long, global = true)]
-    oxidd_cache_capacity: Option<usize>,
+    #[command(flatten)]
+    oxidd: OxiddArgs,
 
     #[command(subcommand)]
     commands: Option<Commands>,
-}
-
-/// Initializes the Oxidd LDD manager based on CLI arguments.
-fn init_ldd_manager(cli: &Cli) -> oxidd::ldd::LDDManagerRef {
-    oxidd::ldd::new_manager(
-        cli.oxidd_node_capacity,
-        cli.oxidd_cache_capacity.unwrap_or(cli.oxidd_node_capacity),
-        cli.oxidd_workers,
-    )
 }
 
 #[derive(Debug, Subcommand)]
@@ -163,16 +140,11 @@ struct InputArgs {
 #[derive(clap::Args, Debug)]
 struct ExploreArgs {
     /// Strategy to explore the state space of the PBES. Only used for sequential
-    /// exploration; ignored when `--threads > 1` (the parallel explorer always
-    /// uses a level-synchronised BFS).
+    /// exploration; ignored when `--threads > 1`.
     #[arg(long, value_enum, default_value_t = ExplorationStrategy::Bfs)]
     strategy: ExplorationStrategy,
 
-    /// Caching strategy to use during exploration. Only valid with `--srf`,
-    /// whose summands have the positional state effect that makes a cache key
-    /// narrow enough to be shared; the direct structure-graph explorer cannot
-    /// benefit (see `PbesLps`), so a value other than `none` without `--srf` is
-    /// rejected.
+    /// Caching strategy to use during exploration. Only valid with `--srf`.
     #[arg(long, value_enum, default_value_t = CachingStrategy::None)]
     caching: CachingStrategy,
 
@@ -208,14 +180,13 @@ struct ExploreArgs {
     #[arg(long, default_value_t = false)]
     use_gap_canonicalisation: bool,
 
-    /// Convert to SRF before exploring (legacy; default is the direct structure-graph algorithm).
+    /// Convert to SRF before exploring.
     #[arg(long, default_value_t = false)]
     srf: bool,
 
     /// Use a control flow graph analysis to prune summands whose source-value
-    /// condition cannot hold in the current state, on top of the pruning by
-    /// equation index that SRF exploration always applies. Only meaningful
-    /// together with `--srf`. The explored parity game is unchanged.
+    /// condition cannot hold in the current state. Only meaningful together
+    /// with `--srf`.
     #[arg(long)]
     control_flow: bool,
 
@@ -230,7 +201,7 @@ struct ExploreArgs {
     #[arg(long, value_name = "FILE")]
     dump_srf: Option<PathBuf>,
 
-    /// Write the resulting parity game to this file in the PGSolver `.pg` format.
+    /// Write the resulting parity game to this file.
     #[arg(long, short('o'), value_name = "FILE")]
     output: Option<PathBuf>,
 }
@@ -317,14 +288,8 @@ struct SymbolicExploreArgs {
     #[arg(long, default_value_t = SummandGrouping::default(), value_parser = parse_grouping)]
     groups: SummandGrouping,
 
-    /// Reorder the parameters before exploring: 'mince' runs the MINCE algorithm, which requires the
-    /// KaHyPar tool, or an explicit order can be given as a whitespace separated string of numbers.
-    /// The reachable states are unaffected, only the size of the decision diagrams.
-    #[arg(long, default_value_t = Order::None, value_parser = parse_order)]
-    reorder: Order,
-
     #[command(flatten)]
-    kahypar: KaHyParArgs,
+    reorder: ReorderArgs,
 
     /// Cache the domain of every transition relation, so that successors are only learned for
     /// parameter values that a group has not seen before.
@@ -345,11 +310,6 @@ struct SymbolicExploreArgs {
 }
 
 impl SymbolicExploreArgs {
-    /// Returns the variable order to explore with, resolving the KaHyPar tool when `--reorder` is set.
-    fn variable_order(&self) -> Result<VariableOrder, MercError> {
-        self.reorder.resolve(|| self.kahypar.resolve())
-    }
-
     /// Converts `pbes` to SRF form and unifies its parameter lists according to
     /// `--reset`, writing the result to `--dump-srf` if requested. This is the
     /// exact PBES symbolic exploration then sees, unlike a dump produced by a
@@ -372,7 +332,7 @@ impl SymbolicExploreArgs {
     fn encoding(&self) -> Result<SymbolicLpsOptions, MercError> {
         Ok(SymbolicLpsOptions {
             grouping: self.groups.clone(),
-            order: self.variable_order()?,
+            order: self.reorder.variable_order()?,
         })
     }
 }
@@ -668,7 +628,7 @@ fn handle_explore_symbolic(
     preprocess: bool,
 ) -> Result<(), MercError> {
     let pbes = args.input.read(timing, preprocess)?;
-    let storage = init_ldd_manager(cli);
+    let storage = cli.oxidd.init_ldd_manager();
     let encoding = args.symbolic.encoding()?;
 
     let srf_pbes = args.symbolic.build_srf(&pbes)?;
@@ -689,7 +649,7 @@ fn handle_solve_symbolic(
     preprocess: bool,
 ) -> Result<(), MercError> {
     let pbes = args.input.read(timing, preprocess)?;
-    let storage = init_ldd_manager(cli);
+    let storage = cli.oxidd.init_ldd_manager();
     let encoding = args.symbolic.encoding()?;
     let srf_pbes = args.symbolic.build_srf(&pbes)?;
 
