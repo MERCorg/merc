@@ -14,8 +14,8 @@ rust-version.workspace = true
 workspace = true
 
 [features]
-# Derive additional traits for clap.
-clap = ["dep:clap"]
+# Derive additional traits for clap, and pull in the shared CLI argument structs.
+clap = ["dep:clap", "dep:merc_tools"]
 # Enables keeping track of various performance metrics.
 metrics = ["oxidd/statistics"]
 
@@ -27,6 +27,7 @@ merc_explore.workspace = true
 merc_io.workspace = true
 merc_lts.workspace = true
 merc_number.workspace = true
+merc_tools = { workspace = true, optional = true }
 merc_utilities.workspace = true
 
 clap = { workspace = true, optional = true }

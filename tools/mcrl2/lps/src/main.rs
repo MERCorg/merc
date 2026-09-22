@@ -20,16 +20,14 @@ use merc_lts::MutexLtsBuilder;
 use merc_lts::guess_lts_output_format;
 use merc_symbolic::ExplorationStrategy as SymbolicExplorationStrategy;
 use merc_symbolic::LddLenCache;
-use merc_symbolic::Order;
+use merc_symbolic::OxiddArgs;
 use merc_symbolic::ReachabilityOptions;
+use merc_symbolic::ReorderArgs;
 use merc_symbolic::SummandGrouping;
 use merc_symbolic::SymbolicLTS;
 use merc_symbolic::SymbolicLpsOptions;
-use merc_symbolic::VariableOrder;
 use merc_symbolic::ldd_len;
-use merc_symbolic::parse_order;
 use merc_symbolic::write_symbolic_lts;
-use merc_tools::KaHyParArgs;
 use merc_tools::VerbosityFlag;
 use merc_tools::Version;
 use merc_tools::VersionFlag;
@@ -55,9 +53,6 @@ use merc_lps::explore_lps_explicit_parallel;
 use merc_lps::explore_lps_symbolic;
 use merc_lps::explore_lps_symbolic_to_sym;
 
-/// Default number of nodes for the Oxidd LDD manager.
-const DEFAULT_OXIDD_NODE_CAPACITY: usize = 1 << 29;
-
 /// A command line tool for linear process specifications (LPSs)
 #[derive(clap::Parser, Debug)]
 #[command(arg_required_else_help = true)]
@@ -75,29 +70,11 @@ struct Cli {
     #[arg(long, global = true, default_value_t = false)]
     no_preprocess: bool,
 
-    /// The number of worker threads for the Oxidd LDD manager.
-    #[arg(long, global = true, default_value_t = 1)]
-    oxidd_workers: u32,
-
-    /// The number of nodes for the Oxidd LDD manager.
-    #[arg(long, global = true, default_value_t = DEFAULT_OXIDD_NODE_CAPACITY)]
-    oxidd_node_capacity: usize,
-
-    /// The apply cache capacity for the Oxidd LDD manager, defaults to the node capacity.
-    #[arg(long, global = true)]
-    oxidd_cache_capacity: Option<usize>,
+    #[command(flatten)]
+    oxidd: OxiddArgs,
 
     #[command(subcommand)]
     commands: Option<Commands>,
-}
-
-/// Initializes the Oxidd LDD manager based on CLI arguments.
-fn init_ldd_manager(cli: &Cli) -> oxidd::ldd::LDDManagerRef {
-    oxidd::ldd::new_manager(
-        cli.oxidd_node_capacity,
-        cli.oxidd_cache_capacity.unwrap_or(cli.oxidd_node_capacity),
-        cli.oxidd_workers,
-    )
 }
 
 #[derive(Debug, Subcommand)]
@@ -155,12 +132,8 @@ struct ExploreArgs {
     #[arg(long, default_value_t = SummandGrouping::default(), value_parser = parse_grouping)]
     groups: SummandGrouping,
 
-    /// Reorder the process parameters with the MINCE algorithm before exploring
-    #[arg(long, default_value_t = Order::None, value_parser = parse_order)]
-    reorder: Order,
-
     #[command(flatten)]
-    kahypar: KaHyParArgs,
+    reorder: ReorderArgs,
 
     /// Detect and report deadlock states (reachable states with no outgoing transition).
     #[arg(long)]
@@ -180,13 +153,6 @@ struct ExploreArgs {
     /// process parameters, parameter values and action labels. If not given, the LTS is not written.
     #[arg(long, short('o'))]
     output: Option<PathBuf>,
-}
-
-impl ExploreArgs {
-    /// Returns the variable order to explore with, resolving the KaHyPar tool when `--reorder` is set.
-    fn variable_order(&self) -> Result<VariableOrder, MercError> {
-        self.reorder.resolve(|| self.kahypar.resolve())
-    }
 }
 
 /// Parses the `--groups` argument, since [`MercError`] is not a [`std::error::Error`] that clap accepts.
@@ -273,7 +239,7 @@ fn handle_command(cli: &Cli, timing: &Timing) -> Result<(), MercError> {
 fn handle_explore(cli: &Cli, args: &ExploreArgs, timing: &Timing, preprocess_lps: bool) -> Result<(), MercError> {
     let lps = args.input.read(timing, preprocess_lps)?;
 
-    let storage = init_ldd_manager(cli);
+    let storage = cli.oxidd.init_ldd_manager();
 
     let options = ReachabilityOptions {
         strategy: args.strategy,
@@ -283,7 +249,7 @@ fn handle_explore(cli: &Cli, args: &ExploreArgs, timing: &Timing, preprocess_lps
 
     let encoding = SymbolicLpsOptions {
         grouping: args.groups.clone(),
-        order: args.variable_order()?,
+        order: args.reorder.variable_order()?,
     };
 
     // Stops the exploration once `--max-iterations` iterations are done, and remembers that it did.

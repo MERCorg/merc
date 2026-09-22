@@ -91,7 +91,7 @@ rand = "0.10"
 rayon = "1.12"
 regex = "1.13"
 rustc-hash = "2.1"
-smallvec = "1.15"
+smallvec = "1.16"
 thiserror = "2.0"
 toml = "1.1"
 winapi = { version = "0.3", features = ["consoleapi", "wincon"] }
@@ -134,7 +134,7 @@ tempfile = "3.27"
 criterion = "0.8"
 
 # Used for the cadp FFI
-bindgen = "0.72"
+bindgen = "0.73"
 
 # The workspace crates.
 merc_aterm = { version = "3.0", path = "crates/aterm" }
