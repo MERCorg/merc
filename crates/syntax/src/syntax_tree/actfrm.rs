@@ -52,7 +52,7 @@ pub enum ActFrmKind {
         rhs: Box<ActFrm>,
     },
     /// `expr@operand`: `expr` restricted to the instant `operand`, mirroring
-    /// [`ProcessExprKind::At`].
+    /// [`crate::ProcessExprKind::At`].
     At {
         expr: Box<ActFrm>,
         operand: DataExpr,

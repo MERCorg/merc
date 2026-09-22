@@ -53,7 +53,7 @@ pub(crate) type ExprId = TagIndex<usize, ExprTag>;
 /// A monomorphized template instantiation relies on this numbering being a pure function of
 /// tree *shape*: numbering the template's own generic equation and numbering a ground clone of it
 /// (same structure, substituted sorts — `replace_sort`'s `spec.clone()`) assigns the same ids to
-/// corresponding nodes, which is how [specialize_template_typing]'s substituted `sorts`/`names` line
+/// corresponding nodes, which is how [`crate::specialize_template_typing`]'s substituted `sorts`/`names` line
 /// up with a later, independent lowering of the instantiated equation.
 pub(crate) fn number_expr_nodes<'a>(roots: impl IntoIterator<Item = &'a DataExpr>) -> HashMap<usize, ExprId> {
     let mut ids = HashMap::new();
@@ -353,7 +353,7 @@ pub(crate) fn typecheck_template_equations(
     Ok(TemplateCheck { type_vars, typings })
 }
 
-/// The system-equation counterpart of [query_equation_typing], memoized on
+/// The system-equation counterpart of [`infer_equation_typing`], memoized on
 /// [TypeCheckContext::system_equation_typing].
 pub(crate) fn query_system_equation_typing(
     ctx: &mut TypeCheckContext,
@@ -378,7 +378,7 @@ pub(crate) fn query_system_equation_typing(
 /// [`crate::instantiate_system_equations`], which specializes an
 /// already-proven template typing by substitution instead of inferring it
 /// again here. Populates `ctx.system_equation_typing`, the same way
-/// [check_equations] does for user equations. Requires `resolve_system_signature` to have run, so
+/// [`typecheck_equations`] does for user equations. Requires `resolve_system_signature` to have run, so
 /// every binder/equation-variable sort resolves infallibly.
 pub(crate) fn check_system_equations(
     ctx: &mut TypeCheckContext,
@@ -399,7 +399,7 @@ pub(crate) fn check_system_equations(
     Ok(())
 }
 
-/// Shared by [query_equation_typing]/[query_system_equation_typing]: both look up `key` in the
+/// Shared by [`infer_equation_typing`]/[query_system_equation_typing]: both look up `key` in the
 /// per-role cache `cache` selects, computing it via [infer_equation] under `role` on a miss.
 /// `indexed` is the spec `key`'s `EqnSpecId` indexes into, checked by the `debug_assert` below.
 fn infer_equation_typing_cached<F>(
@@ -1405,7 +1405,7 @@ impl<'a> ConstraintGenerator<'a> {
     }
 
     /// A fresh instance of a scheme's already-*interned* sort: every bound
-    /// [`ResolvedSort::Var`] it mentions becomes one fresh unification
+    /// [`ResolvedSort::TypeVar`] it mentions becomes one fresh unification
     /// variable, shared between its occurrences within this one
     /// instantiation — this is what lets `S` mean "the same `S`" on both
     /// sides of a use like `in: S # List(S) -> Bool`. Every polymorphic

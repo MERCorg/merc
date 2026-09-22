@@ -365,7 +365,7 @@ fn saturation_reachability<L: SymbolicLPS, F: FnMut(usize, &LDDFunction) -> Cont
     })
 }
 
-/// Builds the [`SaturationEvent`]s used by [`node_saturation_reachability`] from `lts`'s transition
+/// Builds the [`SaturationEvent`]s used by [`saturation_reachability`] from `lts`'s transition
 /// groups, in the same order as [`SymbolicLPS::transition_groups`]. A group that neither reads nor
 /// writes any position is skipped: its relation is the identity and it has no well-defined
 /// `top`/`bot`, so it contributes nothing to saturation.

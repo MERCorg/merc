@@ -143,7 +143,7 @@ fn primitive_partial_cmp(lhs: Sort, rhs: Sort) -> Option<Ordering> {
     }
 }
 
-/// Panics: neither `Unit` nor `Var` ever denotes a data-expression's own resolved sort..
+/// Panics: neither `Unit` nor `TypeVar` ever denotes a data-expression's own resolved sort..
 pub(crate) fn unreachable_not_a_value_sort(variant: &str) -> ! {
     unreachable!("{variant} never denotes a data-expression's own resolved sort")
 }
@@ -428,7 +428,7 @@ impl SortInterner {
         }
     }
 
-    /// Substitutes `with` for every occurrence of `ResolvedSort::Var(var)`
+    /// Substitutes `with` for every occurrence of `ResolvedSort::TypeVar(var)`
     /// inside `sort`, recursively.
     pub(crate) fn substitute_var(
         &mut self,

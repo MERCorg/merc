@@ -21,7 +21,7 @@ use crate::query_sort_of_map;
 use crate::resolve_sort;
 
 /// A polymorphic overload: `sort` is a [ResolvedSortId] built by
-/// [`resolve_sort`](crate::resolve_sort) from a template's own declaration.
+/// [`resolve_sort`] from a template's own declaration.
 #[derive(Clone, Debug)]
 pub(crate) struct PolySortScheme {
     pub(crate) sort: ResolvedSortId,
