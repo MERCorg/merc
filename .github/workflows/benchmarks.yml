@@ -46,7 +46,7 @@ jobs:
       with:
         submodules: true
 
-    - name: Build aterm Benchmarks
+    - name: Build Benchmarks
       run: cargo bench --no-run
       env:
         RUSTC_WRAPPER: sccache
