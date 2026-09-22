@@ -36,7 +36,8 @@ fn bench_example(c: &mut Criterion, group_name: &str, path: PathBuf) {
         ExplorationStrategy::BreadthFirst,
         ExplorationStrategy::Chaining,
         ExplorationStrategy::Saturation,
-        ExplorationStrategy::SaturationChaining,
+        ExplorationStrategy::Fixpoint,
+        ExplorationStrategy::FixpointChaining,
     ] {
         let options = ReachabilityOptions {
             strategy,
