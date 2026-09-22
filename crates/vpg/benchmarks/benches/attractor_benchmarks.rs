@@ -9,6 +9,8 @@ use benchmarks_vpg::generate_attractor_case;
 use benchmarks_vpg::silent_attractor_progress;
 use merc_symbolic::LDD_CACHE_CAPACITY;
 use merc_symbolic::LDD_NODE_CAPACITY;
+use merc_symbolic::LddLenCache;
+use merc_symbolic::ldd_len;
 
 /// Fixed seed so every run generates and attracts over the exact same synthetic
 /// games.
@@ -30,10 +32,11 @@ fn bench_attractor(
         .game
         .attractor(case.alpha, &case.u, v, &vplayer, None, None, &progress)
         .unwrap();
+    let mut len_cache = LddLenCache::default();
     eprintln!(
         "  [{parameter}] |V| = {}, |Z| = {}, node_count(Z) = {}",
-        v.len(),
-        z.len(),
+        ldd_len(v, &mut len_cache),
+        ldd_len(&z, &mut len_cache),
         z.node_count()
     );
 

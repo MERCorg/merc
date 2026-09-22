@@ -9,6 +9,7 @@ autobenches = false
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+merc_symbolic.workspace = true
 merc_utilities.workspace = true
 merc_vpg.workspace = true
 oxidd.workspace = true
