@@ -664,6 +664,13 @@ mod inner {
     }
 
     #[merc_ignore]
+    impl From<DataExpression> for DataAbstraction {
+        fn from(value: DataExpression) -> Self {
+            value.term.into()
+        }
+    }
+
+    #[merc_ignore]
     impl<'a> From<DataExpressionRef<'a>> for DataVariableRef<'a> {
         fn from(value: DataExpressionRef<'a>) -> Self {
             value.term.into()
