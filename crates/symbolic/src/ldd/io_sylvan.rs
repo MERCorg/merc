@@ -277,21 +277,8 @@ mod test {
     #[test]
     #[cfg_attr(miri, ignore)] // Miri is too slow
     #[cfg(not(debug_assertions))]
-    // TEMPORARY (manager-index experiment): still OOMs even at 1 << 26 (67M) nodes, more than 1000x
-    // this fixture's likely final size. Confirmed via node-count logging that it never completes even
-    // one outer BreadthFirst iteration — the crash happens inside a single whole-set `step()` call.
-    // Automatic GC (manager-index's or any other) cannot help here: every node created mid-computation
-    // is still referenced by the in-flight recursion computing it, so none of it is actually garbage
-    // yet. This is the classic "peak diagram size >> final size" blowup the saturation strategy exists
-    // to avoid (Ciardo et al. 2006) — a property of whole-set `BreadthFirst` on this fixture, not a
-    // manager-index defect, and orthogonal to the round-177+ saturation investigation this experiment
-    // is actually about (that pathology is about garbage accumulating *across* rounds/nodes, not peak
-    // size *within* one). Re-enable (and drop the capacity back down) if the manager-index experiment
-    // is kept and this test is worth fixing on its own; ignored for now rather than blocking the
-    // experiment on an unrelated, expected property difference.
-    #[ignore]
     fn test_load_collision_4() {
-        let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+        let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY * 20, LDD_CACHE_CAPACITY * 20, 1);
         let bytes = include_bytes!("../../../../examples/ldd/collision.4.ldd");
         let mut lts = read_sylvan(&ldd_manager, &mut &bytes[..]).expect("Loading should work correctly");
         reachability(&ldd_manager, &mut lts, &Timing::new()).expect("Reachability should work correctly");
