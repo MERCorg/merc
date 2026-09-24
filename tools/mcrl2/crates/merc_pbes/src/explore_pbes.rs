@@ -130,7 +130,7 @@ unsafe fn name_key(name: ATermStringRef<'_>) -> ATermStringRef<'static> {
 ///   are injective and they never hit — measured on `alloc3`, the subformula
 ///   summand stored one entry per subformula vertex for zero hits.
 /// - An equation summand is [`StateEffect::Opaque`] unless its right-hand side is
-///   a bare instantiation (see [`formula_positions`]). Under an opaque effect the
+///   a bare instantiation (see `formula_positions`). Under an opaque effect the
 ///   whole next state is captured, so every parameter the right-hand side merely
 ///   passes through has to be part of the key as well, which widens the key to
 ///   the point where distinct states rarely share one.

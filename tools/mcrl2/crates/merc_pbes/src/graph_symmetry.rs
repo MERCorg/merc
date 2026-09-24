@@ -346,10 +346,10 @@ fn unified_parameters(equations: &mcrl2::PbesEquations) -> Result<Vec<DataVariab
 ///   that precondition is not yet established.
 /// - No quantifier or data-level abstraction in any equation may bind a
 ///   variable with the same name *and* sort as a parameter -- see
-///   [`SdgBuilder::push_scope`] for why such shadowing, though it parses and
+///   `SdgBuilder::push_scope` for why such shadowing, though it parses and
 ///   type-checks fine, cannot be tolerated here.
 ///
-/// `where` clauses are also rejected (see [`SdgBuilder::colour_of`]); PBES
+/// `where` clauses are also rejected (see `SdgBuilder::colour_of`); PBES
 /// standard form does not produce them, but a user-supplied PBES may still
 /// contain one.
 pub fn build_sdg(pbes: &Pbes) -> Result<Sdg, MercError> {
