@@ -172,7 +172,7 @@ impl Permutation {
     /// moves nothing.
     ///
     /// Used to reject a generator whose points fall outside the parameter range
-    /// before it reaches [`crate::bsgs::DensePermutation`], which silently
+    /// before it reaches `crate::bsgs::DensePermutation`, which silently
     /// truncates to the group's degree.
     pub fn max_point(&self) -> Option<usize> {
         self.mapping.iter().map(|&(d, v)| d.max(v)).max()

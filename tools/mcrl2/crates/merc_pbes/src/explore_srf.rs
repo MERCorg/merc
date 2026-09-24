@@ -178,7 +178,7 @@ unsafe impl Send for PbesSrfContext {}
 ///
 /// State vectors have layout `[equation_index, param_0, …, param_{n-1}]` where
 /// `equation_index` is a flat index into [`SrfPbes::equations`] and each
-/// `param_i` is an index into the shared [`ValueMapping`].
+/// `param_i` is an index into the shared `ValueMapping`.
 pub struct PbesSrfLps {
     /// The unified SRF PBES; retained so summand pointers stay alive, and read
     /// back by [`PbesSrfLps::parameters`].

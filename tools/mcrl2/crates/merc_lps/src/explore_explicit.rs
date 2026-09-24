@@ -135,10 +135,14 @@ where
     B: LtsBuilder<Mcrl2MultiActionLabel>,
     M: LPS<Value = usize, Label = Mcrl2MultiActionLabel, StateInfo = ()>,
 {
-    // Count states in the exploration closures, driving the periodic progress reporter from
-    // `on_transition`.
+    // Count states and transitions in the exploration closures, driving the periodic progress
+    // reporter from `on_transition`. Transitions are counted independently of the builder (rather
+    // than via `builder.num_of_transitions()`) since a discard builder such as `()` never tracks a
+    // count of its own, which would otherwise make the reported total collapse to just the
+    // in-progress state's buffered count (see `PerStateDedup`).
     let progress = lps_progress();
     let states = Cell::new(0usize);
+    let transitions = Cell::new(0usize);
 
     // Different summands can instantiate to the same (label, successor) pair
     // for a given state, so deduplicate them.
@@ -154,18 +158,24 @@ where
             Ok(())
         },
         |b: &mut B, from, label: &Mcrl2MultiActionLabel, to| {
-            dedup.add(from, label, to, |from, label, to| b.add_transition(from, label, to))?;
-            progress.print((states.get(), b.num_of_transitions() + dedup.len()));
+            dedup.add(from, label, to, |from, label, to| {
+                transitions.set(transitions.get() + 1);
+                b.add_transition(from, label, to)
+            })?;
+            progress.print((states.get(), transitions.get() + dedup.len()));
             Ok(())
         },
     )?;
 
-    dedup.flush(|from, label, to| builder.add_transition(from, label, to))?;
+    dedup.flush(|from, label, to| {
+        transitions.set(transitions.get() + 1);
+        builder.add_transition(from, label, to)
+    })?;
 
     info!(
         "Exploration complete: {} states, {} transitions",
         states.get(),
-        builder.num_of_transitions(),
+        transitions.get(),
     );
     builder.require_num_of_states(states.get());
 
@@ -444,7 +454,7 @@ fn is_mcrl2_timed_multi_action_term(term: &ATermSend) -> bool {
 /// Explicit-state view of a [mcrl2::LinearProcessSpecification] that implements
 /// the [merc_explore::LPS] trait.
 ///
-/// State vectors are indices into a shared [`ValueMapping`]: a thread-safe set
+/// State vectors are indices into a shared `ValueMapping`: a thread-safe set
 /// interning the data expressions observed for every process parameter. The set
 /// stores bare [`DataExpressionRef`]s kept alive by the garbage collector
 /// through the [`Protected`] wrapper, so the mapping is globally consistent and
