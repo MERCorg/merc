@@ -2,11 +2,11 @@ use std::path::Path;
 
 use mcrl2::Pbes;
 use mcrl2::SrfPbes;
+use merc_explore::CachingStrategy;
+use merc_explore::ExplorationStrategy;
 use merc_symbolic::LDD_CACHE_CAPACITY;
 use merc_symbolic::LDD_NODE_CAPACITY;
 use merc_symbolic::LddLenCache;
-use merc_explore::CachingStrategy;
-use merc_explore::ExplorationStrategy;
 use merc_symbolic::SymbolicLpsOptions;
 use merc_symbolic::ldd_len;
 use merc_utilities::Timing;
