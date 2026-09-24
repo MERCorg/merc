@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 merc_aterm.workspace = true
 merc_data.workspace = true
+merc_number.workspace = true
 merc_rec-tests.workspace = true
 merc_sabre.workspace = true
 merc_utilities.workspace = true
@@ -15,9 +16,14 @@ merc_utilities.workspace = true
 criterion.workspace = true
 env_logger.workspace = true
 ahash.workspace = true
+rand.workspace = true
 
 [[bench]]
 name = "benchmark_sabre"
+harness = false
+
+[[bench]]
+name = "benchmark_machine_word"
 harness = false
 
 [lints]
