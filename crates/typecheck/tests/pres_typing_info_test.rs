@@ -102,6 +102,7 @@ fn test_bound_variable_goto_def_declaration_is_shared_across_occurrences() {
 
 /// A `sum` binder's own declaration occurrence (`n` in `sum n: Nat . ...`, not a later use of it
 /// in the body) is itself hoverable.
+#[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_bound_variable_declaration_itself_is_hoverable() {
     let text = "pres mu X = sum n: Nat . val(n); init X;";
