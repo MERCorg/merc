@@ -13,6 +13,25 @@ repository.workspace = true
 rust-version.workspace = true
 
 [features]
+# Switches to the Aeneas-translatable shape of `merc_lts`'s `LTS` trait
+# (`Vec`-returning methods, no `merge_disjoint`) and enables the matching
+# split-closure/manual-loop bodies in this crate, needed to translate and
+# verify the signature-refinement algorithms in Lean.
+#
+# Deliberately *not* a default feature: `merc_reduction` is a normal
+# dependency of `merc_refinement`/`tools/lts`/`tools/mcrl2`/etc., and Cargo
+# unifies features for a shared dependency (`merc_lts`) across an entire
+# build graph - so a default-on `lean` here would silently force the
+# Aeneas-translatable (and, for `compare_lts`'s `merge_disjoint`, currently
+# behaviourally stubbed-out) shape onto every one of those unrelated
+# consumers too. Only `verified/Cargo.toml` (the Aeneas/Lean translation
+# entry point) should request this.
+#
+# `signature_refinement.rs` isn't forked to support the non-lean shape yet,
+# so this crate (and everything depending on it) doesn't currently build
+# with `--no-default-features` - a pre-existing gap from before this
+# feature existed, not something introduced by adding it.
+lean = ["merc_lts/lean"]
 # Enable deriving some convenience traits for clap.
 clap = ["dep:clap"]
 

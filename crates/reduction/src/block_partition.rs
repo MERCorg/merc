@@ -28,21 +28,14 @@ pub struct BlockPartition {
 impl BlockPartition {
     /// Create an initial partition where all the states are in a single block
     /// 0. And all the elements in the block are marked.
+    #[cfg(not(feature = "lean"))]
     pub(crate) fn new(num_of_elements: usize) -> BlockPartition {
         debug_assert!(num_of_elements > 0, "Cannot partition the empty set");
 
-        let blocks = Vec::from([Block::new(0, num_of_elements)]);
-
-        // Manual loops instead of `.map(StateIndex::new).collect()` because
-        // Aeneas's Iterator model has no `map`/`collect`.
-        let mut elements = Vec::with_capacity(num_of_elements);
-        let mut element_to_block = Vec::with_capacity(num_of_elements);
-        let mut element_to_block_offset = Vec::with_capacity(num_of_elements);
-        for i in 0..num_of_elements {
-            elements.push(StateIndex::new(i));
-            element_to_block.push(BlockIndex::new(0));
-            element_to_block_offset.push(i);
-        }
+        let blocks = vec![Block::new(0, num_of_elements)];
+        let elements = (0..num_of_elements).map(StateIndex::new).collect();
+        let element_to_block = vec![BlockIndex::new(0); num_of_elements];
+        let element_to_block_offset = (0..num_of_elements).collect();
 
         BlockPartition {
             elements,
@@ -60,70 +53,30 @@ impl BlockPartition {
     /// Returns an iterator over the resulting block indices. The first index
     /// is always the block that was partitioned, and it is guaranteed to hold
     /// the largest of the resulting blocks.
+    #[cfg(not(feature = "lean"))]
     pub(crate) fn partition_marked_with<F>(
         &mut self,
         block_index: BlockIndex,
         builder: &mut BlockPartitionBuilder,
         mut partitioner: F,
-    ) -> Vec<BlockIndex>
+    ) -> impl Iterator<Item = BlockIndex> + use<F>
     where
         F: FnMut(StateIndex, &BlockPartition) -> BlockIndex,
     {
+        let block = self.blocks[block_index];
         debug_assert!(
-            self.blocks[block_index].has_marked(),
+            block.has_marked(),
             "Cannot partition marked elements of a block without marked elements"
         );
 
-        // Thin wrapper around `is_trivially_partitioned`/`marked_elements_sorted`/
-        // `finish_partition_marked` (kept for the tests below); `signature_refinement`
-        // calls those directly instead, since Aeneas cannot translate a closure
-        // that itself invokes another (generic, captured) closure like `partitioner` here.
-        if self.is_trivially_partitioned(block_index) {
-            return self.trivial_partition_marked(block_index);
+        if block.len() == 1 {
+            // Block only has one element, so trivially partitioned.
+            self.blocks[block_index].unmark_all();
+            // Note that all the returned iterators MUST have the same type, but we cannot chain typed_index since Step is an unstable trait.
+            return (block_index.value()..=block_index.value())
+                .chain(0..0)
+                .map(BlockIndex::new);
         }
-
-        self.marked_elements_sorted(block_index, builder);
-        for element_index in 0..builder.old_elements.len() {
-            let element = builder.old_elements[element_index];
-            let number = partitioner(element, self);
-
-            builder.index_to_block[element_index] = number;
-            if number.value() + 1 > builder.block_sizes.len() {
-                builder.block_sizes.resize(number.value() + 1, 0);
-            }
-
-            builder.block_sizes[number] += 1;
-        }
-
-        self.finish_partition_marked(block_index, builder)
-    }
-
-    /// Returns whether `block_index` is trivially partitioned: a block with a
-    /// single (marked) element never needs to be split.
-    pub(crate) fn is_trivially_partitioned(&self, block_index: BlockIndex) -> bool {
-        self.blocks[block_index].len() == 1
-    }
-
-    /// Handles the trivial case where `block_index` has a single (marked)
-    /// element: unmarks it and returns a singleton "new blocks" iterator.
-    ///
-    /// Only call this when [`Self::is_trivially_partitioned`] holds for `block_index`.
-    pub(crate) fn trivial_partition_marked(&mut self, block_index: BlockIndex) -> Vec<BlockIndex> {
-        self.blocks[block_index].unmark_all();
-        Vec::from([block_index])
-    }
-
-    /// Computes the sorted marked elements of `block_index` into
-    /// `builder.old_elements`, and grows `builder.index_to_block` to fit -
-    /// the caller (e.g. `signature_refinement`) should then fill in one
-    /// `BlockIndex` per `old_elements` entry (into `index_to_block`, growing
-    /// `block_sizes` to match, mirroring `partition_marked_with`'s loop
-    /// below) before calling [`Self::finish_partition_marked`].
-    ///
-    /// Only call this when [`Self::is_trivially_partitioned`] does not hold
-    /// for `block_index`.
-    pub(crate) fn marked_elements_sorted(&self, block_index: BlockIndex, builder: &mut BlockPartitionBuilder) {
-        let block = self.blocks[block_index];
 
         // Keeps track of the block index for every element in this block by index.
         builder.index_to_block.clear();
@@ -135,14 +88,18 @@ impl BlockPartition {
         // O(n log n) Loop through the marked elements in order (to maintain topological sorting)
         builder.old_elements.extend(block.iter_marked(&self.elements));
         builder.old_elements.sort_unstable();
-    }
 
-    /// Finishes partitioning a non-trivial block, given `builder.old_elements`
-    /// (from [`Self::marked_elements_sorted`]) with `builder.index_to_block`
-    /// fully populated (one `BlockIndex` per `old_elements` entry) and
-    /// `builder.block_sizes` grown to fit.
-    pub(crate) fn finish_partition_marked(&mut self, block_index: BlockIndex, builder: &mut BlockPartitionBuilder) -> Vec<BlockIndex> {
-        let block = self.blocks[block_index];
+        // O(n) Loop over marked elements to determine the number of the new block each element is in.
+        for (element_index, &element) in builder.old_elements.iter().enumerate() {
+            let number = partitioner(element, self);
+
+            builder.index_to_block[element_index] = number;
+            if number.value() + 1 > builder.block_sizes.len() {
+                builder.block_sizes.resize(number.value() + 1, 0);
+            }
+
+            builder.block_sizes[number] += 1;
+        }
 
         // Convert block sizes into block offsets.
         let end_of_blocks = self.blocks.len();
@@ -152,14 +109,10 @@ impl BlockPartition {
             self.blocks.len() - 1
         };
 
-        // A plain loop with a local accumulator instead of `.iter_mut().fold(closure)`
-        // because the closure captures `self` by mutable borrow, which Aeneas
-        // cannot translate.
-        let mut current = 0usize;
-        for size in builder.block_sizes.iter_mut() {
+        let _ = builder.block_sizes.iter_mut().fold(0usize, |current, size| {
             debug_assert!(*size > 0, "Partition is not dense, there are empty blocks");
 
-            let new_current = if current == 0 {
+            let current = if current == 0 {
                 if block.has_unmarked() {
                     // Adapt the offsets of the current block to only include the unmarked elements.
                     self.blocks[block_index] = Block::new_unmarked(block.begin, block.marked_split);
@@ -179,10 +132,10 @@ impl BlockPartition {
                 current
             };
 
-            let offset = new_current + *size;
-            *size = new_current;
-            current = offset;
-        }
+            let offset = current + *size;
+            *size = current;
+            offset
+        });
         let block_offsets = &mut builder.block_sizes;
 
         for (index, offset_block_index) in builder.index_to_block.iter().enumerate() {
@@ -200,34 +153,19 @@ impl BlockPartition {
             block_offsets[*offset_block_index] += 1;
         }
 
-        // The new block indices: `block_index` itself, plus any block newly
-        // pushed above. A manual loop instead of `.chain(..).map(BlockIndex::new)`
-        // because Aeneas doesn't model `chain`.
-        let mut new_block_indices = Vec::with_capacity(1 + (self.blocks.len() - end_of_blocks));
-        new_block_indices.push(block_index);
-        for i in end_of_blocks..self.blocks.len() {
-            new_block_indices.push(BlockIndex::new(i));
-        }
-
         // Swap the first block and the maximum sized block.
-        //
-        // A manual loop instead of `.max_by_key(..)` because Aeneas doesn't
-        // model it either. Mirrors its "last element wins on ties" tie-breaking
-        // with `>=`.
-        let mut max_block_index = new_block_indices[0];
-        let mut max_len = self.block(max_block_index).len();
-        for &candidate in new_block_indices.iter().skip(1) {
-            let candidate_len = self.block(candidate).len();
-            if candidate_len >= max_len {
-                max_len = candidate_len;
-                max_block_index = candidate;
-            }
-        }
+        let max_block_index = (block_index.value()..=block_index.value())
+            .chain(end_of_blocks..self.blocks.len())
+            .map(BlockIndex::new)
+            .max_by_key(|block_index| self.block(*block_index).len())
+            .unwrap();
         self.swap_blocks(block_index, max_block_index);
 
         self.assert_consistent();
 
-        new_block_indices
+        (block_index.value()..=block_index.value())
+            .chain(end_of_blocks..self.blocks.len())
+            .map(BlockIndex::new)
     }
 
     /// Splits the given block into two blocks based on the splitter
@@ -326,29 +264,21 @@ impl BlockPartition {
     }
 
     /// Swaps the given blocks given by the indices.
+    #[cfg(not(feature = "lean"))]
     pub(crate) fn swap_blocks(&mut self, left_index: BlockIndex, right_index: BlockIndex) {
         if left_index == right_index {
             // Nothing to do.
             return;
         }
 
-        // Manual swap instead of `Vec::swap` - Aeneas's modeled `Vec`/`Slice`
-        // method set does not include `swap`.
-        let left_block = self.blocks[left_index];
-        self.blocks[left_index] = self.blocks[right_index];
-        self.blocks[right_index] = left_block;
+        self.blocks.swap(left_index.value(), right_index.value());
 
-        // Explicit index ranges instead of `Block::iter` - Aeneas fails to
-        // translate the second of two structurally-identical loops in this
-        // shape ("Unimplemented"), so avoid the custom-iterator adaptor here.
-        let left_block = self.blocks[left_index];
-        for i in left_block.begin..left_block.end {
-            self.element_to_block[self.elements[i]] = left_index;
+        for element in self.block(left_index).iter(&self.elements) {
+            self.element_to_block[element] = left_index;
         }
 
-        let right_block = self.blocks[right_index];
-        for i in right_block.begin..right_block.end {
-            self.element_to_block[self.elements[i]] = right_index;
+        for element in self.block(right_index).iter(&self.elements) {
+            self.element_to_block[element] = right_index;
         }
 
         self.assert_consistent();
@@ -405,6 +335,7 @@ impl BlockPartition {
     }
 
     /// Returns true iff the invariants of a partition hold
+    #[cfg(not(feature = "lean"))]
     fn assert_consistent(&self) -> bool {
         if cfg!(debug_assertions) {
             let mut marked = vec![false; self.elements.len()];
@@ -413,7 +344,7 @@ impl BlockPartition {
                 for element in block.iter(&self.elements) {
                     debug_assert!(
                         !marked[element],
-                        "Partition {self:?}, element {element} belongs to multiple blocks"
+                        "Partition {self}, element {element} belongs to multiple blocks"
                     );
                     marked[element] = true;
                 }
@@ -424,16 +355,11 @@ impl BlockPartition {
             // Check that every element belongs to a block.
             debug_assert!(
                 !marked.contains(&false),
-                "Partition {self:?} contains elements that do not belong to a block"
+                "Partition {self} contains elements that do not belong to a block"
             );
 
-            // Check that it belongs to the block indicated by element_to_block.
-            //
-            // A plain index loop instead of `self.element_to_block.iter().enumerate()`
-            // because Aeneas can't reconcile borrowing one field (`element_to_block`)
-            // via an iterator while indexing others (`blocks`, `elements`) in the body.
-            for current_element in 0..self.element_to_block.len() {
-                let block_index = self.element_to_block[current_element];
+            // Check that it belongs to the block indicated by element_to_block
+            for (current_element, block_index) in self.element_to_block.iter().enumerate() {
                 debug_assert!(
                     self.blocks[block_index.value()]
                         .iter(&self.elements)
@@ -453,21 +379,17 @@ impl BlockPartition {
     }
 }
 
+#[cfg(not(feature = "lean"))]
 #[derive(Default)]
 pub(crate) struct BlockPartitionBuilder {
     // Keeps track of the block index for every element in this block by index.
-    //
-    // Fields are `pub(crate)` because `signature_refinement` fills
-    // `index_to_block`/`block_sizes` directly in its own loop, between
-    // calling `BlockPartition::marked_elements_sorted` and
-    // `BlockPartition::finish_partition_marked`.
-    pub(crate) index_to_block: Vec<BlockIndex>,
+    index_to_block: Vec<BlockIndex>,
 
     /// Keeps track of the size of each block.
-    pub(crate) block_sizes: Vec<usize>,
+    block_sizes: Vec<usize>,
 
     /// Stores the old elements to perform the swaps safely.
-    pub(crate) old_elements: Vec<StateIndex>,
+    old_elements: Vec<StateIndex>,
 }
 
 impl Partition for BlockPartition {
@@ -703,4 +625,338 @@ mod tests {
             _ => BlockIndex::new(2),
         });
     }
+}
+
+// ---------------------------------------------------------------------------
+// Aeneas/Lean-translatable variants (`lean` feature).
+//
+// Kept separate from the block above (which matches the original,
+// non-`lean` implementation as closely as possible) so the two can be
+// compared side by side. See `bugs/README.md` for the underlying Aeneas
+// translation limitations each rewrite works around.
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "lean")]
+impl BlockPartition {
+    /// Create an initial partition where all the states are in a single block
+    /// 0. And all the elements in the block are marked.
+    pub(crate) fn new(num_of_elements: usize) -> BlockPartition {
+        debug_assert!(num_of_elements > 0, "Cannot partition the empty set");
+
+        let blocks = Vec::from([Block::new(0, num_of_elements)]);
+
+        // Manual loops instead of `.map(StateIndex::new).collect()` because
+        // Aeneas's Iterator model has no `map`/`collect`.
+        let mut elements = Vec::with_capacity(num_of_elements);
+        let mut element_to_block = Vec::with_capacity(num_of_elements);
+        let mut element_to_block_offset = Vec::with_capacity(num_of_elements);
+        for i in 0..num_of_elements {
+            elements.push(StateIndex::new(i));
+            element_to_block.push(BlockIndex::new(0));
+            element_to_block_offset.push(i);
+        }
+
+        BlockPartition {
+            elements,
+            element_to_block,
+            element_offset: element_to_block_offset,
+            blocks,
+        }
+    }
+
+    /// Partition the elements of the given block into multiple new blocks based
+    /// on the given partitioner; which returns a number for each marked
+    /// element. Elements with the same number belong to the same block, and the
+    /// returned numbers should be dense.
+    ///
+    /// Returns an iterator over the new block indices, where the first element
+    /// is the index of the block that was partitioned. And that block is the
+    /// largest block.
+    pub(crate) fn partition_marked_with<F>(
+        &mut self,
+        block_index: BlockIndex,
+        builder: &mut BlockPartitionBuilder,
+        mut partitioner: F,
+    ) -> Vec<BlockIndex>
+    where
+        F: FnMut(StateIndex, &BlockPartition) -> BlockIndex,
+    {
+        debug_assert!(
+            self.blocks[block_index].has_marked(),
+            "Cannot partition marked elements of a block without marked elements"
+        );
+
+        // Thin wrapper around `is_trivially_partitioned`/`marked_elements_sorted`/
+        // `finish_partition_marked` (kept for the tests below); `signature_refinement`
+        // calls those directly instead, since Aeneas cannot translate a closure
+        // that itself invokes another (generic, captured) closure like `partitioner` here.
+        if self.is_trivially_partitioned(block_index) {
+            return self.trivial_partition_marked(block_index);
+        }
+
+        self.marked_elements_sorted(block_index, builder);
+        for element_index in 0..builder.old_elements.len() {
+            let element = builder.old_elements[element_index];
+            let number = partitioner(element, self);
+
+            builder.index_to_block[element_index] = number;
+            if number.value() + 1 > builder.block_sizes.len() {
+                builder.block_sizes.resize(number.value() + 1, 0);
+            }
+
+            builder.block_sizes[number] += 1;
+        }
+
+        self.finish_partition_marked(block_index, builder)
+    }
+
+    /// Returns whether `block_index` is trivially partitioned: a block with a
+    /// single (marked) element never needs to be split.
+    ///
+    /// Only exists under `lean`: `signature_refinement` calls this (and the
+    /// sibling helpers below) directly instead of going through
+    /// [`Self::partition_marked_with`], since Aeneas cannot translate a
+    /// closure that itself invokes another (generic, captured) closure like
+    /// `partitioner`.
+    pub(crate) fn is_trivially_partitioned(&self, block_index: BlockIndex) -> bool {
+        self.blocks[block_index].len() == 1
+    }
+
+    /// Handles the trivial case where `block_index` has a single (marked)
+    /// element: unmarks it and returns a singleton "new blocks" iterator.
+    ///
+    /// Only call this when [`Self::is_trivially_partitioned`] holds for `block_index`.
+    pub(crate) fn trivial_partition_marked(&mut self, block_index: BlockIndex) -> Vec<BlockIndex> {
+        self.blocks[block_index].unmark_all();
+        Vec::from([block_index])
+    }
+
+    /// Computes the sorted marked elements of `block_index` into
+    /// `builder.old_elements`, and grows `builder.index_to_block` to fit -
+    /// the caller (e.g. `signature_refinement`) should then fill in one
+    /// `BlockIndex` per `old_elements` entry (into `index_to_block`, growing
+    /// `block_sizes` to match, mirroring `partition_marked_with`'s loop
+    /// below) before calling [`Self::finish_partition_marked`].
+    ///
+    /// Only call this when [`Self::is_trivially_partitioned`] does not hold
+    /// for `block_index`.
+    pub(crate) fn marked_elements_sorted(&self, block_index: BlockIndex, builder: &mut BlockPartitionBuilder) {
+        let block = self.blocks[block_index];
+
+        // Keeps track of the block index for every element in this block by index.
+        builder.index_to_block.clear();
+        builder.block_sizes.clear();
+        builder.old_elements.clear();
+
+        builder.index_to_block.resize(block.len_marked(), BlockIndex::new(0));
+
+        // O(n log n) Loop through the marked elements in order (to maintain topological sorting)
+        builder.old_elements.extend(block.iter_marked(&self.elements));
+        builder.old_elements.sort_unstable();
+    }
+
+    /// Finishes partitioning a non-trivial block, given `builder.old_elements`
+    /// (from [`Self::marked_elements_sorted`]) with `builder.index_to_block`
+    /// fully populated (one `BlockIndex` per `old_elements` entry) and
+    /// `builder.block_sizes` grown to fit.
+    pub(crate) fn finish_partition_marked(&mut self, block_index: BlockIndex, builder: &mut BlockPartitionBuilder) -> Vec<BlockIndex> {
+        let block = self.blocks[block_index];
+
+        // Convert block sizes into block offsets.
+        let end_of_blocks = self.blocks.len();
+        let new_block_index = if block.has_unmarked() {
+            self.blocks.len()
+        } else {
+            self.blocks.len() - 1
+        };
+
+        // A plain loop with a local accumulator instead of `.iter_mut().fold(closure)`
+        // because the closure captures `self` by mutable borrow, which Aeneas
+        // cannot translate.
+        let mut current = 0usize;
+        for size in builder.block_sizes.iter_mut() {
+            debug_assert!(*size > 0, "Partition is not dense, there are empty blocks");
+
+            let new_current = if current == 0 {
+                if block.has_unmarked() {
+                    // Adapt the offsets of the current block to only include the unmarked elements.
+                    self.blocks[block_index] = Block::new_unmarked(block.begin, block.marked_split);
+
+                    // Introduce a new block for the zero block.
+                    self.blocks
+                        .push(Block::new_unmarked(block.marked_split, block.marked_split + *size));
+                    block.marked_split
+                } else {
+                    // Use this as the zero block.
+                    self.blocks[block_index] = Block::new_unmarked(block.begin, block.begin + *size);
+                    block.begin
+                }
+            } else {
+                // Introduce a new block for every other non-empty block.
+                self.blocks.push(Block::new_unmarked(current, current + *size));
+                current
+            };
+
+            let offset = new_current + *size;
+            *size = new_current;
+            current = offset;
+        }
+        let block_offsets = &mut builder.block_sizes;
+
+        for (index, offset_block_index) in builder.index_to_block.iter().enumerate() {
+            // Swap the element to the correct position.
+            let element = builder.old_elements[index];
+            self.elements[block_offsets[*offset_block_index]] = builder.old_elements[index];
+            self.element_offset[element] = block_offsets[*offset_block_index];
+            self.element_to_block[element] = if *offset_block_index == 0 && !block.has_unmarked() {
+                block_index
+            } else {
+                BlockIndex::new(new_block_index + offset_block_index.value())
+            };
+
+            // Update the offset for this block.
+            block_offsets[*offset_block_index] += 1;
+        }
+
+        // Swap the first block and the maximum sized block, swapping `block_index`
+        // and `new_block_indices` computed by a helper below. Keeps this function
+        // at two sequential loops: Aeneas cannot translate functions whose
+        // statements spill across more than two sequential loops (they become
+        // nested in the preceding loop's `None` arm).
+        let (max_block_index, new_block_indices) =
+            self.new_block_to_swap(block_index, end_of_blocks);
+        self.swap_blocks(block_index, max_block_index);
+
+        self.assert_consistent();
+
+        new_block_indices
+    }
+
+    /// Computes the block among `block_index` and the blocks newly pushed above
+    /// `end_of_blocks` that has the maximum size, together with the list of
+    /// those block indices.
+    ///
+    /// A helper so that [`Self::finish_partition_marked`] stays within Aeneas's
+    /// two-sequential-loops limit. Mirrors `Vec::max_by_key` with its "last
+    /// element wins on ties" tie-breaking (using `>=`). A manual index loop
+    /// instead of `.iter().skip(1)` because Aeneas doesn't model `Skip`.
+    fn new_block_to_swap(
+        &self,
+        block_index: BlockIndex,
+        end_of_blocks: usize,
+    ) -> (BlockIndex, Vec<BlockIndex>) {
+        let mut new_block_indices = Vec::with_capacity(1 + (self.blocks.len() - end_of_blocks));
+        new_block_indices.push(block_index);
+        for i in end_of_blocks..self.blocks.len() {
+            new_block_indices.push(BlockIndex::new(i));
+        }
+
+        let mut max_block_index = new_block_indices[0];
+        let mut max_len = self.block(max_block_index).len();
+        for i in 1..new_block_indices.len() {
+            let candidate = new_block_indices[i];
+            let candidate_len = self.block(candidate).len();
+            if candidate_len >= max_len {
+                max_len = candidate_len;
+                max_block_index = candidate;
+            }
+        }
+
+        (max_block_index, new_block_indices)
+    }
+
+    /// Swaps the given blocks given by the indices.
+    pub(crate) fn swap_blocks(&mut self, left_index: BlockIndex, right_index: BlockIndex) {
+        if left_index == right_index {
+            // Nothing to do.
+            return;
+        }
+
+        // Manual swap instead of `Vec::swap` - Aeneas's modeled `Vec`/`Slice`
+        // method set does not include `swap`.
+        let left_block = self.blocks[left_index];
+        self.blocks[left_index] = self.blocks[right_index];
+        self.blocks[right_index] = left_block;
+
+        // Explicit index ranges instead of `Block::iter` - Aeneas fails to
+        // translate the second of two structurally-identical loops in this
+        // shape ("Unimplemented"), so avoid the custom-iterator adaptor here.
+        let left_block = self.blocks[left_index];
+        for i in left_block.begin..left_block.end {
+            self.element_to_block[self.elements[i]] = left_index;
+        }
+
+        let right_block = self.blocks[right_index];
+        for i in right_block.begin..right_block.end {
+            self.element_to_block[self.elements[i]] = right_index;
+        }
+
+        self.assert_consistent();
+    }
+
+    /// Returns true iff the invariants of a partition hold
+    fn assert_consistent(&self) -> bool {
+        if cfg!(debug_assertions) {
+            let mut marked = vec![false; self.elements.len()];
+
+            for block in &self.blocks {
+                for element in block.iter(&self.elements) {
+                    debug_assert!(
+                        !marked[element],
+                        "Partition {self:?}, element {element} belongs to multiple blocks"
+                    );
+                    marked[element] = true;
+                }
+
+                block.assert_consistent();
+            }
+
+            // Check that every element belongs to a block.
+            debug_assert!(
+                !marked.contains(&false),
+                "Partition {self:?} contains elements that do not belong to a block"
+            );
+
+            // Check that it belongs to the block indicated by element_to_block.
+            //
+            // A plain index loop instead of `self.element_to_block.iter().enumerate()`
+            // because Aeneas can't reconcile borrowing one field (`element_to_block`)
+            // via an iterator while indexing others (`blocks`, `elements`) in the body.
+            for current_element in 0..self.element_to_block.len() {
+                let block_index = self.element_to_block[current_element];
+                debug_assert!(
+                    self.blocks[block_index.value()]
+                        .iter(&self.elements)
+                        .any(|element| element == current_element),
+                    "Partition {self:?}, element {current_element} does not belong to block {block_index} as indicated by element_to_block"
+                );
+
+                let index = self.element_offset[current_element];
+                debug_assert_eq!(
+                    self.elements[index], current_element,
+                    "Partition {self:?}, element {current_element} does not have the correct offset in the block"
+                );
+            }
+        }
+
+        true
+    }
+}
+
+#[cfg(feature = "lean")]
+#[derive(Default)]
+pub(crate) struct BlockPartitionBuilder {
+    // Keeps track of the block index for every element in this block by index.
+    //
+    // Fields are `pub(crate)` because `signature_refinement` fills
+    // `index_to_block`/`block_sizes` directly in its own loop, between
+    // calling `BlockPartition::marked_elements_sorted` and
+    // `BlockPartition::finish_partition_marked`.
+    pub(crate) index_to_block: Vec<BlockIndex>,
+
+    /// Keeps track of the size of each block.
+    pub(crate) block_sizes: Vec<usize>,
+
+    /// Stores the old elements to perform the swaps safely.
+    pub(crate) old_elements: Vec<StateIndex>,
 }

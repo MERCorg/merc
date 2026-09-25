@@ -1,7 +1,5 @@
 #![forbid(unsafe_code)]
 
-use std::marker::PhantomData;
-
 use merc_collections::ByteCompressedVec;
 use merc_collections::CompressedEntry;
 
@@ -10,7 +8,19 @@ use crate::LabelIndex;
 use crate::StateIndex;
 
 /// Stores the incoming transitions for a given labelled transition system.
-pub struct IncomingTransitions<'a> {
+///
+/// Owns its data outright (no borrow of the source `LTS` is kept past
+/// [`Self::new`]) - no lifetime parameter, unlike an earlier version that
+/// tied one to the LTS purely for API-level documentation purposes. That
+/// extra (always-elided) lifetime on the struct made every `&IncomingTransitions`
+/// parameter untranslatable by Aeneas in a function that also contains a
+/// `while let Some(_) = vec.pop()` loop over an unrelated `&mut Vec` (a
+/// "Could not match the contexts" loop-context-matching failure). Confirmed
+/// via isolated bisection on `run_worklist_loop`: an unused `&IncomingTransitions<'_>`
+/// parameter alongside the pop-based loop reproduced the failure, and swapping
+/// it for an unused `&usize` parameter (no explicit lifetime) made it disappear;
+/// dropping the artificial lifetime here reproduces that same fix.
+pub struct IncomingTransitions {
     /// A flat list of all incoming transition labels in the LTS. They are stored in two separate
     /// arrays since the compression is based on the highest value.
     transition_labels: ByteCompressedVec<LabelIndex>,
@@ -19,13 +29,10 @@ pub struct IncomingTransitions<'a> {
     /// A mapping from the state to the `transition_labels` and
     /// `transition_from` that stores its incoming transitions.
     state2incoming: ByteCompressedVec<usize>,
-
-    /// Marker to tie the lifetime of the incoming transitions to the LTS.
-    _marker: PhantomData<&'a ()>,
 }
 
-impl<'a> IncomingTransitions<'a> {
-    pub fn new<L: LTS>(lts: &'a L) -> Self {
+impl IncomingTransitions {
+    pub fn new<L: LTS>(lts: &L) -> Self {
         // Sized for their final byte width up front.
         let mut transition_labels =
             ByteCompressedVec::with_capacity(lts.num_of_transitions(), lts.num_of_labels().bytes_required());
@@ -94,7 +101,6 @@ impl<'a> IncomingTransitions<'a> {
             transition_labels,
             transition_from,
             state2incoming,
-            _marker: PhantomData,
         }
     }
 
@@ -103,12 +109,21 @@ impl<'a> IncomingTransitions<'a> {
     /// # Panics
     ///
     /// Panics if `state_index` is not less than the number of states in the underlying LTS.
+    #[cfg(feature = "lean")]
     pub fn incoming_transitions(&self, state_index: StateIndex) -> Vec<FromTransition> {
         let start = self.state2incoming.index(state_index.value());
         let end = self.state2incoming.index(state_index.value() + 1);
         (start..end)
             .map(|i| FromTransition::new(self.transition_labels.index(i), self.transition_from.index(i)))
             .collect()
+    }
+
+    /// Returns an iterator over the incoming transitions for the given state.
+    #[cfg(not(feature = "lean"))]
+    pub fn incoming_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = FromTransition> + '_ {
+        let start = self.state2incoming.index(state_index.value());
+        let end = self.state2incoming.index(state_index.value() + 1);
+        (start..end).map(move |i| FromTransition::new(self.transition_labels.index(i), self.transition_from.index(i)))
     }
 
     /// Returns an iterator over the incoming silent (tau-labelled) transitions for the given state.

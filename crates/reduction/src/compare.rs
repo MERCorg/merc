@@ -34,9 +34,17 @@ pub fn compare_lts<L: LTS>(
     counter_example: bool,
     timing: &Timing,
 ) -> (bool, Option<DistinguishingFormula<L::Label>>) {
-    // TODO: This is not current, should be merged
-    let initial = left.initial_state_index();
-    let (merged, rhs_initial) = timing.measure("merge lts", || (left, initial));
+    // TODO: `merge_disjoint` isn't on the `LTS` trait under `lean` (Aeneas cannot
+    // translate a generic trait method that consumes `Self` and returns a
+    // different concrete type), so this doesn't actually merge the two LTSs yet.
+    #[cfg(feature = "lean")]
+    let (merged, rhs_initial) = {
+        let initial = left.initial_state_index();
+        timing.measure("merge lts", || (left, initial))
+    };
+    #[cfg(not(feature = "lean"))]
+    let (merged, rhs_initial) = timing.measure("merge lts", || left.merge_disjoint(&right));
+
     drop(right); // No longer needed.
 
     if counter_example {

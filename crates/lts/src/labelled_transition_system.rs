@@ -466,18 +466,41 @@ impl<L: TransitionLabel> LTS for LabelledTransitionSystem<L> {
         self.initial_state
     }
 
+    #[cfg(feature = "lean")]
     fn outgoing_transitions(&self, state_index: StateIndex) -> Vec<Transition> {
+        let start = self.states.index(*state_index);
+        let end = self.states.index(*state_index + 1);
+
+        (start..end)
+            .map(move |i| Transition {
+                label: self.transition_labels.index(i),
+                to: self.transition_to.index(i),
+            })
+            .collect()
+    }
+    #[cfg(not(feature = "lean"))]
+    fn outgoing_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = Transition> + '_ {
         let start = self.states.index(*state_index);
         let end = self.states.index(*state_index + 1);
 
         (start..end).map(move |i| Transition {
             label: self.transition_labels.index(i),
             to: self.transition_to.index(i),
-        }).collect()
+        })
     }
 
+    #[cfg(feature = "lean")]
     fn iter_states(&self) -> Vec<StateIndex> {
         (0..self.num_of_states()).map(StateIndex::new).collect()
+    }
+    #[cfg(not(feature = "lean"))]
+    fn iter_states(&self) -> impl Iterator<Item = StateIndex> + '_ {
+        (0..self.num_of_states()).map(StateIndex::new)
+    }
+
+    #[cfg(not(feature = "lean"))]
+    fn merge_disjoint<T: LTS<Label = Self::Label>>(self, other: &T) -> (Self, StateIndex) {
+        self.merge_disjoint_impl(other)
     }
 
     fn num_of_states(&self) -> usize {
@@ -564,9 +587,9 @@ pub(crate) fn check_equivalent<L: LTS>(lts: &L, lts_read: &L) {
 
     // Check that all the outgoing transitions are the same.
     for state_index in lts.iter_states() {
-        let transitions: Vec<_> = lts.outgoing_transitions(state_index).collect();
+        let transitions: Vec<_> = lts.outgoing_transitions(state_index).into_iter().collect();
         let transitions_read: Vec<_> = if state_index.value() < lts_read.num_of_states() {
-            lts_read.outgoing_transitions(state_index).collect()
+            lts_read.outgoing_transitions(state_index).into_iter().collect()
         } else {
             // Treat as deadlock if state_index is out of bounds
             Vec::new()

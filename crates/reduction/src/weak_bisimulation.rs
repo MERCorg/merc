@@ -300,7 +300,7 @@ fn compute_weak_act<L: LTS>(
 fn compute_weak_acts<L: LTS>(
     marked: &mut [BitArray],
     lts: &L,
-    incoming: &IncomingTransitions<'_>,
+    incoming: &IncomingTransitions,
     blocks: &MarkedBlockPartition,
     block: BlockIndex,
 ) {
@@ -360,7 +360,7 @@ fn compute_weak_acts<L: LTS>(
 fn compute_weak_acts_inner<L: LTS>(
     marked: &mut [BitArray],
     lts: &L,
-    incoming: &IncomingTransitions<'_>,
+    incoming: &IncomingTransitions,
     blocks: &MarkedBlockPartition,
     block: BlockIndex,
 ) {

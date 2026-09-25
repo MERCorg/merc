@@ -8,6 +8,9 @@ use std::hash::Hash;
 use merc_collections::Graph;
 use merc_utilities::TagIndex;
 
+#[cfg(not(feature = "lean"))]
+use crate::LabelledTransitionSystem;
+
 /// A unique type for the labels.
 pub struct LabelTag;
 
@@ -40,10 +43,18 @@ where
     /// # Panics
     ///
     /// Implementations may panic if `state_index` is not less than [`LTS::num_of_states`].
+    #[cfg(feature = "lean")]
     fn outgoing_transitions(&self, state_index: StateIndex) -> Vec<Transition>;
+    /// Returns an iterator over the outgoing transitions for the given state.
+    #[cfg(not(feature = "lean"))]
+    fn outgoing_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = Transition> + '_;
 
     /// Iterate over all state_index in the labelled transition system
+    #[cfg(feature = "lean")]
     fn iter_states(&self) -> Vec<StateIndex>;
+    /// Iterate over all state_index in the labelled transition system
+    #[cfg(not(feature = "lean"))]
+    fn iter_states(&self) -> impl Iterator<Item = StateIndex> + '_;
 
     /// Returns the number of states.
     fn num_of_states(&self) -> usize;
@@ -59,6 +70,20 @@ where
 
     /// Returns true iff the given label index is a hidden label.
     fn is_hidden_label(&self, label_index: LabelIndex) -> bool;
+
+    /// Consumes the current LTS and merges it with another one, returning the
+    /// disjoint merged LTS and the initial state of the other LTS in the merged
+    /// LTS.
+    ///
+    /// Not part of the trait under `lean`: Aeneas cannot translate a generic
+    /// trait method that consumes `Self` and returns a different concrete type.
+    ///
+    /// TODO: Can this be generalised to returning `Self`?
+    #[cfg(not(feature = "lean"))]
+    fn merge_disjoint<L: LTS<Label = Self::Label>>(
+        self,
+        other: &L,
+    ) -> (LabelledTransitionSystem<Self::Label>, StateIndex);
 }
 
 /// A wrapper struct to treat an LTS as a graph.

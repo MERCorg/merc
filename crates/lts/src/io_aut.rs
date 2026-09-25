@@ -293,7 +293,7 @@ mod tests {
         let lts = read_aut(file.as_bytes()).unwrap();
 
         // Check the number of outgoing transitions of the initial state
-        assert_eq!(lts.outgoing_transitions(lts.initial_state_index()).count(), 2);
+        assert_eq!(lts.outgoing_transitions(lts.initial_state_index()).into_iter().count(), 2);
     }
 
     #[test]
