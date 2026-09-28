@@ -8,6 +8,7 @@ use pest::pratt_parser::PrattParser;
 use std::fmt;
 use std::sync::LazyLock;
 
+use crate::Keyword;
 use crate::Mcrl2Parser;
 use crate::ParseResult;
 use crate::Rule;
@@ -123,6 +124,19 @@ pub enum ComplexSort {
     Bag,
 }
 
+impl ComplexSort {
+    /// This sort's mCRL2 name; also [`ComplexSort`]'s own [`Display`](std::fmt::Display) text.
+    pub const fn name(self) -> &'static str {
+        match self {
+            ComplexSort::List => "List",
+            ComplexSort::Set => "Set",
+            ComplexSort::FSet => "FSet",
+            ComplexSort::FBag => "FBag",
+            ComplexSort::Bag => "Bag",
+        }
+    }
+}
+
 impl fmt::Display for Sort {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.name())
@@ -131,9 +145,24 @@ impl fmt::Display for Sort {
 
 impl fmt::Display for ComplexSort {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{self:?}")
+        write!(f, "{}", self.name())
     }
 }
+
+/// mCRL2's built-in sort names: [`Sort`]'s basic sorts plus [`ComplexSort`]'s parameterized
+/// container sorts.
+pub const SYSTEM_SORTS: &[&str] = &[
+    Sort::Bool.name(),
+    Sort::Pos.name(),
+    Sort::Nat.name(),
+    Sort::Int.name(),
+    Sort::Real.name(),
+    ComplexSort::List.name(),
+    ComplexSort::Set.name(),
+    ComplexSort::Bag.name(),
+    ComplexSort::FSet.name(),
+    ComplexSort::FBag.name(),
+];
 
 impl fmt::Display for SortExpression {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -146,7 +175,7 @@ impl fmt::Display for SortExpression {
             SortExpressionKind::Simple(sort) => write!(f, "{sort}"),
             SortExpressionKind::Complex(complex, inner) => write!(f, "{complex}({inner})"),
             SortExpressionKind::Struct { inner } => {
-                write!(f, "struct ")?;
+                write!(f, "{} ", Keyword::Struct)?;
                 write!(f, "{}", inner.iter().format(" | "))
             }
             SortExpressionKind::Resolved(name, _id) => write!(f, "{name}"),

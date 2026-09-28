@@ -11,6 +11,7 @@ use std::sync::LazyLock;
 use crate::Bound;
 use crate::DataExpr;
 use crate::IdDecl;
+use crate::Keyword;
 use crate::Mcrl2Parser;
 use crate::ParseResult;
 use crate::Quantifier;
@@ -164,21 +165,29 @@ impl fmt::Display for StateFrmUnaryOp {
     }
 }
 
+impl FixedPointOperator {
+    /// This operator's mCRL2 keyword; also [`FixedPointOperator`]'s own
+    /// [`Display`](fmt::Display) text.
+    pub const fn name(self) -> &'static str {
+        match self {
+            FixedPointOperator::Greatest => "nu",
+            FixedPointOperator::Least => "mu",
+        }
+    }
+}
+
 impl fmt::Display for FixedPointOperator {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            FixedPointOperator::Greatest => write!(f, "nu"),
-            FixedPointOperator::Least => write!(f, "mu"),
-        }
+        write!(f, "{}", self.name())
     }
 }
 
 impl fmt::Display for StateFrm {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self.node {
-            StateFrmKind::True => write!(f, "true"),
-            StateFrmKind::False => write!(f, "false"),
-            StateFrmKind::DataValExpr(expr) => write!(f, "val({expr})"),
+            StateFrmKind::True => write!(f, "{}", Keyword::True),
+            StateFrmKind::False => write!(f, "{}", Keyword::False),
+            StateFrmKind::DataValExpr(expr) => write!(f, "{}({expr})", Keyword::Val),
             StateFrmKind::Id(identifier, args) | StateFrmKind::Resolved(identifier, args, _) => {
                 if args.is_empty() {
                     write!(f, "{identifier}")
@@ -219,12 +228,12 @@ impl fmt::Display for StateFrm {
             } => {
                 write!(f, "({operator} {variable} . {body})")
             }
-            StateFrmKind::Delay(Some(expr)) => write!(f, "delay@({expr})"),
-            StateFrmKind::Delay(None) => write!(f, "delay"),
-            StateFrmKind::Yaled(Some(expr)) => write!(f, "yaled@({expr})"),
-            StateFrmKind::Yaled(None) => write!(f, "yaled"),
-            StateFrmKind::DataValExprLeftMult(value, expr) => write!(f, "(val({value}) * {expr})"),
-            StateFrmKind::DataValExprRightMult(expr, value) => write!(f, "({expr} * val({value}))"),
+            StateFrmKind::Delay(Some(expr)) => write!(f, "{}@({expr})", Keyword::Delay),
+            StateFrmKind::Delay(None) => write!(f, "{}", Keyword::Delay),
+            StateFrmKind::Yaled(Some(expr)) => write!(f, "{}@({expr})", Keyword::Yaled),
+            StateFrmKind::Yaled(None) => write!(f, "{}", Keyword::Yaled),
+            StateFrmKind::DataValExprLeftMult(value, expr) => write!(f, "({}({value}) * {expr})", Keyword::Val),
+            StateFrmKind::DataValExprRightMult(expr, value) => write!(f, "({expr} * {}({value}))", Keyword::Val),
         }
     }
 }

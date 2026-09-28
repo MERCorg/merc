@@ -10,6 +10,7 @@ use crate::ActionName;
 use crate::ConstructorId;
 use crate::FixedPointOperator;
 use crate::IdDecl;
+use crate::Keyword;
 use crate::MapId;
 use crate::Mcrl2Parser;
 use crate::ProcessExpr;
@@ -215,7 +216,7 @@ pub struct EqnSpecData {
 }
 
 /// An equation-specification block (`var ... eqn ...`), paired with the source [Span] of the
-/// whole block, from `var`/`eqn` (whichever comes first) to at least the final `;`.
+/// whole block, from `var`/`eqn` (whichever comes first) to exactly the final `;`.
 /// Equality/ordering/hashing ignore the span, per [Spanned]'s documented convention.
 pub type EqnSpec = Spanned<EqnSpecData>;
 
@@ -425,7 +426,7 @@ impl fmt::Display for UntypedProcessSpecification {
         writeln!(f, "{}", self.data_specification)?;
 
         if !self.action_declarations.is_empty() {
-            writeln!(f, "act")?;
+            writeln!(f, "{}", Keyword::Act)?;
             for act_decl in &self.action_declarations {
                 writeln!(f, "   {act_decl};")?;
             }
@@ -434,7 +435,7 @@ impl fmt::Display for UntypedProcessSpecification {
         }
 
         if !self.process_declarations.is_empty() {
-            writeln!(f, "proc")?;
+            writeln!(f, "{}", Keyword::Proc)?;
             for proc_decl in &self.process_declarations {
                 writeln!(f, "   {proc_decl};")?;
             }
@@ -443,7 +444,7 @@ impl fmt::Display for UntypedProcessSpecification {
         }
 
         if !self.global_variables.is_empty() {
-            writeln!(f, "glob")?;
+            writeln!(f, "{}", Keyword::Glob)?;
             for var_decl in &self.global_variables {
                 writeln!(f, "   {var_decl};")?;
             }
@@ -452,7 +453,7 @@ impl fmt::Display for UntypedProcessSpecification {
         }
 
         if let Some(init) = &self.init {
-            writeln!(f, "init {init};")?;
+            writeln!(f, "{} {init};", Keyword::Init)?;
         }
         Ok(())
     }
@@ -470,7 +471,7 @@ impl fmt::Display for UntypedDataSpecification {
         }
 
         if !self.sort_declarations.is_empty() {
-            writeln!(f, "sort")?;
+            writeln!(f, "{}", Keyword::Sort)?;
             for decl in &self.sort_declarations {
                 writeln!(f, "   {decl};")?;
             }
@@ -479,7 +480,7 @@ impl fmt::Display for UntypedDataSpecification {
         }
 
         if !self.constructor_declarations.is_empty() {
-            writeln!(f, "cons")?;
+            writeln!(f, "{}", Keyword::Cons)?;
             for decl in &self.constructor_declarations {
                 writeln!(f, "   {decl};")?;
             }
@@ -488,7 +489,7 @@ impl fmt::Display for UntypedDataSpecification {
         }
 
         if !self.map_declarations.is_empty() {
-            writeln!(f, "map")?;
+            writeln!(f, "{}", Keyword::Map)?;
             for decl in &self.map_declarations {
                 writeln!(f, "   {decl};")?;
             }
@@ -508,7 +509,7 @@ impl fmt::Display for UntypedPbes {
         writeln!(f, "{}", self.data_specification)?;
         writeln!(f)?;
         if !self.global_variables.is_empty() {
-            writeln!(f, "glob")?;
+            writeln!(f, "{}", Keyword::Glob)?;
             for var_decl in &self.global_variables {
                 writeln!(f, "   {var_decl};")?;
             }
@@ -518,13 +519,13 @@ impl fmt::Display for UntypedPbes {
         writeln!(f)?;
 
         if !self.equations.is_empty() {
-            writeln!(f, "pbes")?;
+            writeln!(f, "{}", Keyword::Pbes)?;
             for equation in &self.equations {
                 writeln!(f, "   {equation};")?;
             }
         }
 
-        writeln!(f, "init {};", self.init)
+        writeln!(f, "{} {};", Keyword::Init, self.init)
     }
 }
 
@@ -559,7 +560,7 @@ impl fmt::Display for UntypedPres {
         writeln!(f, "{}", self.data_specification)?;
         writeln!(f)?;
         if !self.global_variables.is_empty() {
-            writeln!(f, "glob")?;
+            writeln!(f, "{}", Keyword::Glob)?;
             for var_decl in &self.global_variables {
                 writeln!(f, "   {var_decl};")?;
             }
@@ -569,13 +570,13 @@ impl fmt::Display for UntypedPres {
         writeln!(f)?;
 
         if !self.equations.is_empty() {
-            writeln!(f, "pres")?;
+            writeln!(f, "{}", Keyword::Pres)?;
             for equation in &self.equations {
                 writeln!(f, "   {equation};")?;
             }
         }
 
-        writeln!(f, "init {};", self.init)
+        writeln!(f, "{} {};", Keyword::Init, self.init)
     }
 }
 
@@ -590,13 +591,13 @@ impl fmt::Display for EqnSpec {
         // The grammar requires at least one declaration after `var`, so only
         // emit the section when there are variables to declare.
         if !self.variables.is_empty() {
-            writeln!(f, "var")?;
+            writeln!(f, "{}", Keyword::Var)?;
             for decl in &self.variables {
                 writeln!(f, "   {decl};")?;
             }
         }
 
-        writeln!(f, "eqn")?;
+        writeln!(f, "{}", Keyword::Eqn)?;
         for decl in &self.equations {
             writeln!(f, "   {decl};")?;
         }
@@ -643,14 +644,14 @@ impl fmt::Display for UntypedStateFrmSpec {
 
         // Wrap the formula in a `form ...;` section: the bare-formula grammar
         // alternative is only valid when no specification elements precede it.
-        writeln!(f, "form {};", self.formula)
+        writeln!(f, "{} {};", Keyword::Form, self.formula)
     }
 }
 
 impl fmt::Display for MultiAction {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.actions.is_empty() {
-            write!(f, "tau")
+            write!(f, "{}", Keyword::Tau)
         } else {
             write!(f, "{}", self.actions.iter().format("|"))
         }
@@ -704,7 +705,7 @@ impl fmt::Display for ActionName {
 impl fmt::Display for MultiActionLabel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.actions.is_empty() {
-            write!(f, "tau")
+            write!(f, "{}", Keyword::Tau)
         } else {
             write!(f, "{}", self.actions.iter().format("|"))
         }
@@ -1410,19 +1411,27 @@ impl Mcrl2Parser {
     }
 
     fn EqnSpec(spec: ParseNode) -> ParseResult<Vec<EqnSpec>> {
-        let span = spec.as_span();
+        // `spec.as_span()`'s end can land past the final `;`: pest's implicit whitespace/comment
+        // skipping, inserted between iterations of `EqnDecl+`, is consumed while probing for
+        // another `EqnDecl` and isn't rolled back when that probe fails. The last `EqnDecl`'s own
+        // span ends exactly at its `;`, so re-deriving the end from it keeps the block's span tight.
+        let start = spec.as_span().start();
         let mut ids = Vec::new();
 
         match_nodes!(spec.into_children();
             [VarSpec(variables), EqnDecl(decls)..] => {
+                let equations: Vec<EqnDecl> = decls.collect();
+                let end = equations.last().map(|decl| decl.span.end).unwrap_or(start);
                 ids.push(EqnSpecData {
                     variables,
-                    equations: decls.collect(),
+                    equations,
                     id: None,
-                }.spanned(span.into()));
+                }.spanned(Span::new(start, end)));
             },
             [EqnDecl(decls)..] => {
-                ids.push(EqnSpecData { variables: Vec::new(), equations: decls.collect(), id: None }.spanned(span.into()));
+                let equations: Vec<EqnDecl> = decls.collect();
+                let end = equations.last().map(|decl| decl.span.end).unwrap_or(start);
+                ids.push(EqnSpecData { variables: Vec::new(), equations, id: None }.spanned(Span::new(start, end)));
             },
         );
 

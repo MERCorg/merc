@@ -492,3 +492,15 @@ fn prop_var_decl_identifier_span_is_precisely_the_identifier() {
         .collect();
     assert_eq!(whole_spans, ["X(n: Nat)", "Y"]);
 }
+
+/// `EqnSpec`'s span must not absorb whitespace or a following declaration past its own final
+/// `;`.
+#[test]
+fn eqn_spec_span_does_not_absorb_trailing_whitespace() {
+    let text = "sort D;\nvar x: D;\neqn x = x;\n\nmap g: D;\n";
+    let spec = UntypedDataSpecification::parse(text).expect("the specification should parse");
+    let eqn_spec = &spec.equation_declarations[0];
+
+    let block = &text[eqn_spec.span.start..eqn_spec.span.end];
+    assert_eq!(block, "var x: D;\neqn x = x;");
+}

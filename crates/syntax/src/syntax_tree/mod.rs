@@ -14,6 +14,7 @@ use crate::spanned::Spanned;
 
 mod actfrm;
 mod dataexpr;
+mod keyword;
 mod pbesexpr;
 mod presexpr;
 mod procexpr;
@@ -24,6 +25,7 @@ mod statefrm;
 
 pub use actfrm::*;
 pub use dataexpr::*;
+pub use keyword::*;
 pub use pbesexpr::*;
 pub use presexpr::*;
 pub use procexpr::*;
@@ -151,18 +153,25 @@ impl<Id> fmt::Display for IdDecl<Id> {
     }
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub enum Quantifier {
     Exists,
     Forall,
 }
 
+impl Quantifier {
+    /// This quantifier's mCRL2 keyword; also [`Quantifier`]'s own [`Display`](fmt::Display) text.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Quantifier::Exists => "exists",
+            Quantifier::Forall => "forall",
+        }
+    }
+}
+
 impl fmt::Display for Quantifier {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Quantifier::Exists => write!(f, "exists"),
-            Quantifier::Forall => write!(f, "forall"),
-        }
+        write!(f, "{}", self.name())
     }
 }
 
@@ -174,13 +183,20 @@ pub enum Bound {
     Sum,
 }
 
+impl Bound {
+    /// This bound's mCRL2 keyword; also [`Bound`]'s own [`Display`](fmt::Display) text.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Bound::Inf => "inf",
+            Bound::Sum => "sum",
+            Bound::Sup => "sup",
+        }
+    }
+}
+
 impl fmt::Display for Bound {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Bound::Inf => write!(f, "inf"),
-            Bound::Sum => write!(f, "sum"),
-            Bound::Sup => write!(f, "sup"),
-        }
+        write!(f, "{}", self.name())
     }
 }
 

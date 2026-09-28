@@ -9,6 +9,7 @@ use std::fmt;
 use std::sync::LazyLock;
 
 use crate::IdDecl;
+use crate::Keyword;
 use crate::Mcrl2Parser;
 use crate::ParseResult;
 use crate::Quantifier;
@@ -84,15 +85,15 @@ impl From<ActFrmKind> for ActFrm {
 impl fmt::Display for ActFrm {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self.node {
-            ActFrmKind::False => write!(f, "false"),
-            ActFrmKind::True => write!(f, "true"),
+            ActFrmKind::False => write!(f, "{}", Keyword::False),
+            ActFrmKind::True => write!(f, "{}", Keyword::True),
             ActFrmKind::MultAct(action) => write!(f, "{action}"),
             ActFrmKind::Binary { op, lhs, rhs } => {
                 // Wrap the whole expression (not just the operands) so that a
                 // surrounding tighter operator such as `!` cannot re-associate.
                 write!(f, "({lhs} {op} {rhs})")
             }
-            ActFrmKind::DataExprVal(expr) => write!(f, "val({expr})"),
+            ActFrmKind::DataExprVal(expr) => write!(f, "{}({expr})", Keyword::Val),
             ActFrmKind::Quantifier {
                 quantifier,
                 variables,

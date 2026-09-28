@@ -9,6 +9,7 @@ use std::fmt;
 use std::sync::LazyLock;
 
 use crate::IdDecl;
+use crate::Keyword;
 use crate::Mcrl2Parser;
 use crate::ParseResult;
 use crate::Quantifier;
@@ -79,8 +80,8 @@ pub enum PbesExprBinaryOp {
 impl fmt::Display for PbesExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self.node {
-            PbesExprKind::True => write!(f, "true"),
-            PbesExprKind::False => write!(f, "false"),
+            PbesExprKind::True => write!(f, "{}", Keyword::True),
+            PbesExprKind::False => write!(f, "{}", Keyword::False),
             PbesExprKind::PropVarInst(instance) => write!(f, "{instance}"),
             PbesExprKind::Negation(expr) => write!(f, "(! {expr})"),
             PbesExprKind::Binary { op, lhs, rhs } => write!(f, "({lhs} {op} {rhs})"),
@@ -89,7 +90,7 @@ impl fmt::Display for PbesExpr {
                 variables,
                 body,
             } => write!(f, "({} {} . {})", quantifier, variables.iter().format(", "), body),
-            PbesExprKind::DataValExpr(data_expr) => write!(f, "val({data_expr})"),
+            PbesExprKind::DataValExpr(data_expr) => write!(f, "{}({data_expr})", Keyword::Val),
         }
     }
 }

@@ -9,6 +9,7 @@ use std::fmt;
 use std::sync::LazyLock;
 
 use crate::IdDecl;
+use crate::Keyword;
 use crate::Mcrl2Parser;
 use crate::ParseResult;
 use crate::Quantifier;
@@ -211,7 +212,7 @@ impl fmt::Display for DataExpr {
                 write!(f, "({} {} . {})", op, variables.iter().format(", "), body)
             }
             DataExprKind::Lambda { variables, body } => {
-                write!(f, "(lambda {} . {})", variables.iter().format(", "), body)
+                write!(f, "({} {} . {})", Keyword::Lambda, variables.iter().format(", "), body)
             }
             DataExprKind::Application { function, arguments } => {
                 if arguments.is_empty() {
@@ -224,7 +225,14 @@ impl fmt::Display for DataExpr {
             DataExprKind::FunctionUpdate { expr, update } => write!(f, "{expr}[{update}]"),
             DataExprKind::SetBagComp { variable, predicate } => write!(f, "{{ {variable} | {predicate} }}"),
             DataExprKind::Whr { expr, assignments } => {
-                write!(f, "{} whr {} end", expr, assignments.iter().format(", "))
+                write!(
+                    f,
+                    "{} {} {} {}",
+                    expr,
+                    Keyword::Whr,
+                    assignments.iter().format(", "),
+                    Keyword::End
+                )
             }
         }
     }

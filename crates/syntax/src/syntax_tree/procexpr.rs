@@ -11,9 +11,11 @@ use std::sync::LazyLock;
 
 use crate::Action;
 use crate::ActionName;
+use crate::Bound;
 use crate::CommExpr;
 use crate::DataExpr;
 use crate::IdDecl;
+use crate::Keyword;
 use crate::Mcrl2Parser;
 use crate::MultiAction;
 use crate::MultiActionLabel;
@@ -151,48 +153,73 @@ impl fmt::Display for ProcessExpr {
                     write!(f, "{}({})", identifier, data_exprs.iter().format(", "))
                 }
             }
-            ProcessExprKind::Delta => write!(f, "delta"),
-            ProcessExprKind::Tau => write!(f, "tau"),
+            ProcessExprKind::Delta => write!(f, "{}", Keyword::Delta),
+            ProcessExprKind::Tau => write!(f, "{}", Keyword::Tau),
             ProcessExprKind::Sum { variables, operand } => {
-                write!(f, "(sum {} . {})", variables.iter().format(", "), operand)
+                write!(f, "({} {} . {})", Bound::Sum, variables.iter().format(", "), operand)
             }
             ProcessExprKind::Dist {
                 variables,
                 expr,
                 operand,
-            } => write!(f, "(dist {} [{}] . {})", variables.iter().format(", "), expr, operand),
+            } => write!(
+                f,
+                "({} {} [{}] . {})",
+                Keyword::Dist,
+                variables.iter().format(", "),
+                expr,
+                operand
+            ),
             ProcessExprKind::Binary { op, lhs, rhs } => write!(f, "({lhs} {op} {rhs})"),
             ProcessExprKind::Hide { actions, operand } => {
                 if !actions.is_empty() {
-                    write!(f, "hide({{{}}}, {})", actions.iter().format(", "), operand)
+                    write!(f, "{}({{{}}}, {})", Keyword::Hide, actions.iter().format(", "), operand)
                 } else {
                     Ok(())
                 }
             }
             ProcessExprKind::Rename { renames, operand } => {
                 if !renames.is_empty() {
-                    write!(f, "rename({{{}}}, {})", renames.iter().format(", "), operand)
+                    write!(
+                        f,
+                        "{}({{{}}}, {})",
+                        Keyword::Rename,
+                        renames.iter().format(", "),
+                        operand
+                    )
                 } else {
                     Ok(())
                 }
             }
             ProcessExprKind::Allow { actions, operand } => {
                 if !actions.is_empty() {
-                    write!(f, "allow({{{}}}, {})", actions.iter().format(", "), operand)
+                    write!(
+                        f,
+                        "{}({{{}}}, {})",
+                        Keyword::Allow,
+                        actions.iter().format(", "),
+                        operand
+                    )
                 } else {
                     Ok(())
                 }
             }
             ProcessExprKind::Block { actions, operand } => {
                 if !actions.is_empty() {
-                    write!(f, "block({{{}}}, {})", actions.iter().format(", "), operand)
+                    write!(
+                        f,
+                        "{}({{{}}}, {})",
+                        Keyword::Block,
+                        actions.iter().format(", "),
+                        operand
+                    )
                 } else {
                     Ok(())
                 }
             }
             ProcessExprKind::Comm { comm, operand } => {
                 if !comm.is_empty() {
-                    write!(f, "comm({{{}}}, {})", comm.iter().format(", "), operand)
+                    write!(f, "{}({{{}}}, {})", Keyword::Comm, comm.iter().format(", "), operand)
                 } else {
                     Ok(())
                 }

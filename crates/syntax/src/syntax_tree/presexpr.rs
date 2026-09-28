@@ -13,6 +13,7 @@ use crate::Condition;
 use crate::DataExpr;
 use crate::Eq;
 use crate::IdDecl;
+use crate::Keyword;
 use crate::Mcrl2Parser;
 use crate::ParseResult;
 use crate::Rule;
@@ -129,10 +130,10 @@ impl fmt::Display for PresExprBinaryOp {
 impl fmt::Display for PresExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self.node {
-            PresExprKind::True => write!(f, "true"),
-            PresExprKind::False => write!(f, "false"),
+            PresExprKind::True => write!(f, "{}", Keyword::True),
+            PresExprKind::False => write!(f, "{}", Keyword::False),
             PresExprKind::PropVarInst(instance) => write!(f, "{instance}"),
-            PresExprKind::DataValExpr(data_expr) => write!(f, "val({data_expr})"),
+            PresExprKind::DataValExpr(data_expr) => write!(f, "{}({data_expr})", Keyword::Val),
             PresExprKind::Negation(expr) => write!(f, "(- {expr})"),
             PresExprKind::Binary { op, lhs, rhs } => write!(f, "({lhs} {op} {rhs})"),
             PresExprKind::Bound { op, variables, expr } => {
