@@ -100,14 +100,11 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
         let offset = state.bump_offset.get();
         if !block_ptr.is_null() && offset < N {
             state.bump_offset.set(offset + 1);
-            // SAFETY: `block_ptr` is non-null and owned by this thread's
-            // state; it stays valid until `remove_free_blocks`, which the
-            // caller must not run concurrently with allocation. `offset < N`
-            // was just checked, so `data_ptr.add(offset)` stays within the
-            // block's `N`-element array. We use `addr_of_mut!` instead of
-            // forming a reference so this does not race with other in-bounds
-            // accesses to the same block via `UnsafeCell`, and the result is
-            // never null.
+            // SAFETY: `block_ptr` is owned by this thread and stays valid until
+            // `remove_free_blocks` (never run concurrently with allocation, per its own doc);
+            // `offset < N` keeps `data_ptr.add(offset)` in bounds. We index through
+            // `addr_of_mut!` rather than a reference so this doesn't race with other in-bounds
+            // `UnsafeCell` accesses to the same block.
             return unsafe {
                 let data_ptr = (*block_ptr).data.get() as *mut Entry<T>;
                 let entry_ptr = data_ptr.add(offset);
@@ -458,12 +455,18 @@ impl<T, const N: usize> ThreadLocalAllocState<T, N> {
     }
 }
 
-// SAFETY: each `ThreadLocalAllocState` is created and dereferenced only by
-// the thread that owns it via `ThreadLocal::get_or`; the raw pointer and
-// bump offset it holds are never read or written from another thread. If the
-// state is dropped from a different thread (e.g. alongside the owning
-// `ThreadLocal`), dropping it performs no dereference, so no thread-affinity
-// requirement is violated.
+// SAFETY: `current_block`/`free` (raw pointers) block auto-`Send`; note `FreeList`'s own
+// conditional `unsafe impl<T: FreeListEntry + Send> Send for FreeList<T>` does *not* cover
+// `free: FreeList<Entry<T>>` either, since `Entry<T>` (a union with a raw-pointer variant) is
+// never `Send`. This impl is a fully manual claim, justified by: `ThreadLocal::get_or` ensures
+// `current_block`/`bump_offset`/`free` are only ever touched by the thread that owns this
+// instance's slot, except `BlockAllocator::remove_free_blocks`, which reads/clears every
+// thread's `free` list from whichever thread calls it -- sound only because that method's own
+// doc contract forbids running it concurrently with allocation/deallocation. `Send` is also
+// needed because the whole `ThreadLocal<..>` collection may be dropped from a different thread
+// than created it; that drop only reclaims the `Cell`/`FreeList` structure, never dereferences
+// the pointee, so thread-affinity isn't violated. `T: Send` is required transitively through
+// `Entry<T>`'s `data: ManuallyDrop<T>` variant.
 unsafe impl<T: Send, const N: usize> Send for ThreadLocalAllocState<T, N> {}
 
 /// Implementing this trait for a type `T` asserts that the special sentinel
@@ -489,14 +492,15 @@ pub unsafe trait BlockAllocatorSafe {}
 const NONEXISTING_VALUE: usize = usize::MAX;
 
 /// The [BlockAllocator] is thread-safe.
-// SAFETY: `blocks: Mutex<BlockList<T, N>>` holds the only `NonNull` pointers
-// (`head_block`, `free_chunks`), and every access to them happens while the
-// mutex is held, giving exclusive access from whichever thread holds the
-// lock; `Mutex<X>` is itself `Send`/`Sync` given `X: Send`, which holds here
-// since `T: Send`. `alloc_state: ThreadLocal<ThreadLocalAllocState<T, N>>` is
-// `Send`/`Sync` under the same `T: Send` bound (see the impl above). So both
-// fields are safe to share/move across threads, making `BlockAllocator`
-// itself sound to mark `Send`/`Sync`.
+// SAFETY: `blocks: Mutex<BlockList<T, N>>` holds the only `NonNull` pointers (`head_block`,
+// `free_chunks`). `BlockList<T, N>` is itself never auto-`Send`/`Sync` (those `NonNull` fields
+// block it unconditionally), so `Mutex`'s conditional impls never fire for this field either --
+// this is a fully manual claim, justified by: every access to `head_block`/`free_chunks` happens
+// while the mutex is held, so at most one thread touches them at a time, and `T: Send` licenses
+// the `T` values they point to being read, written or dropped by whichever thread holds the
+// lock, regardless of which thread allocated them. `alloc_state: ThreadLocal<..>` is
+// `Send`/`Sync` under the same `T: Send` bound (see the impl above, and `thread_local`'s own
+// `unsafe impl<T: Send> Sync for ThreadLocal<T>`).
 unsafe impl<T: Send, const N: usize> Send for BlockAllocator<T, N> {}
 unsafe impl<T: Send, const N: usize> Sync for BlockAllocator<T, N> {}
 
@@ -528,13 +532,9 @@ impl<T: Send, const N: usize> AllocBlock<T, N> {
     }
 }
 
-// SAFETY: `allocate` only ever hands out pointers obtained from
-// `block_allocator.allocate_object()`, which are valid `NonNull<T>` slots
-// owned by this same `block_allocator`; `deallocate` requires (via its own
-// safety contract) that `ptr`/`layout` came from a matching `allocate` call
-// on this allocator, which is exactly what `deallocate_object` expects. Since
-// `allocate` rejects any layout other than `Layout::new::<T>()`, every
-// pointer that reaches `deallocate` was produced for that same layout.
+// SAFETY: `allocate` only hands out pointers from `block_allocator.allocate_object()` for the
+// fixed layout `Layout::new::<T>()`; `deallocate_object` expects exactly that kind of pointer,
+// matching what `Allocator::deallocate`'s own contract requires of its caller.
 unsafe impl<T: Send, const N: usize> Allocator for AllocBlock<T, N> {
     fn allocate(&self, layout: Layout) -> Result<NonNull<[u8]>, AllocError> {
         // The blocks only fit objects with exactly T's layout; returning one for a larger
@@ -640,6 +640,55 @@ impl<T, const N: usize> Drop for Block<T, N> {
             // the list here before being dropped, so this is its sole owner.
             let mut block = unsafe { Box::from_raw(block_ptr.as_ptr()) };
             current = block.next.take();
+        }
+    }
+}
+
+#[cfg(kani)]
+mod verification {
+    use super::*;
+
+    /// `Entry<T>`'s `FreeListEntry` impl reinterprets the union's `next` variant; check that
+    /// writing a next-pointer through `set_next` and reading it back through `get_next` is the
+    /// identity, for an arbitrary (possibly null, possibly dangling — never dereferenced here)
+    /// pointer value.
+    #[kani::proof]
+    fn entry_get_next_set_next_roundtrip() {
+        let mut entry: Entry<u64> = Entry {
+            next: ManuallyDrop::new(std::ptr::null_mut()),
+        };
+        let entry_ptr: *mut Entry<u64> = &mut entry;
+        let next_value: *mut Entry<u64> = kani::any::<usize>() as *mut Entry<u64>;
+
+        // SAFETY: `entry_ptr` is a valid pointer to `entry`, a local variable; `set_next`/
+        // `get_next` only read/write the `next` field, never dereferencing `next_value` itself.
+        unsafe {
+            Entry::set_next(entry_ptr, next_value);
+            assert_eq!(Entry::get_next(entry_ptr), next_value);
+        }
+    }
+
+    /// Proves the safety comment on `allocate_object`'s fast (bump-allocation) path: for any
+    /// `offset < N`, `data_ptr.add(offset)` stays within the block's `N`-element array, and the
+    /// `T`-typed pointer built via `addr_of_mut!` from it is never null.
+    #[kani::proof]
+    #[kani::unwind(5)]
+    fn bump_allocation_offset_stays_in_bounds() {
+        const N: usize = 4;
+        let block: Block<u64, N> = Block::new();
+        let offset: usize = kani::any();
+        kani::assume(offset < N);
+
+        let data_ptr = block.data.get() as *mut Entry<u64>;
+        // SAFETY: mirrors the indexing done in `allocate_object`'s fast path; `offset < N` is
+        // the exact precondition for `data_ptr.add(offset)` to stay in the block's array.
+        unsafe {
+            let entry_ptr = data_ptr.add(offset);
+            assert!(entry_ptr >= data_ptr);
+            assert!(entry_ptr < data_ptr.add(N));
+
+            let t_ptr = NonNull::new_unchecked(std::ptr::addr_of_mut!((*entry_ptr).data) as *mut u64);
+            assert!(!t_ptr.as_ptr().is_null());
         }
     }
 }
