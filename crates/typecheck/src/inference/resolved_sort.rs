@@ -605,6 +605,19 @@ impl SortInterner {
                     subsort: to_sub,
                 },
             ) => from_sub == to_sub && generic_op_partial_cmp(*from_op, *to_op) == Some(Ordering::Less),
+            // A function value coerces to a wider range at the *same* domain by
+            // eta-expansion: `f` of sort `D -> S` becomes `lambda d: D. coerce(f(d))`
+            // of sort `D -> T` when `S` materializes to `T`.
+            (
+                ResolvedSort::Function {
+                    domain: from_domain,
+                    range: from_range,
+                },
+                ResolvedSort::Function {
+                    domain: to_domain,
+                    range: to_range,
+                },
+            ) => from_domain == to_domain && self.is_materializable(*from_range, *to_range),
             _ => false,
         }
     }

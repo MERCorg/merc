@@ -550,6 +550,39 @@ fn test_bag_comprehension_with_lambda_body() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_lambda_body_widens_a_finite_container_literal() {
+    // A `{ .. }` literal body infers to the *finite* `FSet`/`FBag` sort.
+    check_ok("map f: Nat -> Set(Nat); eqn f = lambda x: Nat. { x, x };");
+    check_ok("map f: Nat -> Bag(Nat); eqn f = lambda x: Nat. { x: 1 };");
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_lambda_body_widens_a_primitive() {
+    // The body's own minimal sort (`Pos`, from `y + 1`) differs from the
+    // lambda's declared range.
+    check_ok("map inc: Nat -> Nat; eqn inc = lambda y: Nat. y + 1;");
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_function_sorted_list_element_widens() {
+    // A `List`/`Bag` element position widens the same way a `map`'s declared
+    // sort does.
+    check_ok(
+        "map v: Bag(List(Nat -> Int));\n\
+         eqn v = { [(lambda x: Nat . x), (lambda x: Nat . (x - 2))]: 1 };",
+    );
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_named_function_reference_widens() {
+    check_ok("map g: Nat -> Nat; h: Nat -> Int; var x: Nat; eqn g(x) = x; h = g;");
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
 fn test_bag_comprehension_body_sorts() {
     // A `Pos` body (`n + 1`) and a `Nat` literal body read as bags; a `Real`
     // body is rejected. mCRL2: test_bag_with_pos_as_argument,

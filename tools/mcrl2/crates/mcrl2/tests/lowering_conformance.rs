@@ -452,6 +452,12 @@ fn test_round_trip_lambda_and_higher_order() {
          var f: Nat -> Nat; x: Nat;\n\
          eqn apply(f, x) = f(x);\n\
              inc = lambda y: Nat. y + 1;\n",
+        &[
+            Section::Sorts,
+            Section::Aliases,
+            Section::Constructors,
+            Section::Mappings,
+        ],
     );
 }
 
