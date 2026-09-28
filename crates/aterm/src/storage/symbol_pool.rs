@@ -149,7 +149,11 @@ impl SymbolPool {
 }
 
 /// Represents a function symbol with a name and arity.
+///
+/// `#[repr(C)]` guarantees `name` occupies the struct's first bytes, which the
+/// `BlockAllocatorSafe` impl below depends on.
 #[derive(Debug, Clone, Eq, PartialEq)]
+#[repr(C)]
 pub struct SharedSymbol {
     /// Name of the function
     name: String,
@@ -157,7 +161,9 @@ pub struct SharedSymbol {
     arity: usize,
 }
 
-/// SAFETY: The `SharedSymbol` is never equal to the sentinel value.
+// SAFETY: the first `size_of::<*mut _>()` bytes are `name`'s internal heap
+// pointer, always initialized, and never equal to the `usize::MAX` sentinel
+// since no allocator on a supported target hands out that address.
 unsafe impl BlockAllocatorSafe for SharedSymbol {}
 
 impl SharedSymbol {
@@ -222,7 +228,11 @@ impl Hash for SharedSymbol {
 
 #[cfg(test)]
 mod tests {
+    use std::mem::offset_of;
+
     use crate::Symbol;
+
+    use super::SharedSymbol;
 
     #[test]
     fn test_symbol_sharing() {
@@ -234,4 +244,7 @@ mod tests {
         // Should be the same object
         assert_eq!(f1, f2);
     }
+
+    // Pins the field layout the `BlockAllocatorSafe` impl depends on.
+    const _: () = assert!(offset_of!(SharedSymbol, name) == 0);
 }
