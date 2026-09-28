@@ -789,7 +789,7 @@ impl Lowering<'_> {
             .iter()
             .map(|v| DataVariable::with_sort(v.identifier.as_str(), lower_syntax_sort(&v.sort).copy()))
             .collect();
-        
+
         let body = self.lower(body)?;
         Some(DataAbstraction::new(binder, &vars, body).into())
     }

@@ -446,7 +446,7 @@ fn test_round_trip_quantifiers() {
 
 #[test]
 fn test_round_trip_lambda_and_higher_order() {
-    assert_round_trips(
+    assert_sections_round_trip(
         "map apply: (Nat -> Nat) # Nat -> Nat;\n\
          map inc: Nat -> Nat;\n\
          var f: Nat -> Nat; x: Nat;\n\

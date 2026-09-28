@@ -1464,10 +1464,10 @@ mod tests {
             &mut state_vars,
             |formula, context, state_vars| {
                 if let StateFrmKind::FixedPoint { variable, .. } = &formula.node {
-                    state_vars.push(variable.identifier.clone());
+                    state_vars.push(variable.identifier.node.clone());
                 }
                 if let StateFrmKind::Id(name, _) = &formula.node {
-                    scope_at_each_id.push((name.clone(), state_vars.clone()));
+                    scope_at_each_id.push((name.node.clone(), state_vars.clone()));
                 }
                 Ok(ControlFlow::Continue(Step::Into(context)))
             },
@@ -1506,10 +1506,10 @@ mod tests {
             &mut state_vars,
             |formula, context, state_vars| {
                 if let StateFrmKind::FixedPoint { variable, .. } = &formula.node {
-                    state_vars.push(variable.identifier.clone());
+                    state_vars.push(variable.identifier.node.clone());
                 }
                 if let StateFrmKind::Id(name, _) = &formula.node
-                    && name == "Z"
+                    && name.node == "Z"
                 {
                     return Ok(ControlFlow::Break("stopped"));
                 }
@@ -1517,7 +1517,7 @@ mod tests {
             },
             |formula, _context, state_vars| {
                 if let StateFrmKind::FixedPoint { variable, .. } = &formula.node {
-                    exited_in_order.push(variable.identifier.clone());
+                    exited_in_order.push(variable.identifier.node.clone());
                     state_vars.pop();
                 }
             },
@@ -1536,7 +1536,7 @@ mod tests {
 
         let mut order = Vec::new();
         formula.transform(|formula| match &formula.node {
-            StateFrmKind::Id(name, _) => order.push(name.clone()),
+            StateFrmKind::Id(name, _) => order.push(name.node.clone()),
             StateFrmKind::Binary { .. } => order.push("&&".to_string()),
             _ => {}
         });
@@ -1594,8 +1594,8 @@ mod tests {
         let mut visited = Vec::new();
         let result: Result<(), &str> = formula.try_transform(&mut |formula| {
             if let StateFrmKind::Id(name, _) = &formula.node {
-                visited.push(name.clone());
-                if name == "Y" {
+                visited.push(name.node.clone());
+                if name.node == "Y" {
                     return Err("stopped at Y");
                 }
             }
@@ -1607,5 +1607,4 @@ mod tests {
         // walk; the enclosing `&&` never was, since it comes after both operands in bottom-up order.
         assert_eq!(visited, ["X", "Y"]);
     }
-}
 }

@@ -542,10 +542,10 @@ impl Mcrl2Parser {
         let span: Span = id.as_span().into();
         match_nodes!(id.into_children();
             [Id(identifier)] => {
-                Ok(StateFrmKind::Id(identifier.into_node(), Vec::new()).spanned(span))
+                Ok(StateFrmKind::Id(identifier, Vec::new()).spanned(span))
             },
             [Id(identifier), DataExprList(expressions)] => {
-                Ok(StateFrmKind::Id(identifier.into_node(), expressions).spanned(span))
+                Ok(StateFrmKind::Id(identifier, expressions).spanned(span))
             },
         )
     }
@@ -674,7 +674,7 @@ impl Mcrl2Parser {
         match_nodes!(input.into_children();
             [Id(identifier), StateVarAssignmentList(arguments)] => {
                 Ok(StateVarDecl {
-                    identifier: identifier.into_node(),
+                    identifier,
                     arguments,
                     span: span.into(),
                     id: None,
@@ -682,7 +682,7 @@ impl Mcrl2Parser {
             },
             [Id(identifier)] => {
                 Ok(StateVarDecl {
-                    identifier: identifier.into_node(),
+                    identifier,
                     arguments: Vec::new(),
                     span: span.into(),
                     id: None,

@@ -1562,7 +1562,7 @@ impl Solver<'_> {
             for _ in &resolved {
                 self.measure.pop();
             }
-            
+
             if found {
                 return true;
             }

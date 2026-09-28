@@ -3,10 +3,14 @@
 //! `PropVarInst` against the equation table. Resolves the declared sorts of all
 //! bound variables.
 
+use std::convert::Infallible;
+use std::ops::ControlFlow;
+
 use merc_syntax::PresExpr;
 use merc_syntax::PresExprKind;
 use merc_syntax::PropVarInst;
 use merc_syntax::Span;
+use merc_syntax::Traverse;
 use merc_syntax::UntypedPres;
 use merc_syntax::VarId;
 
@@ -96,8 +100,10 @@ pub(super) fn check_pres_specification(
     Ok(typing)
 }
 
-/// Collects the scope for a PRES expression, resolving the declared sorts of
-/// all `Bound` binders
+/// Collects the scope for a PRES expression, resolving the declared sorts of all `Bound` binders.
+///
+/// A plain [`Traverse::try_visit`] walk replaces the previous hand-written recursive-descent
+/// version.
 fn collect_scope(
     data: &mut DataSpecification,
     expr: &PresExpr,
@@ -105,31 +111,20 @@ fn collect_scope(
     sort_references: &mut Vec<typing_info::SortReference>,
     typing: &mut TypingInfo,
 ) -> Result<(), PresError> {
-    match &expr.node {
-        PresExprKind::True | PresExprKind::False | PresExprKind::DataValExpr(_) | PresExprKind::PropVarInst(_) => {
-            Ok(())
-        }
-        PresExprKind::Negation(inner) => collect_scope(data, inner, scope, sort_references, typing),
-        PresExprKind::Binary { lhs, rhs, .. } => {
-            collect_scope(data, lhs, scope, sort_references, typing)?;
-            collect_scope(data, rhs, scope, sort_references, typing)
-        }
-        PresExprKind::Equal { body, .. } => collect_scope(data, body, scope, sort_references, typing),
-        PresExprKind::Condition { lhs, then, else_, .. } => {
-            collect_scope(data, lhs, scope, sort_references, typing)?;
-            collect_scope(data, then, scope, sort_references, typing)?;
-            collect_scope(data, else_, scope, sort_references, typing)
-        }
-        PresExprKind::RightConstantMultiply { expr, .. } | PresExprKind::LeftConstantMultiply { expr, .. } => {
-            collect_scope(data, expr, scope, sort_references, typing)
-        }
-        PresExprKind::Bound { variables, expr, .. } => {
+    expr.try_visit(|expr| {
+        if let PresExprKind::Bound { variables, .. } = &expr.node {
             collect_binder_sorts(data, scope, sort_references, typing, variables, resolve_declared_sort)?;
-            collect_scope(data, expr, scope, sort_references, typing)
         }
-    }
+        Ok(ControlFlow::Continue(()))
+    })
+    .map(|_: Option<Infallible>| ())
 }
 
+/// Type-checks a PRES expression: every `val(...)` against `Real`, every `PropVarInst` against the
+/// equation table, and a constant-multiply's own constant against `Real`.
+///
+/// A plain [`Traverse::try_visit`] walk replaces the previous hand-written recursive-descent
+/// version, the same way [`collect_scope`] does above.
 fn check_pres_expr(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
@@ -137,40 +132,32 @@ fn check_pres_expr(
     expr: &PresExpr,
     typing: &mut TypingInfo,
 ) -> Result<(), PresError> {
-    match &expr.node {
-        PresExprKind::True | PresExprKind::False => Ok(()),
+    expr.try_visit(|expr| {
+        match &expr.node {
+            PresExprKind::True
+            | PresExprKind::False
+            | PresExprKind::Negation(_)
+            | PresExprKind::Binary { .. }
+            | PresExprKind::Equal { .. }
+            | PresExprKind::Condition { .. }
+            | PresExprKind::Bound { .. } => {}
 
-        PresExprKind::DataValExpr(data_expr) => {
-            let real_sort = data.context().sorts.real_sort();
-            check_expression_against::<PresError>(data, scope, data_expr, real_sort, typing)
+            PresExprKind::DataValExpr(data_expr) => {
+                let real_sort = data.context().sorts.real_sort();
+                check_expression_against::<PresError>(data, scope, data_expr, real_sort, typing)?;
+            }
+
+            PresExprKind::PropVarInst(inst) => check_prop_var_inst(data, tables, scope, inst, typing)?,
+
+            PresExprKind::RightConstantMultiply { constant, .. }
+            | PresExprKind::LeftConstantMultiply { constant, .. } => {
+                let real_sort = data.context().sorts.real_sort();
+                check_expression_against::<PresError>(data, scope, constant, real_sort, typing)?;
+            }
         }
-
-        PresExprKind::PropVarInst(inst) => check_prop_var_inst(data, tables, scope, inst, typing),
-
-        PresExprKind::Negation(inner) => check_pres_expr(data, tables, scope, inner, typing),
-
-        PresExprKind::Binary { lhs, rhs, .. } => {
-            check_pres_expr(data, tables, scope, lhs, typing)?;
-            check_pres_expr(data, tables, scope, rhs, typing)
-        }
-
-        PresExprKind::Equal { body, .. } => check_pres_expr(data, tables, scope, body, typing),
-
-        PresExprKind::Condition { lhs, then, else_, .. } => {
-            check_pres_expr(data, tables, scope, lhs, typing)?;
-            check_pres_expr(data, tables, scope, then, typing)?;
-            check_pres_expr(data, tables, scope, else_, typing)
-        }
-
-        PresExprKind::RightConstantMultiply { expr, constant }
-        | PresExprKind::LeftConstantMultiply { expr, constant } => {
-            let real_sort = data.context().sorts.real_sort();
-            check_expression_against::<PresError>(data, scope, constant, real_sort, typing)?;
-            check_pres_expr(data, tables, scope, expr, typing)
-        }
-
-        PresExprKind::Bound { expr, .. } => check_pres_expr(data, tables, scope, expr, typing),
-    }
+        Ok(ControlFlow::Continue(()))
+    })
+    .map(|_: Option<Infallible>| ())
 }
 
 /// Resolves `inst.identifier` against the equation table (`UndeclaredPropositionalVariable` if
