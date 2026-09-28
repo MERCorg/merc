@@ -10,6 +10,7 @@ use pest::pratt_parser::PrattParser;
 
 use crate::Mcrl2Parser;
 use crate::Rule;
+use crate::TakeRecursiveChildren;
 use crate::spanned::Spanned;
 
 mod actfrm;
@@ -262,7 +263,7 @@ pub enum Fixity {
 }
 
 /// Implemented by every `*Kind` enum whose values are Pratt-parsed.
-pub trait Operator: Sized {
+pub trait Operator: Sized + TakeRecursiveChildren {
     /// Returns the fixity and precedence level of this operator.
     fn fixity(&self) -> Fixity;
 

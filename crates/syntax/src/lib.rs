@@ -37,6 +37,7 @@ pub use random::random_pbes::random_pbes;
 pub use random::random_pres::random_pres;
 pub use span_offset::OffsetSpans;
 pub use spanned::Spanned;
+pub use spanned::TakeRecursiveChildren;
 pub use spanned::respan;
 pub use syntax_tree::ACT_FRM_KEYWORDS;
 pub use syntax_tree::ActDecl;

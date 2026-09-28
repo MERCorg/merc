@@ -30,6 +30,13 @@ pub enum RegFrmKind {
     Choice { lhs: Box<RegFrm>, rhs: Box<RegFrm> },
 }
 
+// Choose a cheap default value.
+impl Default for RegFrmKind {
+    fn default() -> Self {
+        RegFrmKind::Action(ActFrm::default())
+    }
+}
+
 /// A regular formula: a [RegFrmKind] paired with the source [Span] it was
 /// parsed from. Synthetic formulas built by later passes use [Span::default].
 pub type RegFrm = Spanned<RegFrmKind>;

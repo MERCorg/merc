@@ -30,7 +30,7 @@ use super::build_pratt_parser;
 /// The kind of a [PresExpr] node, without its source span. Every recursive
 /// child is a [PresExpr] (a [Spanned] wrapper), so each node carries its own
 /// location.
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub enum PresExprKind {
     DataValExpr(DataExpr),
     PropVarInst(PropVarInst),
@@ -63,6 +63,7 @@ pub enum PresExprKind {
         lhs: Box<PresExpr>,
         rhs: Box<PresExpr>,
     },
+    #[default]
     True,
     False,
 }

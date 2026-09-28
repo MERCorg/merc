@@ -18,9 +18,9 @@ use merc_syntax::UntypedPbes;
 use merc_syntax::UntypedPres;
 use merc_syntax::UntypedProcessSpecification;
 use merc_syntax::UntypedStateFrmSpec;
-use merc_syntax::make_process_specification;
 use merc_syntax::random_lps;
 use merc_syntax::random_pbes;
+use merc_syntax::random_process_specification;
 use merc_utilities::random_test;
 
 /// PBES quantifiers used to panic because `forall`/`exists` were registered as
@@ -49,7 +49,7 @@ fn state_formula_bounds_are_distinct() {
         ("sup n: Nat . val(n < 3)", Bound::Sup),
     ] {
         let spec = UntypedStateFrmSpec::parse(input).expect("state formula should parse");
-        match spec.formula.node {
+        match spec.formula.into_node() {
             StateFrmKind::Bound { bound, .. } => assert_eq!(bound, expected, "for input {input:?}"),
             other => panic!("expected a Bound for {input:?}, got {other:?}"),
         }
@@ -60,7 +60,7 @@ fn state_formula_bounds_are_distinct() {
 #[test]
 fn process_until_operator_parses() {
     let spec = UntypedProcessSpecification::parse("init a << b;").expect("`<<` should parse");
-    match spec.init.expect("init present").node {
+    match spec.init.expect("init present").into_node() {
         ProcessExprKind::Binary { op, .. } => assert_eq!(op, ProcExprBinaryOp::Until),
         other => panic!("expected a binary Until, got {other:?}"),
     }
@@ -261,7 +261,7 @@ fn random_lps_print_parse_fixpoint() {
 fn random_process_spec_print_parse_fixpoint() {
     random_test(100, |rng| {
         let use_integers = rng.random_bool(0.5);
-        let spec = make_process_specification(rng, 3, 4, use_integers);
+        let spec = random_process_specification(rng, 4, 2, 3, 4, use_integers);
         let printed = format!("{spec}");
         let reparsed = UntypedProcessSpecification::parse(&printed)
             .unwrap_or_else(|e| panic!("failed to reparse generated process spec:\n{printed}\nerror: {e}"));
@@ -279,7 +279,7 @@ fn random_pbes_print_parse_fixpoint() {
     random_test(100, |rng| {
         let use_quantifiers = rng.random_bool(0.5);
         let use_integers = rng.random_bool(0.5);
-        let pbes = random_pbes(rng, 3, 4, 4, use_quantifiers, use_integers);
+        let pbes = random_pbes(rng, 4, 2, 3, 4, 4, use_quantifiers, use_integers);
         let printed = format!("{pbes}");
         let reparsed = UntypedPbes::parse(&printed)
             .unwrap_or_else(|e| panic!("failed to reparse generated PBES:\n{printed}\nerror: {e}"));
