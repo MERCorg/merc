@@ -88,9 +88,8 @@ pub(crate) enum InferSort {
 /// A checkpoint of the variable bindings of a [Unifier], for backtracking.
 ///
 /// Rolling back frees the variables bound since the checkpoint. Creating a
-/// variable between a snapshot and its rollback is forbidden (and asserted):
-/// the rollback would destroy it, leaving any [InferSortId] that mentions it
-/// dangling.
+/// variable between a snapshot and its rollback is forbidden since it would be
+/// destroyed.
 pub(crate) struct UnifierSnapshot {
     snapshot: Snapshot<InPlace<SortVar>>,
     /// The number of variables at the checkpoint, to assert that no variable
@@ -99,13 +98,14 @@ pub(crate) struct UnifierSnapshot {
 }
 
 /// Solves sort equality constraints by structural unification, backed by
-/// `ena`'s union-find table.
+/// `ena`'s union-find implementation.
 ///
 /// Sorts under inference live in an append-only arena; only the variable
 /// bindings participate in [Unifier::snapshot] / [Unifier::rollback_to], so
 /// arena nodes created inside a rolled-back branch remain as harmless garbage.
 pub(crate) struct Unifier {
     table: InPlaceUnificationTable<SortVar>,
+
     arena: Vec<InferSort>,
     /// Memoizes [Unifier::resolved_node] so repeated references to the same
     /// resolved sort share one arena node.
@@ -138,6 +138,7 @@ impl Unifier {
         if let Some(node) = self.resolved_nodes.get(&id) {
             return *node;
         }
+
         let node = self.push(InferSort::Resolved(id));
         self.resolved_nodes.insert(id, node);
         node
@@ -160,6 +161,7 @@ impl Unifier {
             let InferSort::Var(var) = self.arena[id] else {
                 return id;
             };
+            
             match self.table.probe_value(var).0 {
                 Some(next) => id = next,
                 None => return id,
