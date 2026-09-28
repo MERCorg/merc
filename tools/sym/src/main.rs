@@ -1,6 +1,5 @@
 use std::ffi::OsStr;
 use std::fs::File;
-use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -8,7 +7,6 @@ use clap::Parser;
 use clap::Subcommand;
 
 use itertools::Itertools;
-use log::warn;
 use merc_io::LargeFormatter;
 use merc_lts::AutStream;
 use merc_lts::LtsAction;
@@ -17,8 +15,9 @@ use merc_lts::LtsFormat;
 use merc_lts::LtsMultiAction;
 use merc_lts::guess_lts_format_from_extension;
 use merc_lts::write_bcg;
-use merc_symbolic::ExplorationStrategy;
+use merc_symbolic::ExplorationArgs;
 use merc_symbolic::LddLenCache;
+use merc_symbolic::MaxIterationsArgs;
 use merc_symbolic::OxiddArgs;
 use merc_symbolic::ReachabilityOptions;
 use merc_symbolic::SatCountCache;
@@ -108,18 +107,15 @@ struct ReachabilityArgs {
     #[arg(long)]
     format: Option<SymFormat>,
 
-    /// Exploration strategy to use.
-    #[arg(long, value_enum, default_value = "breadth-first")]
-    strategy: ExplorationStrategy,
+    #[command(flatten)]
+    exploration: ExplorationArgs,
 
     /// Detect deadlock states (states without outgoing transitions).
     #[arg(long)]
     detect_deadlocks: bool,
 
-    /// Stop the exploration after this many iterations (rounds for saturation), and report what has
-    /// been found until then. The reported states and deadlocks may then be incomplete.
-    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
-    max_iterations: Option<u32>,
+    #[command(flatten)]
+    max_iterations: MaxIterationsArgs,
 
     /// Write the reachable symbolic LTS to this .sym output file.
     #[arg(long)]
@@ -280,22 +276,15 @@ fn handle_reachability(cli: &Cli, args: &ReachabilityArgs, timing: &Timing) -> R
     let format = guess_format_from_extension(&args.filename, args.format).ok_or("Cannot determine input format")?;
 
     let options = ReachabilityOptions {
-        strategy: args.strategy,
+        strategy: args.exploration.strategy,
         detect_deadlocks: args.detect_deadlocks,
         // A symbolic LTS read from file has its transition relations already learned in full, so
         // there is no domain worth caching.
         cached: false,
     };
 
-    // Stops the exploration once `--max-iterations` iterations are done, and remembers that it did.
     let mut stopped_after = None;
-    let on_iteration = |iteration: usize, _states: &LDDFunction| match args.max_iterations {
-        Some(max) if iteration >= max as usize => {
-            stopped_after = Some(iteration);
-            ControlFlow::Break(())
-        }
-        _ => ControlFlow::Continue(()),
-    };
+    let on_iteration = args.max_iterations.on_iteration(&mut stopped_after);
 
     let mut file = File::open(&args.filename)?;
     match format {
@@ -332,11 +321,7 @@ fn handle_reachability(cli: &Cli, args: &ReachabilityArgs, timing: &Timing) -> R
         }
     }
 
-    if let Some(iteration) = stopped_after {
-        warn!(
-            "Stopped after {iteration} iteration(s) because of --max-iterations, the reported states and deadlocks may be incomplete"
-        );
-    }
+    MaxIterationsArgs::warn_if_stopped(stopped_after);
 
     Ok(())
 }
