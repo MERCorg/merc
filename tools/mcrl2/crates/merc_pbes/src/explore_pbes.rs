@@ -260,12 +260,6 @@ pub struct PbesContext {
     player_priority: Option<(Player, Priority)>,
 }
 
-// SAFETY: PbesContext is owned by exactly one worker thread. The
-// PbesRewriteContext wraps a per-worker C++ rewriter that no other thread
-// touches.  The raw term pointers in parameter_values are stable addresses
-// into the global term pool and are only read, never written.
-unsafe impl Send for PbesContext {}
-
 impl PbesLps {
     pub fn new(mut pbes: Pbes) -> Result<Self, MercError> {
         pbes.unify_parameters(UNIFY_IGNORE_CE_EQUATIONS, UNIFY_RESET_PARAMETERS)?;

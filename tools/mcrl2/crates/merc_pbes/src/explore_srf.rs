@@ -165,15 +165,6 @@ pub struct PbesSrfContext {
     next_state_buf: Vec<usize>,
 }
 
-// SAFETY: a `PbesSrfContext` is owned by exactly one worker thread, which both
-// creates and uses it. `parameter_values` is transient scratch holding stable,
-// maximally shared term addresses (not protected `ATerm`s), and the
-// `LearnSuccessorsContext` wraps a per-worker mCRL2 enumerator that no other
-// thread touches. mCRL2 is built with multithreading enabled and its garbage
-// collection is stop-the-world, so moving the context between threads cannot
-// race with collection or with another worker.
-unsafe impl Send for PbesSrfContext {}
-
 /// Explicit-state view of a PBES in SRF normal form.
 ///
 /// State vectors have layout `[equation_index, param_0, …, param_{n-1}]` where
