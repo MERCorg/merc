@@ -7,6 +7,7 @@ mod enumerator;
 mod fresh;
 mod naive_enumerator;
 mod one_point;
+mod quantifier;
 mod remaining;
 
 pub use enumeration_plan::ConstructorPlan;
@@ -24,3 +25,4 @@ pub use enumerator::WitnessOutcome;
 pub use fresh::FreshVariableGenerator;
 pub use naive_enumerator::NaiveEnumerator;
 pub use one_point::simplify_one_point;
+pub use quantifier::QuantifierEnumerator;

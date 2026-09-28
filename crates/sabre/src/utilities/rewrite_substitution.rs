@@ -86,6 +86,48 @@ impl RewriteSubstitution for SliceSubstitution<'_> {
     }
 }
 
+/// A type-erased [RewriteSubstitution].
+/// 
+/// The `NOT_EMPTY` makes a regular [RewriteSubstitution] not object safe.
+pub(crate) trait DynRewriteSubstitution {
+    fn get<'a>(&'a self, variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>>;
+}
+
+impl<S: RewriteSubstitution> DynRewriteSubstitution for S {
+    fn get<'a>(&'a self, variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>> {
+        RewriteSubstitution::get(self, variable)
+    }
+}
+
+/// Wraps a substitution so it reports every variable in `shadowed` as outside
+/// its domain, regardless of what `inner` says.
+///
+/// # Exampl
+/// 
+/// Used when descending into a binder's body: `inner`'s domain may contain a
+/// name that coincides with one of the binder's own bound variables, and that
+/// bound variable must shadow it rather than be replaced.
+pub(crate) struct Shadowed<'a> {
+    pub inner: &'a dyn DynRewriteSubstitution,
+    pub shadowed: &'a [DataVariable],
+}
+
+impl<'a> Shadowed<'a> {
+    pub fn new(inner: &'a dyn DynRewriteSubstitution, shadowed: &'a [DataVariable]) -> Self {
+        Shadowed { inner, shadowed }
+    }
+}
+
+impl DynRewriteSubstitution for Shadowed<'_> {
+    fn get<'a>(&'a self, variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>> {
+        if self.shadowed.iter().any(|v| v.copy() == *variable) {
+            None
+        } else {
+            self.inner.get(variable)
+        }
+    }
+}
+
 /// Layers one substitution over another without merging them into a single
 /// collection.
 pub struct Chained<'a, A, B> {
