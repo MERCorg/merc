@@ -140,6 +140,34 @@ pub fn random_lps<R: Rng>(
     }
 }
 
+/// Generates a random mCRL2 process specification whose process variables additionally carry one
+/// parameter typed with a sort from a freshly generated [`crate::random_data_specification`] (a
+/// struct, container, or function sort), exercising the type checker on richer parameter sorts
+/// than plain `Bool`/`Nat` parameters alone would.
+///
+/// `sort_count`/`max_sort_depth` control the generated data specification, exactly as in
+/// `random_data_specification`. `equation_count` controls how many process equations are produced
+/// (capped at 3). `depth` controls the maximum nesting depth of each process body. `use_integers`
+/// adds `Nat`-typed parameters alongside `Bool` ones.
+pub fn random_process_specification<R: Rng>(
+    rng: &mut R,
+    sort_count: usize,
+    max_sort_depth: usize,
+    equation_count: usize,
+    depth: usize,
+    use_integers: bool,
+) -> UntypedProcessSpecification {
+    let data_specification = random_data_specification(rng, sort_count, max_sort_depth);
+    let count = equation_count.min(PROC_NAMES.len());
+    let proc_vars: Vec<ProcVar> = (0..count)
+        .map(|i| random_proc_var(rng, i, use_integers, &data_specification.sort_declarations))
+        .collect();
+    let mut spec =
+        random_process_specification_from_proc_vars(rng, proc_vars, depth, &data_specification.sort_declarations);
+    spec.data_specification = data_specification;
+    spec
+}
+
 const ACTIONS: &[&str] = &["a", "b", "c", "d"];
 const PROC_NAMES: &[&str] = &["P", "Q", "R"];
 
@@ -159,11 +187,10 @@ struct ProcVar {
     params: Vec<IdDecl>,
 }
 
-/// Generates a process variable's parameter list: 0-2 classic `Bool`/`Nat` parameters (as
-/// [`make_process_specification`] always has), plus, when `sort_decls` is non-empty, one
-/// additional parameter typed with a random declared sort -- exercising the type checker on
-/// struct/container/function parameter sorts that plain [`make_process_specification`] never
-/// generates.
+/// Generates a process variable's parameter list: 0-2 classic `Bool`/`Nat` parameters, plus one
+/// additional parameter typed with a sort declared in `sort_decls` -- exercising the type checker
+/// on struct/container/function parameter sorts that plain `Bool`/`Nat` parameters never
+/// generate.
 fn random_proc_var<R: Rng>(rng: &mut R, index: usize, use_integers: bool, sort_decls: &[SortDecl]) -> ProcVar {
     let size = rng.random_range(0..=2usize);
     let mut pool: Vec<IdDecl> = vec![id_decl("b", Sort::Bool), id_decl("c", Sort::Bool)];
@@ -459,48 +486,7 @@ fn random_parallel_init<R: Rng>(
     result
 }
 
-/// Generates a random mCRL2 process specification.
-///
-/// `equation_count` controls how many process equations are produced (capped at 3).
-/// `depth` controls the maximum nesting depth of each process body.
-/// `use_integers` adds `Nat`-typed parameters alongside `Bool` ones.
-pub fn make_process_specification<R: Rng>(
-    rng: &mut R,
-    equation_count: usize,
-    depth: usize,
-    use_integers: bool,
-) -> UntypedProcessSpecification {
-    let proc_vars: Vec<ProcVar> = (0..equation_count.min(PROC_NAMES.len()))
-        .map(|i| random_proc_var(rng, i, use_integers, &[]))
-        .collect();
-    make_process_specification_from_proc_vars(rng, proc_vars, depth, &[])
-}
-
-/// As [`make_process_specification`], but process variables additionally carry one parameter typed
-/// with a sort from a freshly generated [`crate::random_data_specification`] (a struct, container,
-/// or function sort), exercising the type checker on richer parameter sorts than plain
-/// [`make_process_specification`] ever produces. `sort_count`/`max_sort_depth` control the
-/// generated data specification, exactly as in `random_data_specification`.
-pub fn make_process_specification_with_data_specification<R: Rng>(
-    rng: &mut R,
-    sort_count: usize,
-    max_sort_depth: usize,
-    equation_count: usize,
-    depth: usize,
-    use_integers: bool,
-) -> UntypedProcessSpecification {
-    let data_specification = random_data_specification(rng, sort_count, max_sort_depth);
-    let count = equation_count.min(PROC_NAMES.len());
-    let proc_vars: Vec<ProcVar> = (0..count)
-        .map(|i| random_proc_var(rng, i, use_integers, &data_specification.sort_declarations))
-        .collect();
-    let mut spec =
-        make_process_specification_from_proc_vars(rng, proc_vars, depth, &data_specification.sort_declarations);
-    spec.data_specification = data_specification;
-    spec
-}
-
-fn make_process_specification_from_proc_vars<R: Rng>(
+fn random_process_specification_from_proc_vars<R: Rng>(
     rng: &mut R,
     proc_vars: Vec<ProcVar>,
     depth: usize,

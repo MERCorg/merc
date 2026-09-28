@@ -25,53 +25,21 @@ use crate::random_data_specification;
 use crate::random_integer_data_expression;
 use crate::random_value_expression;
 
-const PRED_INTS: &[&str] = &["m", "n"];
-const QUANT_INTS: &[&str] = &["t", "u", "v", "w"];
-
-/// Parameters held constant throughout the random PRES generation.
-struct PresGenConfig<'a> {
-    /// The predicate variables available for instantiation in leaves.
-    predicate_vars: &'a [PredVar],
-
-    /// Whether `inf`/`sup`/`sum` binders may be generated.
-    use_bounds: bool,
-
-    /// Probability that a leaf is a predicate variable instantiation rather than a `val(...)`
-    /// atom.
-    propvar_probability: f64,
-
-    /// The declared sorts of a random data specification a predicate variable's rich (non-`Int`)
-    /// parameters, if any, are drawn from -- empty for plain [`random_pres`].
-    sort_decls: &'a [SortDecl],
-}
-
-/// Generates a random PRES, akin to [`crate::random_pbes`]. Unlike a PBES, every `PresExpr`
-/// constructor is freely nestable (a PRES is uniformly real-valued, not split between a boolean
-/// top level and embedded data), so unlike `random_pbes_expr` this generator carries no
-/// polarity bias -- that bias exists only to keep PBES formulas monotone for their fixpoint
-/// semantics, not a property type checking cares about.
-///
-/// `atom_count` and `propvar_count` together control the expression size: their sum determines
-/// the recursion depth, and their ratio determines how often a leaf is a predicate variable
-/// instantiation versus a `val(...)` atom.
-pub fn random_pres<R: Rng>(
-    rng: &mut R,
-    equation_count: usize,
-    atom_count: usize,
-    propvar_count: usize,
-    use_bounds: bool,
-) -> UntypedPres {
-    let pred_vars: Vec<PredVar> = (0..equation_count).map(|i| make_pred_var(rng, i, &[])).collect();
-    random_pres_from_pred_vars(rng, pred_vars, atom_count, propvar_count, use_bounds, &[])
-}
-
 /// Generates a random PRES whose predicate variables additionally carry one parameter typed with
 /// a sort from a freshly generated [`crate::random_data_specification`] (a struct, container, or
-/// function sort), exercising the type checker on richer parameter sorts than plain
-/// [`random_pres`] ever produces. `sort_count`/`max_sort_depth` control the generated data
-/// specification, exactly as in `random_data_specification`.
+/// function sort), exercising the type checker on richer parameter sorts than plain `Int`
+/// parameters alone would. Akin to [`crate::random_pbes`], except every `PresExpr` constructor is
+/// freely nestable (a PRES is uniformly real-valued, not split between a boolean top level and
+/// embedded data), so unlike `random_pbes_expr` this generator carries no polarity bias -- that
+/// bias exists only to keep PBES formulas monotone for their fixpoint semantics, not a property
+/// type checking cares about.
+///
+/// `sort_count`/`max_sort_depth` control the generated data specification, exactly as in
+/// `random_data_specification`. `atom_count` and `propvar_count` together control the expression
+/// size: their sum determines the recursion depth, and their ratio determines how often a leaf is
+/// a predicate variable instantiation versus a `val(...)` atom.
 #[allow(clippy::too_many_arguments)] // each parameter tunes an independent generator knob
-pub fn random_pres_with_data_specification<R: Rng>(
+pub fn random_pres<R: Rng>(
     rng: &mut R,
     sort_count: usize,
     max_sort_depth: usize,
@@ -94,6 +62,26 @@ pub fn random_pres_with_data_specification<R: Rng>(
     );
     pres.data_specification = data_specification;
     pres
+}
+
+const PRED_INTS: &[&str] = &["m", "n"];
+const QUANT_INTS: &[&str] = &["t", "u", "v", "w"];
+
+/// Parameters held constant throughout the random PRES generation.
+struct PresGenConfig<'a> {
+    /// The predicate variables available for instantiation in leaves.
+    predicate_vars: &'a [PredVar],
+
+    /// Whether `inf`/`sup`/`sum` binders may be generated.
+    use_bounds: bool,
+
+    /// Probability that a leaf is a predicate variable instantiation rather than a `val(...)`
+    /// atom.
+    propvar_probability: f64,
+
+    /// The declared sorts of the random data specification a predicate variable's rich
+    /// (non-`Int`) parameters, if any, are drawn from.
+    sort_decls: &'a [SortDecl],
 }
 
 fn random_pres_from_pred_vars<R: Rng>(
@@ -275,7 +263,7 @@ fn random_bound<R: Rng>(rng: &mut R, op: Bound, depth: usize, freevars: &[IdDecl
     );
 
     let mut new_freevars = freevars.to_vec();
-    new_freevars.push(as_expr_decl(&var_name));
+    new_freevars.push(var_decl.clone());
 
     let body = random_pres_expr(rng, depth, &new_freevars, config);
 
@@ -285,14 +273,6 @@ fn random_bound<R: Rng>(rng: &mut R, op: Bound, depth: usize, freevars: &[IdDecl
         expr: Box::new(body),
     }
     .into()
-}
-
-fn as_expr_decl(name: &str) -> IdDecl {
-    IdDecl::new(
-        name.to_string(),
-        SortExpressionKind::Simple(Sort::Int).into(),
-        Span::default(),
-    )
 }
 
 struct PredVar {
@@ -318,10 +298,9 @@ impl PredVar {
     }
 }
 
-/// Generates a predicate variable's parameter list: 0-2 classic `Int` parameters (as
-/// [`random_pres`] always has), plus, when `sort_decls` is non-empty, one additional parameter
-/// typed with a random declared sort -- exercising the type checker on struct/container/function
-/// parameter sorts that plain [`random_pres`] never generates.
+/// Generates a predicate variable's parameter list: 0-2 classic `Int` parameters, plus one
+/// additional parameter typed with a sort declared in `sort_decls` -- exercising the type checker
+/// on struct/container/function parameter sorts that plain `Int` parameters never generate.
 fn make_pred_var<R: Rng>(rng: &mut R, index: usize, sort_decls: &[SortDecl]) -> PredVar {
     let size = rng.random_range(0..=2usize);
     let mut pool: Vec<&str> = PRED_INTS.to_vec();

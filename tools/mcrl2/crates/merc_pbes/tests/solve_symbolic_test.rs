@@ -171,7 +171,7 @@ fn test_symbolic_random_pbes_seeds() {
         let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
         // Propositional only (no quantifiers, no integers): the symbolic path enumerates every
         // parameter's domain when interning it into an LDD value, so it needs a finite one.
-        let pbes_ast = random_pbes(&mut rng, 3, 2, 3, false, false);
+        let pbes_ast = random_pbes(&mut rng, 0, 0, 3, 2, 3, false, false);
         let text = pbes_ast.to_string();
         assert_symbolic_matches_explicit_from_text(&text);
     }

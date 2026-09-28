@@ -345,7 +345,7 @@ fn control_flow_matches_under_caching() {
 
     for seed in 0u64..50 {
         let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
-        let pbes_ast = random_pbes(&mut rng, 3, 2, 3, false, false);
+        let pbes_ast = random_pbes(&mut rng, 0, 0, 3, 2, 3, false, false);
         let mut pbes = Pbes::from_text(&pbes_ast.to_string()).expect("parse failed");
         pbes.normalize();
 

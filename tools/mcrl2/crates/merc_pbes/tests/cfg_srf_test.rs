@@ -183,7 +183,7 @@ fn test_cfg_random_pbes() {
         // Propositional only (no quantifiers, no integers), matching the other
         // `random_pbes`-based tests in this crate — stable, type-correct state
         // spaces.
-        let pbes_ast = random_pbes(rng, 3, 2, 3, false, false);
+        let pbes_ast = random_pbes(rng, 0, 0, 3, 2, 3, false, false);
         let pbes = Pbes::from_text(&pbes_ast.to_string()).expect("parse failed");
         assert_cfg_matches_srf(&pbes);
     });

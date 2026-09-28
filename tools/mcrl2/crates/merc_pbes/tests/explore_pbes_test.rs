@@ -431,7 +431,7 @@ fn test_parallel_random_pbes_seeds() {
 
     for seed in 0u64..50 {
         let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
-        let pbes_ast = random_pbes(&mut rng, 3, 2, 3, false, false);
+        let pbes_ast = random_pbes(&mut rng, 0, 0, 3, 2, 3, false, false);
         let pbes = Pbes::from_text(&pbes_ast.to_string()).expect("parse failed");
         assert_parallel_matches_sequential(&pbes);
     }
@@ -444,7 +444,7 @@ fn test_cached_random_pbes_seeds() {
 
     for seed in 0u64..50 {
         let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
-        let pbes_ast = random_pbes(&mut rng, 3, 2, 3, false, false);
+        let pbes_ast = random_pbes(&mut rng, 0, 0, 3, 2, 3, false, false);
         let pbes = Pbes::from_text(&pbes_ast.to_string()).expect("parse failed");
         assert_cached_matches_uncached(&pbes);
     }
@@ -458,7 +458,7 @@ fn test_random_pbes_seeds() {
     for seed in 0u64..50 {
         let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
         // propositional only (no quantifiers, no integers) — stable state spaces
-        let pbes_ast = random_pbes(&mut rng, 3, 2, 3, false, false);
+        let pbes_ast = random_pbes(&mut rng, 0, 0, 3, 2, 3, false, false);
         let text = pbes_ast.to_string();
         assert_general_matches_srf_from_text(&text);
     }
