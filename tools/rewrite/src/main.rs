@@ -19,12 +19,21 @@ use merc_sabre::RewriteSpecification;
 use merc_syntax::DataExpr;
 use merc_syntax::SourceMap;
 use merc_syntax::UntypedDataSpecification;
+use merc_syntax::UntypedPbes;
+use merc_syntax::UntypedPres;
+use merc_syntax::UntypedProcessSpecification;
+use merc_syntax::UntypedStateFrmSpec;
 use merc_tools::VerbosityFlag;
 use merc_tools::Version;
 use merc_tools::VersionFlag;
 use merc_tools::report_error;
 use merc_typecheck::DataSpecification;
+use merc_typecheck::FormulaType;
+use merc_typecheck::ModalSpecification;
 use merc_typecheck::NumberEncoding;
+use merc_typecheck::PbesSpecification;
+use merc_typecheck::PresSpecification;
+use merc_typecheck::ProcessSpecification;
 use merc_unsafety::print_allocator_metrics;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
@@ -60,42 +69,71 @@ enum Commands {
     /// by the term rewrite system termination checking tool called AProVE.
     Convert(ConvertArgs),
 
-    /// Parse an mCRL2 data specification and print the stages of the pipeline:
-    /// the parsed AST, the resolved and desugared intermediate representation,
-    /// and the fully typed and lowered data specification.
+    /// Parse an mCRL2-family specification (`.mcrl2`, `.dataspec`, `.pbes`, `.pres`, `.mcf`)
+    /// and print the stages of the pipeline.
     Check(CheckArgs),
 }
 
-#[derive(Debug, clap::ValueEnum, Clone)]
-enum Format {
+/// The specification formats this tool can load.
+#[derive(Debug, clap::ValueEnum, Clone, Copy, PartialEq, Eq)]
+enum SpecFormat {
     /// The REC format, which is the native format of this tool.
     Rec,
-    /// The mCRL2 format, which is the format used by the mCRL2 toolset.
+    /// A full mCRL2 process specification (`.mcrl2`).
     Mcrl2,
+    /// A pure mCRL2 data specification (`.dataspec`).
+    DataSpec,
+    /// An mCRL2 parameterised boolean equation system (`.pbes`).
+    Pbes,
+    /// An mCRL2 parameterised real equation system (`.pres`).
+    Pres,
+    /// An mCRL2 modal (mu-calculus) state formula (`.mcf`).
+    Modal,
+}
+
+impl SpecFormat {
+    /// Detects the format of `path` from its extension, one of `.rec`, `.mcrl2`, `.dataspec`,
+    /// `.pbes`, `.pres`, or `.mcf`.
+    fn from_path(path: &Path) -> Result<SpecFormat, MercError> {
+        match path.extension().and_then(OsStr::to_str) {
+            Some("rec") => Ok(SpecFormat::Rec),
+            Some("mcrl2") => Ok(SpecFormat::Mcrl2),
+            Some("dataspec") => Ok(SpecFormat::DataSpec),
+            Some("pbes") => Ok(SpecFormat::Pbes),
+            Some("pres") => Ok(SpecFormat::Pres),
+            Some("mcf") => Ok(SpecFormat::Modal),
+            _ => Err(format!(
+                "Unsupported file extension for rewriting: {}; expected one of .rec, .mcrl2, .dataspec, .pbes, .pres, .mcf",
+                path.display()
+            )
+            .into()),
+        }
+    }
 }
 
 #[derive(clap::Args, Debug)]
 struct RewriteArgs {
     rewriter: Rewriter,
 
-    /// The REC specification that contains the rewrite rules.
+    /// The specification that contains the rewrite rules: a REC file, or an
+    /// mCRL2-family specification (`.mcrl2`, `.dataspec`, `.pbes`, `.pres`,
+    /// `.mcf`).
     #[arg(value_name = "SPEC")]
     specification: PathBuf,
 
-    /// File containing the terms to be rewritten. For an mCRL2 specification
-    /// this is a file of mCRL2 data expressions, one per line; blank lines and
-    /// lines starting with `%` are ignored. Ignored for a REC specification,
-    /// which carries its own terms.
+    /// File containing the terms to be rewritten. For an mCRL2-family specification this is a
+    /// file of mCRL2 data expressions, one per line; blank lines and lines starting with `%` are
+    /// ignored. Ignored for a REC specification, which carries its own terms.
     terms: Option<PathBuf>,
 
-    /// An mCRL2 data expression to rewrite, type checked and lowered against
-    /// the specification. May be repeated; combines with `TERMS`. Only
-    /// supported for an mCRL2 specification.
+    /// An mCRL2 data expression to rewrite, type checked and lowered against the
+    /// specification's data specification. May be repeated; combines with `TERMS`. Only
+    /// supported for an mCRL2-family specification.
     #[arg(long, short = 'e', value_name = "EXPR")]
     expression: Vec<String>,
 
     #[arg(long, value_enum)]
-    format: Option<Format>,
+    format: Option<SpecFormat>,
 
     /// Print the rewritten term(s)
     #[arg(long)]
@@ -114,7 +152,8 @@ struct ConvertArgs {
 
 #[derive(clap::Args, Debug)]
 struct CheckArgs {
-    /// The mCRL2 data specification to check.
+    /// The mCRL2-family specification to check (`.mcrl2`, `.dataspec`, `.pbes`, `.pres`,
+    /// `.mcf`); the REC format is not supported here.
     #[arg(value_name = "SPEC")]
     specification: PathBuf,
 
@@ -122,14 +161,18 @@ struct CheckArgs {
     #[arg(long)]
     ast: bool,
 
-    /// Print the resolved and desugared intermediate representation, after
-    /// typechecking but before Phase-4 lowering.
+    /// Print the resolved and desugared intermediate representation of the specification's
+    /// contained data specification, after typechecking but before Phase-4 lowering.
     #[arg(long)]
     ir: bool,
 
-    /// Print the fully typed and lowered mCRL2 data specification.
+    /// Print the fully typed and lowered mCRL2 data specification contained in the
+    /// specification.
     #[arg(long)]
     lowered: bool,
+
+    #[arg(long, value_enum)]
+    format: Option<SpecFormat>,
 }
 
 fn main() -> ExitCode {
@@ -185,6 +228,54 @@ fn typecheck_or_render(
     DataSpecification::from_untyped_with(spec, encoding, sources).map_err(|err| err.render(sources).into())
 }
 
+/// Loads and type checks `path` as the given mCRL2-family `format` and returns
+/// its data specification.
+fn load_data_specification(
+    format: SpecFormat,
+    path: &Path,
+    encoding: NumberEncoding,
+    sources: &mut SourceMap,
+) -> Result<DataSpecification, MercError> {
+    match format {
+        SpecFormat::Rec => unreachable!("the REC format is handled separately, never through this function"),
+        SpecFormat::DataSpec => {
+            let (spec, _import_graph) = UntypedDataSpecification::parse_with_imports(path, sources)?;
+            typecheck_or_render(spec, encoding, sources)
+        }
+        SpecFormat::Mcrl2 => {
+            let text = std::fs::read_to_string(path)?;
+            let (spec, _import_graph) = UntypedProcessSpecification::parse_with_imports(path, &text, sources)?;
+            let process_spec =
+                ProcessSpecification::from_untyped_with(spec, encoding, sources).map_err(|err| err.render(sources))?;
+            Ok(process_spec.into_data_specification())
+        }
+        SpecFormat::Pbes => {
+            let text = std::fs::read_to_string(path)?;
+            sources.add_text(path.display().to_string(), text.clone());
+            let spec = UntypedPbes::parse(&text)?;
+            let pbes_spec = PbesSpecification::from_untyped_with(spec, encoding).map_err(|err| err.render(sources))?;
+            Ok(pbes_spec.into_data_specification())
+        }
+        SpecFormat::Pres => {
+            let text = std::fs::read_to_string(path)?;
+            sources.add_text(path.display().to_string(), text.clone());
+            let spec = UntypedPres::parse(&text)?;
+            let pres_spec = PresSpecification::from_untyped_with(spec, encoding).map_err(|err| err.render(sources))?;
+            Ok(pres_spec.into_data_specification())
+        }
+        SpecFormat::Modal => {
+            let text = std::fs::read_to_string(path)?;
+            let (spec, _import_graph) = UntypedStateFrmSpec::parse_with_imports(path, &text, sources)?;
+            // A modal formula's `val(...)` occurrences are plain-Boolean unless it's a
+            // PRES-style quantitative formula; the rewriter only needs the data specification
+            // underneath, so a fixed `FormulaType::Bool` is as good as either for that purpose.
+            let modal_spec = ModalSpecification::from_untyped_with(spec, FormulaType::Bool, encoding, sources)
+                .map_err(|err| err.render(sources))?;
+            Ok(modal_spec.into_data_specification())
+        }
+    }
+}
+
 /// Parses, type checks and lowers one mCRL2 data expression against `spec`,
 /// rendering a parse or type error against the expression text itself.
 fn typecheck_expression(spec: &mut DataSpecification, text: &str) -> Result<DataExpression, MercError> {
@@ -209,28 +300,25 @@ fn handle_command(commands: Option<Commands>, timing: &Timing) -> Result<(), Mer
     Ok(())
 }
 
-/// The `rewrite` command: rewrites the terms of a REC or mCRL2 specification.
+/// The `rewrite` command: rewrites the terms of a REC specification, or of any mCRL2-family
+/// specification's contained data specification.
 fn run_rewrite(args: RewriteArgs, timing: &Timing) -> Result<(), MercError> {
-    let format = if let Some(format) = args.format {
-        format
-    } else if args.specification.extension() == Some(OsStr::new("rec")) {
-        Format::Rec
-    } else if args.specification.extension() == Some(OsStr::new("mcrl2")) {
-        Format::Mcrl2
-    } else {
-        return Err("Unsupported file extension for rewriting, expected .rec or .mcrl2".into());
+    let format = match args.format {
+        Some(format) => format,
+        None => SpecFormat::from_path(&args.specification)?,
     };
 
     match format {
-        Format::Rec => {
+        SpecFormat::Rec => {
             if args.terms.is_some() {
                 warn!(
                     "The --terms option is currently ignored when rewriting REC specifications, the terms are taken from the REC spec."
                 );
             }
+
             if !args.expression.is_empty() {
                 warn!(
-                    "The --expression option is only supported for mCRL2 specifications, the terms are taken from the REC spec."
+                    "The --expression option is only supported for mCRL2-family specifications, the terms are taken from the REC spec."
                 );
             }
 
@@ -240,16 +328,13 @@ fn run_rewrite(args: RewriteArgs, timing: &Timing) -> Result<(), MercError> {
 
             rewrite_rec(args.rewriter, &spec, &syntax_terms, args.output, timing)?;
         }
-        Format::Mcrl2 => {
+        SpecFormat::Mcrl2 | SpecFormat::DataSpec | SpecFormat::Pbes | SpecFormat::Pres | SpecFormat::Modal => {
             let mut sources = SourceMap::new();
-            let (untyped_spec, _import_graph) =
-                UntypedDataSpecification::parse_with_imports(&args.specification, &mut sources)?;
-
-            let mut data_spec = typecheck_or_render(untyped_spec, NumberEncoding::default(), &mut sources)?;
+            let mut data_spec =
+                load_data_specification(format, &args.specification, NumberEncoding::default(), &mut sources)?;
 
             // Every term is type checked and lowered against the
-            // same specification the rules come from, so the two
-            // share one number encoding and one sort lattice.
+            // same specification.
             let mut terms = Vec::new();
             for text in read_expressions(args.terms.as_deref())?.iter().chain(&args.expression) {
                 terms.push(typecheck_expression(&mut data_spec, text)?);
@@ -285,22 +370,99 @@ fn run_convert(args: ConvertArgs) -> Result<(), MercError> {
     Ok(())
 }
 
-/// The `check` command: parses, resolves and type checks an mCRL2 data
-/// specification, printing the selected stages of the pipeline.
+/// The `check` command: parses, resolves and type checks an mCRL2-family
+/// specification printing the selected stages of the pipeline.
+///
+/// `--ast` prints the whole parsed specification (its contained data
+/// specification together with whatever else the format itself declares:
+/// processes, PBES/PRES equations, the modal formula). `--ir` and `--lowered`,
+/// though, only ever show the specification's *contained data specification*.
 fn run_check(args: CheckArgs) -> Result<(), MercError> {
     // With none of the stage flags given, show every stage.
     let show_all = !args.ast && !args.ir && !args.lowered;
 
+    let format = match args.format {
+        Some(format) => format,
+        None => SpecFormat::from_path(&args.specification)?,
+    };
+
     let mut sources = SourceMap::new();
-    let (untyped_spec, _import_graph) =
-        UntypedDataSpecification::parse_with_imports(&args.specification, &mut sources)?;
+    let encoding = NumberEncoding::default();
 
-    if show_all || args.ast {
-        println!("=== AST ===\n");
-        println!("{untyped_spec}");
-    }
+    let data_spec = match format {
+        SpecFormat::Rec => {
+            return Err(
+                "The `check` command does not support the REC format; use `rewrite` or `convert` instead.".into(),
+            );
+        }
+        SpecFormat::DataSpec => {
+            let (untyped_spec, _import_graph) =
+                UntypedDataSpecification::parse_with_imports(&args.specification, &mut sources)?;
 
-    let data_spec = typecheck_or_render(untyped_spec, NumberEncoding::default(), &mut sources)?;
+            if show_all || args.ast {
+                println!("=== AST ===\n");
+                println!("{untyped_spec}");
+            }
+
+            typecheck_or_render(untyped_spec, encoding, &mut sources)?
+        }
+        SpecFormat::Mcrl2 => {
+            let text = std::fs::read_to_string(&args.specification)?;
+            let (untyped_spec, _import_graph) =
+                UntypedProcessSpecification::parse_with_imports(&args.specification, &text, &mut sources)?;
+
+            if show_all || args.ast {
+                println!("=== AST ===\n");
+                println!("{untyped_spec}");
+            }
+
+            ProcessSpecification::from_untyped_with(untyped_spec, encoding, &mut sources)
+                .map_err(|err| err.render(&sources))?
+                .into_data_specification()
+        }
+        SpecFormat::Pbes => {
+            let text = std::fs::read_to_string(&args.specification)?;
+            sources.add_text(args.specification.display().to_string(), text.clone());
+            let untyped_spec = UntypedPbes::parse(&text)?;
+
+            if show_all || args.ast {
+                println!("=== AST ===\n");
+                println!("{untyped_spec}");
+            }
+
+            PbesSpecification::from_untyped_with(untyped_spec, encoding)
+                .map_err(|err| err.render(&sources))?
+                .into_data_specification()
+        }
+        SpecFormat::Pres => {
+            let text = std::fs::read_to_string(&args.specification)?;
+            sources.add_text(args.specification.display().to_string(), text.clone());
+            let untyped_spec = UntypedPres::parse(&text)?;
+
+            if show_all || args.ast {
+                println!("=== AST ===\n");
+                println!("{untyped_spec}");
+            }
+
+            PresSpecification::from_untyped_with(untyped_spec, encoding)
+                .map_err(|err| err.render(&sources))?
+                .into_data_specification()
+        }
+        SpecFormat::Modal => {
+            let text = std::fs::read_to_string(&args.specification)?;
+            let (untyped_spec, _import_graph) =
+                UntypedStateFrmSpec::parse_with_imports(&args.specification, &text, &mut sources)?;
+
+            if show_all || args.ast {
+                println!("=== AST ===\n");
+                println!("{untyped_spec}");
+            }
+
+            ModalSpecification::from_untyped_with(untyped_spec, FormulaType::Bool, encoding, &mut sources)
+                .map_err(|err| err.render(&sources))?
+                .into_data_specification()
+        }
+    };
 
     if show_all || args.ir {
         println!("=== IR (resolved user declarations) ===\n");
@@ -321,7 +483,7 @@ fn run_check(args: CheckArgs) -> Result<(), MercError> {
         println!("{mcrl2_spec}");
     }
 
-    eprintln!("The data specification is well-typed.");
+    eprintln!("The specification is well-typed.");
 
     Ok(())
 }
