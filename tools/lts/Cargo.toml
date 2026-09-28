@@ -11,6 +11,12 @@ path = "src/main.rs"
 # Avoid a rustdoc output filename collision with the `merc_lts` library crate.
 doc = false
 
+[features]
+# Builds this binary against the Aeneas-translatable shape of `merc_lts`'s
+# `LTS` trait, so the Lean-verified algorithms can actually be exercised in
+# practice. Not on by default (see `merc_reduction`'s `lean` feature).
+lean = ["merc_lts/lean", "merc_reduction/lean", "merc_refinement/lean"]
+
 [dependencies]
 merc_collections.workspace = true
 merc_data.workspace = true

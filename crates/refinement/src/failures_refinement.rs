@@ -287,6 +287,7 @@ fn refusals_contained_in<L: LTS>(
         for transition_spec in lts.outgoing_transitions(*s) {
             if !lts
                 .outgoing_transitions(impl_state)
+                .into_iter()
                 .any(|transition_impl| transition_impl.label == transition_spec.label)
             {
                 // s has an action impl cannot do, so s is not a witness (enabled(s) ⊄ enabled(impl)).
@@ -349,7 +350,7 @@ fn maximal_refusals<L: LTS>(lts: &L, state: StateIndex) -> VecSet<LabelIndex> {
 
     // The set of actions enabled in the given state.
     let enabled_labels: VecSet<LabelIndex> =
-        VecSet::from_vec(lts.outgoing_transitions(state).map(|t| t.label).collect());
+        VecSet::from_vec(lts.outgoing_transitions(state).into_iter().map(|t| t.label).collect());
 
     // The set of all visible actions.
     let all_labels: VecSet<LabelIndex> = VecSet::from_vec(
@@ -381,7 +382,9 @@ fn refusals<L: LTS>(lts: &L, state: StateIndex) -> VecSet<VecSet<LabelIndex>> {
 
 /// Returns true iff the given state is stable, i.e., it has no outgoing tau transitions.
 pub fn is_stable<L: LTS>(lts: &L, state: StateIndex) -> bool {
-    lts.outgoing_transitions(state).all(|t| !lts.is_hidden_label(t.label))
+    lts.outgoing_transitions(state)
+        .into_iter()
+        .all(|t| !lts.is_hidden_label(t.label))
 }
 
 /// A cache that is used to reuse allocations during tau-closure computations.

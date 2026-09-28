@@ -9,17 +9,7 @@ use crate::StateIndex;
 
 /// Stores the incoming transitions for a given labelled transition system.
 ///
-/// Owns its data outright (no borrow of the source `LTS` is kept past
-/// [`Self::new`]) - no lifetime parameter, unlike an earlier version that
-/// tied one to the LTS purely for API-level documentation purposes. That
-/// extra (always-elided) lifetime on the struct made every `&IncomingTransitions`
-/// parameter untranslatable by Aeneas in a function that also contains a
-/// `while let Some(_) = vec.pop()` loop over an unrelated `&mut Vec` (a
-/// "Could not match the contexts" loop-context-matching failure). Confirmed
-/// via isolated bisection on `run_worklist_loop`: an unused `&IncomingTransitions<'_>`
-/// parameter alongside the pop-based loop reproduced the failure, and swapping
-/// it for an unused `&usize` parameter (no explicit lifetime) made it disappear;
-/// dropping the artificial lifetime here reproduces that same fix.
+/// Owns its data outright to avoid issues with the Aeneas translation.
 pub struct IncomingTransitions {
     /// A flat list of all incoming transition labels in the LTS. They are stored in two separate
     /// arrays since the compression is based on the highest value.

@@ -135,7 +135,8 @@ mod tests {
         lts: &LabelledTransitionSystem<L>,
     ) -> Vec<(StateIndex, LabelIndex, StateIndex)> {
         lts.iter_states()
-            .flat_map(|state| lts.outgoing_transitions(state).map(move |t| (state, t.label, t.to)))
+            .into_iter()
+            .flat_map(|state| lts.outgoing_transitions(state).into_iter().map(move |t| (state, t.label, t.to)))
             .collect()
     }
 

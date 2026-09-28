@@ -2,6 +2,7 @@ use itertools::Itertools;
 use log::debug;
 use log::trace;
 use merc_lts::LTS;
+use merc_lts::LabelledTransitionSystem;
 use merc_lts::StateIndex;
 use merc_reduction::Equivalence;
 use merc_reduction::Partition;
@@ -46,6 +47,25 @@ pub enum ExplorationStrategy {
     DFS,
 }
 
+/// Merges `impl_lts` with `spec_lts`, returning the merged LTS and `spec_lts`'s
+/// initial state within it.
+///
+/// Delegates to [`LabelledTransitionSystem::merge_disjoint`] where available.
+/// Under `lean` that trait method doesn't exist (Aeneas cannot translate a
+/// generic trait method that consumes `Self` and returns a different concrete
+/// type), so this falls back to [`merc_lts::merge_disjoint_generic`], which
+/// isn't part of the trait and works for any `LTS` implementation, but
+/// materialises `impl_lts` into a fresh `LabelledTransitionSystem` first
+/// instead of reusing its buffers in place.
+#[cfg(not(feature = "lean"))]
+fn merge_lts<L: LTS>(impl_lts: L, spec_lts: &L) -> (LabelledTransitionSystem<L::Label>, StateIndex) {
+    impl_lts.merge_disjoint(spec_lts)
+}
+#[cfg(feature = "lean")]
+fn merge_lts<L: LTS>(impl_lts: L, spec_lts: &L) -> (LabelledTransitionSystem<L::Label>, StateIndex) {
+    merc_lts::merge_disjoint_generic(&impl_lts, spec_lts)
+}
+
 /// Checks whether `impl_lts` refines `spec_lts` according to the given
 /// `refinement` relation.
 ///
@@ -88,7 +108,7 @@ pub fn refines<L: LTS>(
         // Reduce all states in the merged LTS.
         match reduction {
             Equivalence::StrongBisim => {
-                let (merged_lts, initial_spec) = impl_lts.merge_disjoint(&spec_lts);
+                let (merged_lts, initial_spec) = merge_lts(impl_lts, &spec_lts);
                 let (preprocess_lts, partition) = strong_bisim_sigref(merged_lts, timing);
 
                 let impl_block = partition.block_number(preprocess_lts.initial_state_index());
@@ -107,7 +127,7 @@ pub fn refines<L: LTS>(
                 (reduced_lts, StateIndex::new(*spec_block))
             }
             Equivalence::BranchingBisim | Equivalence::BranchingBisimDivergencePreserving => {
-                let (merged_lts, initial_spec) = impl_lts.merge_disjoint(&spec_lts);
+                let (merged_lts, initial_spec) = merge_lts(impl_lts, &spec_lts);
                 let (preprocess_lts, initial_spec, partition) = branching_bisim_sigref(
                     merged_lts,
                     initial_spec,
@@ -142,7 +162,7 @@ pub fn refines<L: LTS>(
 
         tau_loop_free_lts.merge_disjoint(&spec_lts)
     } else {
-        impl_lts.merge_disjoint(&spec_lts)
+        merge_lts(impl_lts, &spec_lts)
     };
 
     // Print the labels of the merged LTS for debugging purposes.

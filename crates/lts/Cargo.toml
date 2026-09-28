@@ -20,10 +20,7 @@ workspace = true
 cadp = []
 # Derive some additional traits for clap.
 clap = ["dep:clap"]
-# Switches `LTS`/`IncomingTransitions` to the Aeneas-translatable shape (`Vec`-returning
-# methods, no `merge_disjoint` trait method) used by `merc_reduction`'s Lean-verified
-# algorithms. Off by default so the rest of the workspace keeps the original,
-# iterator-returning API.
+# Switches to the Aeneas-translatable shape.
 lean = []
 
 [dependencies]

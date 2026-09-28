@@ -344,9 +344,10 @@ fn handle_info(args: &InfoArgs, timing: &mut Timing) -> Result<(), MercError> {
             println!("  {}", label);
         }
 
-        let num_of_silent_transitions = lts.iter_states().fold(0, |acc, s| {
+        let num_of_silent_transitions = lts.iter_states().into_iter().fold(0, |acc, s| {
             acc + lts
                 .outgoing_transitions(s)
+                .into_iter()
                 .filter(|t| lts.is_hidden_label(t.label))
                 .count()
         });

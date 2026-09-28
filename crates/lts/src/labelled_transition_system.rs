@@ -534,6 +534,32 @@ impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
     }
 }
 
+/// Merges any two `LTS` implementations into a single disjoint `LabelledTransitionSystem`,
+/// returning the initial state of `other` in the merged system.
+///
+/// Unlike [`LabelledTransitionSystem::merge_disjoint`], this isn't a trait method, so it
+/// stays available even under `lean` (where `LTS::merge_disjoint` is excluded from the
+/// trait because Aeneas cannot translate a generic trait method that consumes `Self` and
+/// returns a different concrete type). Because `lts` isn't required to already be a
+/// `LabelledTransitionSystem`, it is materialised into a fresh one first, so unlike the
+/// trait method, this can't reuse `lts`'s own buffers in place even when it already is one.
+pub fn merge_disjoint_generic<S: LTS, O: LTS<Label = S::Label>>(
+    lts: &S,
+    other: &O,
+) -> (LabelledTransitionSystem<S::Label>, StateIndex) {
+    let materialized = LabelledTransitionSystem::new(
+        lts.initial_state_index(),
+        Some(lts.num_of_states()),
+        || {
+            lts.iter_states()
+                .into_iter()
+                .flat_map(|state| lts.outgoing_transitions(state).into_iter().map(move |t| (state, t.label, t.to)))
+        },
+        lts.labels().to_vec(),
+    );
+    materialized.merge_disjoint(other)
+}
+
 /// Metrics for a labelled transition system.
 #[derive(Debug, Clone)]
 pub struct LtsMetrics {

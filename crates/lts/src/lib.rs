@@ -45,6 +45,7 @@ pub use io_lts::write_lts;
 pub use io_lts_stream::LtsStream;
 pub use labelled_transition_system::LabelledTransitionSystem;
 pub use labelled_transition_system::LtsMetrics;
+pub use labelled_transition_system::merge_disjoint_generic;
 pub use lts::AsGraph;
 pub use lts::LTS;
 pub use lts::LabelIndex;

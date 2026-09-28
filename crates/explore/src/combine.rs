@@ -570,7 +570,7 @@ impl<'ctx, 'a, L: LTS> ParallelTransitionIter<'ctx, 'a, L> {
         for i in 0..self.lts_list.len() {
             if self.current_subset & (1 << i) != 0 {
                 let state = ctx.base_target[i];
-                let mut iter = self.lts_list[i].outgoing_transitions(state);
+                let mut iter = self.lts_list[i].outgoing_transitions(state).into_iter();
                 let Some(first) = iter.next() else {
                     return false;
                 };
@@ -602,6 +602,7 @@ impl<'ctx, 'a, L: LTS> ParallelTransitionIter<'ctx, 'a, L> {
             let offset = ctx.cartesian_product_context.indices[k];
             ctx.current[k] = self.lts_list[lts_idx]
                 .outgoing_transitions(state)
+                .into_iter()
                 .nth(offset)
                 .expect("Offset is within the iterator's exact length");
         }
