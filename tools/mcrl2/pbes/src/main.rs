@@ -439,22 +439,36 @@ fn handle_command(cli: &Cli, timing: &Timing) -> Result<(), MercError> {
 }
 
 impl InputArgs {
-    /// Reads the PBES in the explicitly chosen format, or the binary PBES format
-    /// when no format is given.
-    ///
-    /// Unless `preprocess` is false, the PBES is put through the same preprocessing
-    /// that mCRL2 applies before instantiating one. Doing it here rather than inside
-    /// a single explorer keeps every consumer of this PBES — the explorers, the
-    /// symmetry detection and the parameter basis the generators index into —
-    /// looking at the same equations.
-    fn read(&self, timing: &Timing, preprocess: bool) -> Result<Pbes, MercError> {
-        let mut pbes = timing.measure("load PBES", || match self.format.unwrap_or(PbesFormat::Pbes) {
+    /// Loads the PBES in the explicitly chosen format, or the binary PBES format
+    /// when no format is given, without any preprocessing.
+    fn load(&self, timing: &Timing) -> Result<Pbes, MercError> {
+        timing.measure("load PBES", || match self.format.unwrap_or(PbesFormat::Pbes) {
             PbesFormat::Pbes => Pbes::from_file(&self.filename),
             PbesFormat::Text => Pbes::from_text_file(&self.filename),
-        })?;
+        })
+    }
+
+    /// Reads the PBES, then, unless `preprocess` is false, puts it through the
+    /// lazy/explicit-instantiation preprocessing.
+    fn read(&self, timing: &Timing, preprocess: bool) -> Result<Pbes, MercError> {
+        let mut pbes = self.load(timing)?;
 
         if preprocess {
             pbes.preprocess(timing)?;
+        } else {
+            info!("Skipping PBES preprocessing (--no-preprocess)");
+        }
+
+        Ok(pbes)
+    }
+
+    /// Like [`InputArgs::read`], but puts the PBES through the symbolic
+    /// preprocessing pipeline.
+    fn read_symbolic(&self, timing: &Timing, preprocess: bool) -> Result<Pbes, MercError> {
+        let mut pbes = self.load(timing)?;
+
+        if preprocess {
+            pbes.preprocess_symbolic(timing)?;
         } else {
             info!("Skipping PBES preprocessing (--no-preprocess)");
         }
@@ -631,7 +645,7 @@ fn handle_explore_symbolic(
     timing: &Timing,
     preprocess: bool,
 ) -> Result<(), MercError> {
-    let pbes = args.input.read(timing, preprocess)?;
+    let pbes = args.input.read_symbolic(timing, preprocess)?;
     let storage = cli.oxidd.init_ldd_manager();
     let encoding = args.symbolic.encoding()?;
 
@@ -659,7 +673,7 @@ fn handle_solve_symbolic(
     timing: &Timing,
     preprocess: bool,
 ) -> Result<(), MercError> {
-    let pbes = args.input.read(timing, preprocess)?;
+    let pbes = args.input.read_symbolic(timing, preprocess)?;
     let storage = cli.oxidd.init_ldd_manager();
     let encoding = args.symbolic.encoding()?;
     let srf_pbes = args.symbolic.build_srf(&pbes)?;

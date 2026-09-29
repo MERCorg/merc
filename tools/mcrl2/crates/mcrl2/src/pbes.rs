@@ -174,13 +174,8 @@ impl Pbes {
         Ok(())
     }
 
-    /// Applies the preprocessing that mCRL2's `pbesinst_lazy_algorithm` performs
-    /// before instantiating a PBES, in-place, reporting every step it runs.
-    ///
-    /// This is [`Pbes::instantiate_global_variables`], [`Pbes::simplify_quantifiers`],
-    /// [`Pbes::one_point_rule`] and [`Pbes::order_quantified_variables`] in that
-    /// order, which is what makes an exploration comparable to `pbessolve`: that
-    /// tool never instantiates a PBES without it.
+    /// Applies the preprocessing before instantiating a PBES, in-place,
+    /// reporting every step it runs.
     ///
     /// Only the equation bodies change, so the parameter vector that
     /// [`Pbes::unify_parameters`] produces is unaffected and the symmetry
@@ -198,6 +193,32 @@ impl Pbes {
             ("simplify quantifiers", Pbes::simplify_quantifiers),
             ("one point rule", Pbes::one_point_rule),
             ("order quantified variables", Pbes::order_quantified_variables),
+        ];
+
+        for (name, step) in steps {
+            timing.measure(&format!("preprocess: {name}"), || step(self))?;
+        }
+
+        Ok(())
+    }
+
+    /// Applies the preprocessing for symbolic instantiation, in-place,
+    /// reporting every step it runs.
+    /// 
+    /// Every step is registered on `timing`, so a tool that prints its timings
+    /// reports them alongside the rest of its phases.
+    ///
+    /// Returns an error when a global variable cannot be instantiated.
+    pub fn preprocess_symbolic(&mut self, timing: &Timing) -> Result<(), MercError> {
+        fn normalize_step(p: &mut Pbes) -> Result<(), MercError> {
+            p.normalize();
+            Ok(())
+        }
+
+        let steps: [(&str, fn(&mut Pbes) -> Result<(), MercError>); 3] = [
+            ("instantiate global variables", Pbes::instantiate_global_variables),
+            ("normalize", normalize_step),
+            ("one point rule", Pbes::one_point_rule),
         ];
 
         for (name, step) in steps {
