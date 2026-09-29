@@ -100,19 +100,13 @@ pub enum PresExprBinaryOp {
 
 impl fmt::Display for Eq {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Eq::EqInf => write!(f, "eqinf"),
-            Eq::EqnInf => write!(f, "eqninf"),
-        }
+        write!(f, "{}", self.name())
     }
 }
 
 impl fmt::Display for Condition {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Condition::Condsm => write!(f, "condsm"),
-            Condition::Condeq => write!(f, "condeq"),
-        }
+        write!(f, "{}", self.name())
     }
 }
 

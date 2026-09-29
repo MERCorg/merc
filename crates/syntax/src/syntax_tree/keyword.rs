@@ -1,6 +1,8 @@
 use std::fmt;
 
 use super::Bound;
+use super::Condition;
+use super::Eq as PresEq;
 use super::FixedPointOperator;
 use super::Quantifier;
 
@@ -135,4 +137,79 @@ pub const MODAL_KEYWORDS: &[&str] = &[
     Keyword::Yaled.name(),
     Bound::Inf.name(),
     Bound::Sup.name(),
+];
+
+/// The word-like keywords that can lead a [`super::DataExpr`].
+pub const DATA_EXPR_KEYWORDS: &[&str] = &[
+    Quantifier::Forall.name(),
+    Quantifier::Exists.name(),
+    Keyword::Lambda.name(),
+    Keyword::True.name(),
+    Keyword::False.name(),
+    Keyword::Whr.name(),
+    Keyword::End.name(),
+];
+
+/// The word-like keywords that can lead a [`super::ProcessExpr`].
+pub const PROC_EXPR_KEYWORDS: &[&str] = &[
+    Keyword::Delta.name(),
+    Keyword::Tau.name(),
+    Bound::Sum.name(),
+    Keyword::Dist.name(),
+    Keyword::Hide.name(),
+    Keyword::Block.name(),
+    Keyword::Allow.name(),
+    Keyword::Comm.name(),
+    Keyword::Rename.name(),
+];
+
+/// The word-like keywords that can lead a [`super::PbesExpr`].
+pub const PBES_EXPR_KEYWORDS: &[&str] = &[
+    Quantifier::Forall.name(),
+    Quantifier::Exists.name(),
+    Keyword::True.name(),
+    Keyword::False.name(),
+    Keyword::Val.name(),
+];
+
+/// The word-like keywords that can lead a [`super::PresExpr`].
+/// `mcrl2_grammar.pest`.
+pub const PRES_EXPR_KEYWORDS: &[&str] = &[
+    Bound::Inf.name(),
+    Bound::Sup.name(),
+    Bound::Sum.name(),
+    Keyword::Val.name(),
+    Keyword::True.name(),
+    Keyword::False.name(),
+    PresEq::EqInf.name(),
+    PresEq::EqnInf.name(),
+    Condition::Condsm.name(),
+    Condition::Condeq.name(),
+];
+
+/// The word-like keywords that can lead an [`super::ActFrm`].
+/// `MultAct` in `mcrl2_grammar.pest`.
+pub const ACT_FRM_KEYWORDS: &[&str] = &[
+    Quantifier::Forall.name(),
+    Quantifier::Exists.name(),
+    Keyword::True.name(),
+    Keyword::False.name(),
+    Keyword::Val.name(),
+    Keyword::Tau.name(),
+];
+
+/// The word-like keywords that can lead a [`super::StateFrm`].
+pub const STATE_FRM_KEYWORDS: &[&str] = &[
+    FixedPointOperator::Least.name(),
+    FixedPointOperator::Greatest.name(),
+    Quantifier::Forall.name(),
+    Quantifier::Exists.name(),
+    Bound::Inf.name(),
+    Bound::Sup.name(),
+    Bound::Sum.name(),
+    Keyword::True.name(),
+    Keyword::False.name(),
+    Keyword::Delay.name(),
+    Keyword::Yaled.name(),
+    Keyword::Val.name(),
 ];

@@ -200,16 +200,36 @@ impl fmt::Display for Bound {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Eq {
     EqInf,
     EqnInf,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+impl Eq {
+    /// This operator's mCRL2 keyword; also [`Eq`]'s own [`Display`](fmt::Display) text.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Eq::EqInf => "eqinf",
+            Eq::EqnInf => "eqninf",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum Condition {
     Condsm,
     Condeq,
+}
+
+impl Condition {
+    /// This operator's mCRL2 keyword; also [`Condition`]'s own [`Display`](fmt::Display) text.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Condition::Condsm => "condsm",
+            Condition::Condeq => "condeq",
+        }
+    }
 }
 
 /// An operator's associativity, independent of `pest`.

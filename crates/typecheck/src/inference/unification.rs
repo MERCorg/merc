@@ -161,7 +161,7 @@ impl Unifier {
             let InferSort::Var(var) = self.arena[id] else {
                 return id;
             };
-            
+
             match self.table.probe_value(var).0 {
                 Some(next) => id = next,
                 None => return id,
