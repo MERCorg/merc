@@ -240,7 +240,7 @@ impl<T> Deref for RecursiveLockWriteGuard<'_, T> {
 
 impl<T> RecursiveLockWriteGuard<'_, T> {
     /// Grants scoped mutable access to the underlying value.
-    /// 
+    ///
     /// # Panics
     ///
     /// Panics if a recursive read guard taken inside this write section (before this call) is

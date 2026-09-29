@@ -106,7 +106,7 @@ impl<T: TakeRecursiveChildren> Drop for Spanned<T> {
     fn drop(&mut self) {
         let mut stack = Vec::new();
         self.node.take_recursive_children(&mut stack);
-        
+
         while let Some(mut child) = stack.pop() {
             child.take_recursive_children(&mut stack);
         }
