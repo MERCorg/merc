@@ -295,9 +295,15 @@ mod inner {
 
         /// Returns the sort of a data application.
         pub fn sort(&self) -> SortExpressionRef<'_> {
-            // SAFETY: `arg(0)` is a direct subterm of `self.term`, so `self.term`
-            // is a valid parent witness for widening the borrow to `&self`.
-            unsafe { self.term.arg(0).upgrade(&self.term) }.into()
+            // SAFETY: All these are subterms of `self.term`.
+            unsafe {
+                if self.term.arg(0).arg(1).get_head_symbol().name() == "SortArrow" {
+                    self.term.arg(0).arg(1).arg(1).upgrade(&self.term)
+                } else {
+                    self.term.arg(0).arg(1).upgrade(&self.term)
+                }
+            }
+            .into()
         }
     }
 
