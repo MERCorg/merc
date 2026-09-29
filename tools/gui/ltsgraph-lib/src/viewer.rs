@@ -84,7 +84,9 @@ impl Viewer {
 
                     let index = index_per_target.entry(transition.to).or_insert(0);
 
-                    if has_backtransition {
+                    // Fan out parallel transitions to the same destination so their handles do not
+                    // overlap.
+                    if has_backtransition || num_parallel > 1 {
                         // Offset the parallel outgoing transitions towards that state to the right
                         // so the back- and forward-transitions do not overlap.
                         transition_view.handle_offset = Vec3::new(0.0, *index as f32 / num_parallel as f32, 0.0);
