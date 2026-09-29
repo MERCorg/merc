@@ -330,14 +330,12 @@ impl PartialEq for MultiAction {
             return false;
         }
 
-        // Map every action onto the other, equal length means they must be the same.
-        for action in self.actions.iter() {
-            if !other.actions.contains(action) {
-                return false;
-            }
-        }
+        let mut self_actions = self.actions.clone();
+        let mut other_actions = other.actions.clone();
+        self_actions.sort();
+        other_actions.sort();
 
-        true
+        self_actions == other_actions
     }
 }
 
