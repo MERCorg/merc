@@ -12,7 +12,6 @@ use merc_lts::reachability;
 
 use crate::BlockPartition;
 use crate::Partition;
-use crate::diverges;
 
 /// Returns a new LTS based on the given partition.
 ///
@@ -186,10 +185,15 @@ fn is_redundant_transition<L: LTS>(lts: &L, from: StateIndex, label: LabelIndex,
 /// Optimised implementation for block partitions.
 ///
 /// Chooses a single state in the block as representative. If `BRANCHING` then
-/// the chosen state is a bottom state. For `BRANCHING` we only consider bottom
-/// states as representatives.
+/// the chosen state is a bottom state, i.e. a state with no outgoing tau
+/// transition that stays inside the block. For `BRANCHING` we only consider
+/// bottom states as representatives.
 ///
 /// If `eliminate_tau_loops` is true then tau self-loops are eliminated.
+///
+/// # Panics
+///
+/// If `BRANCHING`, every block is assumed to have a genuine bottom state.
 pub fn quotient_lts_block<L: LTS, const BRANCHING: bool>(
     lts: &L,
     partition: &BlockPartition,
@@ -220,12 +224,11 @@ pub fn quotient_lts_block<L: LTS, const BRANCHING: bool>(
             // traverse any outgoing transition to find a bottom state.
             'outer: loop {
                 if visited[candidate] {
-                    // No bottom state exists in this block. Stop early to avoid looping forever.
-                    debug_assert!(
-                        !diverges(lts, candidate),
-                        "The states of the given LTS should be non-divergent."
+                    panic!(
+                        "quotient_lts_block's BRANCHING precondition is violated: block {} has no \
+                         bottom state (its tau-subgraph is a cycle with no exit), state {}",
+                        block, candidate
                     );
-                    break;
                 }
                 visited[candidate] = true;
                 touched.push(candidate);
