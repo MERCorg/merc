@@ -204,7 +204,7 @@ impl Pbes {
 
     /// Applies the preprocessing for symbolic instantiation, in-place,
     /// reporting every step it runs.
-    /// 
+    ///
     /// Every step is registered on `timing`, so a tool that prints its timings
     /// reports them alongside the rest of its phases.
     ///

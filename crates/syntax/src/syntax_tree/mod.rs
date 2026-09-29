@@ -210,7 +210,7 @@ pub enum Eq {
 }
 
 impl Eq {
-    /// This operator's mCRL2 keyword; also [`Eq`]'s own [`Display`](fmt::Display) text.
+    /// This operator's mCRL2 keyword; also [`enum@Eq`]'s own [`Display`](fmt::Display) text.
     pub const fn name(self) -> &'static str {
         match self {
             Eq::EqInf => "eqinf",

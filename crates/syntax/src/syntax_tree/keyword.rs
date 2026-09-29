@@ -94,7 +94,7 @@ impl fmt::Display for Keyword {
 
 /// Every word-like mCRL2 keyword relevant to a process/data specification: [`Keyword`]'s own
 /// non-modal-only variants, plus [`Quantifier`]'s, [`Bound::Sum`]'s and [`FixedPointOperator`]'s
-/// reserved words. Built-in sort names are not included — see the [module docs](self).
+/// reserved words. Built-in sort names are not included, see [`Keyword`].
 pub const KEYWORDS: &[&str] = &[
     Quantifier::Exists.name(),
     Quantifier::Forall.name(),
