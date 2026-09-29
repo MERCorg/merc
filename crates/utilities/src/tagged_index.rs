@@ -34,7 +34,12 @@ pub struct TagIndex<T, Tag> {
     index: T,
 
     /// Ensures that the Tag is used by the struct
+    #[cfg(not(feature = "lean"))]
     marker: PhantomData<fn() -> Tag>,
+
+    /// Aeneas cannot translate the arrow type used above.
+    #[cfg(feature = "lean")]
+    marker: PhantomData<Tag>,
 }
 
 impl<T: Copy + PartialEq, Tag> MercIndex for TagIndex<T, Tag> {
