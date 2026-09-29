@@ -24,7 +24,6 @@ use merc_syntax::UntypedDataSpecification;
 use merc_syntax::UntypedPbes;
 use merc_syntax::UntypedPres;
 use merc_syntax::UntypedProcessSpecification;
-use merc_syntax::UntypedStateFrmSpec;
 use merc_syntax::VarId;
 use merc_syntax::VarIdAllocator;
 use merc_utilities::Step;
@@ -108,14 +107,16 @@ pub(crate) fn resolve_pres_variables(pres: &mut UntypedPres) {
     resolve_in_prop_var_inst(&mut pres.init, &mut scope, &mut ids);
 }
 
-/// Resolves every free variable reference in `spec`'s state formula.
+/// Resolves every free variable reference in `formula`, and returns the [`StateVarIdAllocator`]
+/// used.
 ///
 /// This pass only decides *which* enclosing binder a name refers to; a fixpoint variable's own
 /// *parameter sorts* still aren't known here.
-pub(crate) fn resolve_modal_variables(spec: &mut UntypedStateFrmSpec) {
+pub(crate) fn resolve_modal_variables(formula: &mut StateFrm) -> StateVarIdAllocator {
     let mut ids = VarIdAllocator::default();
     let mut state_var_ids = StateVarIdAllocator::default();
-    resolve_in_state_frm(&mut spec.formula, &mut ids, &mut state_var_ids);
+    resolve_in_state_frm(formula, &mut ids, &mut state_var_ids);
+    state_var_ids
 }
 
 /// What a matching `enter` call pushed onto `StateFrmScope::scope`/`state_vars` for one node,
@@ -900,7 +901,7 @@ mod tests {
     fn test_fixed_point_variable_resolves_to_its_own_binder() {
         let text = "mu X(n: Nat = 0) . val(n) || X(n)";
         let mut spec = UntypedStateFrmSpec::parse(text).unwrap();
-        resolve_modal_variables(&mut spec);
+        resolve_modal_variables(&mut spec.formula);
 
         let StateFrmKind::FixedPoint { variable, body, .. } = &spec.formula.node else {
             panic!("expected a FixedPoint formula");
@@ -921,7 +922,7 @@ mod tests {
         // of the same name — the two binders must never share a StateVarId.
         let text = "mu X(n: Nat = 0) . [true](nu X. X)";
         let mut spec = UntypedStateFrmSpec::parse(text).unwrap();
-        resolve_modal_variables(&mut spec);
+        resolve_modal_variables(&mut spec.formula);
 
         let StateFrmKind::FixedPoint {
             variable: outer, body, ..
@@ -956,7 +957,7 @@ mod tests {
         // crossing through the modality's `RegFrm` -- both must resolve, to two different ids.
         let text = "act a: Nat # Nat; form forall n: Nat . [exists m: Nat . a(m, n)] true;";
         let mut spec = UntypedStateFrmSpec::parse(text).unwrap();
-        resolve_modal_variables(&mut spec);
+        resolve_modal_variables(&mut spec.formula);
 
         let StateFrmKind::Quantifier { variables, body, .. } = &spec.formula.node else {
             panic!("expected a Quantifier formula");
@@ -1002,7 +1003,7 @@ mod tests {
         // must never share a VarId.
         let text = "act a: Nat; form forall n: Bool . [exists n: Nat . a(n)] true;";
         let mut spec = UntypedStateFrmSpec::parse(text).unwrap();
-        resolve_modal_variables(&mut spec);
+        resolve_modal_variables(&mut spec.formula);
 
         let StateFrmKind::Quantifier { variables, body, .. } = &spec.formula.node else {
             panic!("expected a Quantifier formula");

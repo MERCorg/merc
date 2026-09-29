@@ -2,7 +2,6 @@
 #![forbid(unsafe_code)]
 
 mod feature_transition_system;
-mod modal_equation_system;
 mod parity_games;
 mod priority_promotion;
 mod project_fts;
@@ -20,7 +19,6 @@ mod verify;
 mod zielonka;
 
 pub(crate) use feature_transition_system::*;
-pub(crate) use modal_equation_system::*;
 pub(crate) use parity_games::*;
 pub(crate) use repeat::*;
 pub(crate) use strategy::*;

@@ -206,9 +206,14 @@ fn test_declared_action_inside_a_modality_is_accepted() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
-fn test_undeclared_action_is_rejected() {
-    let error = check_err("form <a>true;", FormulaType::Bool);
-    assert!(matches!(error, ModalError::UndeclaredAction { .. }), "got {error:?}");
+fn test_action_with_no_act_declarations_at_all_is_accepted_as_a_simple_action() {
+    check_ok("form <a>true;", FormulaType::Bool);
+}
+
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_simple_action_with_arguments_is_accepted_unchecked() {
+    check_ok("form <a(1)>true;", FormulaType::Bool);
 }
 
 #[test]

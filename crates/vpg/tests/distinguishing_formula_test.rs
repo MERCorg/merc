@@ -3,6 +3,8 @@
 //! are located here to avoid circular dependencies.
 use std::io::Write;
 
+use merc_syntax::UntypedDataSpecification;
+use merc_syntax::UntypedStateFrmSpec;
 use merc_syntax::generate_distinguishing_formula;
 use merc_vpg::PG;
 use rand::rngs::StdRng;
@@ -58,8 +60,18 @@ fn is_distinguishing_test(dump_name: &str, rng: &mut StdRng) {
                 .dump("distinguishing_formula.mcf", |f| Ok(writeln!(f, "{}", formula)?))
                 .unwrap();
 
-            let lts1_pg = translate(&lts1, &formula).unwrap();
-            let lts2_pg = translate(&lts2, &formula).unwrap();
+            // No `act` declarations: `formula` is built directly over the two LTSs' own string
+            // labels, with a randomly-generated alphabet per run — there's nothing to declare it
+            // against, so it type-checks as a "simple action" formula instead. `translate` desugars
+            // and type checks its own copy, so each LTS needs one.
+            let spec = UntypedStateFrmSpec {
+                formula,
+                action_declarations: Vec::new(),
+                data_specification: UntypedDataSpecification::default(),
+            };
+
+            let lts1_pg = translate(&lts1, spec.clone()).unwrap();
+            let lts2_pg = translate(&lts2, spec).unwrap();
 
             let (lts1_solution, _) = solve_zielonka(&lts1_pg, false);
             let (lts2_solution, _) = solve_zielonka(&lts2_pg, false);

@@ -19,6 +19,7 @@ use merc_syntax::ActFrm;
 use merc_syntax::ActFrmBinaryOp;
 use merc_syntax::ActFrmKind;
 use merc_syntax::FixedPointOperator;
+use merc_syntax::FreshStateVarGenerator;
 use merc_syntax::ModalityOperator;
 use merc_syntax::MultiAction;
 use merc_syntax::RegFrm;
@@ -28,20 +29,28 @@ use merc_syntax::StateFrmKind;
 use merc_syntax::StateFrmOp;
 use merc_syntax::StateVarDecl;
 use merc_syntax::Traverse;
+use merc_syntax::UntypedStateFrmSpec;
 use merc_syntax::respan;
+use merc_typecheck::FormulaType;
+use merc_typecheck::ModalEquationSystem;
+use merc_typecheck::ModalSpecification;
 use merc_utilities::MercError;
 use merc_utilities::Span;
 
-use crate::FreshStateVarGenerator;
-use crate::ModalEquationSystem;
 use crate::ParityGame;
 use crate::Player;
 use crate::Priority;
 use crate::VertexIndex;
 use crate::compute_reachable;
 
-/// Translates a labelled transition system into a variability parity game.
-pub fn translate(lts: &LabelledTransitionSystem<String>, formula: &StateFrm) -> Result<ParityGame, MercError> {
+/// Type checks `spec` (running [`translate_regular_formulas`] first) and translates it against
+/// `lts` into a parity game. `spec`'s own `act` declarations are optional: with none, every action
+/// is accepted as a "simple action" — a plain LTS label, matched structurally rather than typed —
+/// see [`merc_typecheck::ModalSpecification`].
+pub fn translate(
+    lts: &LabelledTransitionSystem<String>,
+    mut spec: UntypedStateFrmSpec,
+) -> Result<ParityGame, MercError> {
     // Parses all labels into MultiAction once
     let labels = lts
         .labels()
@@ -55,17 +64,18 @@ pub fn translate(lts: &LabelledTransitionSystem<String>, formula: &StateFrm) -> 
         })
         .collect::<Result<Vec<MultiAction>, MercError>>()?;
 
-    // Warn about any labels that are used in the formula but do not correspond to any label in the LTS.
-    warn_unknown_action_labels(formula, &labels);
+    let mut identifier_generator = FreshStateVarGenerator::new(&spec.formula);
+    spec.formula = translate_regular_formulas(spec.formula, &mut identifier_generator);
+    debug!("Translated regular formulas: {}", spec.formula);
 
-    let mut identifier_generator = FreshStateVarGenerator::new(formula);
-    let formula = translate_regular_formulas(formula.clone(), &mut identifier_generator);
-    debug!("Translated regular formulas: {}", formula);
-
-    let equation_system = ModalEquationSystem::new(&formula);
+    let checked = ModalSpecification::from_untyped(spec, FormulaType::Bool)?;
+    let equation_system = checked.equation_system();
     debug!("{}", equation_system);
 
-    let mut algorithm: Translation<'_, _, ()> = Translation::new(lts, &labels, &equation_system);
+    // Warn about any labels that are used in the formula but do not correspond to any label in the LTS.
+    warn_unknown_action_labels(equation_system, &labels);
+
+    let mut algorithm: Translation<'_, _, ()> = Translation::new(lts, &labels, equation_system);
     algorithm.translate(lts.initial_state_index(), 0, |_| (), |_, _| Ok(()))?;
 
     // Construct the parity game from the collected vertices and edges, where the `()` edge label is ignored.
@@ -92,9 +102,15 @@ pub fn translate(lts: &LabelledTransitionSystem<String>, formula: &StateFrm) -> 
 }
 
 /// Produces a warning for each label that is used in the formula but does not correspond to any label in the LTS.
-pub fn warn_unknown_action_labels(formula: &StateFrm, labels: &[MultiAction]) {
-    // A traversal covers a single node type, so the modalities, the regular formulas they carry
-    // and the action formulas inside those are three nested traversals.
+pub fn warn_unknown_action_labels(equation_system: &ModalEquationSystem, labels: &[MultiAction]) {
+    for i in 0..equation_system.len() {
+        warn_unknown_action_labels_in(equation_system.equation(i).body(), labels);
+    }
+}
+
+/// A traversal covers a single node type, so the modalities, the regular formulas they carry and
+/// the action formulas inside those are three nested traversals.
+fn warn_unknown_action_labels_in(formula: &StateFrm, labels: &[MultiAction]) {
     formula.visit::<(), _>(|statefrm| {
         if let StateFrmKind::Modality { formula, .. } = &statefrm.node {
             formula.visit::<(), _>(|regfrm| {
@@ -139,7 +155,7 @@ pub fn warn_unknown_action_labels(formula: &StateFrm, labels: &[MultiAction]) {
 /// <a*>phi = mu I. <a>I || phi
 /// <a+>phi = <a>(mu I. <a>I || phi)
 /// ```
-pub fn translate_regular_formulas(formula: StateFrm, identifier_generator: &mut FreshStateVarGenerator) -> StateFrm {
+fn translate_regular_formulas(formula: StateFrm, identifier_generator: &mut FreshStateVarGenerator) -> StateFrm {
     let translated = formula.apply::<Infallible, _>(|subformula| {
         if let StateFrmKind::Modality {
             operator,
@@ -452,10 +468,10 @@ impl<'a, L: LTS, E> Translation<'a, L, E> {
                     }
                 }
             }
-            StateFrmKind::Id(identifier, _args) => {
+            StateFrmKind::Resolved(_name, _args, id) => {
                 let (i, _equation) = self
                     .equation_system
-                    .find_equation_by_identifier(identifier)
+                    .find_equation_by_id(*id)
                     .expect("Variable must correspond to an equation");
 
                 self.set_vertex(vertex_index, Player::Odd, Priority::new(0)); // The priority and owner do not matter here
@@ -653,10 +669,12 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_translate_abp_infinitely_often_receive_d1() {
         let lts = read_aut(include_bytes!("../../../examples/lts/abp.aut") as &[u8]).unwrap();
-        let formula =
+        let spec =
             UntypedStateFrmSpec::parse(include_str!("../../../examples/pbes/infinitely_often_receive_d1.mcf")).unwrap();
 
-        let pg = translate(&lts, &formula.formula).unwrap();
+        // No `act` declarations: the formula's `r1(d1)` is a "simple action", the label as written
+        // in `abp.aut` itself, with no data specification to check `d1` against.
+        let pg = translate(&lts, spec).unwrap();
 
         assert!(pg.is_total(), "The translated parity game should be total");
         assert!(

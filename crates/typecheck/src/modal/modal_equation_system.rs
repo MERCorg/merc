@@ -4,11 +4,13 @@ use std::fmt;
 use std::ops::ControlFlow;
 
 use log::debug;
-
 use merc_syntax::FixedPointOperator;
+use merc_syntax::FreshStateVarGenerator;
 use merc_syntax::StateFrm;
 use merc_syntax::StateFrmKind;
 use merc_syntax::StateVarDecl;
+use merc_syntax::StateVarId;
+use merc_syntax::StateVarIdAllocator;
 use merc_syntax::Traverse;
 use merc_syntax::respan;
 use merc_utilities::Span;
@@ -59,22 +61,29 @@ impl From<Equation> for StateFrm {
 
 impl ModalEquationSystem {
     /// Converts a plain state formula into a fixpoint equation system.
-    pub fn new(formula: &StateFrm) -> Self {
+    ///
+    /// `formula` must already be resolved (see [`crate::resolve_modal_variables`]).
+    pub fn new(formula: &StateFrm, state_var_ids: &mut StateVarIdAllocator) -> Self {
         let mut equations = Vec::new();
         let mut identifier_generator = FreshStateVarGenerator::new(formula);
 
         // Ensure that the formula has an outermost fixpoint operator.
-        let formula = add_placeholder_operator(formula.clone(), &mut identifier_generator);
+        let formula = add_placeholder_operator(formula.clone(), &mut identifier_generator, state_var_ids);
 
         // Apply E to extract all equations from the formula
         apply_e(&mut equations, &formula);
 
-        // Check that there are no duplicate variable names
-        let identifiers: HashSet<&String> = HashSet::from_iter(equations.iter().map(|eq| &eq.variable.identifier.node));
-        assert_eq!(
-            identifiers.len(),
-            equations.len(),
-            "Duplicate variable names found in fixpoint equation system"
+        // Check that there are no duplicate variable ids — resolution already guarantees this, so
+        // a violation here means `formula` wasn't actually resolved before being passed in.
+        debug_assert!(
+            {
+                let ids: HashSet<StateVarId> = equations
+                    .iter()
+                    .map(|eq| eq.variable.id.expect("ModalEquationSystem requires a resolved formula"))
+                    .collect();
+                ids.len() == equations.len()
+            },
+            "Duplicate fixpoint-variable ids found in fixpoint equation system"
         );
 
         debug_assert!(
@@ -91,7 +100,6 @@ impl ModalEquationSystem {
     }
 
     /// Returns the number of equations in the system.
-    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.equations.len()
     }
@@ -112,10 +120,14 @@ impl ModalEquationSystem {
     /// that the alternation depth of a formula with a rhs is always 1, since the chain cannot be extended.
     pub fn alternation_depth(&self, i: usize) -> usize {
         let equation = &self.equations[i];
-        self.alternation_depth_rec(i, equation.body(), &equation.variable().identifier.node)
+        let target_id = equation
+            .variable()
+            .id
+            .expect("ModalEquationSystem requires a resolved formula");
+        self.alternation_depth_rec(i, equation.body(), target_id)
     }
 
-    /// Finds an equation by its variable identifier.
+    /// Finds an equation by its variable's [`StateVarId`].
     ///
     /// # Details
     ///
@@ -123,11 +135,11 @@ impl ModalEquationSystem {
     /// [`Self::alternation_depth`]'s recursion. Equation systems correspond to a
     /// single (modal) formula and are therefore small, so an index map is not
     /// worth its maintenance cost; revisit if very large formulas become common.
-    pub fn find_equation_by_identifier(&self, id: &str) -> Option<(usize, &Equation)> {
+    pub fn find_equation_by_id(&self, id: StateVarId) -> Option<(usize, &Equation)> {
         self.equations
             .iter()
             .enumerate()
-            .find(|(_, eq)| eq.variable.identifier.node == id)
+            .find(|(_, eq)| eq.variable.id == Some(id))
     }
 
     /// Recursive helper function to compute the alternation depth of equation `i`.
@@ -135,25 +147,25 @@ impl ModalEquationSystem {
     /// # Details
     ///
     /// The depth of a formula is the largest depth of the variables occurring in it, so the
-    /// traversal only has to look at the [StateFrmKind::Id] leaves. A variable bound by a later
-    /// equation continues the chain in that equation's body, which is a different formula and
-    /// therefore a nested traversal.
-    fn alternation_depth_rec(&self, i: usize, formula: &StateFrm, identifier: &String) -> usize {
+    /// traversal only has to look at the [StateFrmKind::Resolved] leaves. A variable bound by a
+    /// later equation continues the chain in that equation's body, which is a different formula
+    /// and therefore a nested traversal.
+    fn alternation_depth_rec(&self, i: usize, formula: &StateFrm, target_id: StateVarId) -> usize {
         let equation = &self.equations[i];
         let mut depth = 0;
 
         formula.visit::<(), _>(|formula| {
             match &formula.node {
-                StateFrmKind::Id(id, _) => {
-                    depth = depth.max(if id.node == *identifier {
+                StateFrmKind::Resolved(_, _, id) => {
+                    depth = depth.max(if *id == target_id {
                         1
                     } else {
                         let (j, inner_equation) = self
-                            .find_equation_by_identifier(id)
+                            .find_equation_by_id(*id)
                             .expect("Equation not found for identifier");
 
                         if j > i {
-                            self.alternation_depth_rec(j, &inner_equation.rhs, identifier)
+                            self.alternation_depth_rec(j, &inner_equation.rhs, target_id)
                                 + usize::from(inner_equation.operator != equation.operator)
                         } else {
                             // Only consider nested equations
@@ -179,15 +191,21 @@ impl ModalEquationSystem {
 
 /// If the given formula has no outermost fixpoint operator, adds a placeholder
 /// fixpoint operator around it.
-fn add_placeholder_operator(formula: StateFrm, identifier_generator: &mut FreshStateVarGenerator) -> StateFrm {
+fn add_placeholder_operator(
+    formula: StateFrm,
+    identifier_generator: &mut FreshStateVarGenerator,
+    state_var_ids: &mut StateVarIdAllocator,
+) -> StateFrm {
     if matches!(formula.node, StateFrmKind::FixedPoint { .. }) {
         // The outer operator is already a fixpoint
         formula
     } else {
         // Introduce a placeholder.
+        let mut variable = StateVarDecl::new(respan(Span::default(), identifier_generator.generate("X")), Vec::new());
+        variable.id = Some(state_var_ids.alloc());
         StateFrmKind::FixedPoint {
             operator: FixedPointOperator::Least,
-            variable: StateVarDecl::new(respan(Span::default(), identifier_generator.generate("X")), Vec::new()),
+            variable,
             body: Box::new(formula),
         }
         .into()
@@ -239,9 +257,10 @@ fn rhs(formula: &StateFrm) -> StateFrm {
     let result = formula.clone().apply::<Infallible, _>(|formula| match &formula.node {
         // RHS(mu X. phi) = X(args)
         StateFrmKind::FixedPoint { variable, .. } => Ok(Some(
-            StateFrmKind::Id(
+            StateFrmKind::Resolved(
                 variable.identifier.clone(),
                 variable.arguments.iter().map(|arg| arg.expr.clone()).collect(),
+                variable.id.expect("ModalEquationSystem requires a resolved formula"),
             )
             .into(),
         )),
@@ -251,44 +270,6 @@ fn rhs(formula: &StateFrm) -> StateFrm {
     match result {
         Ok(formula) => formula,
         Err(error) => match error {},
-    }
-}
-
-/// A generator for fresh state variable names.
-pub struct FreshStateVarGenerator {
-    used: HashSet<String>,
-}
-
-impl FreshStateVarGenerator {
-    /// Creates a new fresh state variable generator.
-    ///
-    /// # Details
-    ///
-    /// Traverses the given formula to collect all used variable names.
-    pub fn new(formula: &StateFrm) -> Self {
-        let mut used = HashSet::new();
-        formula.visit::<(), _>(|subformula| {
-            if let StateFrmKind::FixedPoint { variable, .. } = &subformula.node {
-                used.insert(variable.identifier.node.clone());
-            }
-
-            ControlFlow::Continue(())
-        });
-
-        FreshStateVarGenerator { used }
-    }
-
-    /// Generates a fresh state variable name based on the given base.
-    pub fn generate(&mut self, base: &str) -> String {
-        let mut index = 0;
-        loop {
-            let candidate = format!("{}{}", base, index);
-            if !self.used.contains(&candidate) {
-                self.used.insert(candidate.clone());
-                return candidate;
-            }
-            index += 1;
-        }
     }
 }
 
@@ -306,17 +287,17 @@ impl fmt::Display for ModalEquationSystem {
 
 #[cfg(test)]
 mod tests {
-    use merc_macros::merc_test;
     use merc_syntax::UntypedStateFrmSpec;
+
+    use crate::resolve_modal_variables;
 
     use super::ModalEquationSystem;
 
-    #[merc_test]
+    #[test]
     fn test_fixpoint_equation_system_construction() {
-        let formula = UntypedStateFrmSpec::parse("mu X. [a]X && nu Y. <b>true")
-            .unwrap()
-            .formula;
-        let fes = ModalEquationSystem::new(&formula);
+        let mut spec = UntypedStateFrmSpec::parse("mu X. [a]X && nu Y. <b>true").unwrap();
+        let mut state_var_ids = resolve_modal_variables(&mut spec.formula);
+        let fes = ModalEquationSystem::new(&spec.formula, &mut state_var_ids);
 
         println!("{}", fes);
 
@@ -325,12 +306,12 @@ mod tests {
         assert_eq!(fes.alternation_depth(1), 0);
     }
 
-    #[merc_test]
+    #[test]
     fn test_fixpoint_equation_system_example() {
-        let formula = UntypedStateFrmSpec::parse(include_str!("../../../examples/vpg/running_example.mcf"))
-            .unwrap()
-            .formula;
-        let fes = ModalEquationSystem::new(&formula);
+        let mut spec =
+            UntypedStateFrmSpec::parse(include_str!("../../../../examples/vpg/running_example.mcf")).unwrap();
+        let mut state_var_ids = resolve_modal_variables(&mut spec.formula);
+        let fes = ModalEquationSystem::new(&spec.formula, &mut state_var_ids);
 
         println!("{}", fes);
 
@@ -339,16 +320,15 @@ mod tests {
         assert_eq!(fes.alternation_depth(1), 1);
     }
 
-    #[merc_test]
-    #[should_panic(expected = "Duplicate variable names found in fixpoint equation system")]
-    fn test_fixpoint_equation_system_duplicates() {
-        let formula = UntypedStateFrmSpec::parse("mu X. [a]X && (nu Y. <b>true) && (nu Y . <c>X)")
-            .unwrap()
-            .formula;
-        let fes = ModalEquationSystem::new(&formula);
+    #[test]
+    fn test_fixpoint_equation_system_shadowed_names_do_not_collide() {
+        // `mu X. (nu X. ...)`: legal mCRL2 syntax where the inner `X` shadows the outer one.
+        // Equations are keyed by `StateVarId`, assigned during resolution, so this must not panic
+        // the way a name-keyed equation system would.
+        let mut spec = UntypedStateFrmSpec::parse("mu X. [true](nu X. X)").unwrap();
+        let mut state_var_ids = resolve_modal_variables(&mut spec.formula);
+        let fes = ModalEquationSystem::new(&spec.formula, &mut state_var_ids);
 
-        println!("{}", fes);
-
-        assert_eq!(fes.equations.len(), 3);
+        assert_eq!(fes.equations.len(), 2);
     }
 }

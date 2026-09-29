@@ -3,6 +3,8 @@
 //! circular dependencies.
 use std::io::Write;
 
+use merc_syntax::UntypedDataSpecification;
+use merc_syntax::UntypedStateFrmSpec;
 use merc_syntax::generate_refinement_formula;
 use merc_vpg::PG;
 use rand::rngs::StdRng;
@@ -203,8 +205,19 @@ fn is_refinement_test(
                 .dump("counter_example.mcf", |f| Ok(writeln!(f, "{}", formula)?))
                 .unwrap();
 
-            let impl_pg = translate(&impl_lts, &formula).unwrap();
-            let spec_pg = translate(&spec_lts, &formula).unwrap();
+            // No `act` declarations: `formula` is built directly over the two LTSs' own string
+            // labels, with a randomly-generated alphabet per run — there's nothing to declare it
+            // against, so it type-checks as a "simple action" formula instead. `translate` desugars
+            // and type checks its own copy, so each LTS needs one (weak-equivalence refinements can
+            // generate `(tau)*`-style regular formulas, which `translate` desugars internally).
+            let spec = UntypedStateFrmSpec {
+                formula,
+                action_declarations: Vec::new(),
+                data_specification: UntypedDataSpecification::default(),
+            };
+
+            let impl_pg = translate(&impl_lts, spec.clone()).unwrap();
+            let spec_pg = translate(&spec_lts, spec).unwrap();
 
             let (impl_solution, _) = solve_zielonka(&impl_pg, false);
             let (spec_solution, _) = solve_zielonka(&spec_pg, false);

@@ -569,7 +569,9 @@ fn handle_translate(args: &TranslateArgs) -> Result<(), MercError> {
     })?;
     let lts = read_aut(&mut lts_file)?;
 
-    // Read and validate formula (no actions/data specs supported here)
+    // `translate` type checks the formula itself, with or without `act`/data declarations: a
+    // formula with none is checked leniently, as "simple actions" (see
+    // `merc_typecheck::ModalSpecification`).
     let formula_spec = UntypedStateFrmSpec::parse(&read_to_string(&args.formula_filename).map_err(|e| {
         MercError::from(format!(
             "Could not open formula file '{}': {}",
@@ -578,15 +580,7 @@ fn handle_translate(args: &TranslateArgs) -> Result<(), MercError> {
         ))
     })?)?;
 
-    if !formula_spec.action_declarations.is_empty() {
-        return Err(MercError::from("We do not support formulas with action declarations."));
-    }
-
-    if !formula_spec.data_specification.is_empty() {
-        return Err(MercError::from("The formula must not contain a data specification."));
-    }
-
-    let vpg = translate(&lts, &formula_spec.formula)?;
+    let vpg = translate(&lts, formula_spec)?;
 
     let mut output_file = File::create(&args.output)?;
     write_pg(&mut output_file, &vpg)?;
@@ -625,7 +619,9 @@ fn handle_translate_vpg(cli: &Cli, args: &TranslateVpgArgs) -> Result<(), MercEr
     })?;
     let fts = read_fts(&manager_ref, &mut fts_file, feature_diagram.features().clone())?;
 
-    // Read and validate formula (no actions/data specs supported here)
+    // `translate_vpg` type checks the formula itself, with or without `act`/data declarations: a
+    // formula with none is checked leniently, as "simple actions" (see
+    // `merc_typecheck::ModalSpecification`).
     let formula_spec = UntypedStateFrmSpec::parse(&read_to_string(&args.formula_filename).map_err(|e| {
         MercError::from(format!(
             "Could not open formula file '{}': {}",
@@ -633,19 +629,12 @@ fn handle_translate_vpg(cli: &Cli, args: &TranslateVpgArgs) -> Result<(), MercEr
             e
         ))
     })?)?;
-    if !formula_spec.action_declarations.is_empty() {
-        return Err(MercError::from("We do not support formulas with action declarations."));
-    }
-
-    if !formula_spec.data_specification.is_empty() {
-        return Err(MercError::from("The formula must not contain a data specification."));
-    }
 
     let vpg = translate_vpg(
         &manager_ref,
         &fts,
         feature_diagram.configuration().clone(),
-        &formula_spec.formula,
+        formula_spec,
     )?;
     let mut output_file = File::create(&args.output)?;
     write_vpg(&mut output_file, &vpg)?;

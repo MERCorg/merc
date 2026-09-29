@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 mod counterexample_formula;
+mod fresh_state_var;
 pub mod imports;
 mod parse;
 mod random;
@@ -14,6 +15,7 @@ pub(crate) use syntax_tree::*;
 
 pub use counterexample_formula::generate_distinguishing_formula;
 pub use counterexample_formula::generate_refinement_formula;
+pub use fresh_state_var::FreshStateVarGenerator;
 pub use imports::ImportDirective;
 pub use imports::ImportError;
 pub use imports::ImportGraph;

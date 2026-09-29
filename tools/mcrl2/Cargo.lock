@@ -1330,6 +1330,7 @@ dependencies = [
  "merc_macros",
  "merc_symbolic",
  "merc_syntax",
+ "merc_typecheck",
  "merc_utilities",
  "oxidd",
  "oxidd-core",

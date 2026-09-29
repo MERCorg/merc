@@ -9,11 +9,12 @@ use merc_collections::ByteCompressedVec;
 use merc_lts::LTS;
 use merc_syntax::Action;
 use merc_syntax::MultiAction;
-use merc_syntax::StateFrm;
+use merc_syntax::UntypedStateFrmSpec;
+use merc_typecheck::FormulaType;
+use merc_typecheck::ModalSpecification;
 use merc_utilities::MercError;
 
 use crate::FeatureTransitionSystem;
-use crate::ModalEquationSystem;
 use crate::Translation;
 use crate::VariabilityParityGame;
 use crate::VertexIndex;
@@ -21,12 +22,14 @@ use crate::compute_reachable;
 use crate::make_vpg_total;
 use crate::warn_unknown_action_labels;
 
-/// Translates a feature transition system into a variability parity game.
+/// Type checks `spec` and translates it against `fts` into a variability parity game. `spec`'s own
+/// `act` declarations are optional, as in [`crate::translate`]; unlike that function, there's no
+/// desugaring step first, since regular-expression modalities (`*`/`+`) were never supported here.
 pub fn translate_vpg(
     manager_ref: &BDDManagerRef,
     fts: &FeatureTransitionSystem<String>,
     configuration: BDDFunction,
-    formula: &StateFrm,
+    spec: UntypedStateFrmSpec,
 ) -> Result<VariabilityParityGame, MercError> {
     // Parses all labels into MultiAction once
     let parsed_labels: Result<Vec<MultiAction>, MercError> = fts
@@ -47,14 +50,16 @@ pub fn translate_vpg(
         .map(strip_feature_configuration_from_multi_action)
         .collect();
 
+    let checked = ModalSpecification::from_untyped(spec, FormulaType::Bool)?;
+    let equation_system = checked.equation_system();
+
     // Warn about any labels that are used in the formula but do not correspond to any label in the LTS.
-    warn_unknown_action_labels(formula, &simplified_labels);
+    warn_unknown_action_labels(equation_system, &simplified_labels);
 
     let true_bdd = manager_ref.with_manager_shared(|manager| BDDFunction::t(manager));
 
-    let equation_system = ModalEquationSystem::new(formula);
     debug!("{}", equation_system);
-    let mut algorithm: Translation<'_, _, BDDFunction> = Translation::new(fts, &simplified_labels, &equation_system);
+    let mut algorithm: Translation<'_, _, BDDFunction> = Translation::new(fts, &simplified_labels, equation_system);
 
     algorithm.translate(
         fts.initial_state_index(),
@@ -146,9 +151,9 @@ mod tests {
         )
         .unwrap();
 
-        let formula = UntypedStateFrmSpec::parse(include_str!("../../../examples/vpg/running_example.mcf")).unwrap();
+        let spec = UntypedStateFrmSpec::parse(include_str!("../../../examples/vpg/running_example.mcf")).unwrap();
 
-        let vpg = translate_vpg(&manager_ref, &fts, fd.configuration().clone(), &formula.formula).unwrap();
+        let vpg = translate_vpg(&manager_ref, &fts, fd.configuration().clone(), spec).unwrap();
 
         assert!(
             vpg.is_vpg_total(&manager_ref).unwrap(),

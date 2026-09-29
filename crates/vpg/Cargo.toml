@@ -25,6 +25,7 @@ merc_lts.workspace = true
 merc_macros.workspace = true
 merc_symbolic.workspace = true
 merc_syntax.workspace = true
+merc_typecheck.workspace = true
 merc_utilities.workspace = true
 
 bitvec.workspace = true
