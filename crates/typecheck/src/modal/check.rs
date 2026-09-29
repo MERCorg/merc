@@ -14,6 +14,7 @@ use merc_syntax::StateFrm;
 use merc_syntax::StateFrmKind;
 use merc_syntax::StateVarDecl;
 use merc_syntax::StateVarId;
+use merc_syntax::StateVarName;
 use merc_syntax::UntypedStateFrmSpec;
 use merc_syntax::VarId;
 
@@ -193,7 +194,7 @@ fn check_state_formula(
         // `resolve_modal_variables` runs before checking and rewrites every `Id` naming an
         // enclosing `mu`/`nu` into `Resolved`; one surviving here refers to no enclosing binder.
         StateFrmKind::Id(name, _arguments) => Err(ModalError::UndeclaredStateVariable {
-            name: name.to_string(),
+            name: name.node.clone(),
             span: formula.span.clone(),
         }),
 
@@ -304,7 +305,7 @@ fn check_fixed_point(
     for argument in &variable.arguments {
         if !seen.insert(argument.identifier.as_str()) {
             return Err(ModalError::DuplicateFixedPointParameter {
-                variable: variable.identifier.clone(),
+                variable: variable.identifier.node.clone(),
                 name: argument.identifier.node.clone(),
                 span: argument.identifier.span.clone(),
             });
@@ -324,13 +325,13 @@ fn check_fixed_point(
 /// Type-checks an already-[`resolved`](StateFrmKind::Resolved) `name(args)` reference against its
 /// enclosing fixpoint variable's declared parameter sorts, found in `state_vars` by matching
 /// `declaration` rather than `name`, since shadowing is already resolved into the [`StateVarId`]
-/// this occurrence carries. On success, also pushes a [`ResolvedName::StateVariable`] at `span`,
-/// the whole `name(args)` node: the name itself is not separately spanned in the syntax tree.
+/// this occurrence carries. On success, also pushes a [`ResolvedName::StateVariable`] at `name`'s
+/// own span.
 fn check_state_var_inst(
     data: &mut DataSpecification,
     state_vars: &StateVarStack,
     scope: &Scope,
-    name: &str,
+    name: &StateVarName,
     arguments: &[DataExpr],
     declaration: StateVarId,
     span: &Span,
@@ -345,16 +346,16 @@ fn check_state_var_inst(
              binder",
     );
     typing.push(
-        span.clone(),
+        name.span.clone(),
         ResolvedName::StateVariable {
-            name: name.to_string(),
+            name: name.node.clone(),
             declaration: declared_span(decl_span),
         },
     );
 
     if arguments.len() != params.len() {
         return Err(ModalError::ArityMismatch {
-            name: name.to_string(),
+            name: name.node.clone(),
             expected: params.len(),
             found: arguments.len(),
             span: span.clone(),

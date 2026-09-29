@@ -187,7 +187,7 @@ fn resolve_in_state_frm(
             // shadow an outer variable of the same name, `mu X. nu X. ...`).
             let state_var_id = state_var_ids.alloc();
             variable.id = Some(state_var_id);
-            state_vars.push(variable.identifier.clone(), state_var_id);
+            state_vars.push(variable.identifier.node.clone(), state_var_id);
             resolve_in_state_frm(body, scope, state_vars, ids, state_var_ids);
             state_vars.pop(1);
             scope.pop(pushed);
@@ -827,7 +827,7 @@ mod tests {
         };
         assert!(matches!(
             &rhs.node,
-            StateFrmKind::Resolved(name, _, id) if name == "X" && *id == declared
+            StateFrmKind::Resolved(name, _, id) if name.node == "X" && *id == declared
         ));
     }
 
@@ -861,7 +861,7 @@ mod tests {
         assert_ne!(outer_declared, inner_declared);
         assert!(matches!(
             &inner_body.node,
-            StateFrmKind::Resolved(name, _, id) if name == "X" && *id == inner_declared
+            StateFrmKind::Resolved(name, _, id) if name.node == "X" && *id == inner_declared
         ));
     }
 }

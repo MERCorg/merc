@@ -10,6 +10,8 @@ use merc_syntax::StateFrm;
 use merc_syntax::StateFrmKind;
 use merc_syntax::StateVarDecl;
 use merc_syntax::Traverse;
+use merc_syntax::respan;
+use merc_utilities::Span;
 
 /// A fixpoint equation system representing a ranked set of fixpoint equations.
 ///
@@ -68,7 +70,7 @@ impl ModalEquationSystem {
         apply_e(&mut equations, &formula);
 
         // Check that there are no duplicate variable names
-        let identifiers: HashSet<&String> = HashSet::from_iter(equations.iter().map(|eq| &eq.variable.identifier));
+        let identifiers: HashSet<&String> = HashSet::from_iter(equations.iter().map(|eq| &eq.variable.identifier.node));
         assert_eq!(
             identifiers.len(),
             equations.len(),
@@ -110,7 +112,7 @@ impl ModalEquationSystem {
     /// that the alternation depth of a formula with a rhs is always 1, since the chain cannot be extended.
     pub fn alternation_depth(&self, i: usize) -> usize {
         let equation = &self.equations[i];
-        self.alternation_depth_rec(i, equation.body(), &equation.variable().identifier)
+        self.alternation_depth_rec(i, equation.body(), &equation.variable().identifier.node)
     }
 
     /// Finds an equation by its variable identifier.
@@ -125,7 +127,7 @@ impl ModalEquationSystem {
         self.equations
             .iter()
             .enumerate()
-            .find(|(_, eq)| eq.variable.identifier == id)
+            .find(|(_, eq)| eq.variable.identifier.node == id)
     }
 
     /// Recursive helper function to compute the alternation depth of equation `i`.
@@ -143,7 +145,7 @@ impl ModalEquationSystem {
         formula.visit::<(), _>(|formula| {
             match &formula.node {
                 StateFrmKind::Id(id, _) => {
-                    depth = depth.max(if id == identifier {
+                    depth = depth.max(if id.node == *identifier {
                         1
                     } else {
                         let (j, inner_equation) = self
@@ -185,7 +187,7 @@ fn add_placeholder_operator(formula: StateFrm, identifier_generator: &mut FreshS
         // Introduce a placeholder.
         StateFrmKind::FixedPoint {
             operator: FixedPointOperator::Least,
-            variable: StateVarDecl::new(identifier_generator.generate("X"), Vec::new()),
+            variable: StateVarDecl::new(respan(Span::default(), identifier_generator.generate("X")), Vec::new()),
             body: Box::new(formula),
         }
         .into()
@@ -207,7 +209,7 @@ fn apply_e(equations: &mut Vec<Equation>, formula: &StateFrm) {
             body,
         } = &formula.node
         {
-            debug!("Adding equation for variable {}", variable.identifier);
+            debug!("Adding equation for variable {}", variable.identifier.node);
             // Add the equation with the renamed variable (the span is the same as the original variable).
             equations.push(Equation {
                 operator: *operator,
@@ -267,7 +269,7 @@ impl FreshStateVarGenerator {
         let mut used = HashSet::new();
         formula.visit::<(), _>(|subformula| {
             if let StateFrmKind::FixedPoint { variable, .. } = &subformula.node {
-                used.insert(variable.identifier.clone());
+                used.insert(variable.identifier.node.clone());
             }
 
             ControlFlow::Continue(())

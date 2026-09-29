@@ -623,7 +623,7 @@ mod tests {
 
         formula.visit::<(), _>(|formula| {
             if let StateFrmKind::Id(name, _) = &formula.node {
-                result.push(name.clone());
+                result.push(name.node.clone());
             }
 
             ControlFlow::Continue(())
@@ -645,7 +645,7 @@ mod tests {
         let formula = state_formula("true && (mu X. (X && Z))");
 
         let found = formula.visit(|formula| match &formula.node {
-            StateFrmKind::Id(name, _) if name == "Z" => ControlFlow::Break(name.clone()),
+            StateFrmKind::Id(name, _) if name.node == "Z" => ControlFlow::Break(name.node.clone()),
             _ => ControlFlow::Continue(()),
         });
 
@@ -766,7 +766,7 @@ mod tests {
         // Everything below the fixpoint is skipped, so `Z` is never reached.
         let found = formula.visit_with::<(), String, Infallible, _>((), |formula, context| {
             Ok(match &formula.node {
-                StateFrmKind::Id(name, _) if name == "Z" => ControlFlow::Break(name.clone()),
+                StateFrmKind::Id(name, _) if name.node == "Z" => ControlFlow::Break(name.node.clone()),
                 StateFrmKind::FixedPoint { .. } => ControlFlow::Continue(Step::Prune),
                 _ => ControlFlow::Continue(Step::Into(context)),
             })
@@ -783,7 +783,7 @@ mod tests {
         let mut depths = Vec::new();
         let found = formula.visit_with::<usize, Infallible, Infallible, _>(0, |formula, depth| {
             if let StateFrmKind::Id(name, _) = &formula.node {
-                depths.push((name.clone(), depth));
+                depths.push((name.node.clone(), depth));
             }
 
             Ok(ControlFlow::Continue(Step::Into(depth + 1)))
@@ -809,7 +809,7 @@ mod tests {
         let mut variables = Vec::new();
         let result = formula.apply::<Infallible, _>(|formula| {
             if let StateFrmKind::Id(name, _) = &formula.node {
-                variables.push(name.clone());
+                variables.push(name.node.clone());
             }
 
             Ok(None)
@@ -842,7 +842,7 @@ mod tests {
         let mut replacements = 0;
         let result = formula.apply::<Infallible, _>(|formula| {
             if let StateFrmKind::Id(name, _) = &formula.node
-                && name == "X"
+                && name.node == "X"
             {
                 replacements += 1;
                 return Ok(Some(state_formula("mu X0. X")));
@@ -864,10 +864,10 @@ mod tests {
 
         let found = formula.apply_with::<(), &str, Infallible, _>((), |formula, context| {
             Ok(match &formula.node {
-                StateFrmKind::Id(name, _) if name == "X" => {
+                StateFrmKind::Id(name, _) if name.node == "X" => {
                     ControlFlow::Continue(Step::Replace(StateFrmKind::True.into()))
                 }
-                StateFrmKind::Id(name, _) if name == "Y" => ControlFlow::Break("stopped"),
+                StateFrmKind::Id(name, _) if name.node == "Y" => ControlFlow::Break("stopped"),
                 _ => ControlFlow::Continue(Step::Into(context)),
             })
         });

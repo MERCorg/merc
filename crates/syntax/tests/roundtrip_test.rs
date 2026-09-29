@@ -179,9 +179,9 @@ fn visitor_breaks_from_nested_node() {
 
     let found = spec.formula.visit(|frm| {
         if let StateFrmKind::Id(name, _) = &frm.node
-            && name == "Y"
+            && name.node == "Y"
         {
-            return ControlFlow::Break(name.clone());
+            return ControlFlow::Break(name.node.clone());
         }
         ControlFlow::Continue(())
     });

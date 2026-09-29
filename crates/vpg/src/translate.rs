@@ -28,7 +28,9 @@ use merc_syntax::StateFrmKind;
 use merc_syntax::StateFrmOp;
 use merc_syntax::StateVarDecl;
 use merc_syntax::Traverse;
+use merc_syntax::respan;
 use merc_utilities::MercError;
+use merc_utilities::Span;
 
 use crate::FreshStateVarGenerator;
 use crate::ModalEquationSystem;
@@ -239,7 +241,7 @@ fn convert_regular_iteration(
         } else {
             FixedPointOperator::Least
         },
-        variable: StateVarDecl::new(iteration_var.clone(), Vec::new()),
+        variable: StateVarDecl::new(respan(Span::default(), iteration_var.clone()), Vec::new()),
         body: Box::new(
             StateFrmKind::Binary {
                 op: if modality == ModalityOperator::Box {
@@ -251,7 +253,7 @@ fn convert_regular_iteration(
                     StateFrmKind::Modality {
                         operator: *operator,
                         formula: reg_frm.clone(),
-                        expr: Box::new(StateFrmKind::Id(iteration_var, Vec::new()).into()),
+                        expr: Box::new(StateFrmKind::Id(respan(Span::default(), iteration_var), Vec::new()).into()),
                     }
                     .into(),
                 ),

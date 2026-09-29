@@ -26,6 +26,7 @@ use super::ParseNode;
 use super::RuleFixity;
 use super::SortExpression;
 use super::StateVarId;
+use super::StateVarName;
 use super::VarId;
 use super::build_pratt_parser;
 
@@ -51,7 +52,7 @@ pub enum FixedPointOperator {
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct StateVarDecl {
-    pub identifier: String,
+    pub identifier: Spanned<String>,
     pub arguments: Vec<StateVarAssignment>,
     pub span: Span,
     /// Assigned during variable resolution; see [StateVarId].
@@ -60,7 +61,7 @@ pub struct StateVarDecl {
 
 impl StateVarDecl {
     /// Creates a new state variable declaration.
-    pub fn new(identifier: String, arguments: Vec<StateVarAssignment>) -> Self {
+    pub fn new(identifier: Spanned<String>, arguments: Vec<StateVarAssignment>) -> Self {
         StateVarDecl {
             identifier,
             arguments,
@@ -97,9 +98,9 @@ pub enum StateFrmKind {
     Delay(Option<DataExpr>),
     /// `yaled` or `yaled@t`; the optional time is `None` for a bare `yaled`.
     Yaled(Option<DataExpr>),
-    Id(String, Vec<DataExpr>),
+    Id(StateVarName, Vec<DataExpr>),
     /// A fixpoint-variable reference resolved to its declaring `mu`/`nu`'s own [StateVarId].
-    Resolved(String, Vec<DataExpr>, StateVarId),
+    Resolved(StateVarName, Vec<DataExpr>, StateVarId),
     DataValExprLeftMult(DataExpr, Box<StateFrm>),
     DataValExprRightMult(Box<StateFrm>, DataExpr),
     DataValExpr(DataExpr),
@@ -190,9 +191,9 @@ impl fmt::Display for StateFrm {
             StateFrmKind::DataValExpr(expr) => write!(f, "{}({expr})", Keyword::Val),
             StateFrmKind::Id(identifier, args) | StateFrmKind::Resolved(identifier, args, _) => {
                 if args.is_empty() {
-                    write!(f, "{identifier}")
+                    write!(f, "{}", identifier.node)
                 } else {
-                    write!(f, "{}({})", identifier, args.iter().format(", "))
+                    write!(f, "{}({})", identifier.node, args.iter().format(", "))
                 }
             }
             StateFrmKind::Unary { op, expr } => write!(f, "({op} {expr})"),
@@ -241,9 +242,9 @@ impl fmt::Display for StateFrm {
 impl fmt::Display for StateVarDecl {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         if self.arguments.is_empty() {
-            write!(f, "{}", self.identifier)
+            write!(f, "{}", self.identifier.node)
         } else {
-            write!(f, "{}({})", self.identifier, self.arguments.iter().format(","))
+            write!(f, "{}({})", self.identifier.node, self.arguments.iter().format(","))
         }
     }
 }
@@ -540,10 +541,10 @@ impl Mcrl2Parser {
         let span: Span = id.as_span().into();
         match_nodes!(id.into_children();
             [Id(identifier)] => {
-                Ok(StateFrmKind::Id(identifier.node, Vec::new()).spanned(span))
+                Ok(StateFrmKind::Id(identifier, Vec::new()).spanned(span))
             },
             [Id(identifier), DataExprList(expressions)] => {
-                Ok(StateFrmKind::Id(identifier.node, expressions).spanned(span))
+                Ok(StateFrmKind::Id(identifier, expressions).spanned(span))
             },
         )
     }
@@ -672,7 +673,7 @@ impl Mcrl2Parser {
         match_nodes!(input.into_children();
             [Id(identifier), StateVarAssignmentList(arguments)] => {
                 Ok(StateVarDecl {
-                    identifier: identifier.node,
+                    identifier,
                     arguments,
                     span: span.into(),
                     id: None,
@@ -680,7 +681,7 @@ impl Mcrl2Parser {
             },
             [Id(identifier)] => {
                 Ok(StateVarDecl {
-                    identifier: identifier.node,
+                    identifier,
                     arguments: Vec::new(),
                     span: span.into(),
                     id: None,

@@ -335,7 +335,8 @@ fn offset_state_frm(formula: &mut StateFrm, delta: usize) {
                 offset_data_expr(expr, delta);
             }
         }
-        StateFrmKind::Id(_, args) | StateFrmKind::Resolved(_, args, _) => {
+        StateFrmKind::Id(name, args) | StateFrmKind::Resolved(name, args, _) => {
+            name.span.shift(delta);
             for arg in args {
                 offset_data_expr(arg, delta);
             }
@@ -375,6 +376,7 @@ fn offset_state_frm(formula: &mut StateFrm, delta: usize) {
 
 fn offset_state_var_decl(decl: &mut StateVarDecl, delta: usize) {
     decl.span.shift(delta);
+    decl.identifier.span.shift(delta);
     for argument in &mut decl.arguments {
         offset_state_var_assignment(argument, delta);
     }

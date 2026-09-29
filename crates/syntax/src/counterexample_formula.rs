@@ -14,6 +14,7 @@ use crate::StateFrm;
 use crate::StateFrmKind;
 use crate::StateFrmOp;
 use crate::StateVarDecl;
+use crate::respan;
 
 /// Generates a formula that characterizes the counter example trace.
 pub fn generate_refinement_formula<L: TransitionLabel>(counter_example: &CounterExample<L>) -> StateFrm {
@@ -42,7 +43,7 @@ pub fn generate_refinement_formula<L: TransitionLabel>(counter_example: &Counter
             StateFrmKind::FixedPoint {
                 operator: FixedPointOperator::Greatest,
                 variable: StateVarDecl {
-                    identifier: "X".to_string(),
+                    identifier: respan(Span::default(), "X".to_string()),
                     arguments: Vec::new(),
                     span: Span::default(),
                     id: None,
@@ -51,7 +52,7 @@ pub fn generate_refinement_formula<L: TransitionLabel>(counter_example: &Counter
                     StateFrmKind::Modality {
                         operator: ModalityOperator::Diamond,
                         formula: RegFrmKind::Action(ActFrmKind::MultAct(MultiAction::tau()).into()).into(),
-                        expr: Box::new(StateFrmKind::Id("X".to_string(), Vec::new()).into()),
+                        expr: Box::new(StateFrmKind::Id(respan(Span::default(), "X".to_string()), Vec::new()).into()),
                     }
                     .into(),
                 ),

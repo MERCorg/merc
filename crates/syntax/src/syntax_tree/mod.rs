@@ -105,6 +105,9 @@ pub type ProcessName = Spanned<String>;
 /// A propositional-variable identifier occurrence.
 pub type PropVarName = Spanned<String>;
 
+/// A state-formula fixpoint-variable identifier occurrence.
+pub type StateVarName = Spanned<String>;
+
 /// A declaration of an identifier with its sort.
 ///
 /// Reused for every "name: sort" binding in the grammar. It defaults to [SortId]

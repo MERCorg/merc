@@ -134,11 +134,8 @@ pub enum ResolvedName {
     /// identifier's own span rather than the whole `PropVarInst`.
     PropositionalVariable { name: String, declaration: Option<Span> },
     /// A state-formula fixpoint-variable instantiation (`X(e1, e2)` referencing an enclosing
-    /// `mu X(...)`/`nu X(...)`). `declaration` is the enclosing binder's own span.
-    ///
-    /// Pushed at the whole occurrence's span: unlike `PropVarInst`, whose `identifier` field
-    /// gives [`ResolvedName::PropositionalVariable`] a narrower span, `StateFrmKind::Id` carries
-    /// none to use.
+    /// `mu X(...)`/`nu X(...)`), pushed at the identifier's own span. `declaration` is the
+    /// enclosing binder's own span.
     StateVariable { name: String, declaration: Option<Span> },
     /// A sort-name reference, e.g., `D` in `map f: D -> D;`, anywhere where the
     /// user writes a sort by name.
