@@ -38,6 +38,17 @@ pub const LDD_CACHE_CAPACITY: usize = 1 << 22;
 #[cfg(feature = "clap")]
 const DEFAULT_OXIDD_CAPACITY_GIB: u32 = 1;
 
+/// Rough bytes per manager table entry.
+#[cfg(feature = "clap")]
+const OXIDD_ENTRY_BYTES: usize = 20;
+
+/// Converts a number of gigabytes (as `1 << 30` bytes) into the number of `OXIDD_ENTRY_BYTES`
+/// entries that fit in that many bytes.
+#[cfg(feature = "clap")]
+fn gib_to_entries(gib: u32) -> usize {
+    (((gib as u64) << 30) / OXIDD_ENTRY_BYTES as u64) as usize
+}
+
 /// Command-line arguments for initialising an Oxidd decision diagram manager, shared by every tool
 /// (`merc-sym`, `merc-lps`, `merc-pbes`) that builds a BDD or LDD manager from CLI input.
 #[cfg(feature = "clap")]
@@ -69,15 +80,15 @@ impl OxiddArgs {
         oxidd::ldd::new_manager(self.node_capacity(), self.cache_capacity(), self.workers)
     }
 
-    /// The configured inner-node capacity, converted from gigabytes to a node count.
+    /// The configured inner-node capacity, converted from gigabytes to an entry count.
     fn node_capacity(&self) -> usize {
-        (self.capacity_gib as usize) << 30
+        gib_to_entries(self.capacity_gib)
     }
 
-    /// The configured apply cache capacity, converted from gigabytes, defaulting to the node capacity.
+    /// The configured apply cache capacity, converted from gigabytes, defaulting to the same
+    /// number of gigabytes as `--oxidd-capacity` when `--oxidd-cache-capacity` is omitted.
     fn cache_capacity(&self) -> usize {
-        self.cache_capacity_gib
-            .map_or_else(|| self.node_capacity(), |gib| (gib as usize) << 30)
+        gib_to_entries(self.cache_capacity_gib.unwrap_or(self.capacity_gib))
     }
 }
 
