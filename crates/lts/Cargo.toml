@@ -21,7 +21,7 @@ cadp = []
 # Derive some additional traits for clap.
 clap = ["dep:clap"]
 # Switches to the Aeneas-translatable shape.
-lean = []
+lean = ["merc_utilities/lean"]
 
 [dependencies]
 merc_aterm.workspace = true

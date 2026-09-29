@@ -12,6 +12,8 @@ version = "3.0.0"
 [features]
 # Enables the debug_trace macro to show additional log messages.
 merc_debug-trace = []
+# Switches to the Aeneas-translatable shape.
+lean = []
 
 [dependencies]
 crossbeam-utils.workspace = true
