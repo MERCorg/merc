@@ -192,7 +192,9 @@ impl Debug for GlobalTermPool {
         let mut max = 0;
 
         for set in self.thread_protection_sets.iter().flatten() {
-            let protection_set = set.read();
+            // We need write() to ensure that nobody else has write_exclusive on
+            // this protection set.
+            let protection_set = set.write();
             protected += protection_set.len();
             total += protection_set.number_of_insertions();
             max += protection_set.maximum_size();
@@ -203,7 +205,7 @@ impl Debug for GlobalTermPool {
         let mut total_containers = 0;
         let mut inside_containers = 0;
         for set in self.thread_container_sets.iter().flatten() {
-            let protection_set = set.read();
+            let protection_set = set.write();
             num_containers += protection_set.len();
             total_containers += protection_set.number_of_insertions();
             max_containers += protection_set.maximum_size();
