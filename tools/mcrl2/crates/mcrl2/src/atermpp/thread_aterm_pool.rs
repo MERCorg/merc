@@ -206,7 +206,8 @@ impl ThreadTermPool {
             tmp_args.push(arg.borrow().get());
         }
 
-        debug_assert_eq!(
+        // Required since mCRL2 does no bound checking.
+        assert_eq!(
             symbol.borrow().arity(),
             tmp_args.len(),
             "Number of arguments does not match arity"
@@ -241,7 +242,8 @@ impl ThreadTermPool {
 
         let symbol = &tmp_data_appl[arguments.len() + 1];
 
-        debug_assert_eq!(
+        // Required since mCRL2 does no bound checking.
+        assert_eq!(
             symbol.arity(),
             tmp_args.len(),
             "Number of arguments does not match arity"
