@@ -326,22 +326,32 @@ impl IncomingTransitions {
         result
     }
 
-    /// Returns an iterator over the incoming silent (tau-labelled) transitions for the given state.
+    /// Returns the incoming silent (tau-labelled) transitions for the given state.
     ///
-    /// Only used by code that is not translated by Aeneas, hence the iterator.
+    /// A manual loop instead of `.into_iter().take_while(...)` so this is
+    /// Aeneas-translatable (`BlockPartition::mark_backward_closure` calls it
+    /// under the `lean` feature); relies on `incoming_transitions` sorting
+    /// silent transitions first.
     ///
     /// # Panics
     ///
     /// Panics if `state_index` is not less than the number of states in the underlying LTS.
-    pub fn incoming_silent_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = FromTransition> + '_ {
-        self.incoming_transitions(state_index)
-            .into_iter()
-            .take_while(|transition| transition.label == 0)
+    pub fn incoming_silent_transitions(&self, state_index: StateIndex) -> Vec<FromTransition> {
+        let transitions = self.incoming_transitions(state_index);
+
+        let mut result = Vec::with_capacity(transitions.len());
+        for i in 0..transitions.len() {
+            if transitions[i].label != LabelIndex::new(0) {
+                break;
+            }
+            result.push(transitions[i]);
+        }
+        result
     }
 }
 
 /// Represents an incoming transition in the LTS going to a known state.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FromTransition {
     pub label: LabelIndex,
     pub from: StateIndex,

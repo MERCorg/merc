@@ -229,6 +229,7 @@ impl BlockPartition {
 
     /// Extends the marked elements to be closed under incoming tau-transitions
     /// within this block.
+    #[cfg(not(feature = "lean"))]
     pub(crate) fn mark_backward_closure(
         &mut self,
         block_index: BlockIndex,
@@ -892,6 +893,62 @@ impl BlockPartition {
         }
 
         self.assert_consistent();
+    }
+
+    /// Extends the marked elements to be closed under incoming tau-transitions
+    /// within this block.
+    ///
+    /// Lean/Aeneas-translatable version of the `not(lean)` implementation
+    /// above: `IncomingTransitions::incoming_silent_transitions` returns a
+    /// `Vec` under the `lean` feature (instead of an iterator-adaptor chain),
+    /// so `for transition in incoming_transitions.incoming_silent_transitions(...)`
+    /// is the same owned-`Vec` loop `mark_dirty_states` already uses over
+    /// `incoming_transitions`.
+    pub(crate) fn mark_backward_closure(
+        &mut self,
+        block_index: BlockIndex,
+        incoming_transitions: &IncomingTransitions,
+    ) {
+        let block = self.blocks[block_index];
+
+        // First compute backwards silent transitive closure: scan `it` from
+        // `block.end - 1` down to `block.begin`. Written as an increasing
+        // `for offset` over the span with `it` derived from it (instead of a
+        // `while` with a manual decrement and an `if it == 0 { break; }`
+        // underflow guard, or `.rev()`) because Aeneas cannot translate a
+        // `break` that comes after a nested loop in the same loop body - the
+        // exit check must be the first statement, which also sidesteps the
+        // `usize` underflow at `it == 0`.
+        let span = block.end - block.begin;
+        for offset in 0..span {
+            let it = block.end - 1 - offset;
+            if !(it >= self.blocks[block_index].marked_split && self.blocks[block_index].has_unmarked()) {
+                break;
+            }
+
+            for transition in incoming_transitions.incoming_silent_transitions(self.elements[it]) {
+                if self.block_number(transition.from) == block_index {
+                    self.mark_element(transition.from);
+                }
+            }
+        }
+
+        // Consistency check: every silent transition into an element that was
+        // already marked before this closure ran should come from a marked
+        // element (within this block). Uses the pre-closure `block` snapshot,
+        // matching the `not(lean)` version above.
+        if cfg!(debug_assertions) {
+            for offset in block.marked_split..block.end {
+                let element = self.elements[offset];
+                for transition in incoming_transitions.incoming_silent_transitions(element) {
+                    debug_assert!(
+                        self.block_number(transition.from) != block_index
+                            || self.is_element_marked(transition.from),
+                        "All silent transitions from marked elements should be marked"
+                    );
+                }
+            }
+        }
     }
 
     /// Returns true iff the invariants of a partition hold
