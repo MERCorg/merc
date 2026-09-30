@@ -471,12 +471,14 @@ impl<L: TransitionLabel> LTS for LabelledTransitionSystem<L> {
         let start = self.states.index(*state_index);
         let end = self.states.index(*state_index + 1);
 
-        (start..end)
-            .map(move |i| Transition {
+        let mut result = Vec::with_capacity(end - start);
+        for i in start..end {
+            result.push(Transition {
                 label: self.transition_labels.index(i),
                 to: self.transition_to.index(i),
-            })
-            .collect()
+            });
+        }
+        result
     }
     #[cfg(not(feature = "lean"))]
     fn outgoing_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = Transition> + '_ {
@@ -491,7 +493,12 @@ impl<L: TransitionLabel> LTS for LabelledTransitionSystem<L> {
 
     #[cfg(feature = "lean")]
     fn iter_states(&self) -> Vec<StateIndex> {
-        (0..self.num_of_states()).map(StateIndex::new).collect()
+        let n = self.num_of_states();
+        let mut result = Vec::with_capacity(n);
+        for i in 0..n {
+            result.push(StateIndex::new(i));
+        }
+        result
     }
     #[cfg(not(feature = "lean"))]
     fn iter_states(&self) -> impl Iterator<Item = StateIndex> + '_ {
