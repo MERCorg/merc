@@ -44,7 +44,13 @@ enum Commands {
     /// Discovers tests from the examples folder, and prints them as a `#[test_case]` annotation.
     DiscoverTests,
     /// Builds and packages the binaries for release.
-    Package,
+    Package {
+        #[arg(long)]
+        no_gui: bool,
+
+        #[arg(long)]
+        no_mcrl2: bool,
+    },
     /// Runs `cargo publish --dry-run` for every library crate, in dependency order.
     Publish,
     /// Runs a smoke test of the packaged tool binaries found in the given directory.
@@ -59,7 +65,7 @@ fn main() -> Result<ExitCode, Box<dyn Error>> {
         Commands::AddressSanitizer { args } => sanitizer::address_sanitizer(args)?,
         Commands::ThreadSanitizer { args } => sanitizer::thread_sanitizer(args)?,
         Commands::DiscoverTests => discover_tests::discover_tests()?,
-        Commands::Package => package::package()?,
+        Commands::Package { no_gui, no_mcrl2 }=> package::package(!no_mcrl2, !no_gui)?,
         Commands::Publish => publish::publish_crates()?,
         Commands::TestTools { directory } => tool_testing::test_tools(directory.as_path())?,
     }

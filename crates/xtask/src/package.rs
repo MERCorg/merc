@@ -13,18 +13,19 @@ fn exe_name(binary_name: &str) -> String {
     }
 }
 
-/// Builds all three workspaces in release mode and collects the resulting binaries, the
-/// `LICENSE`, and `kahypar.ini` into a `package` directory created under the current directory.
+/// Builds all three workspaces (when mcrl2 and gui are set) in release mode
+/// and collects the resulting binaries, the `LICENSE`, and `kahypar.ini` into a
+/// `package` directory created under the current directory.
 ///
 /// # Panics
 ///
-/// Panics if the current directory is not a workspace root, or if a binary is still missing
-/// after its `cargo build --release` succeeded.
+/// Panics if the current directory is not a workspace root, or if a binary is
+/// still missing after its `cargo build --release` succeeded.
 ///
 /// # Errors
 ///
 /// Returns an error if a `cargo build` invocation or a file copy fails.
-pub(crate) fn package() -> Result<(), Box<dyn Error>> {
+pub(crate) fn package(mcrl2: bool, gui: bool) -> Result<(), Box<dyn Error>> {
     // Get the workspace root directory
     let workspace_root = env::current_dir()?;
 
@@ -43,19 +44,20 @@ pub(crate) fn package() -> Result<(), Box<dyn Error>> {
     println!("=== Building and copying release binaries ===");
 
     // Mapping from workspace paths to their binaries
-    let workspace_binaries = [
-        (
-            workspace_root.clone(),
-            vec!["merc-lts", "merc-rewrite", "merc-vpg", "merc-sym"],
-        ),
-        (workspace_root.join("tools/gui"), vec!["merc-ltsgraph"]),
-        (workspace_root.join("tools/mcrl2"), vec!["merc-pbes", "merc-lps"]),
-    ];
+    let mut workspace_binaries = vec![(
+        workspace_root.clone(),
+        vec!["merc-lts", "merc-rewrite", "merc-vpg", "merc-sym"],
+    )];
 
-    // All workspaces share the root `target/` directory: the `tools/gui` and `tools/mcrl2`
-    // workspaces set `target-dir = "../../target"` in their `.cargo/config.toml`, so every
-    // release binary ends up under `<workspace_root>/target/release` regardless of which
-    // workspace built it.
+    if mcrl2 {
+        workspace_binaries.push((workspace_root.join("tools/mcrl2"), vec!["merc-pbes", "merc-lps"]));
+    }
+
+    if gui {
+        workspace_binaries.push((workspace_root.join("tools/gui"), vec!["merc-ltsgraph"]));
+    }
+
+    // All workspaces share the root `target/` directory.
     let target_release_dir = workspace_root.join("target").join("release");
 
     // Build all workspaces in release mode
