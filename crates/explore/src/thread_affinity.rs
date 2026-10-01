@@ -46,8 +46,7 @@ impl Drop for PinnedThreadPool {
 /// is available on this platform, the pool is still created but worker
 /// pinning is skipped.
 ///
-/// The returned pool joins its worker threads when dropped, see
-/// [`PinnedThreadPool`].
+/// The returned pool joins its worker threads when dropped.
 ///
 /// # Errors
 ///

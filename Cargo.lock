@@ -1526,6 +1526,7 @@ dependencies = [
  "merc_refinement",
  "merc_symbolic",
  "merc_syntax",
+ "merc_typecheck",
  "merc_utilities",
  "oxidd",
  "oxidd-core",
