@@ -106,7 +106,7 @@ crossbeam-deque = "0.8"
 crossbeam-utils = "0.8"
 loom = { version = "0.7", features = ["checkpoint"] }
 mimalloc = "0.1"
-quanta = "0.12"
+quanta = "0.13"
 streaming-iterator = "0.1"
 thread_local = "1.1"
 tikv-jemallocator = "0.7"
