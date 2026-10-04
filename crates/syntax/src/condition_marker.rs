@@ -18,8 +18,8 @@
 
 use std::ops::Range;
 
-use crate::OffsetSpans;
 use crate::Keyword;
+use crate::OffsetSpans;
 use crate::PROC_EXPR_KEYWORDS;
 
 /// Private-use codepoint marking the start of a condition without a matching `<>`. Must match
