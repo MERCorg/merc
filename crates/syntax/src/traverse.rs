@@ -161,10 +161,10 @@ pub trait Traverse: Sized {
     }
 
     /// Visits this node and then, unless the callback breaks or prunes, its children.
-    fn visit_subtree<C, T, E, F>(&self, context: C, function: &mut F) -> Recursion<T, E>
+    fn visit_subtree<'a, C, T, E, F>(&'a self, context: C, function: &mut F) -> Recursion<T, E>
     where
         C: Copy,
-        F: FnMut(&Self, C) -> Visit<Infallible, C, T, E>,
+        F: FnMut(&'a Self, C) -> Visit<Infallible, C, T, E>,
     {
         let mut stack: Vec<(&Self, C)> = vec![(self, context)];
         while let Some((node, context)) = stack.pop() {
@@ -191,8 +191,8 @@ pub trait Traverse: Sized {
     /// typically re-match the same node kinds, pushing or popping only where scoping is needed.
     /// `exit` always gets the same `context` `enter` was given, and still runs — innermost first —
     /// for a pruned node or one still open when the walk stops early, so scoped state never dangles.
-    fn visit_subtree_scoped<C, S, T, E, F, G>(
-        &self,
+    fn visit_subtree_scoped<'a, C, S, T, E, F, G>(
+        &'a self,
         context: C,
         state: &mut S,
         enter: &mut F,
@@ -200,15 +200,15 @@ pub trait Traverse: Sized {
     ) -> Recursion<T, E>
     where
         C: Copy,
-        F: FnMut(&Self, C, &mut S) -> Visit<Infallible, C, T, E>,
-        G: FnMut(&Self, C, &mut S),
+        F: FnMut(&'a Self, C, &mut S) -> Visit<Infallible, C, T, E>,
+        G: FnMut(&'a Self, C, &mut S),
     {
         enum Frame<'a, N, C> {
             Enter(&'a N, C),
             Exit(&'a N, C),
         }
 
-        fn unwind<N, C, S>(stack: Vec<Frame<'_, N, C>>, state: &mut S, exit: &mut impl FnMut(&N, C, &mut S)) {
+        fn unwind<'a, N, C, S>(stack: Vec<Frame<'a, N, C>>, state: &mut S, exit: &mut impl FnMut(&'a N, C, &mut S)) {
             for frame in stack.into_iter().rev() {
                 if let Frame::Exit(node, context) = frame {
                     exit(node, context, state);
@@ -250,8 +250,8 @@ pub trait Traverse: Sized {
 
     /// See [Traverse::visit_subtree_scoped]; the ergonomic top-level entry point, mirroring
     /// [Traverse::visit_with].
-    fn visit_scoped<C, S, T, E, F, G>(
-        &self,
+    fn visit_scoped<'a, C, S, T, E, F, G>(
+        &'a self,
         context: C,
         state: &mut S,
         mut enter: F,
@@ -259,8 +259,8 @@ pub trait Traverse: Sized {
     ) -> Result<Option<T>, E>
     where
         C: Copy,
-        F: FnMut(&Self, C, &mut S) -> Visit<Infallible, C, T, E>,
-        G: FnMut(&Self, C, &mut S),
+        F: FnMut(&'a Self, C, &mut S) -> Visit<Infallible, C, T, E>,
+        G: FnMut(&'a Self, C, &mut S),
     {
         match self.visit_subtree_scoped(context, state, &mut enter, &mut exit) {
             ControlFlow::Break(Ok(value)) => Ok(Some(value)),
@@ -374,10 +374,10 @@ pub trait Traverse: Sized {
     }
 
     /// Visits the subtree rooted at each direct child of this node (not this node itself).
-    fn visit_children<C, T, E, F>(&self, context: C, function: &mut F) -> Recursion<T, E>
+    fn visit_children<'a, C, T, E, F>(&'a self, context: C, function: &mut F) -> Recursion<T, E>
     where
         C: Copy,
-        F: FnMut(&Self, C) -> Visit<Infallible, C, T, E>,
+        F: FnMut(&'a Self, C) -> Visit<Infallible, C, T, E>,
     {
         let mut stack = Vec::new();
         let _ = self.push_children(context, &mut stack);
@@ -421,10 +421,10 @@ pub trait Traverse: Sized {
     /// Visits this node and its subtree top-down, threading `context` from a node to its children.
     ///
     /// Returns the value the callback broke with, or `None` when the whole subtree was visited.
-    fn visit_with<C, T, E, F>(&self, context: C, mut function: F) -> Result<Option<T>, E>
+    fn visit_with<'a, C, T, E, F>(&'a self, context: C, mut function: F) -> Result<Option<T>, E>
     where
         C: Copy,
-        F: FnMut(&Self, C) -> Visit<Infallible, C, T, E>,
+        F: FnMut(&'a Self, C) -> Visit<Infallible, C, T, E>,
     {
         match self.visit_subtree(context, &mut function) {
             ControlFlow::Break(Ok(value)) => Ok(Some(value)),
@@ -434,9 +434,9 @@ pub trait Traverse: Sized {
     }
 
     /// See [Traverse::visit_with], for callbacks that need neither a context nor pruning.
-    fn try_visit<T, E, F>(&self, mut function: F) -> Result<Option<T>, E>
+    fn try_visit<'a, T, E, F>(&'a self, mut function: F) -> Result<Option<T>, E>
     where
-        F: FnMut(&Self) -> Result<ControlFlow<T>, E>,
+        F: FnMut(&'a Self) -> Result<ControlFlow<T>, E>,
     {
         self.visit_with((), |node, context| {
             Ok(match function(node)? {
@@ -447,9 +447,9 @@ pub trait Traverse: Sized {
     }
 
     /// See [Traverse::try_visit], for callbacks that cannot fail.
-    fn visit<T, F>(&self, mut function: F) -> Option<T>
+    fn visit<'a, T, F>(&'a self, mut function: F) -> Option<T>
     where
-        F: FnMut(&Self) -> ControlFlow<T>,
+        F: FnMut(&'a Self) -> ControlFlow<T>,
     {
         match self.try_visit::<T, Infallible, _>(|node| Ok(function(node))) {
             Ok(result) => result,
@@ -464,9 +464,9 @@ pub trait Traverse: Sized {
     /// The callback receives a [MixedNode]. There is no shared `context`, [Step::Prune], or
     /// [Step::Replace]: those need a `Copy` context shared across every node type, which a walk
     /// spanning several unrelated types can't offer without type erasure.
-    fn try_visit_mixed<T, E>(
-        &self,
-        mut function: impl FnMut(MixedNode) -> Result<ControlFlow<T>, E>,
+    fn try_visit_mixed<'a, T, E>(
+        &'a self,
+        mut function: impl FnMut(MixedNode<'a>) -> Result<ControlFlow<T>, E>,
     ) -> Result<Option<T>, E> {
         let mut stack = vec![self.as_mixed()];
         while let Some(node) = stack.pop() {
@@ -479,7 +479,7 @@ pub trait Traverse: Sized {
     }
 
     /// See [Traverse::try_visit_mixed], for callbacks that cannot fail.
-    fn visit_mixed<T>(&self, mut function: impl FnMut(MixedNode) -> ControlFlow<T>) -> Option<T> {
+    fn visit_mixed<'a, T>(&'a self, mut function: impl FnMut(MixedNode<'a>) -> ControlFlow<T>) -> Option<T> {
         match self.try_visit_mixed::<T, Infallible>(|node| Ok(function(node))) {
             Ok(result) => result,
             Err(error) => match error {},
@@ -1490,6 +1490,38 @@ mod tests {
             ]
         );
         assert!(state_vars.is_empty());
+    }
+
+    /// The scoped state may borrow from the tree being walked (`&str` names here), which a callback
+    /// bound over an anonymous `&Self` lifetime would reject.
+    #[test]
+    fn test_visit_scoped_state_can_borrow_from_the_tree() {
+        let formula = state_formula("mu X. (mu Y. X) && Z");
+
+        let mut state_vars: Vec<&str> = Vec::new();
+        let mut scope_at_each_id: Vec<(&str, Vec<&str>)> = Vec::new();
+
+        let result = formula.visit_scoped::<(), Vec<&str>, Infallible, Infallible, _, _>(
+            (),
+            &mut state_vars,
+            |formula, context, state_vars| {
+                if let StateFrmKind::FixedPoint { variable, .. } = &formula.node {
+                    state_vars.push(variable.identifier.node.as_str());
+                }
+                if let StateFrmKind::Id(name, _) = &formula.node {
+                    scope_at_each_id.push((name.node.as_str(), state_vars.clone()));
+                }
+                Ok(ControlFlow::Continue(Step::Into(context)))
+            },
+            |formula, _context, state_vars| {
+                if let StateFrmKind::FixedPoint { .. } = &formula.node {
+                    state_vars.pop();
+                }
+            },
+        );
+
+        assert_eq!(result, Ok(None));
+        assert_eq!(scope_at_each_id, [("X", vec!["X", "Y"]), ("Z", vec!["X"])]);
     }
 
     /// `exit` must still run, innermost first, for every scope still open when the walk breaks
