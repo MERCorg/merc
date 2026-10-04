@@ -380,10 +380,10 @@ mod tests {
         let lps_path = temp_dir.path().join("spec.lps");
         let sym_path = temp_dir.path().join("spec.sym");
 
-        let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-        let timing = Timing::new();
-
         random_test(10, |rng| {
+            let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+            let timing = Timing::new();
+
             let spec = merc_syntax::random_lps(rng, 4, 2, 0.4);
             std::fs::write(&spec_path, spec.to_string()).expect("Failed to write spec");
 

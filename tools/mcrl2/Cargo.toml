@@ -74,15 +74,15 @@ merc_syntax = { path = "../../crates/syntax" }
 merc_utilities = { path = "../../crates/utilities" }
 merc_vpg = { path = "../../crates/vpg" }
 
-oxidd = { version = "0.12", features = ["multi-threading"] }
+oxidd = { version = "0.13", features = ["multi-threading"] }
 
 # [patch."https://github.com/MERCorg/mCRL2-sys"]
 # mcrl2-sys = { path = "crates/mCRL2-sys" }
 
 [patch.crates-io]
-oxidd = { git = "https://github.com/mlaveaux/oxidd", rev = "c2a6d41aa8b074ca40cafb1d2e04c6ccae1c58ba" }
-oxidd-core = { git = "https://github.com/mlaveaux/oxidd", rev = "c2a6d41aa8b074ca40cafb1d2e04c6ccae1c58ba" }
-oxidd-dump = { git = "https://github.com/mlaveaux/oxidd", rev = "c2a6d41aa8b074ca40cafb1d2e04c6ccae1c58ba" }
-oxidd-reorder = { git = "https://github.com/mlaveaux/oxidd", rev = "c2a6d41aa8b074ca40cafb1d2e04c6ccae1c58ba" }
-oxidd-rules-bdd = { git = "https://github.com/mlaveaux/oxidd", rev = "c2a6d41aa8b074ca40cafb1d2e04c6ccae1c58ba" }
-oxidd-rules-ldd = { git = "https://github.com/mlaveaux/oxidd", rev = "c2a6d41aa8b074ca40cafb1d2e04c6ccae1c58ba" }
+oxidd = { git = "https://github.com/mlaveaux/oxidd", rev = "bb07c8cbabd2a35a6fd94a8764c503a50dd22f03" }
+oxidd-core = { git = "https://github.com/mlaveaux/oxidd", rev = "bb07c8cbabd2a35a6fd94a8764c503a50dd22f03" }
+oxidd-dump = { git = "https://github.com/mlaveaux/oxidd", rev = "bb07c8cbabd2a35a6fd94a8764c503a50dd22f03" }
+oxidd-reorder = { git = "https://github.com/mlaveaux/oxidd", rev = "bb07c8cbabd2a35a6fd94a8764c503a50dd22f03" }
+oxidd-rules-bdd = { git = "https://github.com/mlaveaux/oxidd", rev = "bb07c8cbabd2a35a6fd94a8764c503a50dd22f03" }
+oxidd-rules-ldd = { git = "https://github.com/mlaveaux/oxidd", rev = "bb07c8cbabd2a35a6fd94a8764c503a50dd22f03" }

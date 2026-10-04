@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 
 use oxidd::BooleanFunction;
 use oxidd::Function;
-use oxidd::Manager;
 use oxidd::ManagerRef;
 use oxidd::VarNo;
 use oxidd::bdd::BDDFunction;
@@ -10,7 +9,9 @@ use oxidd::bdd::BDDManagerRef;
 use oxidd::util::AllocResult;
 use oxidd::util::OptBool;
 use oxidd::util::OutOfMemory;
+use oxidd::util::Ref;
 use oxidd_core::function::EdgeOfFunc;
+use oxidd_core::function::OwnEdgeOfFunc;
 
 /// Returns the boolean set difference of two BDD functions: lhs \ rhs.
 /// Implemented as lhs AND (NOT rhs).
@@ -21,9 +22,9 @@ pub fn minus(lhs: &BDDFunction, rhs: &BDDFunction) -> AllocResult<BDDFunction> {
 /// Variant of [minus] that works on edges.
 pub fn minus_edge<'id>(
     manager: &<BDDFunction as Function>::Manager<'id>,
-    lhs: &EdgeOfFunc<'id, BDDFunction>,
-    rhs: &EdgeOfFunc<'id, BDDFunction>,
-) -> AllocResult<<<BDDFunction as Function>::Manager<'id> as Manager>::Edge> {
+    lhs: Ref<'_, EdgeOfFunc<'id, BDDFunction>>,
+    rhs: Ref<'_, EdgeOfFunc<'id, BDDFunction>>,
+) -> AllocResult<OwnEdgeOfFunc<'id, BDDFunction>> {
     BDDFunction::imp_strict_edge(manager, rhs, lhs)
 }
 

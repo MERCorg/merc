@@ -12,7 +12,6 @@ use merc_utilities::Timing;
 use oxidd::BooleanFunction;
 use oxidd::BooleanFunctionQuant;
 use oxidd::BooleanOperator;
-use oxidd::Edge;
 use oxidd::Function;
 use oxidd::HasLevel;
 use oxidd::Manager;
@@ -22,10 +21,11 @@ use oxidd::VarNo;
 use oxidd::bdd::BDDFunction;
 use oxidd::bdd::BDDManagerRef;
 use oxidd::error::DuplicateVarName;
-use oxidd::util::Borrowed;
 use oxidd::util::OptBool;
 use oxidd::util::OutOfMemory;
+use oxidd::util::Ref;
 use oxidd_core::function::EdgeOfFunc;
+use oxidd_core::function::OwnEdgeOfFunc;
 use oxidd_core::util::EdgeDropGuard;
 use oxidd_dump::Visualizer;
 use oxidd_rules_bdd::simple::BDDTerminal;
@@ -511,11 +511,7 @@ fn refine(
 
         Ok(BDDFunction::from_edge(
             manager,
-            refine_edge(
-                &mut ctx,
-                signature.as_edge(manager).borrowed(),
-                partition.as_edge(manager).borrowed(),
-            )?,
+            refine_edge(&mut ctx, signature.as_edge(manager), partition.as_edge(manager))?,
         ))
     })
 }
@@ -537,16 +533,16 @@ struct RefineContext<'a, 'id: 'a> {
 /// Recursive implementation of the [refine] function.
 fn refine_edge<'id>(
     ctx: &mut RefineContext<'_, 'id>,
-    signature: Borrowed<EdgeOfFunc<'id, BDDFunction>>,
-    partition: Borrowed<EdgeOfFunc<'id, BDDFunction>>,
-) -> Result<EdgeOfFunc<'id, BDDFunction>, OutOfMemory> {
+    signature: Ref<EdgeOfFunc<'id, BDDFunction>>,
+    partition: Ref<EdgeOfFunc<'id, BDDFunction>>,
+) -> Result<OwnEdgeOfFunc<'id, BDDFunction>, OutOfMemory> {
     let manager = ctx.manager;
 
-    let plevel = match manager.get_node(&partition) {
+    let plevel = match manager.get_node(partition) {
         Node::Terminal(terminal) => {
             if terminal == BDDTerminal::False {
                 // In this case the state is not part of the partition function, so return empty.
-                return Ok(manager.clone_edge(&partition));
+                return Ok(manager.clone_edge(partition));
             }
 
             unreachable!("There are always block variables, so cannot be true terminal");
@@ -555,15 +551,15 @@ fn refine_edge<'id>(
     };
 
     if let Some(cached) = ctx.cache.get(&(
-        BDDFunction::from_edge(manager, manager.clone_edge(&signature)),
-        BDDFunction::from_edge(manager, manager.clone_edge(&partition)),
+        BDDFunction::from_edge(manager, manager.clone_edge(signature)),
+        BDDFunction::from_edge(manager, manager.clone_edge(partition)),
     )) {
         return Ok(manager.clone_edge(cached.as_edge(manager)));
     }
 
     // topVar
     let lowest_level = {
-        let slevel = match manager.get_node(&signature) {
+        let slevel = match manager.get_node(signature) {
             Node::Terminal(_) => plevel,
             Node::Inner(node) => node.level(),
         };
@@ -572,13 +568,13 @@ fn refine_edge<'id>(
 
     let result = if ctx.next_state_variables.contains(&lowest_level) {
         // Match paths on the level s'_i, for irrelevant variables we take both paths.
-        let (s_high, s_low) = match manager.get_node(&signature) {
+        let (s_high, s_low) = match manager.get_node(signature) {
             Node::Inner(node) if node.level() == lowest_level => collect_children(node),
-            _ => (signature.borrowed(), signature.borrowed()),
+            _ => (signature, signature),
         };
-        let (p_high, p_low) = match manager.get_node(&partition) {
+        let (p_high, p_low) = match manager.get_node(partition) {
             Node::Inner(node) if node.level() == lowest_level => collect_children(node),
-            _ => (partition.borrowed(), partition.borrowed()),
+            _ => (partition, partition),
         };
 
         let low = refine_edge(ctx, s_low, p_low)?;
@@ -592,10 +588,10 @@ fn refine_edge<'id>(
         // unchanged); any further signatures sharing that old block are splits and get a fresh id
         // from the persistent counter. The outer BDD memo above keys by (sig, partition) so
         // repeated (sig, partition) pairs reuse this assignment without re-decoding.
-        let block_index = decode_block(manager, partition.borrowed());
+        let block_index = decode_block(manager, partition);
         if ctx.claimed_blocks.insert(block_index) {
             trace!("Reusing old block {block_index}");
-            Ok(manager.clone_edge(&partition))
+            Ok(manager.clone_edge(partition))
         } else {
             let new_block_index = *ctx.next_fresh_id;
             *ctx.next_fresh_id += 1;
@@ -606,10 +602,10 @@ fn refine_edge<'id>(
 
     ctx.cache.insert(
         (
-            BDDFunction::from_edge(manager, manager.clone_edge(&signature)),
-            BDDFunction::from_edge(manager, manager.clone_edge(&partition)),
+            BDDFunction::from_edge(manager, manager.clone_edge(signature)),
+            BDDFunction::from_edge(manager, manager.clone_edge(partition)),
         ),
-        BDDFunction::from_edge(manager, manager.clone_edge(&result)),
+        BDDFunction::from_edge(manager, manager.clone_edge(result.borrowed())),
     );
 
     Ok(result)
@@ -629,7 +625,7 @@ fn check_partition_function(
     manager_ref.with_manager_shared(|manager| {
         let mut cache = FxHashMap::default();
 
-        check_partition_function_edge(manager, &mut cache, bdd.as_edge(manager).borrowed(), domain)
+        check_partition_function_edge(manager, &mut cache, bdd.as_edge(manager), domain)
     })
 }
 
@@ -637,14 +633,14 @@ fn check_partition_function(
 fn check_partition_function_edge<'id>(
     manager: &<BDDFunction as Function>::Manager<'id>,
     cache: &mut FxHashMap<BDDFunction, bool>,
-    bdd: Borrowed<EdgeOfFunc<'id, BDDFunction>>,
+    bdd: Ref<EdgeOfFunc<'id, BDDFunction>>,
     domain: &[VarNo],
 ) -> Result<bool, MercError> {
-    if let Some(result) = cache.get(&BDDFunction::from_edge(manager, manager.clone_edge(&bdd))) {
+    if let Some(result) = cache.get(&BDDFunction::from_edge(manager, manager.clone_edge(bdd))) {
         return Ok(*result);
     }
 
-    let bdd_level = match manager.get_node(&bdd) {
+    let bdd_level = match manager.get_node(bdd) {
         Node::Terminal(_terminal) => {
             return Ok(true);
         }
@@ -654,9 +650,9 @@ fn check_partition_function_edge<'id>(
     let result = if let Some(domain_var) = domain.first() {
         if bdd_level > *domain_var {
             // Skipped levels, so catch up in the domain.
-            check_partition_function_edge(manager, cache, bdd.borrowed(), &domain[1..])
+            check_partition_function_edge(manager, cache, bdd, &domain[1..])
         } else if bdd_level == *domain_var {
-            let (high, low) = collect_children(manager.get_node(&bdd).unwrap_inner());
+            let (high, low) = collect_children(manager.get_node(bdd).unwrap_inner());
 
             let high_result = check_partition_function_edge(manager, cache, high, &domain[1..])?;
             let low_result = check_partition_function_edge(manager, cache, low, &domain[1..])?;
@@ -668,19 +664,19 @@ fn check_partition_function_edge<'id>(
     } else {
         // The domain was completely visited, so now we check whether there is
         // exactly one assignment to the range variables.
-        is_bdd_cube_edge(manager, bdd.borrowed())
+        is_bdd_cube_edge(manager, bdd)
     }?;
 
-    cache.insert(BDDFunction::from_edge(manager, manager.clone_edge(&bdd)), result);
+    cache.insert(BDDFunction::from_edge(manager, manager.clone_edge(bdd)), result);
     Ok(result)
 }
 
 /// Checks if the given BDD is a cube, i.e., it represents a single bitvector over the given variables.
 fn is_bdd_cube_edge<'id>(
     manager: &<BDDFunction as Function>::Manager<'id>,
-    bdd: Borrowed<EdgeOfFunc<'id, BDDFunction>>,
+    bdd: Ref<EdgeOfFunc<'id, BDDFunction>>,
 ) -> Result<bool, MercError> {
-    match manager.get_node(&bdd) {
+    match manager.get_node(bdd) {
         Node::Terminal(terminal) => match terminal {
             BDDTerminal::True => Ok(true),
             BDDTerminal::False => Ok(false),
@@ -715,7 +711,7 @@ pub(crate) fn extend_relation(
             manager,
             extend_relation_edge(
                 manager,
-                relation.as_edge(manager).borrowed(),
+                relation.as_edge(manager),
                 state_variables,
                 next_state_variables,
                 write_variables,
@@ -728,11 +724,11 @@ pub(crate) fn extend_relation(
 /// state variable that is not written by the transition group.
 fn extend_relation_edge<'id>(
     manager: &<BDDFunction as Function>::Manager<'id>,
-    relation: Borrowed<EdgeOfFunc<'id, BDDFunction>>,
+    relation: Ref<EdgeOfFunc<'id, BDDFunction>>,
     state_variables: &[VarNo],
     next_state_variables: &[VarNo],
     write_variables: &[VarNo],
-) -> Result<EdgeOfFunc<'id, BDDFunction>, OutOfMemory> {
+) -> Result<OwnEdgeOfFunc<'id, BDDFunction>, OutOfMemory> {
     debug_assert_eq!(
         state_variables.len(),
         next_state_variables.len(),
@@ -753,8 +749,8 @@ fn extend_relation_edge<'id>(
             reduce(
                 manager,
                 *next_state_var,
-                manager.clone_edge(&eq),
-                manager.clone_edge(&f_edge),
+                manager.clone_edge(eq.borrowed()),
+                manager.clone_edge(f_edge.borrowed()),
             )?,
         );
         let high = EdgeDropGuard::new(
@@ -762,14 +758,14 @@ fn extend_relation_edge<'id>(
             reduce(
                 manager,
                 *next_state_var,
-                manager.clone_edge(&f_edge),
-                manager.clone_edge(&eq),
+                manager.clone_edge(f_edge.borrowed()),
+                manager.clone_edge(eq.borrowed()),
             )?,
         );
         eq = EdgeDropGuard::new(manager, reduce(manager, *state_var, low.into_edge(), high.into_edge())?);
     }
 
-    BDDFunction::and_edge(manager, &relation, &eq)
+    BDDFunction::and_edge(manager, relation, eq.borrowed())
 }
 
 /// Encodes the given block number into a BDD using the given variables as bits.
@@ -785,7 +781,7 @@ fn encode_block<'id>(
     manager: &<BDDFunction as Function>::Manager<'id>,
     variables: &[BDDFunction],
     block_no: u64,
-) -> Result<EdgeOfFunc<'id, BDDFunction>, OutOfMemory> {
+) -> Result<OwnEdgeOfFunc<'id, BDDFunction>, OutOfMemory> {
     debug_assert!(
         variables.len() >= required_bits_64(block_no) as usize,
         "Not enough variables to encode block number {}",
@@ -800,13 +796,13 @@ fn encode_block<'id>(
             // bit is 1
             result = EdgeDropGuard::new(
                 manager,
-                BDDFunction::ite_edge(manager, var.as_edge(manager), &result, &f_edge)?,
+                BDDFunction::ite_edge(manager, var.as_edge(manager), result.borrowed(), f_edge.borrowed())?,
             );
         } else {
             // bit is 0
             result = EdgeDropGuard::new(
                 manager,
-                BDDFunction::ite_edge(manager, var.as_edge(manager), &f_edge, &result)?,
+                BDDFunction::ite_edge(manager, var.as_edge(manager), f_edge.borrowed(), result.borrowed())?,
             );
         }
     }
@@ -821,22 +817,22 @@ fn encode_block<'id>(
 /// Should be the inverse of [encode_block].
 fn decode_block<'id>(
     manager: &<BDDFunction as Function>::Manager<'id>,
-    block: Borrowed<EdgeOfFunc<'id, BDDFunction>>,
+    block: Ref<EdgeOfFunc<'id, BDDFunction>>,
 ) -> u64 {
     let mut result = 0u64;
     let mut mask = 1u64;
-    let mut block = block.borrowed();
+    let mut block = block;
 
     let f_edge = EdgeDropGuard::new(manager, BDDFunction::f_edge(manager));
-    debug_assert!(*block != *f_edge, "decode_block called on the false terminal");
-    while let Node::Inner(node) = manager.get_node(&block) {
+    debug_assert!(block != f_edge.borrowed(), "decode_block called on the false terminal");
+    while let Node::Inner(node) = manager.get_node(block) {
         let (b_high, b_low) = collect_children(node);
         // For a cube exactly one child is false; the other branch encodes the bit.
-        if *b_low != *f_edge {
-            debug_assert!(*b_high == *f_edge, "decode_block input is not a cube");
+        if b_low != f_edge.borrowed() {
+            debug_assert!(b_high == f_edge.borrowed(), "decode_block input is not a cube");
             block = b_low;
         } else {
-            debug_assert!(*b_high != *f_edge, "decode_block input is not a cube");
+            debug_assert!(b_high != f_edge.borrowed(), "decode_block input is not a cube");
             result |= mask;
             block = b_high;
         }
@@ -1004,14 +1000,12 @@ mod tests {
     use std::ops::Range;
 
     use oxidd::BooleanFunction;
-    use oxidd::Edge;
     use oxidd::Function;
     use oxidd::Manager;
     use oxidd::ManagerRef;
     use oxidd::VarNo;
     use oxidd::bdd::BDDFunction;
     use oxidd::error::DuplicateVarName;
-    use oxidd::util::Borrowed;
     use rand::RngExt;
 
     use merc_lts::LTS;
@@ -1064,7 +1058,7 @@ mod tests {
                     .unwrap();
 
                 let encoded = encode_block(manager, &block_variables_bdds, block_number).unwrap();
-                let decoded = decode_block(manager, Borrowed::new(encoded));
+                let decoded = decode_block(manager, encoded.borrowed());
 
                 assert_eq!(
                     block_number, decoded,
@@ -1170,7 +1164,7 @@ mod tests {
 
             ldd_manager.with_manager_shared(|manager| {
                 assert!(
-                    !bdd.satisfiable() || is_bdd_cube_edge(manager, bdd.as_edge(manager).borrowed()).unwrap(),
+                    !bdd.satisfiable() || is_bdd_cube_edge(manager, bdd.as_edge(manager)).unwrap(),
                     "The bdd was created as a cube, so it should be a cube"
                 );
             })

@@ -501,10 +501,11 @@ impl<'a> VariabilityZielonkaSolver<'a> {
                             manager,
                             BDDFunction::and_edge(
                                 manager,
-                                &EdgeDropGuard::new(
+                                EdgeDropGuard::new(
                                     manager,
                                     BDDFunction::and_edge(manager, gamma[v].as_edge(manager), A[w].as_edge(manager))?,
-                                ),
+                                )
+                                .borrowed(),
                                 edge_guard.as_edge(manager),
                             )?,
                         );
@@ -523,14 +524,15 @@ impl<'a> VariabilityZielonkaSolver<'a> {
                                         manager,
                                         BDDFunction::and_edge(
                                             manager,
-                                            &EdgeDropGuard::new(
+                                            EdgeDropGuard::new(
                                                 manager,
                                                 BDDFunction::and_edge(
                                                     manager,
                                                     gamma[v].as_edge(manager),
                                                     edge_w1.label().as_edge(manager),
                                                 )?,
-                                            ),
+                                            )
+                                            .borrowed(),
                                             gamma[edge_w1.to()].as_edge(manager),
                                         )?,
                                     );
@@ -550,12 +552,12 @@ impl<'a> VariabilityZielonkaSolver<'a> {
                                             manager,
                                             BDDFunction::and_edge(
                                                 manager,
-                                                &a,
-                                                &EdgeDropGuard::new(
+                                                a.borrowed(),
+                                                EdgeDropGuard::new(
                                                     manager,
                                                     BDDFunction::or_edge(
                                                         manager,
-                                                        &EdgeDropGuard::new(
+                                                        EdgeDropGuard::new(
                                                             manager,
                                                             minus_edge(
                                                                 manager,
@@ -564,12 +566,14 @@ impl<'a> VariabilityZielonkaSolver<'a> {
                                                                 } else {
                                                                     self.game.configuration().as_edge(manager)
                                                                 },
-                                                                &tmp,
+                                                                tmp.borrowed(),
                                                             )?,
-                                                        ),
+                                                        )
+                                                        .borrowed(),
                                                         A[edge_w1.to()].as_edge(manager),
                                                     )?,
-                                                ),
+                                                )
+                                                .borrowed(),
                                             )?,
                                         );
                                     }
@@ -577,10 +581,11 @@ impl<'a> VariabilityZielonkaSolver<'a> {
                             }
 
                             // 15. a \ A(v) != \emptyset
-                            if *EdgeDropGuard::new(manager, minus_edge(manager, &a, A[v].as_edge(manager))?) != *f_edge
+                            if *EdgeDropGuard::new(manager, minus_edge(manager, a.borrowed(), A[v].as_edge(manager))?)
+                                != *f_edge
                             {
                                 // 16. A(v) := A(v) \cup a
-                                let update = BDDFunction::or_edge(manager, A[v].as_edge(manager), &a)?;
+                                let update = BDDFunction::or_edge(manager, A[v].as_edge(manager), a.borrowed())?;
                                 A.set(manager, v, BDDFunction::from_edge(manager, update));
 
                                 // 17. if v not in Q then Q.push(v)

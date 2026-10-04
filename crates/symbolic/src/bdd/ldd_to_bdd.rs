@@ -1,5 +1,4 @@
 use oxidd::BooleanFunction;
-use oxidd::Edge;
 use oxidd::Function;
 use oxidd::Manager;
 use oxidd::ManagerRef;
@@ -9,10 +8,11 @@ use oxidd::bdd::BDDManagerRef;
 use oxidd::ldd::LDDFunction;
 use oxidd::ldd::LDDManagerRef;
 use oxidd::ldd::Value;
-use oxidd::util::Borrowed;
 use oxidd::util::OptBool;
 use oxidd::util::OutOfMemory;
+use oxidd::util::Ref;
 use oxidd_core::function::EdgeOfFunc;
+use oxidd_core::function::OwnEdgeOfFunc;
 use oxidd_core::util::EdgeDropGuard;
 use oxidd_rules_bdd::simple::BDDTerminal;
 use rustc_hash::FxHashMap;
@@ -57,7 +57,7 @@ pub fn ldd_to_bdd_edge<'id>(
     ldd: &LDDFunction,
     bits_per_layer: &LDDFunction,
     bit_variables: &[VarNo],
-) -> Result<EdgeOfFunc<'id, BDDFunction>, OutOfMemory> {
+) -> Result<OwnEdgeOfFunc<'id, BDDFunction>, OutOfMemory> {
     // Base cases
     if ldd.is_empty() {
         return bdd_manager.get_terminal(BDDTerminal::False);
@@ -104,19 +104,19 @@ pub fn ldd_to_bdd_edge<'id>(
             // bit is 1
             down_bdd = EdgeDropGuard::new(
                 bdd_manager,
-                BDDFunction::ite_edge(bdd_manager, &var, &down_bdd, &f_edge)?,
+                BDDFunction::ite_edge(bdd_manager, var.borrowed(), down_bdd.borrowed(), f_edge.borrowed())?,
             );
         } else {
             // bit is 0
             down_bdd = EdgeDropGuard::new(
                 bdd_manager,
-                BDDFunction::ite_edge(bdd_manager, &var, &f_edge, &down_bdd)?,
+                BDDFunction::ite_edge(bdd_manager, var.borrowed(), f_edge.borrowed(), down_bdd.borrowed())?,
             );
         }
     }
 
-    let result = BDDFunction::or_edge(bdd_manager, &down_bdd, &right_bdd)?;
-    cache.insert(ldd.clone(), BDDFunction::from_edge_ref(bdd_manager, &result));
+    let result = BDDFunction::or_edge(bdd_manager, down_bdd.borrowed(), right_bdd.borrowed())?;
+    cache.insert(ldd.clone(), BDDFunction::from_edge_ref(bdd_manager, result.borrowed()));
     Ok(result)
 }
 
@@ -141,7 +141,7 @@ pub fn bdd_to_ldd(
                 ldd_manager,
                 manager,
                 &mut cache,
-                edge.borrowed(),
+                edge,
                 variables,
                 bits_per_layer,
                 current_bit,
@@ -158,14 +158,14 @@ pub fn bdd_to_ldd_edge<'id, 'ldd>(
     ldd_manager: &<LDDFunction as Function>::Manager<'ldd>,
     manager: &<BDDFunction as Function>::Manager<'id>,
     cache: &mut FxHashMap<(BDDFunction, usize, Value, Value), LDDFunction>,
-    bdd: Borrowed<EdgeOfFunc<'id, BDDFunction>>,
+    bdd: Ref<EdgeOfFunc<'id, BDDFunction>>,
     variables: &[VarNo],
     bits_per_layer: &[Value],
     current_bit: Value,
     current_value: Value,
 ) -> Result<LDDFunction, OutOfMemory> {
     // Base case: the empty set is represented by the False terminal.
-    if let oxidd::Node::Terminal(BDDTerminal::False) = manager.get_node(&bdd) {
+    if let oxidd::Node::Terminal(BDDTerminal::False) = manager.get_node(bdd) {
         return LDDFunction::empty_set(ldd_manager);
     }
 
@@ -173,7 +173,7 @@ pub fn bdd_to_ldd_edge<'id, 'ldd>(
     // be the True terminal here, since any remaining path would require further variables.
     if variables.is_empty() {
         debug_assert!(
-            matches!(manager.get_node(&bdd), oxidd::Node::Terminal(BDDTerminal::True)),
+            matches!(manager.get_node(bdd), oxidd::Node::Terminal(BDDTerminal::True)),
             "Expected the True terminal after consuming all variables"
         );
         return LDDFunction::singleton(ldd_manager, &[current_value]);
@@ -183,7 +183,7 @@ pub fn bdd_to_ldd_edge<'id, 'ldd>(
     // remain) are otherwise expanded independently each time, causing exponential blowup when the
     // same node is reachable via multiple paths.
     let cache_key = (
-        BDDFunction::from_edge_ref(manager, &*bdd),
+        BDDFunction::from_edge_ref(manager, bdd),
         variables.len(),
         current_bit,
         current_value,
@@ -214,10 +214,13 @@ pub fn bdd_to_ldd_edge<'id, 'ldd>(
         // all write bits, so the variable list is generally not in level order.
         let var = *variables.first().expect("Missing variable for current layer");
         let var_edge = EdgeDropGuard::new(manager, BDDFunction::var_edge(manager, var)?);
-        let neg_var_edge = EdgeDropGuard::new(manager, BDDFunction::not_edge(manager, &var_edge)?);
+        let neg_var_edge = EdgeDropGuard::new(manager, BDDFunction::not_edge(manager, var_edge.borrowed())?);
 
-        let high_edge = EdgeDropGuard::new(manager, BDDFunction::restrict_edge(manager, &*bdd, &var_edge)?);
-        let low_edge = EdgeDropGuard::new(manager, BDDFunction::restrict_edge(manager, &*bdd, &neg_var_edge)?);
+        let high_edge = EdgeDropGuard::new(manager, BDDFunction::restrict_edge(manager, bdd, var_edge.borrowed())?);
+        let low_edge = EdgeDropGuard::new(
+            manager,
+            BDDFunction::restrict_edge(manager, bdd, neg_var_edge.borrowed())?,
+        );
 
         // Recurse for high and low cofactors
         let high = bdd_to_ldd_edge(

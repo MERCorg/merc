@@ -123,7 +123,7 @@ impl Submap {
         manager_ref.with_manager_shared(|manager| -> Result<(), MercError> {
             let f_edge = EdgeDropGuard::new(manager, BDDFunction::f_edge(manager));
             for (i, func) in self.mapping.iter_mut().enumerate() {
-                let was_satisfiable = *func.as_edge(manager) != *f_edge;
+                let was_satisfiable = func.as_edge(manager) != f_edge.borrowed();
                 if was_satisfiable {
                     *func = BDDFunction::from_edge(
                         manager,
@@ -133,7 +133,7 @@ impl Submap {
                             func.as_edge(manager),
                         )?,
                     );
-                    let is_satisfiable = *func.as_edge(manager) != *f_edge;
+                    let is_satisfiable = func.as_edge(manager) != f_edge.borrowed();
 
                     // `was_satisfiable` is already true in this branch.
                     if !is_satisfiable {
@@ -156,7 +156,7 @@ impl Submap {
             for (i, func) in self.mapping.iter_mut().enumerate() {
                 let func_edge = func.as_edge(manager);
 
-                let was_satisfiable = *func_edge != *f_edge;
+                let was_satisfiable = func_edge != f_edge.borrowed();
                 let new_func = BDDFunction::or_edge(manager, func_edge, other.mapping[i].as_edge(manager))?;
                 let is_satisfiable = new_func != *f_edge;
 
@@ -185,7 +185,7 @@ impl Submap {
             for func in self.mapping.iter_mut() {
                 let func_edge = func.as_edge(manager);
 
-                let was_satisfiable = *func_edge != *f_edge;
+                let was_satisfiable = func_edge != f_edge.borrowed();
                 let new_func = BDDFunction::and_edge(manager, func_edge, configuration.as_edge(manager))?;
                 let is_satisfiable = new_func != *f_edge;
 
@@ -215,7 +215,7 @@ impl Submap {
             for func in self.mapping.iter_mut() {
                 let func_edge = func.as_edge(manager);
 
-                let was_satisfiable = *func_edge != *f_edge;
+                let was_satisfiable = func_edge != f_edge.borrowed();
                 let new_func = minus_edge(manager, func_edge, conf_edge)?;
                 let is_satisfiable = new_func != *f_edge;
 
