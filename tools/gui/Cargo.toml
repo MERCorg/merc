@@ -35,7 +35,7 @@ rfd = { version = "0.17" }
 slint = { version = "1.18", features = ["compat-1-2", "std", "accessibility", "backend-winit", "renderer-femtovg"], default-features = false }
 slint-build = "1.18"
 tiny-skia = "0.12"
-tokio = { version = "1.52", features = ["rt", "macros"] }
+tokio = { version = "1.53", features = ["rt", "macros"] }
 # This version must be kept in sync with femtovg
 wgpu = "30.0"
 rand = "0.10"
