@@ -323,8 +323,13 @@ ProcExprPrefix = _{
 }
     ProcExprSum = { "sum" ~ VarsDeclList ~ "." }
     ProcExprDist = { "dist" ~ VarsDeclList ~ "[" ~ DataExpr ~ "]" ~ "." }
-    ProcExprIfThen = { DataExpr ~ "->" ~ ProcExprNoIf ~ "<>" }
-    ProcExprIf = { DataExpr ~ "->" }
+    ProcExprIfThen = { ElseMarker ~ DataExpr ~ "->" ~ ProcExprNoIf ~ "<>" }
+    ProcExprIf = { CondMarker ~ DataExpr ~ "->" }
+
+/// Inserted by `condition_marker` in front of every condition (`CondMarker`) and in front of those
+/// that have a matching `<>` (`ElseMarker`), so that other positions fail in O(1).
+CondMarker = _{ "\u{E000}" }
+ElseMarker = _{ "\u{E001}" }
 
 ProcExprInfix = _{
       ProcExprChoice

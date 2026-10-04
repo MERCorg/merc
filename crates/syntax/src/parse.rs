@@ -18,6 +18,7 @@ use crate::UntypedPbes;
 use crate::UntypedPres;
 use crate::UntypedProcessSpecification;
 use crate::UntypedStateFrmSpec;
+use crate::condition_marker::with_markers;
 
 #[derive(Parser)]
 #[grammar = "mcrl2_grammar.pest"]
@@ -26,10 +27,12 @@ pub struct Mcrl2Parser;
 /// Parses the given mCRL2 specification into an AST.
 impl UntypedProcessSpecification {
     pub fn parse(spec: &str) -> Result<UntypedProcessSpecification, MercError> {
-        let mut result = Mcrl2Parser::parse(Rule::MCRL2Spec, spec).map_err(extend_parser_error)?;
-        let root = result.next().expect("Could not parse mCRL2 specification");
+        with_markers(spec, |spec| {
+            let mut result = Mcrl2Parser::parse(Rule::MCRL2Spec, spec).map_err(extend_parser_error)?;
+            let root = result.next().expect("Could not parse mCRL2 specification");
 
-        Ok(Mcrl2Parser::MCRL2Spec(ParseNode::new(root))?)
+            Ok(Mcrl2Parser::MCRL2Spec(ParseNode::new(root))?)
+        })
     }
 }
 

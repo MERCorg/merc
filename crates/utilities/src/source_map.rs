@@ -34,13 +34,13 @@ impl SourceMap {
     /// Registers `text` directly, under `name`, as ordinary (non-virtual) source — for text with
     /// no on-disk file behind it, such as a single in-memory buffer (LSP editing, an ad hoc
     /// expression string) that still deserves file-accurate rendering.
-    pub fn add_text(&mut self, name: impl Into<String>, text: impl Into<String>) -> SourceId {
+    pub fn add_text<N: Into<String>, T: Into<String>>(&mut self, name: N, text: T) -> SourceId {
         self.add(name.into(), text.into(), false)
     }
 
     /// Registers `text` as *virtual*: generated content with no real file behind it at all, such
     /// as the system-defined ("Appendix B") built-in declarations. See [`SourceMap::is_virtual`].
-    pub fn add_virtual(&mut self, name: impl Into<String>, text: impl Into<String>) -> SourceId {
+    pub fn add_virtual<N: Into<String>, T: Into<String>>(&mut self, name: N, text: T) -> SourceId {
         self.add(name.into(), text.into(), true)
     }
 

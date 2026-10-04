@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 
+mod condition_marker;
 mod counterexample_formula;
 mod fresh_state_var;
 pub mod imports;
