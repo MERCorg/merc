@@ -1,8 +1,12 @@
-//! Shifts every [`Span`](merc_utilities::Span) reachable from a parsed tree by
-//! a fixed `delta` — the rebasing counterpart of padding a file's text with
-//! `delta` leading bytes before handing it to pest so every offset it reports
-//! already lands in the shared, [`SourceMap`](merc_utilities::SourceMap) wide
-//! space.
+//! Rewrites every [`Span`](merc_utilities::Span) reachable from a parsed tree.
+//!
+//! The common case is a fixed shift ([`OffsetSpans::offset_spans`]) — the rebasing counterpart of
+//! padding a file's text with leading bytes before handing it to pest so every offset it reports
+//! already lands in the shared, [`SourceMap`](merc_utilities::SourceMap) wide space. The general
+//! form ([`OffsetSpans::map_spans`]) applies an arbitrary mapping, which
+//! [`crate::condition_marker`] uses to undo the offsets shifted by its inserted markers.
+
+use merc_utilities::Span;
 
 use crate::ActDecl;
 use crate::ActFrm;
@@ -36,93 +40,98 @@ use crate::UntypedStateFrmSpec;
 /// the bundled/generated template machinery need to rebase into a shared
 /// [`SourceMap`](merc_utilities::SourceMap).
 pub trait OffsetSpans {
+    /// Applies `f` to every span reachable from `self`.
+    fn map_spans<F: FnMut(&mut Span)>(&mut self, f: &mut F);
+
     /// Shifts every span reachable from `self` by `delta`.
-    fn offset_spans(&mut self, delta: usize);
+    fn offset_spans(&mut self, delta: usize) {
+        self.map_spans(&mut |span| span.shift(delta));
+    }
 }
 
 impl OffsetSpans for UntypedDataSpecification {
-    fn offset_spans(&mut self, delta: usize) {
+    fn map_spans<F: FnMut(&mut Span)>(&mut self, f: &mut F) {
         for decl in &mut self.sort_declarations {
-            offset_sort_decl(decl, delta);
+            offset_sort_decl(decl, f);
         }
         for decl in &mut self.constructor_declarations {
-            offset_id_decl(decl, delta);
+            offset_id_decl(decl, f);
         }
         for decl in &mut self.map_declarations {
-            offset_id_decl(decl, delta);
+            offset_id_decl(decl, f);
         }
         for eqn_spec in &mut self.equation_declarations {
-            offset_eqn_spec(eqn_spec, delta);
+            offset_eqn_spec(eqn_spec, f);
         }
         for decl in &mut self.type_var_declarations {
-            decl.span.shift(delta);
+            f(&mut decl.span);
         }
     }
 }
 
 impl OffsetSpans for UntypedProcessSpecification {
-    fn offset_spans(&mut self, delta: usize) {
-        self.data_specification.offset_spans(delta);
+    fn map_spans<F: FnMut(&mut Span)>(&mut self, f: &mut F) {
+        self.data_specification.map_spans(f);
         for decl in &mut self.global_variables {
-            offset_id_decl(decl, delta);
+            offset_id_decl(decl, f);
         }
         for decl in &mut self.action_declarations {
-            offset_act_decl(decl, delta);
+            offset_act_decl(decl, f);
         }
         for decl in &mut self.process_declarations {
-            offset_proc_decl(decl, delta);
+            offset_proc_decl(decl, f);
         }
         if let Some(init) = &mut self.init {
-            offset_process_expr(init, delta);
+            offset_process_expr(init, f);
         }
     }
 }
 
 impl OffsetSpans for UntypedStateFrmSpec {
-    fn offset_spans(&mut self, delta: usize) {
-        self.data_specification.offset_spans(delta);
+    fn map_spans<F: FnMut(&mut Span)>(&mut self, f: &mut F) {
+        self.data_specification.map_spans(f);
         for decl in &mut self.action_declarations {
-            offset_act_decl(decl, delta);
+            offset_act_decl(decl, f);
         }
-        offset_state_frm(&mut self.formula, delta);
+        offset_state_frm(&mut self.formula, f);
     }
 }
 
-fn offset_sort_decl(decl: &mut SortDecl, delta: usize) {
-    decl.span.shift(delta);
+fn offset_sort_decl<F: FnMut(&mut Span)>(decl: &mut SortDecl, f: &mut F) {
+    f(&mut decl.span);
     if let Some(expr) = &mut decl.expr {
-        offset_sort_expression(expr, delta);
+        offset_sort_expression(expr, f);
     }
 }
 
-fn offset_id_decl<Id>(decl: &mut IdDecl<Id>, delta: usize) {
-    decl.identifier.span.shift(delta);
-    offset_sort_expression(&mut decl.sort, delta);
+fn offset_id_decl<Id, F: FnMut(&mut Span)>(decl: &mut IdDecl<Id>, f: &mut F) {
+    f(&mut decl.identifier.span);
+    offset_sort_expression(&mut decl.sort, f);
 }
 
-fn offset_sort_expression(sort: &mut SortExpression, delta: usize) {
-    sort.span.shift(delta);
+fn offset_sort_expression<F: FnMut(&mut Span)>(sort: &mut SortExpression, f: &mut F) {
+    f(&mut sort.span);
     match &mut sort.node {
         SortExpressionKind::Product { lhs, rhs } => {
-            offset_sort_expression(lhs, delta);
-            offset_sort_expression(rhs, delta);
+            offset_sort_expression(lhs, f);
+            offset_sort_expression(rhs, f);
         }
         SortExpressionKind::Function { domain, range } => {
-            offset_sort_expression(domain, delta);
-            offset_sort_expression(range, delta);
+            offset_sort_expression(domain, f);
+            offset_sort_expression(range, f);
         }
         SortExpressionKind::FlattenedFunction { domain, range } => {
             for sort in domain {
-                offset_sort_expression(sort, delta);
+                offset_sort_expression(sort, f);
             }
-            offset_sort_expression(range, delta);
+            offset_sort_expression(range, f);
         }
         SortExpressionKind::Struct { inner } => {
             for constructor in inner {
-                offset_constructor_decl(constructor, delta);
+                offset_constructor_decl(constructor, f);
             }
         }
-        SortExpressionKind::Complex(_, sort) => offset_sort_expression(sort, delta),
+        SortExpressionKind::Complex(_, sort) => offset_sort_expression(sort, f),
         SortExpressionKind::Reference(_)
         | SortExpressionKind::TypeVar(_)
         | SortExpressionKind::ResolvedTypeVar(_)
@@ -131,40 +140,40 @@ fn offset_sort_expression(sort: &mut SortExpression, delta: usize) {
     }
 }
 
-fn offset_constructor_decl(constructor: &mut ConstructorDecl, delta: usize) {
-    constructor.name.span.shift(delta);
+fn offset_constructor_decl<F: FnMut(&mut Span)>(constructor: &mut ConstructorDecl, f: &mut F) {
+    f(&mut constructor.name.span);
     for (name, sort) in &mut constructor.args {
         if let Some(name) = name {
-            name.span.shift(delta);
+            f(&mut name.span);
         }
-        offset_sort_expression(sort, delta);
+        offset_sort_expression(sort, f);
     }
     if let Some(recogniser) = &mut constructor.recogniser {
-        recogniser.span.shift(delta);
+        f(&mut recogniser.span);
     }
 }
 
-fn offset_eqn_spec(eqn_spec: &mut EqnSpec, delta: usize) {
-    eqn_spec.span.shift(delta);
+fn offset_eqn_spec<F: FnMut(&mut Span)>(eqn_spec: &mut EqnSpec, f: &mut F) {
+    f(&mut eqn_spec.span);
     for variable in &mut eqn_spec.variables {
-        offset_id_decl(variable, delta);
+        offset_id_decl(variable, f);
     }
     for equation in &mut eqn_spec.equations {
-        offset_eqn_decl(equation, delta);
+        offset_eqn_decl(equation, f);
     }
 }
 
-fn offset_eqn_decl(equation: &mut EqnDecl, delta: usize) {
-    equation.span.shift(delta);
+fn offset_eqn_decl<F: FnMut(&mut Span)>(equation: &mut EqnDecl, f: &mut F) {
+    f(&mut equation.span);
     if let Some(condition) = &mut equation.condition {
-        offset_data_expr(condition, delta);
+        offset_data_expr(condition, f);
     }
-    offset_data_expr(&mut equation.lhs, delta);
-    offset_data_expr(&mut equation.rhs, delta);
+    offset_data_expr(&mut equation.lhs, f);
+    offset_data_expr(&mut equation.rhs, f);
 }
 
-fn offset_data_expr(expr: &mut DataExpr, delta: usize) {
-    expr.span.shift(delta);
+fn offset_data_expr<F: FnMut(&mut Span)>(expr: &mut DataExpr, f: &mut F) {
+    f(&mut expr.span);
     match &mut expr.node {
         DataExprKind::Id(_)
         | DataExprKind::Resolved(_, _)
@@ -174,98 +183,98 @@ fn offset_data_expr(expr: &mut DataExpr, delta: usize) {
         | DataExprKind::EmptySet
         | DataExprKind::EmptyBag => {}
         DataExprKind::Application { function, arguments } => {
-            offset_data_expr(function, delta);
+            offset_data_expr(function, f);
             for argument in arguments {
-                offset_data_expr(argument, delta);
+                offset_data_expr(argument, f);
             }
         }
         DataExprKind::List(exprs) | DataExprKind::Set(exprs) => {
             for expr in exprs {
-                offset_data_expr(expr, delta);
+                offset_data_expr(expr, f);
             }
         }
         DataExprKind::Bag(elements) => {
             for element in elements {
-                offset_bag_element(element, delta);
+                offset_bag_element(element, f);
             }
         }
         DataExprKind::SetBagComp { variable, predicate } => {
-            offset_id_decl(variable, delta);
-            offset_data_expr(predicate, delta);
+            offset_id_decl(variable, f);
+            offset_data_expr(predicate, f);
         }
         DataExprKind::Lambda { variables, body } | DataExprKind::Quantifier { variables, body, .. } => {
             for variable in variables {
-                offset_id_decl(variable, delta);
+                offset_id_decl(variable, f);
             }
-            offset_data_expr(body, delta);
+            offset_data_expr(body, f);
         }
-        DataExprKind::Unary { expr, .. } => offset_data_expr(expr, delta),
+        DataExprKind::Unary { expr, .. } => offset_data_expr(expr, f),
         DataExprKind::Binary { lhs, rhs, .. } => {
-            offset_data_expr(lhs, delta);
-            offset_data_expr(rhs, delta);
+            offset_data_expr(lhs, f);
+            offset_data_expr(rhs, f);
         }
         DataExprKind::FunctionUpdate { expr, update } => {
-            offset_data_expr(expr, delta);
-            offset_data_expr(&mut update.expr, delta);
-            offset_data_expr(&mut update.update, delta);
+            offset_data_expr(expr, f);
+            offset_data_expr(&mut update.expr, f);
+            offset_data_expr(&mut update.update, f);
         }
         DataExprKind::Whr { expr, assignments } => {
-            offset_data_expr(expr, delta);
+            offset_data_expr(expr, f);
             for assignment in assignments {
-                offset_assignment(assignment, delta);
+                offset_assignment(assignment, f);
             }
         }
     }
 }
 
-fn offset_bag_element(element: &mut BagElement, delta: usize) {
-    offset_data_expr(&mut element.expr, delta);
-    offset_data_expr(&mut element.multiplicity, delta);
+fn offset_bag_element<F: FnMut(&mut Span)>(element: &mut BagElement, f: &mut F) {
+    offset_data_expr(&mut element.expr, f);
+    offset_data_expr(&mut element.multiplicity, f);
 }
 
-fn offset_assignment(assignment: &mut Assignment, delta: usize) {
-    assignment.span.shift(delta);
-    offset_data_expr(&mut assignment.expr, delta);
+fn offset_assignment<F: FnMut(&mut Span)>(assignment: &mut Assignment, f: &mut F) {
+    f(&mut assignment.span);
+    offset_data_expr(&mut assignment.expr, f);
 }
 
-fn offset_act_decl(decl: &mut ActDecl, delta: usize) {
-    decl.span.shift(delta);
-    decl.identifier.span.shift(delta);
+fn offset_act_decl<F: FnMut(&mut Span)>(decl: &mut ActDecl, f: &mut F) {
+    f(&mut decl.span);
+    f(&mut decl.identifier.span);
     for sort in &mut decl.args {
-        offset_sort_expression(sort, delta);
+        offset_sort_expression(sort, f);
     }
 }
 
-fn offset_proc_decl(decl: &mut ProcDecl, delta: usize) {
-    decl.span.shift(delta);
-    decl.identifier.span.shift(delta);
+fn offset_proc_decl<F: FnMut(&mut Span)>(decl: &mut ProcDecl, f: &mut F) {
+    f(&mut decl.span);
+    f(&mut decl.identifier.span);
     for param in &mut decl.params {
-        offset_id_decl(param, delta);
+        offset_id_decl(param, f);
     }
-    offset_process_expr(&mut decl.body, delta);
+    offset_process_expr(&mut decl.body, f);
 }
 
-fn offset_process_expr(expr: &mut ProcessExpr, delta: usize) {
-    expr.span.shift(delta);
+fn offset_process_expr<F: FnMut(&mut Span)>(expr: &mut ProcessExpr, f: &mut F) {
+    f(&mut expr.span);
     match &mut expr.node {
         ProcessExprKind::Delta | ProcessExprKind::Tau => {}
         ProcessExprKind::Id(name, assignments) => {
-            name.span.shift(delta);
+            f(&mut name.span);
             for assignment in assignments {
-                offset_assignment(assignment, delta);
+                offset_assignment(assignment, f);
             }
         }
         ProcessExprKind::Action(name, args) => {
-            name.span.shift(delta);
+            f(&mut name.span);
             for arg in args {
-                offset_data_expr(arg, delta);
+                offset_data_expr(arg, f);
             }
         }
         ProcessExprKind::Sum { variables, operand } => {
             for variable in variables {
-                offset_id_decl(variable, delta);
+                offset_id_decl(variable, f);
             }
-            offset_process_expr(operand, delta);
+            offset_process_expr(operand, f);
         }
         ProcessExprKind::Dist {
             variables,
@@ -273,162 +282,162 @@ fn offset_process_expr(expr: &mut ProcessExpr, delta: usize) {
             operand,
         } => {
             for variable in variables {
-                offset_id_decl(variable, delta);
+                offset_id_decl(variable, f);
             }
-            offset_data_expr(expr, delta);
-            offset_process_expr(operand, delta);
+            offset_data_expr(expr, f);
+            offset_process_expr(operand, f);
         }
         ProcessExprKind::Binary { lhs, rhs, .. } => {
-            offset_process_expr(lhs, delta);
-            offset_process_expr(rhs, delta);
+            offset_process_expr(lhs, f);
+            offset_process_expr(rhs, f);
         }
         ProcessExprKind::Hide { actions, operand } | ProcessExprKind::Block { actions, operand } => {
             for action in actions {
-                action.span.shift(delta);
+                f(&mut action.span);
             }
-            offset_process_expr(operand, delta);
+            offset_process_expr(operand, f);
         }
         ProcessExprKind::Rename { renames, operand } => {
             for rename in renames {
-                rename.from.span.shift(delta);
-                rename.to.span.shift(delta);
+                f(&mut rename.from.span);
+                f(&mut rename.to.span);
             }
-            offset_process_expr(operand, delta);
+            offset_process_expr(operand, f);
         }
         ProcessExprKind::Allow { actions, operand } => {
             for label in actions {
                 for action in &mut label.actions {
-                    action.span.shift(delta);
+                    f(&mut action.span);
                 }
             }
-            offset_process_expr(operand, delta);
+            offset_process_expr(operand, f);
         }
         ProcessExprKind::Comm { comm, operand } => {
             for expr in comm {
                 for action in &mut expr.from.actions {
-                    action.span.shift(delta);
+                    f(&mut action.span);
                 }
-                expr.to.span.shift(delta);
+                f(&mut expr.to.span);
             }
-            offset_process_expr(operand, delta);
+            offset_process_expr(operand, f);
         }
         ProcessExprKind::Condition { condition, then, else_ } => {
-            offset_data_expr(condition, delta);
-            offset_process_expr(then, delta);
+            offset_data_expr(condition, f);
+            offset_process_expr(then, f);
             if let Some(operand) = else_ {
-                offset_process_expr(operand, delta);
+                offset_process_expr(operand, f);
             }
         }
         ProcessExprKind::At { expr, operand } => {
-            offset_process_expr(expr, delta);
-            offset_data_expr(operand, delta);
+            offset_process_expr(expr, f);
+            offset_data_expr(operand, f);
         }
     }
 }
 
-fn offset_state_frm(formula: &mut StateFrm, delta: usize) {
-    formula.span.shift(delta);
+fn offset_state_frm<F: FnMut(&mut Span)>(formula: &mut StateFrm, f: &mut F) {
+    f(&mut formula.span);
     match &mut formula.node {
         StateFrmKind::True | StateFrmKind::False => {}
         StateFrmKind::Delay(time) | StateFrmKind::Yaled(time) => {
             if let Some(expr) = time {
-                offset_data_expr(expr, delta);
+                offset_data_expr(expr, f);
             }
         }
         StateFrmKind::Id(name, args) | StateFrmKind::Resolved(name, args, _) => {
-            name.span.shift(delta);
+            f(&mut name.span);
             for arg in args {
-                offset_data_expr(arg, delta);
+                offset_data_expr(arg, f);
             }
         }
         StateFrmKind::DataValExprLeftMult(expr, formula) => {
-            offset_data_expr(expr, delta);
-            offset_state_frm(formula, delta);
+            offset_data_expr(expr, f);
+            offset_state_frm(formula, f);
         }
         StateFrmKind::DataValExprRightMult(formula, expr) => {
-            offset_state_frm(formula, delta);
-            offset_data_expr(expr, delta);
+            offset_state_frm(formula, f);
+            offset_data_expr(expr, f);
         }
-        StateFrmKind::DataValExpr(expr) => offset_data_expr(expr, delta),
+        StateFrmKind::DataValExpr(expr) => offset_data_expr(expr, f),
         StateFrmKind::Modality {
             formula: reg_frm, expr, ..
         } => {
-            offset_reg_frm(reg_frm, delta);
-            offset_state_frm(expr, delta);
+            offset_reg_frm(reg_frm, f);
+            offset_state_frm(expr, f);
         }
-        StateFrmKind::Unary { expr, .. } => offset_state_frm(expr, delta),
+        StateFrmKind::Unary { expr, .. } => offset_state_frm(expr, f),
         StateFrmKind::Binary { lhs, rhs, .. } => {
-            offset_state_frm(lhs, delta);
-            offset_state_frm(rhs, delta);
+            offset_state_frm(lhs, f);
+            offset_state_frm(rhs, f);
         }
         StateFrmKind::Quantifier { variables, body, .. } | StateFrmKind::Bound { variables, body, .. } => {
             for variable in variables {
-                offset_id_decl(variable, delta);
+                offset_id_decl(variable, f);
             }
-            offset_state_frm(body, delta);
+            offset_state_frm(body, f);
         }
         StateFrmKind::FixedPoint { variable, body, .. } => {
-            offset_state_var_decl(variable, delta);
-            offset_state_frm(body, delta);
+            offset_state_var_decl(variable, f);
+            offset_state_frm(body, f);
         }
     }
 }
 
-fn offset_state_var_decl(decl: &mut StateVarDecl, delta: usize) {
-    decl.span.shift(delta);
-    decl.identifier.span.shift(delta);
+fn offset_state_var_decl<F: FnMut(&mut Span)>(decl: &mut StateVarDecl, f: &mut F) {
+    f(&mut decl.span);
+    f(&mut decl.identifier.span);
     for argument in &mut decl.arguments {
-        offset_state_var_assignment(argument, delta);
+        offset_state_var_assignment(argument, f);
     }
 }
 
-fn offset_state_var_assignment(assignment: &mut StateVarAssignment, delta: usize) {
-    assignment.identifier.span.shift(delta);
-    offset_sort_expression(&mut assignment.sort, delta);
-    offset_data_expr(&mut assignment.expr, delta);
+fn offset_state_var_assignment<F: FnMut(&mut Span)>(assignment: &mut StateVarAssignment, f: &mut F) {
+    f(&mut assignment.identifier.span);
+    offset_sort_expression(&mut assignment.sort, f);
+    offset_data_expr(&mut assignment.expr, f);
 }
 
-fn offset_reg_frm(formula: &mut RegFrm, delta: usize) {
-    formula.span.shift(delta);
+fn offset_reg_frm<F: FnMut(&mut Span)>(formula: &mut RegFrm, f: &mut F) {
+    f(&mut formula.span);
     match &mut formula.node {
-        RegFrmKind::Action(act_frm) => offset_act_frm(act_frm, delta),
-        RegFrmKind::Iteration(inner) | RegFrmKind::Plus(inner) => offset_reg_frm(inner, delta),
+        RegFrmKind::Action(act_frm) => offset_act_frm(act_frm, f),
+        RegFrmKind::Iteration(inner) | RegFrmKind::Plus(inner) => offset_reg_frm(inner, f),
         RegFrmKind::Sequence { lhs, rhs } | RegFrmKind::Choice { lhs, rhs } => {
-            offset_reg_frm(lhs, delta);
-            offset_reg_frm(rhs, delta);
+            offset_reg_frm(lhs, f);
+            offset_reg_frm(rhs, f);
         }
     }
 }
 
-fn offset_act_frm(formula: &mut ActFrm, delta: usize) {
-    formula.span.shift(delta);
+fn offset_act_frm<F: FnMut(&mut Span)>(formula: &mut ActFrm, f: &mut F) {
+    f(&mut formula.span);
     match &mut formula.node {
         ActFrmKind::True | ActFrmKind::False => {}
-        ActFrmKind::MultAct(multi_action) => offset_multi_action(multi_action, delta),
-        ActFrmKind::DataExprVal(expr) => offset_data_expr(expr, delta),
-        ActFrmKind::Negation(inner) => offset_act_frm(inner, delta),
+        ActFrmKind::MultAct(multi_action) => offset_multi_action(multi_action, f),
+        ActFrmKind::DataExprVal(expr) => offset_data_expr(expr, f),
+        ActFrmKind::Negation(inner) => offset_act_frm(inner, f),
         ActFrmKind::Quantifier { variables, body, .. } => {
             for variable in variables {
-                offset_id_decl(variable, delta);
+                offset_id_decl(variable, f);
             }
-            offset_act_frm(body, delta);
+            offset_act_frm(body, f);
         }
         ActFrmKind::Binary { lhs, rhs, .. } => {
-            offset_act_frm(lhs, delta);
-            offset_act_frm(rhs, delta);
+            offset_act_frm(lhs, f);
+            offset_act_frm(rhs, f);
         }
         ActFrmKind::At { expr, operand } => {
-            offset_act_frm(expr, delta);
-            offset_data_expr(operand, delta);
+            offset_act_frm(expr, f);
+            offset_data_expr(operand, f);
         }
     }
 }
 
-fn offset_multi_action(multi_action: &mut MultiAction, delta: usize) {
+fn offset_multi_action<F: FnMut(&mut Span)>(multi_action: &mut MultiAction, f: &mut F) {
     for action in &mut multi_action.actions {
-        action.id.span.shift(delta);
+        f(&mut action.id.span);
         for arg in &mut action.args {
-            offset_data_expr(arg, delta);
+            offset_data_expr(arg, f);
         }
     }
 }
