@@ -50,3 +50,6 @@ tikv-jemallocator = { workspace = true, optional = true }
 # Makes it possible to check functional contracts in kani.
 [package.metadata.kani]
 unstable = { function-contracts = true, mem-predicates = true }
+
+[target.'cfg(kani_ra)'.dependencies]
+kani.workspace = true

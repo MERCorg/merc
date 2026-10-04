@@ -136,6 +136,9 @@ criterion = "0.8"
 # Used for the cadp FFI
 bindgen = "0.73"
 
+# Used for the kani checks
+kani = { git = "https://github.com/model-checking/kani", tag = "kani-0.68.0" }
+
 # The workspace crates.
 merc_aterm = { version = "3.0", path = "crates/aterm" }
 merc_collections = { version = "3.0", path = "crates/collections" }
