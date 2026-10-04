@@ -62,7 +62,7 @@ impl From<Equation> for StateFrm {
 impl ModalEquationSystem {
     /// Converts a plain state formula into a fixpoint equation system.
     ///
-    /// `formula` must already be resolved (see [`crate::resolve_modal_variables`]).
+    /// `formula` must already be resolved (see `resolve_modal_variables`).
     pub fn new(formula: &StateFrm, state_var_ids: &mut StateVarIdAllocator) -> Self {
         let mut equations = Vec::new();
         let mut identifier_generator = FreshStateVarGenerator::new(formula);

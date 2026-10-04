@@ -43,7 +43,7 @@ use crate::Priority;
 use crate::VertexIndex;
 use crate::compute_reachable;
 
-/// Type checks `spec` (running [`translate_regular_formulas`] first) and translates it against
+/// Type checks `spec` (first desugaring regular-expression modalities) and translates it against
 /// `lts` into a parity game. `spec`'s own `act` declarations are optional: with none, every action
 /// is accepted as a "simple action" — a plain LTS label, matched structurally rather than typed —
 /// see [`merc_typecheck::ModalSpecification`].

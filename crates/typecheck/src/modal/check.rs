@@ -315,7 +315,7 @@ fn check_state_var_inst(
 /// Type-checks a modality's regular formula: every action instance inside it against the `act`
 /// table, and every `val(...)`/`@`-time data expression against its expected sort.
 ///
-/// One [`Traverse::try_visit_mixed`] walk crosses from a `RegFrm`'s `Action` into its [`ActFrm`];
+/// One [`Traverse::try_visit_mixed`] walk crosses from a `RegFrm`'s `Action` into its `ActFrm`;
 /// a `RegFrm` node itself needs no checking, so all the per-node work lives in the
 /// `MixedNode::ActFrm` arm.
 fn check_reg_formula(

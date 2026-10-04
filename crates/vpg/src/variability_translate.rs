@@ -23,7 +23,7 @@ use crate::make_vpg_total;
 use crate::warn_unknown_action_labels;
 
 /// Type checks `spec` and translates it against `fts` into a variability parity game. `spec`'s own
-/// `act` declarations are optional, as in [`crate::translate`]; unlike that function, there's no
+/// `act` declarations are optional, as in [`crate::translate()`]; unlike that function, there's no
 /// desugaring step first, since regular-expression modalities (`*`/`+`) were never supported here.
 pub fn translate_vpg(
     manager_ref: &BDDManagerRef,
