@@ -40,12 +40,16 @@ pub use reduce::reduce_lts;
 pub use scc_decomposition::tau_scc_decomposition;
 pub use scc_decomposition::tau_scc_decomposition_iterative;
 pub use signature_refinement::branching_bisim_sigref;
+#[cfg(feature = "lean")]
+pub use signature_refinement::branching_bisim_sigref_impl;
 pub use signature_refinement::strong_bisim_sigref;
 pub use signatures::Signature;
 pub use signatures::SignatureBuilder;
 pub use signatures::branching_bisim_signature;
 pub use signatures::branching_bisim_signature_inductive;
 pub use signatures::branching_bisim_signature_sorted;
+#[cfg(feature = "lean")]
+pub use signatures::tau_cycle_elimination_and_reorder;
 pub use signatures::strong_bisim_signature;
 pub use signatures::weak_bisim_presignature_sorted;
 pub use signatures::weak_bisim_signature_sorted;

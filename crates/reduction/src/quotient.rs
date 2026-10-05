@@ -2,6 +2,8 @@
 
 use log::trace;
 use merc_collections::BlockIndex;
+#[cfg(feature = "lean")]
+use merc_collections::ByteCompressedVec;
 use merc_lts::LTS;
 use merc_lts::LabelIndex;
 use merc_lts::LabelledTransitionSystem;
@@ -24,6 +26,7 @@ use crate::diverges;
 /// If `eliminate_inert_taus` is true then non self-loop tau steps \[p\] -tau-> \[p\] are eliminated.
 /// If `eliminate_tau_loops` is true then tau self-loops s -tau-> s are eliminated.
 /// The two parameters are independent: each controls a disjoint set of transitions.
+#[cfg(not(feature = "lean"))]
 pub fn quotient_lts_naive<L: LTS, P: Partition>(
     lts: &L,
     partition: &P,
@@ -75,6 +78,104 @@ pub fn quotient_lts_naive<L: LTS, P: Partition>(
         StateIndex::new(partition.block_number(lts.initial_state_index()).value()),
         true,
     )
+}
+
+/// The Aeneas-translatable variant of [`quotient_lts_naive`].
+///
+/// Collects the transitions per block and then builds the quotient directly (sorted
+/// and without duplicates per state) via `LabelledTransitionSystem::from_raw_parts`,
+/// instead of going through `LtsBuilderMem` (which needs hashing of labels, sorting
+/// of labels, and a counting sort). The labels are those of `lts`, which already
+/// start with the tau label.
+#[cfg(feature = "lean")]
+pub fn quotient_lts_naive<L: LTS, P: Partition>(
+    lts: &L,
+    partition: &P,
+    eliminate_inert_taus: bool,
+    eliminate_tau_loops: bool,
+) -> LabelledTransitionSystem<L::Label> {
+    let outgoing = quotient_collect_transitions(lts, partition, eliminate_inert_taus, eliminate_tau_loops);
+
+    quotient_build(lts, partition, outgoing)
+}
+
+/// Returns the outgoing `(label, target block)` transitions of every block.
+#[cfg(feature = "lean")]
+fn quotient_collect_transitions<L: LTS, P: Partition>(
+    lts: &L,
+    partition: &P,
+    eliminate_inert_taus: bool,
+    eliminate_tau_loops: bool,
+) -> Vec<Vec<(LabelIndex, StateIndex)>> {
+    let mut outgoing: Vec<Vec<(LabelIndex, StateIndex)>> = Vec::new();
+    for _ in 0..partition.num_of_blocks() {
+        outgoing.push(Vec::new());
+    }
+
+    for state_index in lts.iter_states() {
+        for transition in lts.outgoing_transitions(state_index) {
+            let block = partition.block_number(state_index);
+            let to_block = partition.block_number(transition.to);
+
+            // Eliminate non-self-loop inert taus and (independently) tau self-loops.
+            if !(eliminate_inert_taus
+                && lts.is_hidden_label(transition.label)
+                && block == to_block
+                && state_index != transition.to)
+                && !(eliminate_tau_loops && lts.is_hidden_label(transition.label) && state_index == transition.to)
+            {
+                outgoing[block.value()].push((transition.label, StateIndex::new(to_block.value())));
+            }
+        }
+    }
+
+    outgoing
+}
+
+/// Builds the quotient LTS from the outgoing transitions of every block.
+#[cfg(feature = "lean")]
+fn quotient_build<L: LTS, P: Partition>(
+    lts: &L,
+    partition: &P,
+    mut outgoing: Vec<Vec<(LabelIndex, StateIndex)>>,
+) -> LabelledTransitionSystem<L::Label> {
+    let mut states = ByteCompressedVec::new();
+    let mut transition_labels = ByteCompressedVec::new();
+    let mut transition_to = ByteCompressedVec::new();
+
+    for block in 0..outgoing.len() {
+        states.push(transition_labels.len());
+
+        // Remove the duplicate transitions that were merged by the quotient.
+        outgoing[block].sort_unstable();
+        outgoing[block].dedup();
+
+        push_transitions(&outgoing[block], &mut transition_labels, &mut transition_to);
+    }
+
+    // Add the sentinel state.
+    states.push(transition_labels.len());
+
+    LabelledTransitionSystem::from_raw_parts(
+        StateIndex::new(partition.block_number(lts.initial_state_index()).value()),
+        states,
+        transition_labels,
+        transition_to,
+        lts.labels().to_vec(),
+    )
+}
+
+/// Appends the given transitions to the transition columns.
+#[cfg(feature = "lean")]
+fn push_transitions(
+    transitions: &[(LabelIndex, StateIndex)],
+    transition_labels: &mut ByteCompressedVec<LabelIndex>,
+    transition_to: &mut ByteCompressedVec<StateIndex>,
+) {
+    for i in 0..transitions.len() {
+        transition_labels.push(transitions[i].0);
+        transition_to.push(transitions[i].1);
+    }
 }
 
 /// Returns a weak bisimulation quotient that additionally removes transitions

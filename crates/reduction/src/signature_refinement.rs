@@ -4,6 +4,7 @@ use std::mem::swap;
 use bumpalo::Bump;
 use log::debug;
 use log::info;
+#[cfg(not(feature = "lean"))]
 use log::log_enabled;
 use log::trace;
 use merc_io::TimeProgress;
@@ -31,6 +32,7 @@ use crate::branching_bisim_signature;
 use crate::branching_bisim_signature_inductive;
 use crate::branching_bisim_signature_sorted;
 use crate::is_tau_hat;
+#[cfg(not(feature = "lean"))]
 use crate::longest_tau_path;
 use crate::quotient_lts_block;
 use crate::strong_bisim_signature;
@@ -103,6 +105,7 @@ fn strong_bisim_sigref_naive_impl<L: LTS, R: RefinementForest>(
 /// `StateIndex` correspond to `state` after preprocessing, not before. When
 /// `divergence_preserving` is true, computes divergence-preserving branching
 /// bisimulation instead.
+#[cfg(not(feature = "lean"))]
 pub fn branching_bisim_sigref<L: LTS>(
     lts: L,
     state: StateIndex,
@@ -115,6 +118,28 @@ pub fn branching_bisim_sigref<L: LTS>(
 
     let partition = if divergence_preserving {
         branching_bisim_sigref_impl(&DivergencePreservingLts::new(&preprocessed_lts), timing)
+    } else {
+        branching_bisim_sigref_impl(&preprocessed_lts, timing)
+    };
+
+    (preprocessed_lts, mapped_state, partition)
+}
+
+/// The Aeneas-translatable variant of [branching_bisim_sigref], which calls the
+/// preprocessing directly instead of through the `timing.measure` closure (that
+/// would have to move `lts` in).
+#[cfg(feature = "lean")]
+pub fn branching_bisim_sigref<L: LTS>(
+    lts: L,
+    state: StateIndex,
+    divergence_preserving: bool,
+    timing: &Timing,
+) -> (LabelledTransitionSystem<L::Label>, StateIndex, BlockPartition) {
+    let (preprocessed_lts, mapped_state) = tau_cycle_elimination_and_reorder(lts, state, !divergence_preserving);
+
+    let partition = if divergence_preserving {
+        let divergence_preserving_lts = DivergencePreservingLts::new(&preprocessed_lts);
+        branching_bisim_sigref_impl(&divergence_preserving_lts, timing)
     } else {
         branching_bisim_sigref_impl(&preprocessed_lts, timing)
     };
@@ -1197,125 +1222,18 @@ pub fn strong_bisim_sigref<L: LTS>(lts: L, timing: &Timing) -> (L, BlockPartitio
     (lts, partition)
 }
 
-#[cfg(feature = "lean")]
-fn branching_bisim_sigref_impl<L: LTS>(preprocessed_lts: &L, timing: &Timing) -> BlockPartition {
-    let incoming = timing.measure("preprocess", || IncomingTransitions::new(preprocessed_lts));
-
-    if log_enabled!(log::Level::Debug) {
-        let path = longest_tau_path(preprocessed_lts);
-        debug!("longest_tau_path" = path.len(); "The longest tau path is {:?}", path);
-    }
-
-    let mut expected_builder = SignatureBuilder::default();
-    let mut visited = FxHashSet::default();
-    let mut stack = Vec::new();
-
-    timing.measure("reduction", || {
-        signature_refinement::<_, _, _, true>(
-            preprocessed_lts,
-            &incoming,
-            |state_index, partition, state_to_key, builder| {
-                let mut builder = builder.clone();
-                branching_bisim_signature_inductive(state_index, preprocessed_lts, partition, state_to_key, &mut builder);
-
-                // Compute the expected signature, only used in debugging.
-                if cfg!(debug_assertions) {
-                    branching_bisim_signature(
-                        state_index,
-                        preprocessed_lts,
-                        partition,
-                        &mut expected_builder,
-                        &mut visited,
-                        &mut stack,
-                    );
-                    let expected_result = builder.clone();
-
-                    let signature = Signature::new(&builder);
-                    debug_assert_eq!(
-                        signature.as_slice(),
-                        expected_result,
-                        "The sorted and expected signature should be the same"
-                    );
-                }
-
-                builder
-            },
-            |signature, key_to_signature| {
-                // Inductive signatures.
-                for (label, key) in signature.iter().rev() {
-                    if is_tau_hat(*label, preprocessed_lts)
-                        && key_to_signature[*key].is_subset_of(signature, (*label, *key))
-                    {
-                        return Some(*key);
-                    }
-
-                    if !is_tau_hat(*label, preprocessed_lts) {
-                        return None;
-                    }
-                }
-
-                None
-            },
-        )
-    })
-}
-
-/// Interns `slice` into `arena`, returning `&[]` directly if it's empty (a
-/// workaround for a data race in bumpalo with zero-sized slices).
+/// Implementation of [branching_bisim_sigref] for the Aeneas translation.
 ///
-/// Only exists under `lean`; the non-`lean` [`signature_refinement`] interns
-/// signatures inline instead.
+/// Specialized to the (inductive) branching signature, like
+/// [`strong_signature_refinement`] is to the strong one, so that no generic
+/// `FnMut` closures capturing `preprocessed_lts` need to be threaded through
+/// the translated loop. The debug-only cross-check against the non-inductive
+/// signature and the logging of the longest tau path are left out.
 #[cfg(feature = "lean")]
-fn intern_slice<'a>(arena: &'a Bump, slice: &[(LabelIndex, BlockIndex)]) -> &'a [(LabelIndex, BlockIndex)] {
-    if slice.is_empty() { &[] } else { arena.alloc_slice_copy(slice) }
-}
+pub fn branching_bisim_sigref_impl<L: LTS>(preprocessed_lts: &L, timing: &Timing) -> BlockPartition {
+    let incoming = IncomingTransitions::new(preprocessed_lts);
 
-/// Looks up `builder`'s signature in the (per-worklist-iteration) interning
-/// table `id`, or interns it (via `intern_slice`/`arena`) and assigns it a
-/// fresh `BlockIndex` if not already present.
-///
-/// Pulled out because Aeneas needs the `FxHashMap` `get_key_value`/`insert`
-/// calls to stay in an external function.
-#[cfg(feature = "lean")]
-fn intern_signature<'a>(
-    arena: &'a Bump,
-    id: &mut FxHashMap<Signature<'a>, BlockIndex>,
-    key_to_signature: &mut Vec<Signature<'a>>,
-    builder: &SignatureBuilder,
-) -> BlockIndex {
-    if let Some((_, index)) = id.get_key_value(&Signature::new(builder)) {
-        *index
-    } else {
-        let slice = intern_slice(arena, builder);
-        let number = BlockIndex::new(key_to_signature.len());
-        id.insert(Signature::new(slice), number);
-        key_to_signature.push(Signature::new(slice));
-        number
-    }
-}
-
-/// Computes the `BlockIndex` for a single marked state's signature: uses
-/// `renumber`'s inductive renumbering if it applies, otherwise looks up (or
-/// interns) the flat signature in `builder` via [`intern_signature`].
-///
-/// Pulled out because Aeneas cannot translate the closure that would result
-/// from merging the `renumber` branch back into the caller.
-#[cfg(feature = "lean")]
-fn compute_signature_index<'a, G>(
-    arena: &'a Bump,
-    id: &mut FxHashMap<Signature<'a>, BlockIndex>,
-    key_to_signature: &mut Vec<Signature<'a>>,
-    builder: &SignatureBuilder,
-    renumber: &mut G,
-) -> BlockIndex
-where
-    G: FnMut(&[(LabelIndex, BlockIndex)], &Vec<Signature>) -> Option<BlockIndex>,
-{
-    if let Some(key) = renumber(builder, key_to_signature) {
-        key
-    } else {
-        intern_signature(arena, id, key_to_signature, builder)
-    }
+    timing.measure("reduction", || branching_signature_refinement(preprocessed_lts, &incoming))
 }
 
 /// Registers a new occurrence of block `index` in `block_sizes`, growing it
@@ -1333,53 +1251,6 @@ fn count_block_occurrence(block_sizes: &mut Vec<usize>, index: BlockIndex) {
         block_sizes.resize(index.value() + 1, 0);
     }
     block_sizes[index] += 1;
-}
-
-/// Computes the new block indices from partitioning the marked elements of
-/// `block_index`: the trivial (single marked element) case, or the general
-/// case (which needs signature computation via [`process_marked_elements`]).
-///
-/// Pulled out because Aeneas fails to merge the translated context of the
-/// trivial and general branches when inlined in `signature_refinement`.
-///
-/// Only exists under `lean`; see [`signature_refinement`]'s non-`lean` body.
-#[allow(clippy::too_many_arguments)]
-#[cfg(feature = "lean")]
-fn partition_marked<'a, F, G>(
-    partition: &mut BlockPartition,
-    block_index: BlockIndex,
-    arena: &'a Bump,
-    id: &mut FxHashMap<Signature<'a>, BlockIndex>,
-    key_to_signature: &mut Vec<Signature<'a>>,
-    signature_builder: &mut SignatureBuilder,
-    split_builder: &mut BlockPartitionBuilder,
-    state_to_key: &mut Vec<BlockIndex>,
-    signature: &mut F,
-    renumber: &mut G,
-) -> Vec<BlockIndex>
-where
-    F: FnMut(StateIndex, &BlockPartition, &[BlockIndex], &SignatureBuilder) -> SignatureBuilder,
-    G: FnMut(&[(LabelIndex, BlockIndex)], &Vec<Signature>) -> Option<BlockIndex>,
-{
-    if partition.is_trivially_partitioned(block_index) {
-        return partition.trivial_partition_marked(block_index);
-    }
-
-    partition.marked_elements_sorted(block_index, split_builder);
-
-    process_marked_elements(
-        partition,
-        arena,
-        id,
-        key_to_signature,
-        signature_builder,
-        split_builder,
-        state_to_key,
-        signature,
-        renumber,
-    );
-
-    partition.finish_partition_marked(block_index, split_builder)
 }
 
 /// Arena-free strong-signature interning.
@@ -1427,47 +1298,6 @@ fn strong_process_marked_elements<L: LTS>(
         split_builder.index_to_block[element_index] = index;
         count_block_occurrence(&mut split_builder.block_sizes, index);
         state_to_key[state_index] = index;
-        element_index += 1;
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-#[cfg(feature = "lean")]
-fn process_marked_elements<'a, F, G>(
-    lts_partition: &BlockPartition,
-    arena: &'a Bump,
-    id: &mut FxHashMap<Signature<'a>, BlockIndex>,
-    key_to_signature: &mut Vec<Signature<'a>>,
-    signature_builder: &mut SignatureBuilder,
-    split_builder: &mut BlockPartitionBuilder,
-    state_to_key: &mut Vec<BlockIndex>,
-    signature: &mut F,
-    renumber: &mut G,
-) where
-    F: FnMut(StateIndex, &BlockPartition, &[BlockIndex], &SignatureBuilder) -> SignatureBuilder,
-    G: FnMut(&[(LabelIndex, BlockIndex)], &Vec<Signature>) -> Option<BlockIndex>,
-{
-    let mut element_index = 0;
-    while element_index < split_builder.old_elements.len() {
-        let state_index = split_builder.old_elements[element_index];
-
-        // The closure takes the signature builder by shared reference and
-        // returns a fresh one, keeping `&mut` references out of the
-        // generically-called closure's arguments (which Aeneas's Lean model
-        // of `FnMut` cannot account for). No `mem::take` either - its
-        // move-out-plus-write-back per iteration trips an Aeneas internal
-        // error when joining the loop's borrow contexts.
-        let new_builder = signature(state_index, lts_partition, state_to_key, signature_builder);
-        *signature_builder = new_builder;
-
-        let index = compute_signature_index(arena, id, key_to_signature, signature_builder, renumber);
-
-        split_builder.index_to_block[element_index] = index;
-        count_block_occurrence(&mut split_builder.block_sizes, index);
-
-        // (branching) Keep track of the signature for every block in the next partition.
-        state_to_key[state_index] = index;
-
         element_index += 1;
     }
 }
@@ -1540,88 +1370,6 @@ fn mark_dirty_new_blocks<L: LTS, const BRANCHING: bool>(
     }
 }
 
-/// Bundles the state [`process_worklist_block`] threads across
-/// worklist-loop iterations into a single mutable borrow, because Aeneas
-/// fails to translate the loop when each piece of state is threaded through
-/// as a separate parameter.
-#[cfg(feature = "lean")]
-struct WorklistContext<F, G> {
-    partition: BlockPartition,
-    worklist: Vec<BlockIndex>,
-    states: Vec<StateIndex>,
-    builder: SignatureBuilder,
-    split_builder: BlockPartitionBuilder,
-    state_to_key: Vec<BlockIndex>,
-    signature: F,
-    renumber: G,
-}
-
-/// Processes one dirty block popped from the worklist: computes signatures
-/// for its marked elements, splits it accordingly, and marks the incoming
-/// states of any newly-created blocks as dirty.
-///
-/// Pulled out because Aeneas fails to translate the worklist loop with this
-/// body inlined directly in `signature_refinement`.
-#[cfg(feature = "lean")]
-fn process_worklist_block<F, G, L, const BRANCHING: bool>(
-    lts: &L,
-    incoming: &IncomingTransitions,
-    ctx: &mut WorklistContext<F, G>,
-    block_index: BlockIndex,
-) where
-    F: FnMut(StateIndex, &BlockPartition, &[BlockIndex], &SignatureBuilder) -> SignatureBuilder,
-    G: FnMut(&[(LabelIndex, BlockIndex)], &Vec<Signature>) -> Option<BlockIndex>,
-    L: LTS,
-{
-    // A fresh arena and signature index for this iteration only - instead of
-    // resetting and reusing the previous iteration's arena (which needs
-    // relaxing the borrow's lifetime to convince the borrow checker the old,
-    // now-dangling slices are gone), the old arena and its interned
-    // signatures are simply dropped wholesale and a new one allocated. This
-    // avoids reallocations *within* an iteration, at the cost of a fresh
-    // allocation *per* iteration.
-    let arena = Bump::new();
-    let mut id: FxHashMap<Signature<'_>, BlockIndex> = FxHashMap::default();
-    let mut key_to_signature: Vec<Signature<'_>> = Vec::new();
-
-    debug_assert!(
-        ctx.partition.block(block_index).has_marked(),
-        "Every block in the worklist should have at least one marked state"
-    );
-
-    maybe_mark_backward_closure::<BRANCHING>(&mut ctx.partition, block_index, incoming);
-
-    // Blocks above this number are new in this iteration.
-    let num_blocks = ctx.partition.num_of_blocks();
-
-    // Delegated to `partition_marked` because Aeneas cannot translate a
-    // closure that itself invokes another (generic, captured) closure.
-    let new_block_indices: Vec<BlockIndex> = partition_marked(
-        &mut ctx.partition,
-        block_index,
-        &arena,
-        &mut id,
-        &mut key_to_signature,
-        &mut ctx.builder,
-        &mut ctx.split_builder,
-        &mut ctx.state_to_key,
-        &mut ctx.signature,
-        &mut ctx.renumber,
-    );
-
-    // If this is a new block, mark the incoming states as dirty.
-    mark_dirty_new_blocks::<L, BRANCHING>(
-        lts,
-        &mut ctx.partition,
-        incoming,
-        &mut ctx.worklist,
-        &mut ctx.states,
-        block_index,
-        new_block_indices,
-        num_blocks,
-    );
-}
-
 /// Aeneas cannot translate the mixed mutable-borrow if/else here, so this is
 /// pulled out into its own function.
 #[cfg(feature = "lean")]
@@ -1654,83 +1402,6 @@ fn log_signature_refinement_progress((iteration, blocks): (usize, usize)) {
 #[cfg(feature = "lean")]
 fn new_worklist_progress() -> TimeProgress<(usize, usize)> {
     TimeProgress::new(|args| log_signature_refinement_progress(args), 5)
-}
-
-/// Signature refinement algorithm that accepts an arbitrary signature and uses
-/// process-the-smaller-half optimisation by marking dirty states.
-///
-/// The `signature` function is called for each state and should fill the
-/// signature builder with the signature of the state.
-///
-/// The `renumber` function can be used to renumber the signatures, which is
-/// used in inductive signatures.
-///
-/// If `BRANCHING` then incoming tau-paths are considered for marking the
-/// incoming blocks. Furthermore, the signature function receives the
-/// `state_to_key` mapping that contains the signature index for every state,
-/// required for inductive signatures. And the signatures are computed in the
-/// order of the given `lts`.
-///
-/// This is a thin wrapper delegating to [`run_worklist_loop`] under `lean`;
-/// see below for the monolithic non-`lean` body.
-#[cfg(feature = "lean")]
-fn signature_refinement<F, G, L, const BRANCHING: bool>(
-    lts: &L,
-    incoming: &IncomingTransitions,
-    signature: F,
-    renumber: G,
-) -> BlockPartition
-where
-    F: FnMut(StateIndex, &BlockPartition, &[BlockIndex], &SignatureBuilder) -> SignatureBuilder,
-    G: FnMut(&[(LabelIndex, BlockIndex)], &Vec<Signature>) -> Option<BlockIndex>,
-    L: LTS,
-{
-    let mut state_to_key: Vec<BlockIndex> = Vec::new();
-    state_to_key.resize_with(lts.num_of_states(), || BlockIndex::new(0));
-
-    // Used to keep track of dirty blocks.
-    // `Vec::from([..])` instead of `vec![..]` because Aeneas cannot
-    // translate the `vec!` macro expansion.
-    let mut ctx = WorklistContext {
-        partition: BlockPartition::new(lts.num_of_states()),
-        worklist: Vec::from([BlockIndex::new(0)]),
-        states: Vec::new(),
-        builder: SignatureBuilder::default(),
-        split_builder: BlockPartitionBuilder::default(),
-        state_to_key,
-        signature,
-        renumber,
-    };
-
-    // Delegated to `run_worklist_loop` because Aeneas cannot translate this
-    // `while` loop inlined here.
-    run_worklist_loop::<F, G, L, BRANCHING>(lts, incoming, &mut ctx);
-
-    ctx.partition
-}
-
-/// Runs [`process_worklist_block`] until the worklist is empty, logging
-/// progress every few seconds.
-///
-/// Pulled out of [`signature_refinement`]'s own body - see the comment at
-/// its call site.
-#[cfg(feature = "lean")]
-fn run_worklist_loop<F, G, L, const BRANCHING: bool>(lts: &L, incoming: &IncomingTransitions, ctx: &mut WorklistContext<F, G>)
-where
-    F: FnMut(StateIndex, &BlockPartition, &[BlockIndex], &SignatureBuilder) -> SignatureBuilder,
-    G: FnMut(&[(LabelIndex, BlockIndex)], &Vec<Signature>) -> Option<BlockIndex>,
-    L: LTS,
-{
-    let mut iteration = 0usize;
-    let progress = new_worklist_progress();
-
-    while let Some(block_index) = ctx.worklist.pop() {
-        process_worklist_block::<F, G, L, BRANCHING>(lts, incoming, ctx, block_index);
-
-        iteration += 1;
-
-        progress.print((iteration, ctx.partition.num_of_blocks()));
-    }
 }
 
 /// Bundles the state [`strong_process_worklist_block`] threads across
@@ -1872,6 +1543,256 @@ fn strong_signature_refinement<L: LTS>(lts: &L, incoming: &IncomingTransitions) 
     // Delegated to `strong_run_worklist_loop` because Aeneas cannot
     // translate this `while` loop inlined here.
     strong_run_worklist_loop::<L, false>(lts, incoming, &mut ctx);
+
+    ctx.partition
+}
+
+/// Returns true iff every element of `subset`, except `exclude`, occurs in
+/// `superset`. Both slices must be sorted.
+///
+/// The index-loop version of [`Signature::is_subset_of`], which uses slice
+/// iterators with `filter` that Aeneas cannot translate.
+#[cfg(feature = "lean")]
+fn is_subset_excluding(
+    superset: &[(LabelIndex, BlockIndex)],
+    subset: &[(LabelIndex, BlockIndex)],
+    exclude: (LabelIndex, BlockIndex),
+) -> bool {
+    let mut i = 0;
+    let mut j = 0;
+    let mut result = true;
+
+    while result && j < subset.len() {
+        let other = subset[j];
+        if other == exclude {
+            // The excluded element does not have to occur in the superset.
+            j += 1;
+        } else if i < superset.len() && superset[i] == other {
+            // Match found, move both indices forward.
+            i += 1;
+            j += 1;
+        } else if i < superset.len() && matches!(superset[i].cmp(&other), std::cmp::Ordering::Less) {
+            // Move only the superset index forward. Written with `cmp` instead of `<`
+            // so only the (specified) tuple `cmp` is needed as an external function.
+            i += 1;
+        } else {
+            // No match found in the superset for `other`.
+            result = false;
+        }
+    }
+
+    result
+}
+
+/// The branching-signature analogue of the `renumber` closure of the generic
+/// [`signature_refinement`]: the inductive renumbering of `signature`, if it
+/// applies.
+///
+/// Walks the `tau_hat` entries of `signature` from the largest one down, and
+/// returns the key of the first whose signature contains the rest of
+/// `signature`; stops at the first visible (non-`tau_hat`) entry.
+#[cfg(feature = "lean")]
+fn renumber_branching<L: LTS>(
+    lts: &L,
+    signature: &[(LabelIndex, BlockIndex)],
+    key_to_signature: &Vec<SignatureBuilder>,
+) -> Option<BlockIndex> {
+    let mut result = None;
+    let mut index = signature.len();
+    let mut done = false;
+
+    while !done && index > 0 {
+        index -= 1;
+        let (label, key) = signature[index];
+
+        if is_tau_hat(label, lts) {
+            if is_subset_excluding(&key_to_signature[key], signature, (label, key)) {
+                result = Some(key);
+                done = true;
+            }
+        } else {
+            done = true;
+        }
+    }
+
+    result
+}
+
+/// Computes the `BlockIndex` for the signature in `signature_builder`: the
+/// inductive renumbering if it applies, otherwise the interned flat signature.
+///
+/// Pulled out because Aeneas cannot translate the merged context of the
+/// `Option` branches when inlined in the loop of
+/// [`branching_process_marked_elements`].
+#[cfg(feature = "lean")]
+fn branching_signature_index<L: LTS>(
+    lts: &L,
+    id: &mut FxHashMap<SignatureBuilder, BlockIndex>,
+    key_to_signature: &mut Vec<SignatureBuilder>,
+    signature_builder: &SignatureBuilder,
+) -> BlockIndex {
+    if let Some(key) = renumber_branching(lts, signature_builder, key_to_signature) {
+        key
+    } else {
+        strong_intern_signature(id, key_to_signature, signature_builder)
+    }
+}
+
+/// The branching-signature analogue of [`strong_process_marked_elements`].
+#[allow(clippy::too_many_arguments)]
+#[cfg(feature = "lean")]
+fn branching_process_marked_elements<L: LTS>(
+    lts: &L,
+    lts_partition: &BlockPartition,
+    id: &mut FxHashMap<SignatureBuilder, BlockIndex>,
+    key_to_signature: &mut Vec<SignatureBuilder>,
+    signature_builder: &mut SignatureBuilder,
+    split_builder: &mut BlockPartitionBuilder,
+    state_to_key: &mut Vec<BlockIndex>,
+) {
+    let mut element_index = 0;
+    while element_index < split_builder.old_elements.len() {
+        let state_index = split_builder.old_elements[element_index];
+        branching_bisim_signature_inductive(state_index, lts, lts_partition, state_to_key, signature_builder);
+        let index = branching_signature_index(lts, id, key_to_signature, signature_builder);
+        split_builder.index_to_block[element_index] = index;
+        count_block_occurrence(&mut split_builder.block_sizes, index);
+
+        // Keep track of the signature for every block in the next partition.
+        state_to_key[state_index] = index;
+        element_index += 1;
+    }
+}
+
+/// Bundles the state [`branching_process_worklist_block`] threads across
+/// worklist-loop iterations into a single mutable borrow, see
+/// [`WorklistContextStrong`].
+#[cfg(feature = "lean")]
+struct WorklistContextBranching {
+    partition: BlockPartition,
+    worklist: Vec<BlockIndex>,
+    states: Vec<StateIndex>,
+    builder: SignatureBuilder,
+    split_builder: BlockPartitionBuilder,
+    state_to_key: Vec<BlockIndex>,
+}
+
+/// The branching-signature analogue of [`strong_partition_marked`].
+#[allow(clippy::too_many_arguments)]
+#[cfg(feature = "lean")]
+fn branching_partition_marked<L: LTS>(
+    lts: &L,
+    partition: &mut BlockPartition,
+    block_index: BlockIndex,
+    id: &mut FxHashMap<SignatureBuilder, BlockIndex>,
+    key_to_signature: &mut Vec<SignatureBuilder>,
+    signature_builder: &mut SignatureBuilder,
+    split_builder: &mut BlockPartitionBuilder,
+    state_to_key: &mut Vec<BlockIndex>,
+) -> Vec<BlockIndex> {
+    if partition.is_trivially_partitioned(block_index) {
+        return partition.trivial_partition_marked(block_index);
+    }
+
+    partition.marked_elements_sorted(block_index, split_builder);
+
+    branching_process_marked_elements(
+        lts,
+        partition,
+        id,
+        key_to_signature,
+        signature_builder,
+        split_builder,
+        state_to_key,
+    );
+
+    partition.finish_partition_marked(block_index, split_builder)
+}
+
+/// The branching-signature analogue of [`strong_process_worklist_block`].
+#[cfg(feature = "lean")]
+fn branching_process_worklist_block<L: LTS>(
+    lts: &L,
+    incoming: &IncomingTransitions,
+    ctx: &mut WorklistContextBranching,
+    block_index: BlockIndex,
+) {
+    // A fresh signature index for this iteration only.
+    let mut id: FxHashMap<SignatureBuilder, BlockIndex> = FxHashMap::default();
+    let mut key_to_signature: Vec<SignatureBuilder> = Vec::new();
+
+    debug_assert!(
+        ctx.partition.block(block_index).has_marked(),
+        "Every block in the worklist should have at least one marked state"
+    );
+
+    maybe_mark_backward_closure::<true>(&mut ctx.partition, block_index, incoming);
+
+    // Blocks above this number are new in this iteration.
+    let num_blocks = ctx.partition.num_of_blocks();
+
+    let new_block_indices: Vec<BlockIndex> = branching_partition_marked(
+        lts,
+        &mut ctx.partition,
+        block_index,
+        &mut id,
+        &mut key_to_signature,
+        &mut ctx.builder,
+        &mut ctx.split_builder,
+        &mut ctx.state_to_key,
+    );
+
+    // If this is a new block, mark the incoming states as dirty.
+    mark_dirty_new_blocks::<L, true>(
+        lts,
+        &mut ctx.partition,
+        incoming,
+        &mut ctx.worklist,
+        &mut ctx.states,
+        block_index,
+        new_block_indices,
+        num_blocks,
+    );
+}
+
+/// The branching-signature analogue of [`strong_run_worklist_loop`].
+#[cfg(feature = "lean")]
+fn branching_run_worklist_loop<L: LTS>(lts: &L, incoming: &IncomingTransitions, ctx: &mut WorklistContextBranching) {
+    let mut iteration = 0usize;
+    let progress = new_worklist_progress();
+
+    while let Some(block_index) = ctx.worklist.pop() {
+        branching_process_worklist_block::<L>(lts, incoming, ctx, block_index);
+
+        iteration += 1;
+
+        progress.print((iteration, ctx.partition.num_of_blocks()));
+    }
+}
+
+/// The branching-signature analogue of [`strong_signature_refinement`]: the
+/// worklist signature-refinement algorithm specialized to the inductive
+/// branching signature. Assumes the LTS has no tau-cycles and is
+/// topologically sorted (see [`tau_cycle_elimination_and_reorder`]).
+#[cfg(feature = "lean")]
+fn branching_signature_refinement<L: LTS>(lts: &L, incoming: &IncomingTransitions) -> BlockPartition {
+    let mut state_to_key: Vec<BlockIndex> = Vec::new();
+    state_to_key.resize_with(lts.num_of_states(), || BlockIndex::new(0));
+
+    // `Vec::from([..])` instead of `vec![..]` because Aeneas cannot
+    // translate the `vec!` macro expansion.
+    let mut ctx = WorklistContextBranching {
+        partition: BlockPartition::new(lts.num_of_states()),
+        worklist: Vec::from([BlockIndex::new(0)]),
+        states: Vec::new(),
+        builder: SignatureBuilder::default(),
+        split_builder: BlockPartitionBuilder::default(),
+        state_to_key,
+    };
+
+    // Delegated to `branching_run_worklist_loop` because Aeneas cannot
+    // translate this `while` loop inlined here.
+    branching_run_worklist_loop::<L>(lts, incoming, &mut ctx);
 
     ctx.partition
 }

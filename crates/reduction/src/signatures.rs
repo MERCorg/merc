@@ -13,7 +13,10 @@ use merc_lts::StateIndex;
 use rustc_hash::FxHashSet;
 
 use super::BlockPartition;
+#[cfg(not(feature = "lean"))]
 use super::sort_topological;
+#[cfg(feature = "lean")]
+use crate::sort_topological_hidden;
 use crate::Partition;
 use crate::quotient_lts_naive;
 use crate::tau_scc_decomposition_iterative;
@@ -374,7 +377,8 @@ pub fn weak_bisim_signature_sorted_taus<L: LTS, P: Partition>(
 /// Returns the preprocessed LTS and the state corresponding to `state`. If
 /// `eliminate_tau_selfloops` is true, tau self-loops are removed after
 /// quotienting.
-pub(crate) fn tau_cycle_elimination_and_reorder<L: LTS>(
+#[cfg(not(feature = "lean"))]
+pub fn tau_cycle_elimination_and_reorder<L: LTS>(
     lts: L,
     state: StateIndex,
     eliminate_tau_selfloops: bool,
@@ -396,5 +400,29 @@ pub(crate) fn tau_cycle_elimination_and_reorder<L: LTS>(
     (
         LabelledTransitionSystem::new_from_permutation(tau_loop_free_lts, |i| topological_permutation[i]),
         topological_permutation[mapped_state],
+    )
+}
+
+/// The Aeneas-translatable variant of [`tau_cycle_elimination_and_reorder`], with the
+/// permutation passed as a slice (`new_from_permutation_vec`) instead of as a closure,
+/// the topological sort reporting a cycle as `None`, and without the explicit `drop`s.
+#[cfg(feature = "lean")]
+pub fn tau_cycle_elimination_and_reorder<L: LTS>(
+    lts: L,
+    state: StateIndex,
+    eliminate_tau_selfloops: bool,
+) -> (LabelledTransitionSystem<L::Label>, StateIndex) {
+    let scc_partition = tau_scc_decomposition_iterative(&lts);
+    let tau_loop_free_lts = quotient_lts_naive(&lts, &scc_partition, eliminate_tau_selfloops, eliminate_tau_selfloops);
+    let mapped_state = StateIndex::new(*scc_partition.block_number(state));
+
+    // Sort the states according to the topological order of the tau transitions.
+    // After quotienting, the LTS should not contain cycles.
+    let topological_permutation = sort_topological_hidden(&tau_loop_free_lts).unwrap();
+    let new_state = topological_permutation[mapped_state];
+
+    (
+        LabelledTransitionSystem::new_from_permutation_vec(tau_loop_free_lts, &topological_permutation),
+        new_state,
     )
 }

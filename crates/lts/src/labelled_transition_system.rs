@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 use std::collections::HashMap;
+#[cfg(not(feature = "lean"))]
 use std::collections::HashSet;
 use std::fmt;
 
@@ -283,6 +284,51 @@ impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
         )
     }
 
+    /// Like [`Self::new_from_permutation`], but takes the permutation as a slice
+    /// instead of a closure: `permutation[old] = new`.
+    ///
+    /// Aeneas cannot translate the generic closure of
+    /// [`Self::new_from_permutation`], and uses plain index loops instead of the
+    /// iterator adaptors.
+    ///
+    /// # Panics
+    ///
+    /// `permutation` must be a bijection on `0..lts.num_of_states()`; otherwise the result
+    /// violates the internal LTS invariants and panics inside `assert_valid`.
+    pub fn new_from_permutation_vec(lts: Self, permutation: &[StateIndex]) -> Self {
+        // inverse[new_index] = old_index
+        let inverse = invert_permutation(permutation);
+
+        // Rebuild transition arrays in the order of the new state indices.
+        let mut states = ByteCompressedVec::new();
+        let mut transition_labels = ByteCompressedVec::new();
+        let mut transition_to = ByteCompressedVec::new();
+
+        for new_index in 0..inverse.len() {
+            states.push(transition_labels.len());
+
+            let old_index = inverse[new_index].value();
+            let start = lts.states.index(old_index);
+            let end = lts.states.index(old_index + 1);
+
+            for i in start..end {
+                transition_labels.push(lts.transition_labels.index(i));
+                transition_to.push(permutation[lts.transition_to.index(i).value()]);
+            }
+        }
+
+        // Add the sentinel state.
+        states.push(transition_labels.len());
+
+        Self::from_raw_parts(
+            permutation[lts.initial_state.value()],
+            states,
+            transition_labels,
+            transition_to,
+            lts.labels,
+        )
+    }
+
     /// Consumes the LTS and relabels its transition labels according to the
     /// given mapping.
     ///
@@ -362,6 +408,92 @@ impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
     }
 
     /// Checks that the internal representation satisfies all structural invariants.
+    ///
+    /// The Aeneas-translatable variant of the (default) `assert_valid`: plain
+    /// `assert!`s without formatted messages, with every loop in its own helper
+    /// function, and a quadratic duplicate check instead of a `HashSet`.
+    #[cfg(feature = "lean")]
+    pub fn assert_valid(&self) {
+        let num_states = self.num_of_states();
+        let num_transitions = self.num_of_transitions();
+
+        assert!(
+            self.states.len() >= 1,
+            "states array must have at least one entry (the sentinel)"
+        );
+        assert!(self.initial_state.value() < num_states, "initial_state is out of bounds");
+        assert!(
+            self.states.index(num_states) == num_transitions,
+            "sentinel value must equal the number of transitions"
+        );
+        assert!(
+            self.transition_labels.len() == self.transition_to.len(),
+            "transition_labels and transition_to must have equal length"
+        );
+        assert!(
+            self.labels.len() >= 1,
+            "At least one label (the hidden label) must be provided"
+        );
+        assert!(self.labels[0].is_tau_label(), "The first label must be the hidden label.");
+
+        self.assert_offsets_valid(num_states);
+        self.assert_transitions_valid(num_states, num_transitions);
+        self.assert_no_duplicate_transitions(num_states);
+    }
+
+    /// Checks that the state offsets are monotonically increasing.
+    #[cfg(feature = "lean")]
+    fn assert_offsets_valid(&self, num_states: usize) {
+        for i in 0..num_states {
+            assert!(
+                self.states.index(i) <= self.states.index(i + 1),
+                "state offset is greater than the successor offset"
+            );
+        }
+    }
+
+    /// Checks that all transition labels and targets are in bounds.
+    #[cfg(feature = "lean")]
+    fn assert_transitions_valid(&self, num_states: usize, num_transitions: usize) {
+        for i in 0..num_transitions {
+            assert!(
+                self.transition_labels.index(i).value() < self.labels.len(),
+                "transition references a label index that is out of bounds"
+            );
+            assert!(
+                self.transition_to.index(i).value() < num_states,
+                "transition references a target state that is out of bounds"
+            );
+        }
+    }
+
+    /// Checks that no state has two identical outgoing transitions.
+    #[cfg(feature = "lean")]
+    fn assert_no_duplicate_transitions(&self, num_states: usize) {
+        for state in 0..num_states {
+            let start = self.states.index(state);
+            let end = self.states.index(state + 1);
+
+            for i in start..end {
+                self.assert_transition_unique(i, end);
+            }
+        }
+    }
+
+    /// Checks that the transition `i` does not occur among the transitions `i+1..end`.
+    #[cfg(feature = "lean")]
+    fn assert_transition_unique(&self, i: usize, end: usize) {
+        for j in (i + 1)..end {
+            assert!(
+                !(self.transition_labels.index(i) == self.transition_labels.index(j)
+                    && self.transition_to.index(i) == self.transition_to.index(j)),
+                "state has a duplicate outgoing transition"
+            );
+        }
+    }
+
+    /// Checks that the internal representation satisfies all structural invariants.
+    #[cfg(not(feature = "lean"))]
     pub fn assert_valid(&self) {
         let num_states = self.num_of_states();
         let num_transitions = self.num_of_transitions();
@@ -457,6 +589,16 @@ impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
             transition_to_metrics: self.transition_to.metrics(),
         }
     }
+}
+
+/// Returns the inverse of the given permutation: `inverse[permutation[old]] = old`.
+fn invert_permutation(permutation: &[StateIndex]) -> Vec<StateIndex> {
+    let mut inverse = vec![StateIndex::new(0); permutation.len()];
+    for old_index in 0..permutation.len() {
+        inverse[permutation[old_index].value()] = StateIndex::new(old_index);
+    }
+
+    inverse
 }
 
 impl<L: TransitionLabel> LTS for LabelledTransitionSystem<L> {

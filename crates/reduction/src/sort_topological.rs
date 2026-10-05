@@ -122,6 +122,131 @@ where
     true
 }
 
+/// The Aeneas-translatable counterpart of
+/// `sort_topological(lts, |label, _| lts.is_hidden_label(label), true)`: returns
+/// the permutation `reorder` with `reorder[state]` the position of `state` in a
+/// reversed topological order of the hidden (tau) transitions, i.e. if `s -tau-> t`
+/// (and `s != t`) then `reorder[t] < reorder[s]`. Returns `None` if the hidden
+/// transitions contain a cycle (self-loops are ignored).
+///
+/// Specialised to the hidden-label filter (so no closure is needed), reports the
+/// cycle as `None` instead of a `MercError`, and every loop lives in its own
+/// helper function.
+#[cfg(feature = "lean")]
+pub(crate) fn sort_topological_hidden<L: LTS>(lts: &L) -> Option<Vec<StateIndex>> {
+    let num_of_states = lts.num_of_states();
+
+    // The resulting order of states.
+    let mut stack = Vec::new();
+    let mut depth_stack = Vec::new();
+    // A loop instead of `vec![None; n]`, which would need `Clone` for `Option<Mark>`.
+    let mut marks: Vec<Option<Mark>> = Vec::new();
+    for _ in 0..num_of_states {
+        marks.push(None);
+    }
+
+    if !sort_topological_visit_all(lts, &mut depth_stack, &mut marks, &mut stack) {
+        return None;
+    }
+
+    Some(order_to_permutation(&stack))
+}
+
+/// Visits all states that are not yet marked, returns false if a cycle is detected.
+#[cfg(feature = "lean")]
+fn sort_topological_visit_all<L: LTS>(
+    lts: &L,
+    depth_stack: &mut Vec<StateIndex>,
+    marks: &mut Vec<Option<Mark>>,
+    stack: &mut Vec<StateIndex>,
+) -> bool {
+    let mut acyclic = true;
+
+    for index in 0..lts.num_of_states() {
+        let state_index = StateIndex::new(index);
+        if marks[state_index].is_none() && !sort_topological_visit_hidden(lts, state_index, depth_stack, marks, stack) {
+            acyclic = false;
+        }
+    }
+
+    acyclic
+}
+
+/// Turns the order of states into the permutation `reorder[state] = position`.
+#[cfg(feature = "lean")]
+fn order_to_permutation(order: &[StateIndex]) -> Vec<StateIndex> {
+    let mut reorder = vec![StateIndex::new(0); order.len()];
+    for position in 0..order.len() {
+        reorder[order[position].value()] = StateIndex::new(position);
+    }
+
+    reorder
+}
+
+/// Visits the given state in a depth first search along the hidden transitions.
+///
+/// Returns false if a cycle is detected. Unlike `sort_topological_visit` this
+/// finishes the search instead of returning early, since Aeneas cannot translate
+/// returns from inside nested loops.
+#[cfg(feature = "lean")]
+fn sort_topological_visit_hidden<L: LTS>(
+    lts: &L,
+    state_index: StateIndex,
+    depth_stack: &mut Vec<StateIndex>,
+    marks: &mut Vec<Option<Mark>>,
+    stack: &mut Vec<StateIndex>,
+) -> bool {
+    let mut acyclic = true;
+
+    // Perform a depth first search.
+    depth_stack.push(state_index);
+
+    while let Some(state) = depth_stack.pop() {
+        match marks[state] {
+            None => {
+                marks[state] = Some(Mark::Temporary);
+                depth_stack.push(state); // Re-add to stack to mark as permanent later
+                if !push_unvisited_successors(lts, state, marks, depth_stack) {
+                    acyclic = false;
+                }
+            }
+            Some(Mark::Temporary) => {
+                marks[state] = Some(Mark::Permanent);
+                stack.push(state);
+            }
+            Some(Mark::Permanent) => {}
+        }
+    }
+
+    acyclic
+}
+
+/// Pushes the unmarked targets of the hidden (non self-loop) transitions of
+/// `state` on the `depth_stack`. Returns false if one of the targets is marked
+/// temporary, which means that a cycle is detected.
+#[cfg(feature = "lean")]
+fn push_unvisited_successors<L: LTS>(
+    lts: &L,
+    state: StateIndex,
+    marks: &[Option<Mark>],
+    depth_stack: &mut Vec<StateIndex>,
+) -> bool {
+    let mut acyclic = true;
+
+    for transition in lts.outgoing_transitions(state) {
+        if state != transition.to && lts.is_hidden_label(transition.label) {
+            match marks[transition.to] {
+                // If it was marked temporary, then a cycle is detected.
+                Some(Mark::Temporary) => acyclic = false,
+                None => depth_stack.push(transition.to),
+                Some(Mark::Permanent) => {}
+            }
+        }
+    }
+
+    acyclic
+}
+
 /// Returns true if the given permutation is a topological ordering of the states of the given LTS.
 fn is_topologically_sorted<F, P, L>(lts: &L, filter: F, permutation: P, reverse: bool) -> bool
 where
