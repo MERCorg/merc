@@ -93,6 +93,11 @@ pub fn read_pg<R: Read>(reader: R) -> Result<ParityGame, MercError> {
         builder.add_vertex(vertex, owner, Priority::new(vertex_priority));
 
         for successors in parts {
+            // An optional vertex name in quotes may follow the successors, which we ignore.
+            if successors.starts_with('"') {
+                break;
+            }
+
             // Parse successors (remaining parts, removing trailing semicolon)
             for successor in successors
                 .trim_end_matches(';')
