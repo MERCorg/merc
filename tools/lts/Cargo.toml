@@ -19,7 +19,7 @@ merc_io.workspace = true
 merc_lts = { workspace = true, features = ["clap"] }
 merc_reduction = { workspace = true, features = ["clap"] }
 merc_refinement = { workspace = true, features = ["clap"] }
-merc_syntax.workspace = true
+merc_syntax = { workspace = true, features = ["counter-example"] }
 merc_tools.workspace = true
 merc_unsafety.workspace = true
 merc_utilities.workspace = true

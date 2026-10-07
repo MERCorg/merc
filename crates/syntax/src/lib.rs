@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 mod condition_marker;
+#[cfg(feature = "counter-example")]
 mod counterexample_formula;
 mod fresh_state_var;
 pub mod imports;
@@ -14,7 +15,9 @@ mod traverse;
 
 pub(crate) use syntax_tree::*;
 
+#[cfg(feature = "counter-example")]
 pub use counterexample_formula::generate_distinguishing_formula;
+#[cfg(feature = "counter-example")]
 pub use counterexample_formula::generate_refinement_formula;
 pub use fresh_state_var::FreshStateVarGenerator;
 pub use imports::ImportDirective;

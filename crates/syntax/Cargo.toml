@@ -18,11 +18,11 @@ workspace = true
 [lints]
 workspace = true
 
+[features]
+counter-example = ["dep:merc_lts", "dep:merc_reduction", "dep:merc_refinement"]
+
 [dependencies]
-merc_lts.workspace = true
 merc_pest_consume.workspace = true
-merc_reduction.workspace = true
-merc_refinement.workspace = true
 merc_utilities.workspace = true
 
 itertools.workspace = true
@@ -31,6 +31,11 @@ pest_derive.workspace = true
 pest.workspace = true
 rand.workspace = true
 thiserror.workspace = true
+
+# Only required for the counter example feature
+merc_lts = { optional = true, workspace = true }
+merc_reduction = { optional = true, workspace = true }
+merc_refinement = { optional = true, workspace = true }
 
 [dev-dependencies]
 indoc.workspace = true
