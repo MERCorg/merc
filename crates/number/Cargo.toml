@@ -19,5 +19,5 @@ rand.workspace = true
 bitstream-io.workspace = true
 num.workspace = true
 
-[target.'cfg(kani_ra)'.dependencies]
+[target.'cfg(all(kani_ra, not(windows)))'.dependencies]
 kani.workspace = true

@@ -51,5 +51,5 @@ tikv-jemallocator = { workspace = true, optional = true }
 [package.metadata.kani]
 unstable = { function-contracts = true, mem-predicates = true }
 
-[target.'cfg(kani_ra)'.dependencies]
+[target.'cfg(all(kani_ra, not(windows)))'.dependencies]
 kani.workspace = true
