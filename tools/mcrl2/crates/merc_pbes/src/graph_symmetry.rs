@@ -139,7 +139,7 @@ enum VertexColour {
     Quantifier(Quantifier, Vec<SortExpression>),
 
     /// `C(X(t1,...,tn)) = pvi`.
-    Pvi,
+    Pvi(String),
 
     /// `C(X_{i,k}) = update`.
     Update,
@@ -154,7 +154,7 @@ impl fmt::Display for VertexColour {
             VertexColour::MachineNumber(n) => write!(f, "{n}"),
             VertexColour::Connective(c) => write!(f, "{c}"),
             VertexColour::Quantifier(q, ss) => write!(f, "{q}:{}", ss.iter().format(",")),
-            VertexColour::Pvi => f.write_str("pvi"),
+            VertexColour::Pvi(name) => write!(f, "{name}"),
             VertexColour::Update => f.write_str("update"),
         }
     }
@@ -169,7 +169,7 @@ impl VertexColour {
             VertexColour::MachineNumber(_) => "#ffe6cc",
             VertexColour::Connective(_) => "#f8cecc",
             VertexColour::Quantifier(..) => "#e1d5e7",
-            VertexColour::Pvi => "#dae8fc",
+            VertexColour::Pvi(_) => "#dae8fc",
             VertexColour::Update => "#f5f5f5",
         }
     }
@@ -439,7 +439,7 @@ struct SdgBuilder {
     equations: Vec<BTreeSet<usize>>,
 
     /// Deduplicates [`SdgVertex::Term`] vertices by (maximally shared) term
-    /// identity -- see [`SdgVertex::Term`].
+    /// identity.
     term_map: HashMap<PbesExpression, NodeIndex>,
 
     /// Bound (quantifier-/abstraction-scoped) variables currently in scope,
@@ -605,7 +605,8 @@ impl SdgBuilder {
             let sorts = exists.variables().iter().map(|v| v.sort().protect()).collect();
             Ok(VertexColour::Quantifier(Quantifier::Exists, sorts))
         } else if is_pbes_propositional_variable_instantiation(&r) {
-            Ok(VertexColour::Pvi)
+            let pvi = PbesPropositionalVariableInstantiationRef::from(r);
+            Ok(VertexColour::Pvi(pvi.name().to_string()))
         } else if is_variable(&r) {
             let variable = DataVariableRef::from(r);
             if self.scope.iter().any(|bound| bound.name() == variable.name()) {
@@ -959,14 +960,8 @@ where
             VertexColour::Parameter(_) => sdg.parameters[i].name().to_string(),
             // Update nodes are unlabeled; shape + dashed edges identify them.
             VertexColour::Update => String::new(),
-            VertexColour::Pvi => {
-                if let SdgVertex::Term(expression) = &sdg.graph[node] {
-                    PbesPropositionalVariableInstantiationRef::from(expression.copy())
-                        .name()
-                        .to_string()
-                } else {
-                    unreachable!()
-                }
+            VertexColour::Pvi(name) => {
+                name.to_string()
             }
             VertexColour::BoundVariable(_) => {
                 if let SdgVertex::Term(expression) = &sdg.graph[node] {
@@ -1009,7 +1004,7 @@ where
         let shape = match vc {
             VertexColour::Parameter(_) => "box",
             VertexColour::Update => "diamond",
-            VertexColour::Pvi => "hexagon",
+            VertexColour::Pvi(_) => "hexagon",
             VertexColour::Quantifier(..) => "parallelogram",
             _ => "ellipse",
         };
