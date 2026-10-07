@@ -66,8 +66,13 @@ fn is_process_operator_keyword(text: &str) -> bool {
 }
 
 /// Keywords that can never occur inside a data expression, so a data expression run ends there.
+///
+/// `tau` and `delta` are excluded: the grammar's `Id` accepts them, so pest may still parse them
+/// as part of a condition, and stopping here would move the marker and change the AST.
 fn is_stop_keyword(text: &str) -> bool {
-    PROC_EXPR_KEYWORDS.contains(&text) || is_data_section_keyword(text) || is_process_section_keyword(text)
+    (PROC_EXPR_KEYWORDS.contains(&text) && text != Keyword::Tau.name() && text != Keyword::Delta.name())
+        || is_data_section_keyword(text)
+        || is_process_section_keyword(text)
 }
 
 /// Multi-character tokens, longest first, so that e.g. `->` is not read as `-` and `>`.
