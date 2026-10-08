@@ -960,9 +960,7 @@ where
             VertexColour::Parameter(_) => sdg.parameters[i].name().to_string(),
             // Update nodes are unlabeled; shape + dashed edges identify them.
             VertexColour::Update => String::new(),
-            VertexColour::Pvi(name) => {
-                name.to_string()
-            }
+            VertexColour::Pvi(name) => name.to_string(),
             VertexColour::BoundVariable(_) => {
                 if let SdgVertex::Term(expression) = &sdg.graph[node] {
                     let r: ATermRef<'_> = expression.copy().into();
