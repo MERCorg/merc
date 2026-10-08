@@ -1,11 +1,3 @@
-//! Rewrites every [`Span`](merc_utilities::Span) reachable from a parsed tree.
-//!
-//! The common case is a fixed shift ([`OffsetSpans::offset_spans`]) — the rebasing counterpart of
-//! padding a file's text with leading bytes before handing it to pest so every offset it reports
-//! already lands in the shared, [`SourceMap`](merc_utilities::SourceMap) wide space. The general
-//! form ([`OffsetSpans::map_spans`]) applies an arbitrary mapping, which
-//! [`crate::condition_marker`] uses to undo the offsets shifted by its inserted markers.
-
 use merc_utilities::Span;
 
 use crate::ActDecl;
