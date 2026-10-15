@@ -1668,6 +1668,80 @@ mod tests {
             "a Bool and a Nat parameter must get different colours"
         );
     }
+    /// Two PVIs of different equations must get different colours: `C(X(...)) = X`
+    /// and not just `pvi`.
+    #[test]
+    fn test_pvis_of_different_equations_have_different_colours() {
+        test_logger();
+        let pbes = Pbes::from_text(
+            "pbes mu X(n: Nat) = Y(n) && Z(n);
+                  mu Y(n: Nat) = val(n == 0);
+                  mu Z(n: Nat) = val(n > 0);
+             init X(0);",
+        )
+        .unwrap();
+        let sdg = build_sdg(&pbes).unwrap();
+
+        let pvi_colours: Vec<&VertexColour> = sdg
+            .colours
+            .iter()
+            .filter(|c| matches!(c, VertexColour::Pvi(_)))
+            .collect();
+        assert!(pvi_colours.contains(&&VertexColour::Pvi("Y".to_string())));
+        assert!(pvi_colours.contains(&&VertexColour::Pvi("Z".to_string())));
+    }
+
+    /// Colouring every PVI with the same colour `pvi` is unsound: in `X = Y(n)
+    /// && Z(n)` the vertices `Y(n)` and `Z(n)` then look interchangeable, so
+    /// the SDG gets an automorphism swapping them even though `Y` and `Z`
+    /// are defined differently. With `C(X(...)) = X` that automorphism is gone.
+    #[test]
+    fn test_uniform_pvi_colour_adds_spurious_automorphism() {
+        test_logger();
+        if !gap_with_digraphs_available() {
+            return;
+        }
+        let source = "pbes mu X(n: Nat) = Y(n) && Z(n);
+                           mu Y(n: Nat) = val(n == 0);
+                           mu Z(n: Nat) = val(n > 0);
+                      init X(0);";
+        let result = check_gap_symmetries(source).unwrap();
+        assert_eq!(
+            result.automorphism_group_order, 1,
+            "Y and Z differ, so nothing may be swapped"
+        );
+
+        // Recolour every PVI with the same colour, as the old `pvi` colouring did.
+        let mut sdg = result.sdg;
+        for colour in sdg.colours.iter_mut() {
+            if matches!(colour, VertexColour::Pvi(_)) {
+                *colour = VertexColour::Pvi(String::new());
+            }
+        }
+        let gap_graph = sdg.to_gap_graph();
+        let stdout = run_gap(&gap_script(&gap_graph), &GapConfig::default()).unwrap();
+        let (aut_order, _, _) = parse_gap_output(&stdout, gap_graph.num_parameters).unwrap();
+        assert!(
+            aut_order > 1,
+            "a uniform PVI colour wrongly allows swapping Y(n) and Z(n)"
+        );
+    }
+    #[test]
+    fn test_swapped_bound_variable_roles_are_not_a_symmetry() {
+        test_logger();
+        if !gap_with_digraphs_available() {
+            return;
+        }
+        let source = "pbes nu X(n: Bool, m: Bool) =
+              (exists x: Bool . forall y: Bool . val((!x && !y) || (!x && y && n) || (x && !y && !n)))
+           && (exists x: Bool . forall y: Bool . val((!y && !x) || (!y && x && m) || (y && !x && !m)));
+          init X(true, false);";
+        let result = check_gap_symmetries(source).unwrap();
+        assert_eq!(
+            result.symmetry_group_order, 1,
+            "n && !m is not invariant under n <-> m"
+        );
+    }
 
     /// A data-level binder expression (e.g. `val(exists m:Nat. n==m)`) must be
     /// assigned a `Quantifier` colour and its bound variable must be coloured
