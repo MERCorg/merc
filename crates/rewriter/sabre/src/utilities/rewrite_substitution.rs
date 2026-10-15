@@ -19,16 +19,17 @@ use merc_data::is_data_variable;
 
 /// Maps free variables to their replacement while rewriting.
 ///
-/// Implementations are taken as a generic parameter rather than behind a `dyn`, so that the
-/// variable lookup is monomorphised at every call site and [EmptySubstitution] collapses to
-/// nothing at all.
+/// Implementations are usually taken as a generic parameter, so that the variable lookup is
+/// monomorphised at every call site and [EmptySubstitution] collapses to nothing at all. The
+/// trait is object safe for the places that need to erase the type, such as [Shadowed].
 pub trait RewriteSubstitution {
-    /// May only be set when [RewriteSubstitution::get] always returns `None`.
+    /// May only return `true` when [RewriteSubstitution::get] always returns `None`.
     ///
-    /// Monomorphisation folds this constant away, so a caller that is generic over the
-    /// substitution can skip work that the identity makes pointless, such as the traversal in
-    /// [apply_substitution].
-    const IS_EMPTY: bool = false;
+    /// Lets a caller skip work that the identity makes pointless, such as the traversal in
+    /// [apply_substitution]. For [EmptySubstitution] this inlines to a constant.
+    fn is_empty(&self) -> bool {
+        false
+    }
 
     /// Returns the replacement for `variable`, or `None` if it is not in the domain, in which
     /// case the variable is left unchanged.
@@ -43,7 +44,10 @@ pub trait RewriteSubstitution {
 pub struct EmptySubstitution;
 
 impl RewriteSubstitution for EmptySubstitution {
-    const IS_EMPTY: bool = true;
+    #[inline(always)]
+    fn is_empty(&self) -> bool {
+        true
+    }
 
     #[inline(always)]
     fn get<'a>(&'a self, _variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>> {
@@ -52,6 +56,10 @@ impl RewriteSubstitution for EmptySubstitution {
 }
 
 impl RewriteSubstitution for HashMap<DataVariable, DataExpression> {
+    fn is_empty(&self) -> bool {
+        HashMap::is_empty(self)
+    }
+
     fn get<'a>(&'a self, variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>> {
         // Protecting the key allocates an entry in the protection set on every lookup. mCRL2
         // keys its substitutions on the term pointer instead, which we can adopt by storing the
@@ -78,6 +86,10 @@ impl<'a> SliceSubstitution<'a> {
 }
 
 impl RewriteSubstitution for SliceSubstitution<'_> {
+    fn is_empty(&self) -> bool {
+        self.variables.is_empty()
+    }
+
     fn get<'a>(&'a self, variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>> {
         self.variables
             .iter()
@@ -86,39 +98,30 @@ impl RewriteSubstitution for SliceSubstitution<'_> {
     }
 }
 
-/// A type-erased [RewriteSubstitution].
-/// 
-/// The `NOT_EMPTY` makes a regular [RewriteSubstitution] not object safe.
-pub(crate) trait DynRewriteSubstitution {
-    fn get<'a>(&'a self, variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>>;
-}
-
-impl<S: RewriteSubstitution> DynRewriteSubstitution for S {
-    fn get<'a>(&'a self, variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>> {
-        RewriteSubstitution::get(self, variable)
-    }
-}
-
 /// Wraps a substitution so it reports every variable in `shadowed` as outside
 /// its domain, regardless of what `inner` says.
 ///
 /// # Exampl
-/// 
+///
 /// Used when descending into a binder's body: `inner`'s domain may contain a
 /// name that coincides with one of the binder's own bound variables, and that
 /// bound variable must shadow it rather than be replaced.
 pub(crate) struct Shadowed<'a> {
-    pub inner: &'a dyn DynRewriteSubstitution,
+    pub inner: &'a dyn RewriteSubstitution,
     pub shadowed: &'a [DataVariable],
 }
 
 impl<'a> Shadowed<'a> {
-    pub fn new(inner: &'a dyn DynRewriteSubstitution, shadowed: &'a [DataVariable]) -> Self {
+    pub fn new(inner: &'a dyn RewriteSubstitution, shadowed: &'a [DataVariable]) -> Self {
         Shadowed { inner, shadowed }
     }
 }
 
-impl DynRewriteSubstitution for Shadowed<'_> {
+impl RewriteSubstitution for Shadowed<'_> {
+    fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
     fn get<'a>(&'a self, variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>> {
         if self.shadowed.iter().any(|v| v.copy() == *variable) {
             None
@@ -130,18 +133,22 @@ impl DynRewriteSubstitution for Shadowed<'_> {
 
 /// Layers one substitution over another without merging them into a single
 /// collection.
-pub struct Chained<'a, A, B> {
+pub struct Chained<'a, A: ?Sized, B: ?Sized> {
     pub first: &'a A,
     pub second: &'a B,
 }
 
-impl<'a, A, B> Chained<'a, A, B> {
+impl<'a, A: ?Sized, B: ?Sized> Chained<'a, A, B> {
     pub fn new(first: &'a A, second: &'a B) -> Self {
         Chained { first, second }
     }
 }
 
-impl<A: RewriteSubstitution, B: RewriteSubstitution> RewriteSubstitution for Chained<'_, A, B> {
+impl<A: RewriteSubstitution + ?Sized, B: RewriteSubstitution + ?Sized> RewriteSubstitution for Chained<'_, A, B> {
+    fn is_empty(&self) -> bool {
+        self.first.is_empty() && self.second.is_empty()
+    }
+
     fn get<'a>(&'a self, variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>> {
         self.first.get(variable).or_else(|| self.second.get(variable))
     }
@@ -156,9 +163,9 @@ impl<A: RewriteSubstitution, B: RewriteSubstitution> RewriteSubstitution for Cha
 ///
 /// Panics if `t` contains a binder or where clause, whose bound variables would need
 /// capture-avoiding renaming.
-pub fn apply_substitution<S: RewriteSubstitution>(t: &DataExpression, sigma: &S) -> DataExpression {
+pub fn apply_substitution<S: RewriteSubstitution + ?Sized>(t: &DataExpression, sigma: &S) -> DataExpression {
     // A closed term has no free variables, so no substitution can change it.
-    if S::IS_EMPTY || is_closed(t) {
+    if sigma.is_empty() || is_closed(t) {
         return t.clone();
     }
 
