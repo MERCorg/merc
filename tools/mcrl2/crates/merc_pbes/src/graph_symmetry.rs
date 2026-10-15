@@ -34,7 +34,6 @@ use mcrl2::PbesFlattenStack;
 use mcrl2::PbesForallRef;
 use mcrl2::PbesImpRef;
 use mcrl2::PbesNotRef;
-use mcrl2::PbesPropositionalVariableInstantiation;
 use mcrl2::PbesPropositionalVariableInstantiationRef;
 use mcrl2::SortExpression;
 use mcrl2::flatten_associative;
@@ -52,9 +51,9 @@ use mcrl2::is_pbes_propositional_variable_instantiation;
 use mcrl2::is_untyped_identifier;
 use mcrl2::is_variable;
 use mcrl2::is_where_clause;
-use mcrl2::pbes_expression_pvi;
 use merc_utilities::MercError;
 
+use crate::debruijn::BindingScope;
 use crate::explore_common::UNIFY_IGNORE_CE_EQUATIONS;
 use crate::explore_common::UNIFY_RESET_PARAMETERS;
 use crate::permutation::Permutation;
@@ -65,6 +64,11 @@ const COMMUTATIVE_FUNCTION_SYMBOLS: &[&str] = &["&&", "||", "==", "!=", "<=>", "
 /// Subset of [`COMMUTATIVE_FUNCTION_SYMBOLS`] that are also associative, and as
 /// such can be flattened.
 const ASSOCIATIVE_FUNCTION_SYMBOLS: &[&str] = &["&&", "||", "+", "*", "max", "min"];
+
+/// Subset of [`ASSOCIATIVE_FUNCTION_SYMBOLS`] that are also idempotent, so that
+/// repeated operands of a flattened chain can be collapsed. For the others
+/// (`+`, `*`) the multiplicity of an operand is semantically relevant.
+const IDEMPOTENT_FUNCTION_SYMBOLS: &[&str] = &["&&", "||", "max", "min"];
 
 /// True iff `name` is a known commutative binary symbol at the given arity.
 fn is_commutative(name: &str, arity: usize) -> bool {
@@ -221,6 +225,7 @@ impl fmt::Display for EdgeColour {
             EdgeColour::Uncoloured => Ok(()),
             EdgeColour::Argument(positions) => write!(f, "{}", positions.iter().format(",")),
             EdgeColour::Update(roles) => write!(f, "{}", roles.iter().format(",")),
+            EdgeColour::Multiplicity(count) => write!(f, "x{count}"),
         }
     }
 }
@@ -731,17 +736,21 @@ impl SdgBuilder {
                     is_application(t) && DataApplicationRef::from(t.copy()).data_function_symbol().name() == name
                 });
                 for leaf in &leaves {
-                    self.visit_child(node, leaf.copy().into(), EdgeColour::Uncoloured, equation)?;
-                }
-            } else {
-                let commutative = is_commutative(head.name(), arity);
-
-                // Group arguments by the vertex they resolve to, combining
-                // positions for repeated arguments (see `EdgeColour::Argument`).
-                let mut by_child: BTreeMap<NodeIndex, BTreeSet<usize>> = BTreeMap::new();
-                for (position, argument) in application.data_arguments().enumerate() {
-                    let child = self.visit(argument.into(), equation)?;
-                    by_child.entry(child).or_default().insert(position + 1);
+                // A repeated operand is one edge. Unless the operator is
+                // idempotent, `n + n + m` and `n + m + m` differ, so the edge
+                // records how often the operand occurs.
+                let idempotent = IDEMPOTENT_FUNCTION_SYMBOLS.contains(&name.as_str());
+                let children = multiplicity
+                    .into_iter()
+                    .map(|(child, count)| {
+                        let colour = if idempotent {
+                            EdgeColour::Uncoloured
+                        } else {
+                            EdgeColour::Multiplicity(count)
+                        };
+                        (child, colour)
+                    })
+                    .collect();
                 }
 
                 for (child, positions) in by_child {
