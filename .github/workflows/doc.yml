@@ -41,7 +41,7 @@ jobs:
       - name: Install Ubuntu Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake git grcov libboost-dev libfontconfig1-dev libfreetype6-dev
+          sudo apt-get install -y build-essential cmake git libboost-dev libfontconfig1-dev libfreetype6-dev
 
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.11
@@ -75,14 +75,14 @@ jobs:
 
       - name: Run tools/mcrl2 doc tests
         run: cargo test --doc
+        working-directory: tools/mcrl2
         env:
-          working-directory: tools/mcrl2
           RUSTC_WRAPPER: sccache
 
       - name: Run tools/gui doc tests
         run: cargo test --doc
+        working-directory: tools/gui
         env:
-          working-directory: tools/gui
           RUSTC_WRAPPER: sccache
 
       - name: Generating Code Coverage

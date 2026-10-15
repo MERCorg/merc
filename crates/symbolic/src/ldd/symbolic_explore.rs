@@ -243,17 +243,7 @@ fn fresh_saturation_epoch() -> u32 {
 /// Inside a single `saturate` call no new local value can appear: firing only
 /// ever installs values already present on the write side of an already-learned
 /// relation. New values, and new transitions out of them, only show up between
-/// calls, so the driver alternates learning and saturating:
-///
-/// ```text
-/// states = initial; saturated = false
-/// loop:
-///   changed = for each group: group.learn_successors(context, storage, &states, options.cached)
-///   if !changed && saturated: break     // states is closed under exactly these events
-///   if changed: epoch = fresh_epoch()   // the events differ from those of the previous saturate call
-///   states = states.saturate(&events, epoch)
-///   saturated = true
-/// ```
+/// calls, so the driver alternates learning and saturating.
 ///
 /// If learning finds nothing new, then `states` (the result of the previous
 /// call) is already closed under the current events, so there is nothing left
@@ -266,15 +256,17 @@ fn fresh_saturation_epoch() -> u32 {
 ///
 /// **The saturation cache.**
 ///
-/// `saturate` memoises on node identity, which does not change when a group's relation grows, so a
-/// node cached as saturated under an earlier, smaller relation must never be reused. The cache entries
-/// are keyed on the `epoch` that is passed to `saturate`, which is a new one whenever any relation
-/// grew since the previous call, and the same one otherwise, so that the entries of that call stay
-/// usable. Nothing has to be cleared, and the cost of a round does not depend on the size of the
-/// manager's caches.
+/// `saturate` memoises on node identity, which does not change when a group's
+/// relation grows, so a node cached as saturated under an earlier, smaller
+/// relation must never be reused. The cache entries are keyed on the `epoch`
+/// that is passed to `saturate`, which is a new one whenever any relation grew
+/// since the previous call, and the same one otherwise, so that the entries of
+/// that call stay usable. Nothing has to be cleared, and the cost of a round
+/// does not depend on the size of the manager's caches.
 ///
-/// Epochs are drawn from a counter of the whole process, so that explorations that share a manager
-/// (which have different relations) never share an epoch either.
+/// Epochs are drawn from a counter of the whole process, so that explorations
+/// that share a manager (which have different relations) never share an epoch
+/// either.
 fn saturation_reachability<L: SymbolicLPS, F: FnMut(usize, &LDDFunction) -> ControlFlow<()>>(
     storage: &LDDManagerRef,
     lts: &mut L,
