@@ -945,6 +945,11 @@ impl Sdg {
 }
 
 /// Writes the SDG as a Graphviz DOT file, including vertex/edge colours.
+///
+/// Consistent with the graph handed to GAP (see [`Sdg::to_gap_graph`]): nodes
+/// are named `p{k}` after their 1-based GAP point (so parameter `d_k` is
+/// `p{k+1}`), each vertex shows its label together with the `C_RHS` set that
+/// GAP also colours by, and each edge shows its [`EdgeColour`] exactly.
 pub fn write_dot<W>(sdg: &Sdg, w: &mut W) -> Result<(), MercError>
 where
     W: Write,
@@ -954,21 +959,16 @@ where
 
     for node in sdg.graph.node_indices() {
         let i = node.index();
+        let point = i + 1;
         let vc = &sdg.colours[i];
+        let rhs = format!("rhs {{{}}}", sdg.rhs[i].iter().format(","));
 
         let label = match vc {
             VertexColour::Parameter(_) => sdg.parameters[i].name().to_string(),
             // Update nodes are unlabeled; shape + dashed edges identify them.
             VertexColour::Update => String::new(),
             VertexColour::Pvi(name) => name.to_string(),
-            VertexColour::BoundVariable(_) => {
-                if let SdgVertex::Term(expression) = &sdg.graph[node] {
-                    let r: ATermRef<'_> = expression.copy().into();
-                    DataVariableRef::from(r).name().to_string()
-                } else {
-                    unreachable!()
-                }
-            }
+            VertexColour::BoundVariable { index, .. } => format!("#{index}"),
             VertexColour::Quantifier(q, _) => {
                 if let SdgVertex::Term(expression) = &sdg.graph[node] {
                     let r: ATermRef<'_> = expression.copy().into();
@@ -1011,10 +1011,13 @@ where
         if matches!(vc, VertexColour::Update) {
             writeln!(
                 w,
-                "  n{i} [label=\"\", shape=diamond, fillcolor=\"{fill}\", width=0.2, height=0.2, fixedsize=true];"
+                "  p{point} [label=\"\", xlabel=\"{rhs}\", shape=diamond, fillcolor=\"{fill}\", width=0.2, height=0.2, fixedsize=true];"
             )?;
         } else {
-            writeln!(w, "  n{i} [label=\"{label}\", shape={shape}, fillcolor=\"{fill}\"];")?;
+            writeln!(
+                w,
+                "  p{point} [label=\"{label}\\n{rhs}\", shape={shape}, fillcolor=\"{fill}\"];"
+            )?;
         }
     }
 
@@ -1022,23 +1025,18 @@ where
         let (u, v) = sdg.graph.edge_endpoints(edge).unwrap();
         let colour = sdg.graph.edge_weight(edge).unwrap();
         let elabel = colour.to_string();
-
-        if matches!(colour, EdgeColour::Update(_)) {
-            if elabel.is_empty() {
-                writeln!(w, "  n{} -- n{} [style=dashed];", u.index(), v.index())?;
-            } else {
-                writeln!(
-                    w,
-                    "  n{} -- n{} [style=dashed, label=\"{elabel}\"];",
-                    u.index(),
-                    v.index()
-                )?;
-            }
-        } else if elabel.is_empty() {
-            writeln!(w, "  n{} -- n{};", u.index(), v.index())?;
+        let style = if matches!(colour, EdgeColour::Update(_)) {
+            "style=dashed, "
         } else {
-            writeln!(w, "  n{} -- n{} [label=\"{elabel}\"];", u.index(), v.index())?;
-        }
+            ""
+        };
+
+        writeln!(
+            w,
+            "  p{} -- p{} [{style}label=\"{elabel}\"];",
+            u.index() + 1,
+            v.index() + 1
+        )?;
     }
 
     writeln!(w, "}}")?;
