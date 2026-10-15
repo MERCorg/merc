@@ -11,7 +11,7 @@ use crate::fresh::FreshVariableGenerator;
 
 /// Implements [`merc_sabre::Enumerator`] on top of
 /// [`Enumerator::find_witness`].
-/// 
+///
 /// Keeps the fresh variable generator around for each call. This does mean that
 /// every rewrite must be in the same context.
 pub struct QuantifierEnumerator {
