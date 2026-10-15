@@ -884,36 +884,44 @@ pub struct GapGraph {
 }
 
 impl Sdg {
-    pub fn to_gap_graph(&self) -> GapGraph {
-        let n = self.graph.node_count();
+    /// Assigns the dense (1-based) colour indices that are handed to GAP.
+    ///
+    /// Returns the vertex colour per node (indexed by `NodeIndex::index()`,
+    /// where the colour includes `C_RHS`) and the edge colour per edge (indexed
+    /// by `EdgeIndex::index()`). Shared by [`Self::to_gap_graph`] and
+    /// [`write_dot`] so that both always agree on the colour classes.
+    fn dense_colours(&self) -> (Vec<usize>, Vec<usize>) {
         let mut vc_map: HashMap<String, usize> = HashMap::new();
-        let mut next_vc = 1usize;
-        let mut vertex_colours = vec![0usize; n];
+        let mut vertex_colours = vec![0usize; self.graph.node_count()];
 
         for node in self.graph.node_indices() {
-            let key = format!("{:?}|{:?}", self.colours[node.index()], self.equations[node.index()]);
-            let dense = *vc_map.entry(key).or_insert_with(|| {
-                let c = next_vc;
-                next_vc += 1;
-                c
-            });
-            vertex_colours[node.index()] = dense;
+            let key = format!("{:?}|{:?}", self.colours[node.index()], self.rhs[node.index()]);
+            let next = vc_map.len() + 1;
+            vertex_colours[node.index()] = *vc_map.entry(key).or_insert(next);
         }
 
         let mut ec_map: HashMap<String, usize> = HashMap::new();
-        let mut next_ec = 1usize;
+        let mut edge_colours = vec![0usize; self.graph.edge_count()];
+
+        for edge in self.graph.edge_indices() {
+            let key = format!("{:?}", self.graph.edge_weight(edge).unwrap());
+            let next = ec_map.len() + 1;
+            edge_colours[edge.index()] = *ec_map.entry(key).or_insert(next);
+        }
+
+        (vertex_colours, edge_colours)
+    }
+
+    pub fn to_gap_graph(&self) -> GapGraph {
+        let n = self.graph.node_count();
+        let (vertex_colours, dense_edge_colours) = self.dense_colours();
+
         let mut out_neighbours = vec![Vec::new(); n];
         let mut edge_colours = vec![Vec::new(); n];
 
         for edge in self.graph.edge_indices() {
             let (u, v) = self.graph.edge_endpoints(edge).unwrap();
-            let colour = self.graph.edge_weight(edge).unwrap();
-            let ec_key = format!("{:?}", colour);
-            let dense_ec = *ec_map.entry(ec_key).or_insert_with(|| {
-                let c = next_ec;
-                next_ec += 1;
-                c
-            });
+            let dense_ec = dense_edge_colours[edge.index()];
             out_neighbours[u.index()].push(v.index() + 1);
             edge_colours[u.index()].push(dense_ec);
             out_neighbours[v.index()].push(u.index() + 1);
