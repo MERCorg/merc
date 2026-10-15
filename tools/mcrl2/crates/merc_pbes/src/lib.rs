@@ -27,6 +27,7 @@
 pub mod bsgs;
 pub mod cfg_srf;
 pub mod clone_iterator;
+pub mod debruijn;
 pub mod explore_common;
 pub mod explore_pbes;
 pub mod explore_srf;
