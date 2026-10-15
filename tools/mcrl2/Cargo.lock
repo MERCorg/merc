@@ -1291,7 +1291,6 @@ dependencies = [
  "merc_data",
  "merc_syntax",
  "merc_utilities",
- "rustc-hash 2.1.3",
  "thiserror",
 ]
 

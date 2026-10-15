@@ -18,6 +18,3 @@ merc_utilities.workspace = true
 rand.workspace = true
 bitstream-io.workspace = true
 num.workspace = true
-
-[target.'cfg(all(kani_ra, not(windows)))'.dependencies]
-kani.workspace = true

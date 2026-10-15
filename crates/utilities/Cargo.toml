@@ -23,6 +23,3 @@ thread_local.workspace = true
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(kani)'] }
-
-[target.'cfg(all(kani_ra, not(windows)))'.dependencies]
-kani.workspace = true
