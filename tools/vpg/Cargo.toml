@@ -31,3 +31,6 @@ itertools.workspace = true
 log.workspace = true
 oxidd.workspace = true
 which.workspace = true
+
+[lints]
+workspace = true

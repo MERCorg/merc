@@ -12,16 +12,16 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-merc_utilities.workspace = true
-
 crossbeam-utils.workspace = true
 delegate.workspace = true
 
 [dev-dependencies]
+merc_utilities.workspace = true
+
 rand.workspace = true
 
 [target.'cfg(loom)'.dependencies]
 loom.workspace = true
 
-[lints.rust]
-unexpected_cfgs = { level = "allow", check-cfg = ['cfg(loom)'] }
+[lints]
+workspace = true

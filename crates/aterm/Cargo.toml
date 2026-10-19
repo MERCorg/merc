@@ -42,7 +42,6 @@ pest_derive.workspace = true
 pest.workspace = true
 rand.workspace = true
 rustc-hash.workspace = true
-thiserror.workspace = true
 
 [dev-dependencies]
 trybuild.workspace = true

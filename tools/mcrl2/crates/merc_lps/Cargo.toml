@@ -13,9 +13,6 @@ metrics = ["merc_explore/metrics", "merc_symbolic/metrics"]
 # Derive the `clap::ValueEnum` trait.
 clap = ["dep:clap"]
 
-[lints]
-workspace = true
-
 [dependencies]
 mcrl2.workspace = true
 merc_data.workspace = true

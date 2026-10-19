@@ -19,7 +19,6 @@ workspace = true
 merc_aterm.workspace = true
 merc_data.workspace = true
 merc_syntax.workspace = true
-merc_typecheck.workspace = true
 merc_utilities.workspace = true
 
 rustc-hash.workspace = true
@@ -32,5 +31,7 @@ itertools.workspace = true
 rand.workspace = true
 
 [dev-dependencies]
+merc_typecheck.workspace = true
+
 test-case.workspace = true
 test-log.workspace = true

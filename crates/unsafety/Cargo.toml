@@ -9,9 +9,6 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-[lints]
-workspace = true
-
 [features]
 # Enables an allocator that counts additional metrics, this disables features `jemalloc` and `mimalloc`. The allocator has
 # performance overhead.
@@ -28,7 +25,6 @@ mimalloc = ["dep:mimalloc"]
 debug = ["tikv-jemallocator?/debug"]
 
 [dependencies]
-merc_collections.workspace = true
 merc_io.workspace = true
 merc_utilities.workspace = true
 
@@ -37,7 +33,6 @@ crossbeam-utils.workspace = true
 dashmap.workspace = true
 equivalent.workspace = true
 hashbrown.workspace = true
-itertools.workspace = true
 log.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
@@ -50,3 +45,6 @@ tikv-jemallocator = { workspace = true, optional = true }
 # Makes it possible to check functional contracts in kani.
 [package.metadata.kani]
 unstable = { function-contracts = true, mem-predicates = true }
+
+[lints]
+workspace = true

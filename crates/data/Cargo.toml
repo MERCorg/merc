@@ -22,7 +22,5 @@ merc_number.workspace = true
 merc_utilities.workspace = true
 
 ahash.workspace = true
-indoc.workspace = true
 
 delegate.workspace = true
-thiserror.workspace = true

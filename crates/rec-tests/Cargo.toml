@@ -20,3 +20,6 @@ ahash.workspace = true
 [dev-dependencies]
 test-case.workspace = true
 env_logger.workspace = true
+
+[lints]
+workspace = true

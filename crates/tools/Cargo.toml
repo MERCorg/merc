@@ -17,3 +17,6 @@ which.workspace = true
 # Only used by the Windows console helpers in `console.rs`.
 [target.'cfg(windows)'.dependencies]
 winapi.workspace = true
+
+[lints]
+workspace = true

@@ -35,3 +35,6 @@ clap = { workspace = true, optional = true }
 [dev-dependencies]
 test-log.workspace = true
 tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -25,8 +25,6 @@ exclude = [
     "crates/mCRL2-sys",
 ]
 
-[workspace.lints.rustdoc]
-
 [workspace.dependencies]
 clap = { version = "4.6", features = ["derive"] }
 env_logger = { version = "0.11", features = ["kv"] }
@@ -36,13 +34,9 @@ parking_lot = "0.12"
 petgraph = "0.8"
 rand = "0.10"
 rayon = "1.12"
-rustc-hash = "2.1"
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-streaming-iterator = "0.1" 
 tempfile = "3.27"
 test-case = "3"
-thiserror = "2.0"
 
 # Dependencies used in procedural macros.
 proc-macro2 = "1.0"

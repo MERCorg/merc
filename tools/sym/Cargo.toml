@@ -25,3 +25,6 @@ log.workspace = true
 oxidd.workspace = true
 rustc-hash.workspace = true
 which.workspace = true
+
+[lints]
+workspace = true

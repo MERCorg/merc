@@ -9,3 +9,6 @@ rust-version.workspace = true
 merc_aterm.workspace = true
 merc_data.workspace = true
 merc_unsafety.workspace = true
+
+[lints]
+workspace = true

@@ -11,7 +11,6 @@ version.workspace = true
 
 [dependencies]
 ena.workspace = true
-indoc.workspace = true
 log.workspace = true
 thiserror.workspace = true
 
@@ -24,3 +23,6 @@ merc_utilities.workspace = true
 [dev-dependencies]
 rand.workspace = true
 test-case.workspace = true
+
+[lints]
+workspace = true

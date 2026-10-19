@@ -1135,7 +1135,6 @@ dependencies = [
  "pest_derive",
  "rand",
  "rustc-hash 2.1.3",
- "thiserror",
  "trybuild",
 ]
 
@@ -1160,12 +1159,10 @@ version = "3.0.0"
 dependencies = [
  "ahash",
  "delegate",
- "indoc",
  "merc_aterm",
  "merc_macros",
  "merc_number",
  "merc_utilities",
- "thiserror",
 ]
 
 [[package]]
@@ -1205,7 +1202,6 @@ dependencies = [
  "regex",
  "streaming-iterator",
  "tempfile",
- "thiserror",
 ]
 
 [[package]]
@@ -1213,7 +1209,6 @@ name = "merc_lts"
 version = "3.0.0"
 dependencies = [
  "bindgen",
- "bumpalo",
  "cargo-emit",
  "clap",
  "delegate",
@@ -1463,7 +1458,6 @@ name = "merc_typecheck"
 version = "2.0.0"
 dependencies = [
  "ena",
- "indoc",
  "log",
  "merc_aterm",
  "merc_collections",
@@ -1484,9 +1478,7 @@ dependencies = [
  "dashmap",
  "equivalent",
  "hashbrown 0.17.1",
- "itertools 0.15.0",
  "log",
- "merc_collections",
  "merc_io",
  "merc_utilities",
  "mimalloc",

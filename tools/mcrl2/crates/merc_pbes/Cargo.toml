@@ -9,9 +9,6 @@ version.workspace = true
 [features]
 metrics = ["merc_explore/metrics"]
 
-[lints]
-workspace = true
-
 [dependencies]
 mcrl2.workspace = true
 merc_explore = { workspace = true, features = ["clap"] }
