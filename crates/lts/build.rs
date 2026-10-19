@@ -46,10 +46,10 @@ fn main() {
 
             let bcg_libraries =
                 Path::new(&directory).join(format!("bin.{}", String::from_utf8_lossy(&arch.stdout).trim()));
-                cargo_emit::rustc_link_search!(bcg_libraries.to_string_lossy());
+            cargo_emit::rustc_link_search!(bcg_libraries.to_string_lossy());
 
-                cargo_emit::rustc_link_lib!("BCG");
-                cargo_emit::rustc_link_lib!("BCG_IO");
+            cargo_emit::rustc_link_lib!("BCG");
+            cargo_emit::rustc_link_lib!("BCG_IO");
         } else {
             panic!(
                 "CADP environment variable is set, but the file {} does not exist.",

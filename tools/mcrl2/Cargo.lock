@@ -1016,6 +1016,7 @@ dependencies = [
 name = "merc_lts"
 version = "3.0.0"
 dependencies = [
+ "cargo-emit",
  "clap",
  "delegate",
  "itertools",
