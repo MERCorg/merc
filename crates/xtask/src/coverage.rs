@@ -23,9 +23,10 @@ fn clean_files(pattern: &str) -> Result<(), Box<dyn Error>> {
 
 /// Runs `cargo <arguments>` instrumented for coverage and renders an HTML report with `grcov`.
 ///
-/// Requires the nightly toolchain and `grcov` on `PATH`, and must be run from the workspace
-/// root. Deletes and recreates `target/coverage` first, discarding any previous report there;
-/// the intermediate `.profraw` files are removed again once the report is generated.
+/// Uses the nightly toolchain unless a nightly toolchain is already selected (e.g. through
+/// `cargo +nightly-<date> xtask`). Requires `grcov` on `PATH` and the `llvm-tools-preview`
+/// component for that toolchain, and must be run from the workspace root. Deletes and recreates
+/// `target/coverage` first, discarding any previous report there; the intermediate `.profraw` files are removed again once the report is generated.
 ///
 /// # Errors
 ///
@@ -42,21 +43,6 @@ pub(crate) fn coverage(arguments: Vec<String>) -> Result<(), Box<dyn Error>> {
         return Err("grcov was not found on PATH; install it with `cargo install grcov`".into());
     }
 
-    // grcov only logs an error and writes an empty report when it cannot find `llvm-profdata`, so locate it explicitly.
-    let sysroot = cmd!("rustc", "--print", "sysroot")
-        .env("RUSTUP_TOOLCHAIN", &toolchain)
-        .read()?;
-    let llvm_path = glob(&format!("{}/lib/rustlib/*/bin/llvm-profdata*", sysroot.trim()))?
-        .next()
-        .transpose()?
-        .and_then(|path| path.parent().map(PathBuf::from))
-        .ok_or_else(|| {
-            format!(
-                "llvm-profdata was not found in toolchain {toolchain}; install it with \
-                 `rustup component add llvm-tools-preview --toolchain {toolchain}`"
-            )
-        })?;
-
     // Ignore errors about missing directory.
     let _ = remove_dir_all("target/coverage");
     create_dir_all("target/coverage")?;
@@ -72,7 +58,6 @@ pub(crate) fn coverage(arguments: Vec<String>) -> Result<(), Box<dyn Error>> {
     prof_directory.push("cargo-test-%p-%m.profraw");
 
     cmd("cargo", arguments)
-        .env("RUSTUP_TOOLCHAIN", &toolchain)
         .env("CARGO_INCREMENTAL", "0")
         .env("RUSTFLAGS", "-C instrument-coverage -Z coverage-options=condition")
         .env("LLVM_PROFILE_FILE", prof_directory)
@@ -95,15 +80,12 @@ pub(crate) fn coverage(arguments: Vec<String>) -> Result<(), Box<dyn Error>> {
         "-t",
         "html",
         "--branch",
-        "--llvm-path",
-        &llvm_path,
         "--ignore-not-existing",
         "--ignore",
         "**/target/*",
         "-o",
         report_dir,
     )
-    .env("RUSTUP_TOOLCHAIN", &toolchain)
     .run()?;
 
     // grcov exits successfully on most failures, but a report that covers any source file contains a subdirectory for it.
