@@ -32,10 +32,10 @@ impl fmt::Display for ProtectionIndex {
     }
 }
 
-/// A collection that assigns a unique index to every object added to it, and allows
-/// removing objects while reusing their indices later. This is useful for managing
-/// objects that must not be garbage collected, and as such it is called a protection set.
-/// It is similar to a [`merc_collections::IndexedSet`], except that we cannot look up elements by value.
+/// A collection that assigns a unique index to every object added to it, and
+/// allows removing objects while reusing their indices later. This is useful
+/// for managing objects that must not be garbage collected, and as such it is
+/// called a protection set.
 #[derive(Default)]
 pub struct ProtectionSet<T> {
     roots: Vec<Entry<T>>, // The set of root active nodes.
