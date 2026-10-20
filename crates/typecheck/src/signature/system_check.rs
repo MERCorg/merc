@@ -147,7 +147,7 @@ impl Checker<'_> {
         match &expr.node {
             // `Resolved` never occurs in the system-defined specification's own equations, but is
             // grouped with `Id` for exhaustiveness.
-            DataExprKind::Id(name) | DataExprKind::Resolved(name, _, _) => {
+            DataExprKind::Id(name) | DataExprKind::Resolved(name, _) => {
                 if scope.iter().any(|bound| bound == name) {
                     Ok(())
                 } else if variables.contains(name.as_str()) {

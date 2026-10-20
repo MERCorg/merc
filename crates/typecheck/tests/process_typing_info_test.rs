@@ -13,7 +13,7 @@ use merc_typecheck::TypingInfo;
 #[track_caller]
 fn typing_for(text: &str) -> TypingInfo {
     let spec = UntypedProcessSpecification::parse(text).expect("the specification should parse");
-    let mut spec = ProcessSpecification::from_untyped(spec).expect("the specification should type check");
+    let spec = ProcessSpecification::from_untyped(spec).expect("the specification should type check");
     spec.typing_info()
 }
 

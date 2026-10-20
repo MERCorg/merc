@@ -74,6 +74,8 @@ pub struct VarTag;
 /// The index type assigned to every variable binder during variable resolution, spec-wide.
 pub type VarId = TagIndex<usize, VarTag>;
 
+impl crate::TakeRecursiveChildren for VarId {}
+
 /// Hands out fresh, spec-wide [VarId]s during variable resolution.
 pub type VarIdAllocator = IdAllocator<VarTag>;
 

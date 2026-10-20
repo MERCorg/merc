@@ -80,7 +80,7 @@ pub(crate) fn for_each_expr_child<'a, F: FnMut(&'a DataExpr)>(expr: &'a DataExpr
             f(expr);
         }
         DataExprKind::Id(_)
-        | DataExprKind::Resolved(_, _, _)
+        | DataExprKind::Resolved(_, _)
         | DataExprKind::Number(_)
         | DataExprKind::Bool(_)
         | DataExprKind::EmptyList
@@ -982,8 +982,8 @@ impl<'a> ConstraintGenerator<'a> {
 
         match &expr.node {
             DataExprKind::Id(name) => self.gen_name(id, node, name, None, &expr.span)?,
-            DataExprKind::Resolved(name, declaration, _) => {
-                self.gen_name(id, node, name, Some(*declaration), &expr.span)?
+            DataExprKind::Resolved(name, declaration) => {
+                self.gen_name(id, node, name, Some(declaration.node), &expr.span)?
             }
             DataExprKind::Number(value) => {
                 let kind = if value == "0" {

@@ -167,7 +167,7 @@ fn offset_eqn_decl<F: FnMut(&mut Span)>(equation: &mut EqnDecl, f: &mut F) {
 fn offset_data_expr<F: FnMut(&mut Span)>(expr: &mut DataExpr, f: &mut F) {
     f(&mut expr.span);
     match &mut expr.node {
-        DataExprKind::Resolved(_, _, declaration) => f(declaration),
+        DataExprKind::Resolved(_, declaration) => f(&mut declaration.span),
         DataExprKind::Id(_)
         | DataExprKind::Number(_)
         | DataExprKind::Bool(_)
