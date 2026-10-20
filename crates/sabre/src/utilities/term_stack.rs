@@ -153,15 +153,16 @@ impl TermStack {
                 // literal term. Right-hand sides contain them whenever numeric
                 // literals are lowered with `NumberEncoding::MachineWord`, where a
                 // number is a chain of `@word` digits.
-                let mut write = innermost_stack.write();
-                // Safety: term is pushed into the container on the next line.
-                let t = unsafe { write.protect(&term) };
-                write.push(Config::Term(t.into(), stack_size));
+                innermost_stack.write(|write| {
+                    // Safety: term is pushed into the container on the next line.
+                    let t = unsafe { write.protect(&term) };
+                    write.push(Config::Term(t.into(), stack_size));
+                });
                 stack_size += 1;
             } else {
                 let arity = term.data_arguments().len();
-                let mut write = innermost_stack.write();
-                write.push(Config::Construct(term.data_function_symbol(), arity, stack_size));
+                innermost_stack
+                    .write(|write| write.push(Config::Construct(term.data_function_symbol(), arity, stack_size)));
                 stack_size += 1;
             }
         }
@@ -194,29 +195,34 @@ impl TermStack {
         builder: &mut TermStackBuilder,
     ) -> DataExpression {
         let stack = &mut builder.stack;
-        {
-            let mut write = stack.terms.write();
+        stack.terms.write(|write| {
             write.clear();
             write.push(None);
-        }
+        });
 
-        InnermostStack::integrate(
-            &mut stack.configs.write(),
-            &mut stack.terms.write(),
-            self,
-            &DataExpressionRef::from(term.copy()),
-            0,
-        );
+        stack.configs.write(|write_configs| {
+            stack.terms.write(|write_terms| {
+                InnermostStack::integrate(
+                    write_configs,
+                    write_terms,
+                    self,
+                    &DataExpressionRef::from(term.copy()),
+                    0,
+                )
+            })
+        });
 
         loop {
             debug_trace!("{}", stack);
 
-            let mut write_configs = stack.configs.write();
-            if let Some(config) = write_configs.pop() {
-                match config {
+            let done = stack.configs.write(|write_configs| {
+                let Some(config) = write_configs.pop() else {
+                    return true;
+                };
+
+                stack.terms.write(|write_terms| match config {
                     Config::Construct(symbol, arity, index) => {
                         // Take the last arity arguments.
-                        let mut write_terms = stack.terms.write();
                         let length = write_terms.len();
 
                         let arguments = &write_terms[length - arity..];
@@ -235,7 +241,6 @@ impl TermStack {
                         write_terms[index] = Some(t.into());
                     }
                     Config::Term(term, index) => {
-                        let mut write_terms = stack.terms.write();
                         // Safety: t is stored in the container on the next line.
                         let t = unsafe { write_terms.protect(&term) };
                         write_terms[index] = Some(t.into());
@@ -246,8 +251,11 @@ impl TermStack {
                     Config::Return() => {
                         unreachable!("This case should not happen");
                     }
-                }
-            } else {
+                });
+                false
+            });
+
+            if done {
                 break;
             }
         }
@@ -257,13 +265,13 @@ impl TermStack {
             "Expect exactly one term on the result stack"
         );
 
-        let mut write_terms = stack.terms.write();
-
-        write_terms
-            .pop()
-            .expect("The result should be the last element on the stack")
-            .expect("The result should be Some")
-            .protect()
+        stack.terms.write(|write_terms| {
+            write_terms
+                .pop()
+                .expect("The result should be the last element on the stack")
+                .expect("The result should be Some")
+                .protect()
+        })
     }
 
     /// Used to check if a subterm is duplicated, for example "times(s(x), y) =
@@ -286,20 +294,20 @@ impl Clone for TermStack {
         let mut innermost_stack: Protected<Vec<Config>> = Protected::new(vec![]);
 
         let read = self.innermost_stack.read();
-        let mut write = innermost_stack.write();
-        for t in read.iter() {
-            match t {
-                Config::Rewrite(x) => write.push(Config::Rewrite(*x)),
-                Config::Construct(f, x, y) => {
-                    write.push(Config::Construct(f.copy(), *x, *y));
+        innermost_stack.write(|write| {
+            for t in read.iter() {
+                match t {
+                    Config::Rewrite(x) => write.push(Config::Rewrite(*x)),
+                    Config::Construct(f, x, y) => {
+                        write.push(Config::Construct(f.copy(), *x, *y));
+                    }
+                    Config::Term(t, y) => {
+                        write.push(Config::Term(t.copy(), *y));
+                    }
+                    Config::Return() => write.push(Config::Return()),
                 }
-                Config::Term(t, y) => {
-                    write.push(Config::Term(t.copy(), *y));
-                }
-                Config::Return() => write.push(Config::Return()),
             }
-        }
-        drop(write);
+        });
 
         Self {
             variables: self.variables.clone(),
@@ -362,17 +370,17 @@ mod tests {
     #[test]
     fn test_rhs_stack() {
         let rhs_stack = TermStack::new(&create_rewrite_rule("fact(s(N))", "times(s(N), fact(N))", &["N"]).unwrap());
-        let mut expected = Protected::new(vec![]);
+        let mut expected: Protected<Vec<Config<'static>>> = Protected::new(vec![]);
 
         let t1 = DataFunctionSymbol::new("times");
         let t2 = DataFunctionSymbol::new("s");
         let t3 = DataFunctionSymbol::new("fact");
 
-        let mut write = expected.write();
-        write.push(Config::Construct(t1.copy(), 2, 0));
-        write.push(Config::Construct(t2.copy(), 1, 1));
-        write.push(Config::Construct(t3.copy(), 1, 2));
-        drop(write);
+        expected.write(|write| {
+            write.push(Config::Construct(t1.copy(), 2, 0));
+            write.push(Config::Construct(t2.copy(), 1, 1));
+            write.push(Config::Construct(t3.copy(), 1, 2));
+        });
 
         // Check if the resulting construction succeeded.
         assert_eq!(

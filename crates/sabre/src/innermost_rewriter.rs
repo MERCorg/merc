@@ -39,6 +39,17 @@ impl RewriteEngine for InnermostRewriter {
     }
 }
 
+/// What [InnermostRewriter::rewrite_aux] does after a configuration has been taken from the stack.
+enum Step {
+    Continue,
+
+    /// Find a match for the constructed term, and place the result at the index.
+    Match(DataExpression, usize),
+
+    /// The normal form of the input term.
+    Return(DataExpression),
+}
+
 impl InnermostRewriter {
     /// Rewrites `t` to normal form and returns the normal form together with the
     /// [RewritingStatistics] gathered while doing so, most notably the number of
@@ -112,25 +123,25 @@ impl InnermostRewriter {
         sigma: &S,
     ) -> DataExpression {
         stats.recursions += 1;
-        {
-            let mut write_terms = stack.terms.write();
-            let mut write_configs = stack.configs.write();
-
-            // Push the result term to the stack.
-            let top_of_stack = write_terms.len();
-            write_configs.push(Config::Return());
-            write_terms.push(None);
-            InnermostStack::add_rewrite(&mut write_configs, &mut write_terms, input_term.copy(), top_of_stack);
-        }
+        stack.terms.write(|write_terms| {
+            stack.configs.write(|write_configs| {
+                // Push the result term to the stack.
+                let top_of_stack = write_terms.len();
+                write_configs.push(Config::Return());
+                write_terms.push(None);
+                InnermostStack::add_rewrite(write_configs, write_terms, input_term.copy(), top_of_stack);
+            })
+        });
 
         loop {
             debug_trace!("{}", stack);
 
-            let mut write_configs = stack.configs.write();
-            if let Some(config) = write_configs.pop() {
-                match config {
+            let step = stack.configs.write(|write_configs| {
+                let config = write_configs
+                    .pop()
+                    .expect("The stack always ends with a Return configuration");
+                stack.terms.write(|write_terms| match config {
                     Config::Rewrite(result) => {
-                        let mut write_terms = stack.terms.write();
                         let term = write_terms.pop().unwrap().unwrap();
 
                         // A machine number is a value in normal form; it has no head function
@@ -138,8 +149,7 @@ impl InnermostRewriter {
                         if is_data_machine_number(&term) {
                             // Safety: term is stored in the container on the same line.
                             write_terms[result] = Some(unsafe { write_terms.protect(&term) }.into());
-                            drop(write_configs);
-                            continue;
+                            return Step::Continue;
                         }
 
                         if let Some(symbol) = term.try_data_function_symbol() {
@@ -153,16 +163,10 @@ impl InnermostRewriter {
 
                             // Safety: symbol is stored in the container on the next line.
                             let symbol = unsafe { write_configs.protect(&symbol) };
-                            InnermostStack::add_result(&mut write_configs, symbol.into(), arguments.len(), result);
+                            InnermostStack::add_result(write_configs, symbol.into(), arguments.len(), result);
                             for (offset, arg) in arguments.into_iter().enumerate() {
-                                InnermostStack::add_rewrite(
-                                    &mut write_configs,
-                                    &mut write_terms,
-                                    arg,
-                                    top_of_stack + offset,
-                                );
+                                InnermostStack::add_rewrite(write_configs, write_terms, arg, top_of_stack + offset);
                             }
-                            drop(write_configs);
                         } else {
                             // A variable has no head symbol to match on. It is replaced by its
                             // image under sigma, which is assumed to be in normal form, so it
@@ -173,12 +177,11 @@ impl InnermostRewriter {
 
                             // Safety: replacement is stored in the container on the same line.
                             write_terms[result] = Some(unsafe { write_terms.protect(&replacement) }.into());
-                            drop(write_configs);
                         }
+                        Step::Continue
                     }
                     Config::Construct(symbol, arity, index) => {
                         // Take the last arity arguments.
-                        let mut write_terms = stack.terms.write();
                         let length = write_terms.len();
 
                         let arguments = &write_terms[length - arity..];
@@ -191,82 +194,87 @@ impl InnermostRewriter {
 
                         // Remove the arguments from the stack.
                         write_terms.drain(length - arity..);
-                        drop(write_terms);
-                        drop(write_configs);
-
-                        match InnermostRewriter::find_match(tp, stack, builder, stats, automaton, &term.copy()) {
-                            Some(MatchResult::Native(result)) => {
-                                debug_trace!("native rewrite {} => {}", term, result);
-
-                                let mut write_terms = stack.terms.write();
-                                // Safety: result is stored in the container on the same line.
-                                write_terms[index] = Some(unsafe { write_terms.protect(&result) }.into());
-                                stats.rewrite_steps += 1;
-                            }
-                            Some(MatchResult::Rule(_announcement, annotation)) => {
-                                debug_trace!(
-                                    "rewrite {} => {} using rule {}",
-                                    term,
-                                    annotation.rhs_stack.evaluate(&term),
-                                    _announcement.rule
-                                );
-
-                                // Reacquire the write access and add the matching RHSStack.
-                                let mut write_terms = stack.terms.write();
-                                let mut write_configs = stack.configs.write();
-                                InnermostStack::integrate(
-                                    &mut write_configs,
-                                    &mut write_terms,
-                                    &annotation.rhs_stack,
-                                    &term.copy(),
-                                    index,
-                                );
-                                stats.rewrite_steps += 1;
-                            }
-                            None => {
-                                // Add the term on the stack.
-                                let mut write_terms = stack.terms.write();
-                                // Safety: term is stored in the container on the same line.
-                                write_terms[index] = Some(unsafe { write_terms.protect(&term) }.into());
-                            }
-                        }
+                        Step::Match(term, index)
                     }
                     Config::Term(term, index) => {
                         // A constant carried by a right-hand side (a machine number)
                         // is already in normal form: place it at its index directly.
-                        let mut write_terms = stack.terms.write();
                         // Safety: term is stored in the container on the same line.
                         write_terms[index] = Some(unsafe { write_terms.protect(&term) }.into());
-                        drop(write_terms);
-                        drop(write_configs);
+                        Step::Continue
                     }
-                    Config::Return() => {
-                        let mut write_terms = stack.terms.write();
-
-                        return write_terms
+                    Config::Return() => Step::Return(
+                        write_terms
                             .pop()
                             .expect("The result should be the last element on the stack")
                             .expect("The result should be Some")
-                            .protect();
+                            .protect(),
+                    ),
+                })
+            });
+
+            match step {
+                Step::Continue => {}
+                Step::Match(term, index) => {
+                    match InnermostRewriter::find_match(tp, stack, builder, stats, automaton, &term.copy()) {
+                        Some(MatchResult::Native(result)) => {
+                            debug_trace!("native rewrite {} => {}", term, result);
+
+                            stack.terms.write(|write_terms| {
+                                // Safety: result is stored in the container on the same line.
+                                write_terms[index] = Some(unsafe { write_terms.protect(&result) }.into());
+                            });
+                            stats.rewrite_steps += 1;
+                        }
+                        Some(MatchResult::Rule(_announcement, annotation)) => {
+                            debug_trace!(
+                                "rewrite {} => {} using rule {}",
+                                term,
+                                annotation.rhs_stack.evaluate(&term),
+                                _announcement.rule
+                            );
+
+                            // Reacquire the write access and add the matching RHSStack.
+                            stack.terms.write(|write_terms| {
+                                stack.configs.write(|write_configs| {
+                                    InnermostStack::integrate(
+                                        write_configs,
+                                        write_terms,
+                                        &annotation.rhs_stack,
+                                        &term.copy(),
+                                        index,
+                                    )
+                                })
+                            });
+                            stats.rewrite_steps += 1;
+                        }
+                        None => {
+                            // Add the term on the stack.
+                            stack.terms.write(|write_terms| {
+                                // Safety: term is stored in the container on the same line.
+                                write_terms[index] = Some(unsafe { write_terms.protect(&term) }.into());
+                            });
+                        }
                     }
                 }
+                Step::Return(result) => return result,
+            }
 
-                if cfg!(debug_assertions) {
-                    let read_configs = stack.configs.read();
-                    for (index, term) in stack.terms.read().iter().enumerate() {
-                        if term.is_none() {
-                            debug_assert!(
-                                read_configs.iter().any(|x| {
-                                    match x {
-                                        Config::Construct(_, _, result) => index == *result,
-                                        Config::Rewrite(result) => index == *result,
-                                        Config::Term(_, result) => index == *result,
-                                        Config::Return() => true,
-                                    }
-                                }),
-                                "The default term at index {index} is not a result of any operation."
-                            );
-                        }
+            if cfg!(debug_assertions) {
+                let read_configs = stack.configs.read();
+                for (index, term) in stack.terms.read().iter().enumerate() {
+                    if term.is_none() {
+                        debug_assert!(
+                            read_configs.iter().any(|x| {
+                                match x {
+                                    Config::Construct(_, _, result) => index == *result,
+                                    Config::Rewrite(result) => index == *result,
+                                    Config::Term(_, result) => index == *result,
+                                    Config::Return() => true,
+                                }
+                            }),
+                            "The default term at index {index} is not a result of any operation."
+                        );
                     }
                 }
             }

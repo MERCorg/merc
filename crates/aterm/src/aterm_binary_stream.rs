@@ -191,10 +191,10 @@ impl<W: Write> BinaryATermWriter<W> {
         stream.write_bits(BAF_MAGIC as u64, 16)?;
         stream.write_bits(BAF_VERSION as u64, 16)?;
 
-        let mut function_symbols = ProtectedSend::new(IndexedSet::new());
+        let mut function_symbols: ProtectedSend<IndexedSet<SymbolRef<'static>>> = ProtectedSend::new(IndexedSet::new());
         // The term with function symbol index 0 indicates the end of the stream
         let end_of_stream_symbol = Symbol::new("end_of_stream".to_string(), 0);
-        function_symbols.write().insert(end_of_stream_symbol.copy());
+        function_symbols.write(|write| write.insert(end_of_stream_symbol.copy()));
 
         Ok(Self {
             stream,
@@ -225,67 +225,69 @@ impl<W: Write> BinaryATermWriter<W> {
     fn write_aterm_impl(&mut self, term: &ATerm) -> Result<(), MercError> {
         // The guards hold the global term pool for reading, so no garbage collection runs while
         // they exist and the term references taken from them remain valid.
-        let mut stack = self.stack.write();
-        let mut terms = self.terms.write();
-        let mut function_symbols = self.function_symbols.write();
+        self.stack.write(|stack| {
+            self.terms.write(|terms| {
+                self.function_symbols.write(|function_symbols| {
+                    // A previous call that failed may have left entries behind.
+                    stack.clear();
+                    stack.push_back((term.copy(), false));
 
-        // A previous call that failed may have left entries behind.
-        stack.clear();
-        stack.push_back((term.copy(), false));
+                    // An entry is visited once to queue its unwritten arguments, and written when all its
+                    // arguments have been written, which is at the first visit when there are none.
+                    while let Some((current, visited)) = stack.back().map(|(term, visited)| (term.copy(), *visited)) {
+                        // The term at the bottom of the stack is the output, which is always written.
+                        let is_output = stack.len() == 1;
 
-        // An entry is visited once to queue its unwritten arguments, and written when all its
-        // arguments have been written, which is at the first visit when there are none.
-        while let Some((current, visited)) = stack.back().map(|(term, visited)| (term.copy(), *visited)) {
-            // The term at the bottom of the stack is the output, which is always written.
-            let is_output = stack.len() == 1;
+                        if !visited {
+                            if !is_output && terms.contains(&current) {
+                                // Written before, possibly as an equal sibling earlier in this call.
+                                stack.pop_back();
+                                continue;
+                            }
 
-            if !visited {
-                if !is_output && terms.contains(&current) {
-                    // Written before, possibly as an equal sibling earlier in this call.
-                    stack.pop_back();
-                    continue;
-                }
+                            let position = stack.len() - 1;
+                            for arg in current.arguments() {
+                                if !terms.contains(&arg) {
+                                    stack.push_back((arg, false));
+                                }
+                            }
 
-                let position = stack.len() - 1;
-                for arg in current.arguments() {
-                    if !terms.contains(&arg) {
-                        stack.push_back((arg, false));
+                            if stack.len() - 1 != position {
+                                stack[position].1 = true;
+                                continue;
+                            }
+                        }
+
+                        if !(is_output && is_int_term(&current)) {
+                            write_function_symbol(
+                                &mut self.stream,
+                                function_symbols,
+                                &mut self.function_symbol_index_width,
+                                current.get_head_symbol(),
+                            )?;
+                        }
+                        write_term_body(
+                            &mut self.stream,
+                            function_symbols,
+                            self.function_symbol_index_width,
+                            terms,
+                            self.term_index_width,
+                            &current,
+                            is_output,
+                        )?;
+
+                        if !is_output {
+                            let (_, inserted) = terms.insert(current);
+                            debug_assert!(inserted, "A term is only written once.");
+                            self.term_index_width = bits_for_value(terms.len());
+                        }
+                        stack.pop_back();
                     }
-                }
 
-                if stack.len() - 1 != position {
-                    stack[position].1 = true;
-                    continue;
-                }
-            }
-
-            if !(is_output && is_int_term(&current)) {
-                write_function_symbol(
-                    &mut self.stream,
-                    &mut function_symbols,
-                    &mut self.function_symbol_index_width,
-                    current.get_head_symbol(),
-                )?;
-            }
-            write_term_body(
-                &mut self.stream,
-                &function_symbols,
-                self.function_symbol_index_width,
-                &terms,
-                self.term_index_width,
-                &current,
-                is_output,
-            )?;
-
-            if !is_output {
-                let (_, inserted) = terms.insert(current);
-                debug_assert!(inserted, "A term is only written once.");
-                self.term_index_width = bits_for_value(terms.len());
-            }
-            stack.pop_back();
-        }
-
-        Ok(())
+                    Ok(())
+                })
+            })
+        })
     }
 }
 
@@ -409,8 +411,8 @@ impl<W: Write> Drop for BinaryATermWriter<W> {
             error!("Error flushing the stream when dropped!");
         }
 
-        self.function_symbols.write().clear();
-        self.terms.write().clear();
+        self.function_symbols.write(|write| write.clear());
+        self.terms.write(|write| write.clear());
 
         // Perform garbage collection after clearing the terms, since they might become unreachable.
         THREAD_TERM_POOL.with(|tp| tp.collect_garbage());
@@ -453,9 +455,9 @@ impl<R: Read> BinaryATermReader<R> {
         }
 
         // The term with function symbol index 0 indicates the end of the stream
-        let mut function_symbols = Protected::new(Vec::new());
+        let mut function_symbols: Protected<Vec<SymbolRef<'static>>> = Protected::new(Vec::new());
         let end_of_stream_symbol = Symbol::new("end_of_stream".to_string(), 0);
-        function_symbols.write().push(end_of_stream_symbol.copy());
+        function_symbols.write(|write| write.push(end_of_stream_symbol.copy()));
 
         Ok(Self {
             stream,
@@ -526,11 +528,12 @@ impl<R: Read> BinaryATermReader<R> {
                     let symbol = resolve_read_symbol(&name, arity);
                     debug_trace!("Read symbol {symbol}");
 
-                    let mut write_symbols = self.function_symbols.write();
-                    // Safety: s is pushed into the container on the next line.
-                    let s = unsafe { write_symbols.protect_symbol(&symbol) };
-                    write_symbols.push(s);
-                    self.function_symbol_index_width = bits_for_value(write_symbols.len());
+                    self.function_symbols.write(|write_symbols| {
+                        // Safety: s is pushed into the container on the next line.
+                        let s = unsafe { write_symbols.protect_symbol(&symbol) };
+                        write_symbols.push(s);
+                        self.function_symbol_index_width = bits_for_value(write_symbols.len());
+                    });
                 }
                 PacketType::ATermIntOutput => {
                     let value = self.stream.read_integer()?.try_into()?;
@@ -559,38 +562,44 @@ impl<R: Read> BinaryATermReader<R> {
                         let term = ATermInt::new(value);
                         debug_trace!("Read int term: {term}");
 
-                        let mut write_terms = self.terms.write();
-                        // Safety: t is pushed into the container on the next line.
-                        let t = unsafe { write_terms.protect(&term) };
-                        write_terms.push(t);
-                        self.term_index_width = bits_for_value(write_terms.len());
+                        self.terms.write(|write_terms| {
+                            // Safety: t is pushed into the container on the next line.
+                            let t = unsafe { write_terms.protect(&term) };
+                            write_terms.push(t);
+                            self.term_index_width = bits_for_value(write_terms.len());
+                        });
                     } else {
                         // When the arity is zero, no bits are read for the arguments.
                         let num_of_bits = if symbol.arity() > 0 { self.term_index_width() } else { 0 };
-                        let mut write_terms = self.terms.write();
+                        let output = self.terms.write(|write_terms| -> Result<Option<ATerm>, MercError> {
+                            let term = ATerm::try_with_iter(
+                                symbol,
+                                (0..symbol.arity()).map(|_| {
+                                    let arg_index = self.stream.read_bits(num_of_bits)? as usize;
+                                    let arg = write_terms.get(arg_index).ok_or_else(|| {
+                                        format!("Read invalid aterm index {arg_index}, length {}", write_terms.len())
+                                    })?;
+                                    debug_trace!("Read arg: {arg}");
+                                    Ok(arg)
+                                }),
+                            )?;
 
-                        let term = ATerm::try_with_iter(
-                            symbol,
-                            (0..symbol.arity()).map(|_| {
-                                let arg_index = self.stream.read_bits(num_of_bits)? as usize;
-                                let arg = write_terms.get(arg_index).ok_or_else(|| {
-                                    format!("Read invalid aterm index {arg_index}, length {}", write_terms.len())
-                                })?;
-                                debug_trace!("Read arg: {arg}");
-                                Ok(arg)
-                            }),
-                        )?;
+                            if packet == PacketType::ATermOutput {
+                                debug_trace!("Output term: {term}");
+                                return Ok(Some(term));
+                            }
+                            debug_trace!("Read term: {term}");
 
-                        if packet == PacketType::ATermOutput {
-                            debug_trace!("Output term: {term}");
+                            // Safety: t is pushed into the container on the next line.
+                            let t = unsafe { write_terms.protect(&term) };
+                            write_terms.push(t);
+                            self.term_index_width = bits_for_value(write_terms.len());
+                            Ok(None)
+                        })?;
+
+                        if let Some(term) = output {
                             return Ok(Output::Term(term));
                         }
-                        debug_trace!("Read term: {term}");
-
-                        // Safety: t is pushed into the container on the next line.
-                        let t = unsafe { write_terms.protect(&term) };
-                        write_terms.push(t);
-                        self.term_index_width = bits_for_value(write_terms.len());
                     }
                 }
             }
@@ -644,8 +653,8 @@ impl<R: Read> ATermRead for BinaryATermReader<R> {
 
 impl<R: Read> Drop for BinaryATermReader<R> {
     fn drop(&mut self) {
-        self.function_symbols.write().clear();
-        self.terms.write().clear();
+        self.function_symbols.write(|write| write.clear());
+        self.terms.write(|write| write.clear());
 
         // Perform garbage collection after clearing the terms, since they might become unreachable.
         THREAD_TERM_POOL.with(|tp| tp.collect_garbage());

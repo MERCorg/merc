@@ -27,8 +27,8 @@ pub struct InnermostStack {
 impl InnermostStack {
     /// Updates the InnermostStack to integrate the rhs_stack instructions.
     pub fn integrate(
-        write_configs: &mut ProtectedWriteGuard<Vec<Config<'static>>>,
-        write_terms: &mut ProtectedWriteGuard<Vec<Option<DataExpressionRef<'static>>>>,
+        write_configs: &mut ProtectedWriteGuard<'_, '_, Vec<Config<'_>>>,
+        write_terms: &mut ProtectedWriteGuard<'_, '_, Vec<Option<DataExpressionRef<'_>>>>,
         rhs_stack: &TermStack,
         term: &DataExpressionRef<'_>,
         result_index: usize,
@@ -103,7 +103,7 @@ impl InnermostStack {
 
     /// Indicate that the given symbol with arity can be constructed at the given index.
     pub fn add_result(
-        write_configs: &mut ProtectedWriteGuard<Vec<Config<'static>>>,
+        write_configs: &mut ProtectedWriteGuard<'_, '_, Vec<Config<'_>>>,
         symbol: DataFunctionSymbolRef<'_>,
         arity: usize,
         index: usize,
@@ -115,8 +115,8 @@ impl InnermostStack {
 
     /// Indicate that the term must be rewritten and its result must be placed at the given index.
     pub fn add_rewrite(
-        write_configs: &mut ProtectedWriteGuard<Vec<Config<'static>>>,
-        write_terms: &mut ProtectedWriteGuard<Vec<Option<DataExpressionRef<'static>>>>,
+        write_configs: &mut ProtectedWriteGuard<'_, '_, Vec<Config<'_>>>,
+        write_terms: &mut ProtectedWriteGuard<'_, '_, Vec<Option<DataExpressionRef<'_>>>>,
         term: DataExpressionRef<'_>,
         index: usize,
     ) {

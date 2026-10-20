@@ -134,7 +134,7 @@ fn test_miri_global_protected_send_across_threads() {
     // from a different thread, unlike a plain `Protected` container.
     let mut protected = ProtectedSend::<Vec<SymbolRef<'static>>>::new(Vec::new());
     let symbol = Symbol::new("global_protected_send", 0);
-    protected.write().push(symbol.copy());
+    protected.write(|write| write.push(symbol.copy()));
 
     let protected = std::thread::spawn(move || {
         THREAD_TERM_POOL.with(|tp| tp.force_collect_garbage());

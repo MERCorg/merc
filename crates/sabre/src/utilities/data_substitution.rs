@@ -55,26 +55,26 @@ fn substitute_rec(
             "Can only perform data substitution on DataApplications"
         );
 
-        let mut write_args = args.write();
-        for (index, arg) in t.arguments().enumerate() {
-            if index == new_child_index {
-                // Safety: t is pushed into the container on the next line.
-                let t = unsafe { write_args.protect(&new_child) };
-                write_args.push(t.into());
-            } else {
-                // Safety: t is pushed into the container on the next line.
-                let t = unsafe { write_args.protect(&arg) };
-                write_args.push(t.into());
+        let result = args.write(|write_args| {
+            for (index, arg) in t.arguments().enumerate() {
+                if index == new_child_index {
+                    // Safety: t is pushed into the container on the next line.
+                    let t = unsafe { write_args.protect(&new_child) };
+                    write_args.push(t.into());
+                } else {
+                    // Safety: t is pushed into the container on the next line.
+                    let t = unsafe { write_args.protect(&arg) };
+                    write_args.push(t.into());
+                }
             }
-        }
 
-        // Avoid the (more expensive) DataApplication constructor by simply having the data_function_symbol in args.
-        let result = tp.create_term(&t.get_head_symbol(), &write_args);
-        drop(write_args);
+            // Avoid the (more expensive) DataApplication constructor by simply having the data_function_symbol in args.
+            tp.create_term(&t.get_head_symbol(), write_args).protect().into()
+        });
 
         // Clear the args buffer for reuse.
-        args.write().clear();
-        result.protect().into()
+        args.write(|write_args| write_args.clear());
+        result
     }
 }
 
