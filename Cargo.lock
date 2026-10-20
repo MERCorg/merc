@@ -151,6 +151,8 @@ name = "benchmarks_lts"
 version = "2.0.0"
 dependencies = [
  "criterion",
+ "merc_collections",
+ "merc_data",
  "merc_lts",
  "rand",
 ]

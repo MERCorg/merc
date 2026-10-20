@@ -23,6 +23,7 @@ use merc_io::TimeProgress;
 use merc_utilities::MercError;
 use rustc_hash::FxHashMap;
 
+use crate::BuilderIndex;
 use crate::LTS;
 use crate::LabelledTransitionSystem;
 use crate::LtsAction;
@@ -66,7 +67,7 @@ pub fn read_lts<R: Read>(
 
     // Labels are maximally shared terms, so looking up the term finds the label index without
     // translating or hashing the multi-action again.
-    let mut label_indices: FxHashMap<ATerm, LabelIndex> = FxHashMap::default();
+    let mut label_indices: FxHashMap<ATerm, BuilderIndex> = FxHashMap::default();
 
     // The initial state is not known yet.
     let mut initial_state: Option<StateIndex> = None;
@@ -95,15 +96,15 @@ pub fn read_lts<R: Read>(
                     let label = reader.read_aterm()?.ok_or("Missing transition label")?;
                     let to = StateIndex::new(reader.read_aterm_int()?);
 
-                    if let Some(multi_action) = multi_actions.get(&label) {
-                        // Multi-action already exists in the cache.
-                        builder.add_transition(from, multi_action, to)?;
-                    } else {
-                        // New multi-action found, add it to the builder.
-                        let multi_action = LtsMultiAction::from_mcrl2_aterm(label.clone())?;
-                        multi_actions.insert(label, multi_action.clone());
-                        builder.add_transition(from, &multi_action, to)?;
-                    }
+                    let label_index = match label_indices.get(&label) {
+                        Some(&index) => index,
+                        None => {
+                            let index = builder.label_index(&LtsMultiAction::from_mcrl2_aterm(label.clone())?);
+                            label_indices.insert(label, index);
+                            index
+                        }
+                    };
+                    builder.add_transition_index(from, label_index, to);
 
                     // Reading the clock costs more than reading a transition.
                     if builder.num_of_transitions() % PROGRESS_INTERVAL == 0 {

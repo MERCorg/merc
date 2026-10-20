@@ -51,6 +51,7 @@ pub use lts::LabelIndex;
 pub use lts::StateIndex;
 pub use lts::Transition;
 pub use lts::TransitionLabel;
+pub use lts_builder::BuilderIndex;
 pub use lts_builder::ConcurrentLtsBuilder;
 pub use lts_builder::LtsBuilder;
 pub use lts_builder::LtsBuilderMem;

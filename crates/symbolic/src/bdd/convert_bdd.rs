@@ -34,9 +34,10 @@ pub fn convert_symbolic_lts_bdd<B, L>(
     manager_ref: &BDDManagerRef,
     output: &mut B,
     lts: &SymbolicLtsBdd<L>,
-) -> Result<B::LTS, MercError> 
-    where L: TransitionLabel,
-          B: LtsBuilder<L>,
+) -> Result<B::LTS, MercError>
+where
+    L: TransitionLabel,
+    B: LtsBuilder<L>,
 {
     // Compute for every read and write index its position in the transition vector.
     let state_variables = lts.state_variables().to_vec();
