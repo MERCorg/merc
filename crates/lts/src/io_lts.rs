@@ -1,6 +1,5 @@
 #![forbid(unsafe_code)]
 
-use std::collections::HashMap;
 use std::io::BufReader;
 use std::io::BufWriter;
 use std::io::Read;
@@ -22,6 +21,7 @@ use merc_data::Mcrl2DataSpecification;
 use merc_io::LargeFormatter;
 use merc_io::TimeProgress;
 use merc_utilities::MercError;
+use rustc_hash::FxHashMap;
 
 use crate::LTS;
 use crate::LabelledTransitionSystem;
@@ -64,8 +64,9 @@ pub fn read_lts<R: Read>(
     let _parameters = reader.read_aterm()?;
     let _actions = reader.read_aterm()?;
 
-    // Use a cache to avoid translating the same multi-action multiple times.
-    let mut multi_actions: HashMap<ATerm, LtsMultiAction<LtsAction>> = HashMap::new();
+    // Labels are maximally shared terms, so looking up the term finds the label index without
+    // translating or hashing the multi-action again.
+    let mut label_indices: FxHashMap<ATerm, LabelIndex> = FxHashMap::default();
 
     // The initial state is not known yet.
     let mut initial_state: Option<StateIndex> = None;

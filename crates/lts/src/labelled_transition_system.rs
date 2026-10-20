@@ -1,7 +1,5 @@
 #![forbid(unsafe_code)]
 
-use std::collections::HashMap;
-use std::collections::HashSet;
 use std::fmt;
 
 use merc_collections::ByteCompressedVec;
@@ -10,6 +8,8 @@ use merc_collections::CompressedVecMetrics;
 use merc_collections::bytevec;
 use merc_io::LargeFormatter;
 use merc_utilities::MercError;
+use rustc_hash::FxHashMap;
+use rustc_hash::FxHashSet;
 
 use crate::LTS;
 use crate::LabelIndex;
@@ -174,7 +174,7 @@ impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
         // Determine the combination of action labels, keeping a map from label to
         // its index so membership checks stay O(1) instead of scanning the vector.
         let mut all_labels = self.labels().to_vec();
-        let mut label_indices: HashMap<Label, LabelIndex> = all_labels
+        let mut label_indices: FxHashMap<Label, LabelIndex> = all_labels
             .iter()
             .enumerate()
             .map(|(i, label)| (label.clone(), LabelIndex::new(i)))
@@ -363,6 +363,20 @@ impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
 
     /// Checks that the internal representation satisfies all structural invariants.
     pub fn assert_valid(&self) {
+        assert!(
+            self.labels
+                .first()
+                .expect("At least one label (the hidden label) must be provided")
+                .is_tau_label(),
+            "The first label must be the hidden label."
+        );
+
+        // The remaining checks are debug assertions, but their loops would still visit every
+        // state and transition in a release build.
+        if !cfg!(debug_assertions) {
+            return;
+        }
+
         let num_states = self.num_of_states();
         let num_transitions = self.num_of_transitions();
 
@@ -388,14 +402,6 @@ impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
             self.transition_labels.len(),
             self.transition_to.len(),
             "transition_labels and transition_to must have equal length"
-        );
-
-        assert!(
-            self.labels
-                .first()
-                .expect("At least one label (the hidden label) must be provided")
-                .is_tau_label(),
-            "The first label must be the hidden label."
         );
 
         for i in 0..num_states {
@@ -428,7 +434,7 @@ impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
         for state in 0..num_states {
             let start = self.states.index(state);
             let end = self.states.index(state + 1);
-            let mut seen = HashSet::with_capacity(end.saturating_sub(start));
+            let mut seen = FxHashSet::with_capacity_and_hasher(end.saturating_sub(start), Default::default());
 
             for i in start..end {
                 let edge = (
