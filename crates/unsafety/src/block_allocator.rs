@@ -42,6 +42,11 @@ pub struct BlockAllocator<T: Send, const N: usize> {
     /// Per-thread state for allocation: current block and bump offset. This eliminates
     /// contention in the common path.
     alloc_state: ThreadLocal<ThreadLocalAllocState<T, N>>,
+
+    /// The addresses of the entries freed by [`Self::release_object`] since the last
+    /// [`Self::remove_free_blocks`], which can then tell them apart from live entries.
+    #[cfg(debug_assertions)]
+    released: Mutex<std::collections::HashSet<usize>>,
 }
 
 /// The block list and bump pointer, protected by the blocks mutex.
@@ -83,6 +88,8 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
                 free_chunks: Vec::new(),
             }),
             alloc_state: ThreadLocal::new(),
+            #[cfg(debug_assertions)]
+            released: Mutex::new(std::collections::HashSet::new()),
         }
     }
 
@@ -186,6 +193,23 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
         }
     }
 
+    /// Marks a previously-allocated pointer as free without adding it to a free list, so that
+    /// the next [`Self::remove_free_blocks`] finds it while scanning the blocks in memory order
+    /// instead of walking the free lists. The slot is only reused after that call.
+    pub fn release_object(&self, ptr: NonNull<T>) {
+        #[cfg(debug_assertions)]
+        debug_assert!(
+            self.released.lock().expect("Lock poisoned").insert(ptr.addr().get()),
+            "The object at {ptr:?} was released twice"
+        );
+
+        // SAFETY: `ptr` was returned by `allocate_object`, so it points to an entry of a block
+        // that stays valid until `remove_free_blocks`, and its value is no longer used.
+        unsafe {
+            *(*ptr.cast::<Entry<T>>().as_ptr()).next = NONEXISTING_VALUE as *mut Entry<T>;
+        }
+    }
+
     /// Deallocates a previously-allocated pointer.
     pub fn deallocate_object(&self, ptr: NonNull<T>) {
         let state = self.alloc_state.get_or(ThreadLocalAllocState::new);
@@ -207,7 +231,7 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
     ///
     /// This method scans every thread-local `free` list, marks those entries
     /// with a sentinel value, then removes blocks where all entries are marked
-    /// as free.
+    /// as free. Entries freed by [`Self::release_object`] already carry the sentinel.
     ///
     /// Returns `(removed_blocks, free_size)`: the number of blocks removed, and
     /// the size of the merged `free` list before cleanup.
@@ -219,10 +243,6 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
         // value that none of the live entries can have.
         let nonexisting_value = NONEXISTING_VALUE as *mut Entry<T>;
 
-        // In debug mode, collect all freelist entry pointers.
-        #[cfg(debug_assertions)]
-        let mut freelist_ptrs: std::collections::HashSet<*mut Entry<T>> = std::collections::HashSet::new();
-
         // Helper: walk a freelist and mark every entry with the sentinel.
         // We only update previous entries to ensure that iter keeps working.
         // Returns the number of entries in the freelist.
@@ -231,6 +251,10 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
         // above), so every pointer yielded by `list.iter()` is a live
         // freelist node exclusively owned by this call, safe to dereference
         // and overwrite through `next`.
+        // In debug mode, collect all freelist entry pointers.
+        #[cfg(debug_assertions)]
+        let mut freelist_ptrs: std::collections::HashSet<*mut Entry<T>> = std::collections::HashSet::new();
+
         let mark_freelist =
             |list: &FreeList<Entry<T>>,
              #[cfg(debug_assertions)] ptrs: &mut std::collections::HashSet<*mut Entry<T>>| unsafe {
@@ -288,9 +312,10 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
         }
         guard.free_chunks.clear();
 
-        // Debug check: verify that no live entry has the sentinel value.
+        // Debug check: every entry carries the sentinel exactly when it was freed.
         #[cfg(debug_assertions)]
         {
+            let released = std::mem::take(&mut *self.released.lock().expect("Lock poisoned"));
             for block_ptr in Self::iter_blocks(&guard) {
                 // SAFETY: `block_ptr` is reachable from `guard.head_block`,
                 // so it is allocator-owned and kept alive while the guard is
@@ -299,20 +324,20 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
                 let data = unsafe { &*(*block_ptr.as_ptr()).data.get() };
                 for entry in data {
                     let entry_ptr = entry as *const Entry<T> as *mut Entry<T>;
-                    if !freelist_ptrs.contains(&entry_ptr) {
-                        // This entry is live — it must not look like the sentinel.
-                        // SAFETY: reading `entry.next` reinterprets the
-                        // union's `data` variant as a pointer; this is sound
-                        // per `BlockAllocatorSafe`'s contract that a live
-                        // `T`'s first pointer-sized word is always fully
-                        // initialized and never equals the sentinel.
-                        unsafe {
-                            debug_assert!(
-                                !std::ptr::eq(*entry.next, nonexisting_value),
-                                "Live entry at {entry_ptr:?} has the sentinel value (null in first word). \
-                                 This violates the BlockAllocatorSafe contract."
-                            );
-                        }
+                    // SAFETY: reading `entry.next` reinterprets the union's
+                    // `data` variant as a pointer for live entries; this is
+                    // sound per `BlockAllocatorSafe`'s contract that a live
+                    // `T`'s first pointer-sized word is always fully
+                    // initialized.
+                    let is_sentinel = unsafe { std::ptr::eq(*entry.next, nonexisting_value) };
+                    if released.contains(&entry_ptr.addr()) {
+                        debug_assert!(is_sentinel, "Released entry at {entry_ptr:?} was overwritten.");
+                    } else if !freelist_ptrs.contains(&entry_ptr) {
+                        debug_assert!(
+                            !is_sentinel,
+                            "Live entry at {entry_ptr:?} has the sentinel value. \
+                             This violates the BlockAllocatorSafe contract."
+                        );
                     }
                 }
             }
@@ -507,6 +532,9 @@ unsafe impl<T: Send, const N: usize> Sync for BlockAllocator<T, N> {}
 /// `AllocBlock` implements the [`Allocator`] trait using the underlying [`BlockAllocator`].
 pub struct AllocBlock<T: Send, const N: usize> {
     block_allocator: BlockAllocator<T, N>,
+
+    /// See [`Self::defer_deallocations`].
+    defer_deallocations: bool,
 }
 
 impl<T: Send, const N: usize> Default for AllocBlock<T, N> {
@@ -520,7 +548,16 @@ impl<T: Send, const N: usize> AllocBlock<T, N> {
     pub fn new() -> Self {
         Self {
             block_allocator: BlockAllocator::new(),
+            defer_deallocations: false,
         }
+    }
+
+    /// Until the next [`Self::remove_free_blocks`], deallocations only mark their slot as free,
+    /// see [`BlockAllocator::release_object`]. This is meant for freeing many objects at once,
+    /// such as in a garbage collection, which would otherwise leave them on a free list in an
+    /// order that is slow to walk.
+    pub fn defer_deallocations(&mut self) {
+        self.defer_deallocations = true;
     }
 
     /// Removes free blocks from the underlying block allocator, see [`BlockAllocator::remove_free_blocks`].
@@ -528,6 +565,7 @@ impl<T: Send, const N: usize> AllocBlock<T, N> {
     where
         T: BlockAllocatorSafe,
     {
+        self.defer_deallocations = false;
         self.block_allocator.remove_free_blocks().0
     }
 }
@@ -558,7 +596,12 @@ unsafe impl<T: Send, const N: usize> Allocator for AllocBlock<T, N> {
             Layout::new::<T>(),
             "The requested layout should match the type T"
         );
-        self.block_allocator.deallocate_object(ptr.cast::<T>());
+        
+        if self.defer_deallocations {
+            self.block_allocator.release_object(ptr.cast::<T>());
+        } else {
+            self.block_allocator.deallocate_object(ptr.cast::<T>());
+        }
     }
 }
 
@@ -773,6 +816,58 @@ mod tests {
                 }
             }
         })
+    }
+
+    #[test]
+    fn test_released_objects_are_reclaimed() {
+        let mut allocator: BlockAllocator<usize, 8> = BlockAllocator::new();
+
+        let mut live = Vec::new();
+        for value in 0..64 {
+            let ptr = allocator.allocate_object().unwrap();
+            // SAFETY: `ptr` was just returned by `allocate_object` and is owned by this test.
+            unsafe { ptr.as_ptr().write(value) };
+
+            // Free every block's first half in either way, and keep its second half.
+            match value % 8 {
+                0..2 => allocator.release_object(ptr),
+                2..4 => allocator.deallocate_object(ptr),
+                _ => live.push((ptr, value)),
+            }
+        }
+
+        let (removed, _) = allocator.remove_free_blocks();
+        assert_eq!(removed, 0, "every block still holds live objects");
+
+        // The 32 freed slots are reused before new blocks are allocated, never a live slot.
+        for value in 64..96 {
+            let ptr = allocator.allocate_object().unwrap();
+            assert!(live.iter().all(|(live_ptr, _)| *live_ptr != ptr));
+            // SAFETY: `ptr` was just returned by `allocate_object` and is owned by this test.
+            unsafe { ptr.as_ptr().write(value) };
+            live.push((ptr, value));
+        }
+
+        for (ptr, expected) in &live {
+            // SAFETY: `ptr` was not freed, so it still points to a live, initialized slot.
+            unsafe { assert_eq!(*ptr.as_ref(), *expected) };
+        }
+
+        for (ptr, _) in live {
+            allocator.release_object(ptr);
+        }
+        let (removed, _) = allocator.remove_free_blocks();
+        assert_eq!(removed, 8, "all blocks are empty");
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "released twice")]
+    fn test_double_release_is_detected() {
+        let allocator: BlockAllocator<usize, 8> = BlockAllocator::new();
+        let ptr = allocator.allocate_object().unwrap();
+        allocator.release_object(ptr);
+        allocator.release_object(ptr);
     }
 
     #[test]

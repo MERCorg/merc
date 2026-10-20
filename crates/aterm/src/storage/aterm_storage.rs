@@ -248,6 +248,18 @@ impl ATermStorage {
     where
         F: FnMut(&StablePointer<SharedTerm>) -> bool,
     {
+        // Freeing nearly every term would otherwise leave them on the free lists in hash table
+        // order, which is slow to walk when removing the empty blocks below.
+        self.int_terms.allocator_mut().defer_deallocations();
+        self.terms_0.allocator_mut().defer_deallocations();
+        self.terms_1.allocator_mut().defer_deallocations();
+        self.terms_2.allocator_mut().defer_deallocations();
+        self.terms_3.allocator_mut().defer_deallocations();
+        self.terms_4.allocator_mut().defer_deallocations();
+        self.terms_5.allocator_mut().defer_deallocations();
+        self.terms_6.allocator_mut().defer_deallocations();
+        self.terms_7.allocator_mut().defer_deallocations();
+
         // SAFETY: The caller guarantees that pointers to removed terms are not used again.
         unsafe {
             self.terms.retain(|term| f(term));
