@@ -318,14 +318,13 @@ impl DataSpecification {
         &self.system
     }
 
-    /// The query context holding the sorts interned during type checking,
-    /// backing the declaration-sort accessors below.
-    // Currently exercised by tests only.
     /// The reverse lookup from a name occurrence to its declaration.
     pub(crate) fn declaration_index(&self) -> &typing_info::DeclarationIndex {
         &self.declaration_index
     }
 
+    /// The query context holding the sorts interned during type checking,
+    /// backing the declaration-sort accessors below.
     pub(crate) fn context(&self) -> &TypeCheckContext {
         &self.context
     }

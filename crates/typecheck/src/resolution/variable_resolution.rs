@@ -26,6 +26,7 @@ use merc_syntax::UntypedPres;
 use merc_syntax::UntypedProcessSpecification;
 use merc_syntax::VarId;
 use merc_syntax::VarIdAllocator;
+use merc_syntax::respan;
 use merc_utilities::Span;
 use merc_utilities::Step;
 
@@ -501,17 +502,17 @@ fn resolve_in_prop_var_inst(inst: &mut PropVarInst, scope: &mut Scope, ids: &mut
     }
 }
 
-/// Rewrites every `Id(name)` in `expr` found in `scope` into `Resolved(name, VarId)`, extending
+/// Rewrites every `Id(name)` in `expr` found in `scope` into `Resolved(name, binder)`, extending
 /// `scope` (and allocating from `ids`) for the data-level binders it descends through (`lambda`, a
 /// quantifier, a set/bag comprehension, `whr`).
 fn resolve_in_data_expr(expr: &mut DataExpr, scope: &mut Scope, ids: &mut VarIdAllocator) {
     match &mut expr.node {
         DataExprKind::Id(name) => {
             if let Some((id, declaration)) = scope.resolve(name) {
-                expr.node = DataExprKind::Resolved(name.clone(), id, declaration);
+                expr.node = DataExprKind::Resolved(name.clone(), respan(declaration, id));
             }
         }
-        DataExprKind::Resolved(_, _, _)
+        DataExprKind::Resolved(_, _)
         | DataExprKind::Number(_)
         | DataExprKind::Bool(_)
         | DataExprKind::EmptyList
@@ -572,8 +573,13 @@ fn resolve_in_data_expr(expr: &mut DataExpr, scope: &mut Scope, ids: &mut VarIdA
 
 #[cfg(test)]
 mod tests {
+    use std::hash::DefaultHasher;
+    use std::hash::Hash;
+    use std::hash::Hasher;
+
     use merc_syntax::ActFrmKind;
     use merc_syntax::DataExprKind;
+    use merc_syntax::OffsetSpans;
     use merc_syntax::PbesExprKind;
     use merc_syntax::PresExprKind;
     use merc_syntax::ProcessExprKind;
@@ -605,8 +611,40 @@ mod tests {
         };
         assert!(matches!(
             &args[0].node,
-            DataExprKind::Resolved(name, var_id, _) if name == "n" && *var_id == declared
+            DataExprKind::Resolved(name, var_id) if name == "n" && **var_id == declared
         ));
+    }
+
+    /// Rebasing a resolved tree moves every binder's declaration span, but must leave its
+    /// expressions equal to, and hashing the same as, the originals.
+    #[test]
+    fn test_rebased_resolved_expression_keeps_its_identity() {
+        let text = "map f: Nat -> Nat; var n: Nat; eqn f(n) = n;";
+        let mut spec = UntypedDataSpecification::parse(text).unwrap();
+        resolve_data_specification_variables(&mut spec);
+
+        let mut rebased = spec.clone();
+        rebased.offset_spans(100);
+
+        let original = &spec.equation_declarations[0].equations[0].rhs;
+        let shifted = &rebased.equation_declarations[0].equations[0].rhs;
+        let (DataExprKind::Resolved(_, before), DataExprKind::Resolved(_, after)) = (&original.node, &shifted.node)
+        else {
+            panic!("expected the right-hand side to resolve to the equation variable");
+        };
+        assert_eq!(
+            after.span.start,
+            before.span.start + 100,
+            "the declaration span is rebased"
+        );
+
+        assert_eq!(original, shifted);
+        let hash = |expr: &merc_syntax::DataExpr| {
+            let mut hasher = DefaultHasher::new();
+            expr.hash(&mut hasher);
+            hasher.finish()
+        };
+        assert_eq!(hash(original), hash(shifted));
     }
 
     #[test]
@@ -624,7 +662,7 @@ mod tests {
         };
         assert!(matches!(
             &args[0].node,
-            DataExprKind::Resolved(name, var_id, _) if name == "x" && *var_id == declared
+            DataExprKind::Resolved(name, var_id) if name == "x" && **var_id == declared
         ));
     }
 
@@ -648,7 +686,7 @@ mod tests {
         };
         assert!(matches!(
             &rhs.node,
-            DataExprKind::Resolved(name, var_id, _) if name == "x" && *var_id == declared
+            DataExprKind::Resolved(name, var_id) if name == "x" && **var_id == declared
         ));
     }
 
@@ -669,7 +707,7 @@ mod tests {
         assert_eq!(assignments[0].identifier, "n");
         assert!(matches!(
             &assignments[0].expr.node,
-            DataExprKind::Resolved(name, var_id, _) if name == "n" && *var_id == declared
+            DataExprKind::Resolved(name, var_id) if name == "n" && **var_id == declared
         ));
     }
 
@@ -694,11 +732,11 @@ mod tests {
         };
         assert!(matches!(
             &lhs.node,
-            DataExprKind::Resolved(name, var_id, _) if name == "x" && *var_id == x_declared
+            DataExprKind::Resolved(name, var_id) if name == "x" && **var_id == x_declared
         ));
         assert!(matches!(
             &rhs.node,
-            DataExprKind::Resolved(name, var_id, _) if name == "n" && *var_id == n_declared
+            DataExprKind::Resolved(name, var_id) if name == "n" && **var_id == n_declared
         ));
         // The process parameter and the nested quantifier binder are distinct binders and must
         // never share an id, even though each is the "first" binder of its own construct.
@@ -736,7 +774,7 @@ mod tests {
         };
         assert!(matches!(
             &inst.arguments[0].node,
-            DataExprKind::Resolved(name, var_id, _) if name == "n" && *var_id == declared
+            DataExprKind::Resolved(name, var_id) if name == "n" && **var_id == declared
         ));
     }
 
@@ -758,7 +796,7 @@ mod tests {
         };
         assert!(matches!(
             &lhs.node,
-            DataExprKind::Resolved(name, var_id, _) if name == "n" && *var_id == declared
+            DataExprKind::Resolved(name, var_id) if name == "n" && **var_id == declared
         ));
     }
 
@@ -773,7 +811,7 @@ mod tests {
             .expect("the global was assigned a VarId");
         assert!(matches!(
             &pbes.init.arguments[0].node,
-            DataExprKind::Resolved(name, var_id, _) if name == "g" && *var_id == declared
+            DataExprKind::Resolved(name, var_id) if name == "g" && **var_id == declared
         ));
     }
 
@@ -794,7 +832,7 @@ mod tests {
         };
         assert!(matches!(
             &inst.arguments[0].node,
-            DataExprKind::Resolved(name, var_id, _) if name == "n" && *var_id == declared
+            DataExprKind::Resolved(name, var_id) if name == "n" && **var_id == declared
         ));
     }
 
@@ -813,7 +851,7 @@ mod tests {
         };
         assert!(matches!(
             &data_expr.node,
-            DataExprKind::Resolved(name, var_id, _) if name == "n" && *var_id == declared
+            DataExprKind::Resolved(name, var_id) if name == "n" && **var_id == declared
         ));
     }
 
@@ -831,7 +869,7 @@ mod tests {
         };
         assert!(matches!(
             &constant.node,
-            DataExprKind::Resolved(name, var_id, _) if name == "n" && *var_id == declared
+            DataExprKind::Resolved(name, var_id) if name == "n" && **var_id == declared
         ));
     }
 
@@ -846,7 +884,7 @@ mod tests {
             .expect("the global was assigned a VarId");
         assert!(matches!(
             &pres.init.arguments[0].node,
-            DataExprKind::Resolved(name, var_id, _) if name == "g" && *var_id == declared
+            DataExprKind::Resolved(name, var_id) if name == "g" && **var_id == declared
         ));
     }
 
@@ -863,11 +901,11 @@ mod tests {
         assert!(matches!(
             &equation.lhs.node,
             DataExprKind::Application { arguments, .. }
-                if matches!(&arguments[0].node, DataExprKind::Resolved(name, var_id, _) if name == "x" && *var_id == declared)
+                if matches!(&arguments[0].node, DataExprKind::Resolved(name, var_id) if name == "x" && **var_id == declared)
         ));
         assert!(matches!(
             &equation.rhs.node,
-            DataExprKind::Resolved(name, var_id, _) if name == "x" && *var_id == declared
+            DataExprKind::Resolved(name, var_id) if name == "x" && **var_id == declared
         ));
     }
 
@@ -884,7 +922,7 @@ mod tests {
         let condition = equation.condition.as_ref().expect("expected a condition");
         assert!(matches!(
             &condition.node,
-            DataExprKind::Resolved(name, var_id, _) if name == "x" && *var_id == declared
+            DataExprKind::Resolved(name, var_id) if name == "x" && **var_id == declared
         ));
     }
 
@@ -906,7 +944,7 @@ mod tests {
         let second = &spec.equation_declarations[1].equations[0];
         assert!(matches!(
             &second.rhs.node,
-            DataExprKind::Resolved(name, var_id, _) if name == "y" && *var_id == y_declared
+            DataExprKind::Resolved(name, var_id) if name == "y" && **var_id == y_declared
         ));
     }
 
@@ -1001,11 +1039,11 @@ mod tests {
         };
         assert!(matches!(
             &multi_action.actions[0].args[0].node,
-            DataExprKind::Resolved(name, var_id, _) if name == "m" && *var_id == m_declared
+            DataExprKind::Resolved(name, var_id) if name == "m" && **var_id == m_declared
         ));
         assert!(matches!(
             &multi_action.actions[0].args[1].node,
-            DataExprKind::Resolved(name, var_id, _) if name == "n" && *var_id == n_declared
+            DataExprKind::Resolved(name, var_id) if name == "n" && **var_id == n_declared
         ));
     }
 
@@ -1045,7 +1083,7 @@ mod tests {
         };
         assert!(matches!(
             &multi_action.actions[0].args[0].node,
-            DataExprKind::Resolved(name, var_id, _) if name == "n" && *var_id == inner_declared
+            DataExprKind::Resolved(name, var_id) if name == "n" && **var_id == inner_declared
         ));
     }
 }

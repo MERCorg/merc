@@ -189,7 +189,7 @@ pub(crate) fn build(spec: &DataSpecification, roots: Roots<'_>, typing: &Equatio
         let name = typing.names.get(&id).map(|&target| {
             let (name, declaration) = match &expr.node {
                 DataExprKind::Id(name) => (name, None),
-                DataExprKind::Resolved(name, _, declaration) => (name, Some(declaration.clone())),
+                DataExprKind::Resolved(name, declaration) => (name, Some(declaration.span.clone())),
                 _ => unreachable!("only an identifier has a name target"),
             };
             resolved_name(spec, target, name.clone(), declaration)
@@ -204,6 +204,12 @@ pub(crate) fn build(spec: &DataSpecification, roots: Roots<'_>, typing: &Equatio
             name,
         });
     });
+    
+    debug_assert_eq!(
+        info.nodes.len(),
+        typing.sorts.len(),
+        "the typing was inferred for different roots"
+    );
     info
 }
 

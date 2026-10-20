@@ -23,10 +23,11 @@ fn clean_files(pattern: &str) -> Result<(), Box<dyn Error>> {
 
 /// Runs `cargo <arguments>` instrumented for coverage and renders an HTML report with `grcov`.
 ///
-/// Uses the nightly toolchain unless a nightly toolchain is already selected (e.g. through
-/// `cargo +nightly-<date> xtask`). Requires `grcov` on `PATH` and the `llvm-tools-preview`
-/// component for that toolchain, and must be run from the workspace root. Deletes and recreates
-/// `target/coverage` first, discarding any previous report there; the intermediate `.profraw` files are removed again once the report is generated.
+/// Requires a nightly toolchain to be selected (e.g. with `cargo +nightly xtask coverage ...`),
+/// since the instrumentation uses `-Z coverage-options`; also requires `grcov` on `PATH` and the
+/// `llvm-tools-preview` component for that toolchain. Must be run from the workspace root.
+/// Deletes and recreates `target/coverage` first, discarding any previous report there;
+/// intermediate `.profraw` files are removed once the report is generated.
 ///
 /// # Errors
 ///
