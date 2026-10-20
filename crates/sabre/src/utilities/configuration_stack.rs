@@ -181,10 +181,11 @@ pub(crate) struct ConfigurationStack<'a> {
 impl<'a> ConfigurationStack<'a> {
     /// Initialise the stack with one Configuration containing 'term' and the initial state of the set automaton
     pub(crate) fn new(pool: &mut SharedTermStack, state: usize, term: &DataExpression) -> ConfigurationStack<'a> {
-        let mut write_terms = pool.terms.write();
-        let terms_base = write_terms.len();
-        write_terms.push(term.copy());
-        drop(write_terms);
+        let terms_base = pool.terms.write(|write_terms| {
+            let terms_base = write_terms.len();
+            write_terms.push(term.copy());
+            terms_base
+        });
 
         let mut conf_list = ConfigurationStack {
             stack: Vec::with_capacity(8),
@@ -231,10 +232,11 @@ impl<'a> ConfigurationStack<'a> {
 
         // Push the term belonging to the leaf.
         let base = self.terms_base;
-        let mut write_terms = pool.terms.write();
-        // Safety: t is pushed into the container on the next line.
-        let t = unsafe { write_terms.protect(&write_terms[base + c].get_data_position(pos)) };
-        write_terms.push(t.into());
+        pool.terms.write(|write_terms| {
+            // Safety: t is pushed into the container on the next line.
+            let t = unsafe { write_terms.protect(&write_terms[base + c].get_data_position(pos)) };
+            write_terms.push(t.into());
+        });
 
         self.current_node = Some(c + 1);
     }
@@ -254,25 +256,26 @@ impl<'a> ConfigurationStack<'a> {
 
         // Reroll the configuration stack by truncating the Vec (which is a constant time operation)
         self.stack.truncate(depth + 1);
-        pool.terms.write().truncate(base + depth + 1);
+        pool.terms.write(|write_terms| write_terms.truncate(base + depth + 1));
 
         // Remove side info for the deleted configurations
         self.roll_back_side_info_stack(depth, true);
 
         // Update the subterm stored at the prune point.
         // Note that the subterm stored earlier may not have been up to date. We replace it with a term that is up to date
-        let mut write_terms = pool.terms.write();
-        // Safety: subterm is stored in the container on the next line.
-        let subterm = unsafe {
-            write_terms.protect(&data_substitute_with(
-                &mut pool.substitution_builder,
-                tp,
-                &write_terms[base + depth],
-                new_subterm,
-                automaton.states()[self.stack[depth].state].label(),
-            ))
-        };
-        write_terms[base + depth] = subterm.into();
+        pool.terms.write(|write_terms| {
+            // Safety: subterm is stored in the container on the next line.
+            let subterm = unsafe {
+                write_terms.protect(&data_substitute_with(
+                    &mut pool.substitution_builder,
+                    tp,
+                    &write_terms[base + depth],
+                    new_subterm,
+                    automaton.states()[self.stack[depth].state].label(),
+                ))
+            };
+            write_terms[base + depth] = subterm.into();
+        });
 
         self.oldest_reliable_subterm = depth;
     }
@@ -305,7 +308,8 @@ impl<'a> ConfigurationStack<'a> {
         self.integrate_updated_subterms(pool, depth, tp);
         self.current_node = Some(depth);
         self.stack.truncate(depth + 1);
-        pool.terms.write().truncate(self.terms_base + depth + 1);
+        pool.terms
+            .write(|write_terms| write_terms.truncate(self.terms_base + depth + 1));
 
         self.roll_back_side_info_stack(depth, false);
     }
@@ -320,35 +324,36 @@ impl<'a> ConfigurationStack<'a> {
         }
         let base = self.terms_base;
 
-        let mut write_terms = pool.terms.write();
-        // Safety: subterm is kept in write_terms throughout this function.
-        let mut subterm = unsafe { write_terms.protect(&write_terms[base + up_to_date]) };
+        pool.terms.write(|write_terms| {
+            // Safety: subterm is kept in write_terms throughout this function.
+            let mut subterm = unsafe { write_terms.protect(&write_terms[base + up_to_date]) };
 
-        // Go over the configurations one by one until we reach 'end'. The running
-        // subterm is stored back into the container at every level rather than
-        // held as an owned protected term.
-        while up_to_date > end {
-            // If the position is not deepened nothing needs to be done, otherwise substitute on the position stored in the configuration.
-            subterm = match self.stack[up_to_date].position {
-                None => subterm,
-                Some(position) => {
-                    let t = data_substitute_with(
-                        &mut pool.substitution_builder,
-                        tp,
-                        &write_terms[base + up_to_date - 1],
-                        subterm.protect().into(),
-                        position,
-                    );
-                    // Safety: subterm is kept in write_terms throughout this function.
-                    unsafe { write_terms.protect(&t) }
-                }
-            };
-            up_to_date -= 1;
+            // Go over the configurations one by one until we reach 'end'. The running
+            // subterm is stored back into the container at every level rather than
+            // held as an owned protected term.
+            while up_to_date > end {
+                // If the position is not deepened nothing needs to be done, otherwise substitute on the position stored in the configuration.
+                subterm = match self.stack[up_to_date].position {
+                    None => subterm,
+                    Some(position) => {
+                        let t = data_substitute_with(
+                            &mut pool.substitution_builder,
+                            tp,
+                            &write_terms[base + up_to_date - 1],
+                            subterm.protect().into(),
+                            position,
+                        );
+                        // Safety: subterm is kept in write_terms throughout this function.
+                        unsafe { write_terms.protect(&t) }
+                    }
+                };
+                up_to_date -= 1;
 
-            // Safety: subterm is stored in the container on the next line.
-            let stored = unsafe { write_terms.protect(&subterm) };
-            write_terms[base + up_to_date] = stored.into();
-        }
+                // Safety: subterm is stored in the container on the next line.
+                let stored = unsafe { write_terms.protect(&subterm) };
+                write_terms[base + up_to_date] = stored.into();
+            }
+        });
 
         self.oldest_reliable_subterm = up_to_date;
     }
@@ -360,7 +365,7 @@ impl<'a> ConfigurationStack<'a> {
     pub(crate) fn compute_final_term(&mut self, pool: &mut SharedTermStack, tp: &ThreadTermPool) -> DataExpression {
         self.jump_back(pool, 0, tp);
         let result = pool.terms.read()[self.terms_base].protect();
-        pool.terms.write().truncate(self.terms_base);
+        pool.terms.write(|write_terms| write_terms.truncate(self.terms_base));
         result
     }
 
