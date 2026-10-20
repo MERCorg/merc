@@ -1,38 +1,33 @@
 error[E0597]: `container` does not live long enough
-  --> tests/input/aterm_container_lifetime.rs:19:20
+  --> tests/input/aterm_container_lifetime.rs:18:20
    |
  8 |     let mut container: Protected<Vec<ATermRef<'static>>> = Protected::new(Vec::new());
    |         ------------- binding `container` declared here
 ...
-18 |     let t: ATermRef<'static> = {
+17 |     let t: ATermRef<'static> = {
    |            ----------------- type annotation requires that `container` is borrowed for `'static`
-19 |         let read = container.read();
+18 |         let read = container.read();
    |                    ^^^^^^^^^ borrowed value does not live long enough
 ...
-30 | }
-   | - `container` dropped here while still borrowed
-
-error[E0597]: `container` does not live long enough
-  --> tests/input/aterm_container_lifetime.rs:26:25
-   |
- 8 |     let mut container: Protected<Vec<ATermRef<'static>>> = Protected::new(Vec::new());
-   |         ------------- binding `container` declared here
-...
-25 |     let t: ATermRef<'static> = {
-   |            ----------------- type annotation requires that `container` is borrowed for `'static`
-26 |         let mut write = container.write();
-   |                         ^^^^^^^^^ borrowed value does not live long enough
-...
-30 | }
+26 | }
    | - `container` dropped here while still borrowed
 
 error[E0502]: cannot borrow `container` as mutable because it is also borrowed as immutable
-  --> tests/input/aterm_container_lifetime.rs:26:25
+  --> tests/input/aterm_container_lifetime.rs:24:32
    |
-18 |     let t: ATermRef<'static> = {
+17 |     let t: ATermRef<'static> = {
    |            ----------------- type annotation requires that `container` is borrowed for `'static`
-19 |         let read = container.read();
+18 |         let read = container.read();
    |                    --------- immutable borrow occurs here
 ...
-26 |         let mut write = container.write();
-   |                         ^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+24 |     let t: ATermRef<'static> = container.write(|write| write.pop().unwrap());
+   |                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here
+
+error: lifetime may not live long enough
+  --> tests/input/aterm_container_lifetime.rs:24:56
+   |
+24 |     let t: ATermRef<'static> = container.write(|write| write.pop().unwrap());
+   |                                                 ------ ^^^^^^^^^^^^^^^^^^^^ returning this value requires that `'1` must outlive `'2`
+   |                                                 |    |
+   |                                                 |    return type of closure is ATermRef<'2>
+   |                                                 has type `&'1 mut ProtectedWriteGuard<'1, '_, Vec<ATermRef<'1>>>`

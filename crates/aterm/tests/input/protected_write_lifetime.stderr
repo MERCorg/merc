@@ -1,0 +1,19 @@
+error: lifetime may not live long enough
+  --> tests/input/protected_write_lifetime.rs:17:37
+   |
+17 |     let t = container.write(|write| write.pop().unwrap());
+   |                              ------ ^^^^^^^^^^^^^^^^^^^^ returning this value requires that `'1` must outlive `'2`
+   |                              |    |
+   |                              |    return type of closure is ATermRef<'2>
+   |                              has type `&'1 mut ProtectedWriteGuard<'1, '_, Vec<ATermRef<'1>>>`
+
+error: lifetime may not live long enough
+  --> tests/input/protected_write_lifetime.rs:24:9
+   |
+21 |     let t = container.write(|write| {
+   |                              ------ return type of closure is ATermRef<'2>
+   |                              |
+   |                              has type `&'1 mut ProtectedWriteGuard<'1, '_, Vec<ATermRef<'1>>>`
+...
+24 |         t
+   |         ^ returning this value requires that `'1` must outlive `'2`
