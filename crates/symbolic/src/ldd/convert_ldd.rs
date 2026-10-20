@@ -31,11 +31,14 @@ use crate::ldd_len;
 /// [`TransitionGroup::action_label_index`]). The transitions of a group without
 /// one are all labelled with the first of [`SymbolicLTS::action_labels`], which
 /// is then the single default label provided by the caller.
-pub fn convert_symbolic_lts<B: LtsBuilder<String>, L: SymbolicLTS>(
+pub fn convert_symbolic_lts<B, L>(
     manager: &LDDManagerRef,
     output: &mut B,
     lts: &L,
-) -> Result<B::LTS, MercError> {
+) -> Result<B::LTS, MercError> 
+    where L: SymbolicLTS,
+          B: LtsBuilder<L::Label>
+{
     // Compute for every read and write index its position in the transition vector.
     let mut read_positions = Vec::new();
     let mut write_positions = Vec::new();
@@ -140,8 +143,7 @@ pub fn convert_symbolic_lts<B: LtsBuilder<String>, L: SymbolicLTS>(
                 let label = lts
                     .action_labels()
                     .get(action_value as usize)
-                    .ok_or("Transition has an action label that is not among the action labels of the LTS")?
-                    .to_string();
+                    .ok_or("Transition has an action label that is not among the action labels of the LTS")?;
 
                 // Find the target state index.
                 let target_index = discovered

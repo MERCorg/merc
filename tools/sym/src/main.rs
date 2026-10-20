@@ -13,6 +13,7 @@ use merc_lts::LtsAction;
 use merc_lts::LtsBuilderMem;
 use merc_lts::LtsFormat;
 use merc_lts::LtsMultiAction;
+use merc_lts::LtsStream;
 use merc_lts::guess_lts_format_from_extension;
 use merc_lts::write_bcg;
 use merc_symbolic::ExplorationArgs;
@@ -463,7 +464,9 @@ fn handle_convert(cli: &Cli, args: &ConvertArgs, _timing: &Timing) -> Result<(),
 
     match output_format {
         LtsFormat::Lts => {
-            return Err("Writing LTS format is not yet supported".into());
+            let mut output = File::create(output)?;
+            let mut stream = LtsStream::new(&mut output, lts.data_specification())?;
+            convert_symbolic_lts(&storage, &mut stream, &lts)?;
         }
         LtsFormat::Aut => {
             let mut output = File::create(output)?;
