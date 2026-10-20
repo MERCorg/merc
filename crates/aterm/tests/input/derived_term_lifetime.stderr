@@ -1,0 +1,34 @@
+error[E0597]: `owner` does not live long enough
+  --> tests/input/derived_term_lifetime.rs:9:17
+   |
+ 7 |     let r = {
+   |         - borrow later stored here
+ 8 |         let owner = ATermInt::new(1);
+   |             ----- binding `owner` declared here
+ 9 |         let r = owner.copy();
+   |                 ^^^^^ borrowed value does not live long enough
+10 |         r.copy()
+11 |     };
+   |     - `owner` dropped here while still borrowed
+
+error: lifetime may not live long enough
+  --> tests/input/derived_term_lifetime.rs:17:5
+   |
+16 | fn copy_extends_lifetime<'a>(r: &ATermIntRef<'a>) -> ATermIntRef<'static> {
+   |                          -- lifetime `'a` defined here
+17 |     r.copy()
+   |     ^^^^^^^^ returning this value requires that `'a` must outlive `'static`
+
+error[E0597]: `container` does not live long enough
+  --> tests/input/derived_term_lifetime.rs:29:20
+   |
+22 |     let mut container: Protected<Vec<ATermIntRef<'static>>> = Protected::new(Vec::new());
+   |         ------------- binding `container` declared here
+...
+28 |     let r: ATermIntRef<'static> = {
+   |            -------------------- type annotation requires that `container` is borrowed for `'static`
+29 |         let read = container.read();
+   |                    ^^^^^^^^^ borrowed value does not live long enough
+...
+33 | }
+   | - `container` dropped here while still borrowed

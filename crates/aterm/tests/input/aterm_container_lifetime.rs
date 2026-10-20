@@ -8,11 +8,10 @@ fn main() {
     let mut container: Protected<Vec<ATermRef<'static>>> = Protected::new(Vec::new());
 
     // Add stuff to the container to test soundness
-    {
-        let mut write = container.write();
+    container.write(|write| {
         let t = unsafe { write.protect(&ATerm::constant(&Symbol::new("a", 0))) };
         write.push(t);
-    }
+    });
 
     // This should not compile
     let t: ATermRef<'static> = {
@@ -22,9 +21,6 @@ fn main() {
     println!("Term: {:?}", t);
 
     // This should not compile either
-    let t: ATermRef<'static> = {
-        let mut write = container.write();
-        write.pop().unwrap()
-    };
+    let t: ATermRef<'static> = container.write(|write| write.pop().unwrap());
     println!("Term: {:?}", t);
 }
