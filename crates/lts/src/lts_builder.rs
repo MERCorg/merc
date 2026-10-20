@@ -2,7 +2,6 @@
 
 use std::borrow::Borrow;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::fmt;
 use std::hash::Hash;
 use std::sync::Mutex;
@@ -10,6 +9,7 @@ use std::sync::Mutex;
 use merc_collections::ByteCompressedVec;
 use merc_collections::CompressedEntry;
 use merc_utilities::MercError;
+use rustc_hash::FxHashMap;
 
 use crate::LabelIndex;
 use crate::LabelledTransitionSystem;
@@ -223,6 +223,13 @@ impl<L: TransitionLabel, B: LtsBuilder<L> + Send> ConcurrentLtsBuilder<L> for Mu
     }
 }
 
+/// A label as numbered by an [`LtsBuilderMem`], which only that builder hands out.
+///
+/// The builder numbers labels itself, since the hidden action is always label zero and hidden
+/// labels map onto it, so indices into the caller's own labels would be wrong.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct BuilderIndex(LabelIndex);
+
 /// This struct helps in building a labelled transition system by accumulating
 /// transitions in a memory efficient way.
 ///
@@ -237,7 +244,7 @@ pub struct LtsBuilderMem<L> {
     transition_to: ByteCompressedVec<StateIndex>,
 
     // This is used to keep track of the label to index mapping.
-    labels_index: HashMap<L, LabelIndex>,
+    labels_index: FxHashMap<L, LabelIndex>,
     labels: Vec<L>,
 
     /// The hidden labels that should be mapped to the hidden action.
@@ -248,6 +255,44 @@ pub struct LtsBuilderMem<L> {
 }
 
 impl<L: TransitionLabel> LtsBuilderMem<L> {
+    /// Returns the label of this builder for `label`, which is added if it is new. Hidden labels
+    /// map to the hidden action.
+    pub fn label_index<Q>(&mut self, label: &Q) -> BuilderIndex
+    where
+        L: Borrow<Q>,
+        Q: ?Sized + ToOwned<Owned = L> + Eq + Hash,
+    {
+        if let Some(&index) = self.labels_index.get(label) {
+            return BuilderIndex(index);
+        }
+
+        let label = label.to_owned();
+        let index = if self.hidden_labels.iter().any(|l| label.matches_label(l)) {
+            LabelIndex::new(0)
+        } else {
+            let index = LabelIndex::new(self.labels.len());
+            self.labels.push(label.clone());
+            index
+        };
+        self.labels_index.insert(label, index);
+        BuilderIndex(index)
+    }
+
+    /// Adds a transition with a label that [`Self::label_index`] returned, which avoids looking up
+    /// the label for every transition.
+    pub fn add_transition_index(&mut self, from: StateIndex, label: BuilderIndex, to: StateIndex) {
+        debug_assert!(
+            label.0.value() < self.labels.len(),
+            "The label belongs to another builder"
+        );
+
+        self.transition_from.push(from);
+        self.transition_labels.push(label.0);
+        self.transition_to.push(to);
+
+        self.num_of_states = self.num_of_states.max(from.value() + 1).max(to.value() + 1);
+    }
+
     /// Initializes a new empty builder.
     pub fn new(labels: Vec<L>, hidden_labels: Vec<String>) -> Self {
         Self::with_capacity(labels, hidden_labels, 0, 0, 0)
@@ -274,7 +319,7 @@ impl<L: TransitionLabel> LtsBuilderMem<L> {
         }
 
         // Ensure that all hidden labels are mapped to the tau action.
-        let mut labels_index = HashMap::new();
+        let mut labels_index = FxHashMap::default();
         labels_index.insert(L::tau_label(), LabelIndex::new(0));
         for (index, label) in labels.iter().enumerate() {
             if hidden_labels.iter().any(|l| label.matches_label(l)) {
@@ -431,28 +476,8 @@ impl<L: TransitionLabel> LtsBuilder<L> for LtsBuilderMem<L> {
         L: Borrow<Q>,
         Q: ?Sized + ToOwned<Owned = L> + Eq + Hash,
     {
-        let label_index = if let Some(&index) = self.labels_index.get(label) {
-            index
-        } else {
-            // Label was not yet added, so add it to the labels and the index.
-            let label = label.to_owned();
-            let index = if self.hidden_labels.iter().any(|l| label.matches_label(l)) {
-                LabelIndex::new(0) // Map hidden labels to tau
-            } else {
-                let idx = LabelIndex::new(self.labels.len());
-                self.labels.push(label.clone());
-                idx
-            };
-            self.labels_index.insert(label, index);
-            index
-        };
-
-        self.transition_from.push(from);
-        self.transition_labels.push(label_index);
-        self.transition_to.push(to);
-
-        // Update the number of states.
-        self.num_of_states = self.num_of_states.max(from.value() + 1).max(to.value() + 1);
+        let label_index = self.label_index(label);
+        self.add_transition_index(from, label_index, to);
         Ok(())
     }
 
