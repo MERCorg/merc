@@ -17,6 +17,7 @@ use crate::SymbolRef;
 use crate::Term;
 use crate::storage::SharedTerm;
 use crate::storage::SharedTermLookup;
+use crate::storage::TermSymbol;
 
 /// The actual storage for [crate::ATerm]. Terms are stored in separate
 /// `StablePointerSet`s based on their arity, and whether they have annotations
@@ -156,56 +157,56 @@ impl ATermStorage {
         let result = match symbol.arity() {
             0 => {
                 let (result, inserted) = self.terms_0.insert(SharedTermFixed {
-                    symbol: SymbolRef::from_symbol(symbol),
+                    symbol: TermSymbol::new(&SymbolRef::from_symbol(symbol)),
                     args: [],
                 });
                 unsafe { (cast_to_shared_term_ptr(&result, 0), inserted) }
             }
             1 => {
                 let (result, inserted) = self.terms_1.insert(SharedTermFixed {
-                    symbol: SymbolRef::from_symbol(symbol),
+                    symbol: TermSymbol::new(&SymbolRef::from_symbol(symbol)),
                     args: [arg()],
                 });
                 unsafe { (cast_to_shared_term_ptr(&result, 1), inserted) }
             }
             2 => {
                 let (result, inserted) = self.terms_2.insert(SharedTermFixed {
-                    symbol: SymbolRef::from_symbol(symbol),
+                    symbol: TermSymbol::new(&SymbolRef::from_symbol(symbol)),
                     args: [arg(), arg()],
                 });
                 unsafe { (cast_to_shared_term_ptr(&result, 2), inserted) }
             }
             3 => {
                 let (result, inserted) = self.terms_3.insert(SharedTermFixed {
-                    symbol: SymbolRef::from_symbol(symbol),
+                    symbol: TermSymbol::new(&SymbolRef::from_symbol(symbol)),
                     args: [arg(), arg(), arg()],
                 });
                 unsafe { (cast_to_shared_term_ptr(&result, 3), inserted) }
             }
             4 => {
                 let (result, inserted) = self.terms_4.insert(SharedTermFixed {
-                    symbol: SymbolRef::from_symbol(symbol),
+                    symbol: TermSymbol::new(&SymbolRef::from_symbol(symbol)),
                     args: [arg(), arg(), arg(), arg()],
                 });
                 unsafe { (cast_to_shared_term_ptr(&result, 4), inserted) }
             }
             5 => {
                 let (result, inserted) = self.terms_5.insert(SharedTermFixed {
-                    symbol: SymbolRef::from_symbol(symbol),
+                    symbol: TermSymbol::new(&SymbolRef::from_symbol(symbol)),
                     args: [arg(), arg(), arg(), arg(), arg()],
                 });
                 unsafe { (cast_to_shared_term_ptr(&result, 5), inserted) }
             }
             6 => {
                 let (result, inserted) = self.terms_6.insert(SharedTermFixed {
-                    symbol: SymbolRef::from_symbol(symbol),
+                    symbol: TermSymbol::new(&SymbolRef::from_symbol(symbol)),
                     args: [arg(), arg(), arg(), arg(), arg(), arg()],
                 });
                 unsafe { (cast_to_shared_term_ptr(&result, 6), inserted) }
             }
             7 => {
                 let (result, inserted) = self.terms_7.insert(SharedTermFixed {
-                    symbol: SymbolRef::from_symbol(symbol),
+                    symbol: TermSymbol::new(&SymbolRef::from_symbol(symbol)),
                     args: [arg(), arg(), arg(), arg(), arg(), arg(), arg()],
                 });
                 unsafe { (cast_to_shared_term_ptr(&result, 7), inserted) }
@@ -229,7 +230,7 @@ impl ATermStorage {
     ) -> (StablePointer<SharedTerm>, bool) {
         unsafe {
             let (result, inserted) = self.int_terms.insert(SharedTermInt {
-                symbol: SymbolRef::from_index(symbol.shared()),
+                symbol: TermSymbol::new(&symbol),
                 annotation: value,
             });
 
@@ -324,12 +325,13 @@ unsafe fn cast_to_shared_term_ptr<T>(ptr: &StablePointer<T>, arity: usize) -> St
 #[repr(C)]
 #[derive(Hash, Eq, PartialEq)]
 pub(crate) struct SharedTermFixed<const N: usize> {
-    pub(crate) symbol: SymbolRef<'static>,
+    pub(crate) symbol: TermSymbol,
     pub(crate) args: [ATermIndex; N],
 }
 
-// Safety: The first field is a heap pointer. Heap pointers are always well above the small alignment value returned by
-// `std::ptr::dangling_mut()`, so the sentinel can never collide with a live entry.
+// Safety: The first field is a heap pointer, possibly with its lowest bit set as the garbage collection mark. Heap
+// pointers are always well above the small alignment value returned by `std::ptr::dangling_mut()`, so the sentinel can
+// never collide with a live entry.
 unsafe impl<const N: usize> BlockAllocatorSafe for SharedTermFixed<N> {}
 
 /// Storage for integer ATerms.
@@ -338,7 +340,7 @@ unsafe impl<const N: usize> BlockAllocatorSafe for SharedTermFixed<N> {}
 #[repr(C)]
 #[derive(Hash, Eq, PartialEq)]
 pub(crate) struct SharedTermInt {
-    symbol: SymbolRef<'static>,
+    symbol: TermSymbol,
 
     /// The only important aspect is that `symbol` remains in the same position,
     /// and has arity 0.

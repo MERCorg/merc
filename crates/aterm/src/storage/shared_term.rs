@@ -2,9 +2,7 @@ use std::alloc::Layout;
 use std::alloc::LayoutError;
 use std::fmt;
 use std::hash::Hash;
-use std::mem::ManuallyDrop;
 use std::mem::offset_of;
-use std::ptr;
 use std::ptr::NonNull;
 use std::ptr::slice_from_raw_parts_mut;
 
@@ -12,13 +10,16 @@ use equivalent::Equivalent;
 use merc_unsafety::Erasable;
 use merc_unsafety::ErasedPtr;
 use merc_unsafety::SliceDst;
+use merc_unsafety::StablePointer;
 use merc_unsafety::repr_c;
+use merc_utilities::AtomicTaggedPtr;
 
 use crate::ATermRef;
 use crate::Symb;
 use crate::SymbolRef;
 use crate::Term;
 use crate::Transmutable;
+use crate::storage::SharedSymbol;
 
 /// The underlying type of terms that are maximally shared.
 ///
@@ -30,8 +31,87 @@ use crate::Transmutable;
 /// even more compact than `smallvec`. Arguments are stored as [ATermRef] slices.
 #[repr(C)]
 pub struct SharedTerm {
-    symbol: SymbolRef<'static>,
+    symbol: TermSymbol,
     arguments: [ATermRef<'static>],
+}
+
+/// The function symbol of a stored term, whose lowest address bit marks the term as reachable
+/// during garbage collection.
+///
+/// The collector sets and clears the mark while it holds the term pool exclusively, but other
+/// threads may read the symbol meanwhile, which is why it is atomic and reads ignore the mark.
+#[repr(C)]
+pub(crate) struct TermSymbol {
+    ptr: AtomicTaggedPtr<SharedSymbol>,
+
+    /// Holds the symbol's debug reference counter, see [`StablePointer`].
+    #[cfg(debug_assertions)]
+    reference: SymbolRef<'static>,
+}
+
+impl TermSymbol {
+    /// Stores the given symbol, which the term keeps alive because marking a term marks its symbol.
+    pub(crate) fn new(symbol: &SymbolRef<'_>) -> Self {
+        Self {
+            // SAFETY: a symbol is a sized element of the symbol pool, so `ptr` does not read it.
+            ptr: AtomicTaggedPtr::new(unsafe { symbol.shared().ptr() }),
+            // SAFETY: the symbol lives as long as the term, see above.
+            #[cfg(debug_assertions)]
+            reference: unsafe { SymbolRef::from_index(symbol.shared()) },
+        }
+    }
+
+    /// Returns the symbol.
+    pub(crate) fn get(&self) -> SymbolRef<'_> {
+        // SAFETY: the stored pointer was not null, and masking the mark keeps it so.
+        let ptr = unsafe { NonNull::new_unchecked(self.ptr.load()) };
+
+        // SAFETY: `ptr` points to the symbol that this term keeps alive, see `new`, which is also
+        // the symbol of `reference`.
+        #[cfg(debug_assertions)]
+        let index = unsafe { StablePointer::from_related_ptr(ptr, self.reference.shared()) };
+        #[cfg(not(debug_assertions))]
+        let index = unsafe { StablePointer::from_ptr(ptr) };
+
+        // SAFETY: the returned reference borrows `self`, which keeps the symbol alive.
+        unsafe { SymbolRef::from_index(&index) }
+    }
+
+    /// Marks the term and returns true iff it was not marked before.
+    pub(crate) fn mark(&self) -> bool {
+        !self.ptr.set_tag()
+    }
+
+    /// Returns true iff the term is marked.
+    pub(crate) fn is_marked(&self) -> bool {
+        self.ptr.is_tagged()
+    }
+
+    /// Removes the mark of the term.
+    pub(crate) fn unmark(&self) {
+        self.ptr.clear_tag()
+    }
+}
+
+impl PartialEq for TermSymbol {
+    fn eq(&self, other: &Self) -> bool {
+        self.ptr.load() == other.ptr.load()
+    }
+}
+
+impl Eq for TermSymbol {}
+
+impl Hash for TermSymbol {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Must equal the hash of the symbol itself, which lookups use.
+        self.get().hash(state);
+    }
+}
+
+impl fmt::Debug for TermSymbol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self.get())
+    }
 }
 
 impl PartialEq for SharedTerm {
@@ -45,7 +125,7 @@ impl Eq for SharedTerm {}
 /// Note that the length is stored in the symbol's arity
 unsafe impl SliceDst for SharedTerm {
     fn layout_for(len: usize) -> Result<Layout, LayoutError> {
-        let header_layout = Layout::new::<SymbolRef<'static>>();
+        let header_layout = Layout::new::<TermSymbol>();
         let slice_layout = Layout::array::<ATermRef<'static>>(len)?;
 
         repr_c(&[header_layout, slice_layout])
@@ -67,10 +147,8 @@ unsafe impl Erasable for SharedTerm {
 
     unsafe fn unerase(this: ErasedPtr) -> NonNull<Self> {
         unsafe {
-            // Wrap the by-value read in ManuallyDrop: dropping the temporary would decrement the
-            // symbol's debug reference counter (an Arc) that the read never incremented.
-            let symbol: ManuallyDrop<SymbolRef> = ptr::read(this.as_ptr().cast());
-            let len = symbol.arity();
+            // Every term starts with its symbol, whose arity is the number of arguments.
+            let len = (*this.as_ptr().cast::<TermSymbol>()).get().arity();
 
             let raw = NonNull::new_unchecked(slice_from_raw_parts_mut(this.as_ptr().cast(), len));
             Self::retype(raw)
@@ -91,8 +169,23 @@ impl fmt::Debug for SharedTerm {
 
 impl SharedTerm {
     /// Returns the symbol of the term.
-    pub fn symbol(&self) -> &SymbolRef<'_> {
-        &self.symbol
+    pub fn symbol(&self) -> SymbolRef<'_> {
+        self.symbol.get()
+    }
+
+    /// Marks the term as reachable and returns true iff it was not marked before.
+    pub(crate) fn mark(&self) -> bool {
+        self.symbol.mark()
+    }
+
+    /// Returns true iff the term is marked as reachable.
+    pub(crate) fn is_marked(&self) -> bool {
+        self.symbol.is_marked()
+    }
+
+    /// Removes the reachability mark of the term.
+    pub(crate) fn unmark(&self) {
+        self.symbol.unmark()
     }
 
     /// Returns the arguments of the term.
@@ -113,7 +206,7 @@ impl SharedTerm {
 
     /// Constructs an uninitialised ptr from a [SharedTermLookup]
     pub(crate) unsafe fn construct(ptr: *mut SharedTerm, object: &SharedTermLookup) {
-        let header_layout = Layout::new::<SymbolRef<'static>>();
+        let header_layout = Layout::new::<TermSymbol>();
         let slice_layout =
             Layout::array::<ATermRef<'static>>(object.arguments.len()).expect("Layout should not exceed isize");
 
@@ -121,8 +214,7 @@ impl SharedTerm {
             .extend(slice_layout)
             .expect("Layout should not exceed isize");
         unsafe {
-            ptr.cast::<SymbolRef<'static>>()
-                .write(SymbolRef::from_index(object.symbol.shared()));
+            ptr.cast::<TermSymbol>().write(TermSymbol::new(&object.symbol));
 
             for (index, argument) in object.arguments.iter().enumerate() {
                 ptr.byte_offset(slice_offset as isize)
@@ -150,7 +242,7 @@ pub(crate) struct SharedTermLookup<'a> {
 
 impl Equivalent<SharedTerm> for SharedTermLookup<'_> {
     fn equivalent(&self, other: &SharedTerm) -> bool {
-        self.symbol == other.symbol && self.arguments == &other.arguments
+        self.symbol == other.symbol() && self.arguments == &other.arguments
     }
 }
 
@@ -218,7 +310,7 @@ mod tests {
         unsafe {
             SharedTerm::construct(ptr.as_ptr(), &lookup);
             assert_eq!(
-                *ptr.as_ref().symbol(),
+                ptr.as_ref().symbol(),
                 symbol.copy(),
                 "The symbol should match the lookup symbol"
             );
