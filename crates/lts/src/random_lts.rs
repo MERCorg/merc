@@ -56,6 +56,7 @@ pub fn random_lts<L: TransitionLabel, R: Rng>(
         num_of_states,
         num_of_states * num_of_labels as usize / 2,
     );
+    let builder_labels = builder.label_indices(&labels);
 
     for state_index in 0..num_of_states {
         // Introduce outgoing transitions for this state based on the desired out degree.
@@ -64,13 +65,11 @@ pub fn random_lts<L: TransitionLabel, R: Rng>(
             let label = rng.random_range(0..num_of_labels);
             let to = rng.random_range(0..num_of_states);
 
-            builder
-                .add_transition(
-                    StateIndex::new(state_index),
-                    &labels[label as usize],
-                    StateIndex::new(to),
-                )
-                .expect("Adding transitions does not fail");
+            builder.add_transition_index(
+                StateIndex::new(state_index),
+                builder_labels[label as usize],
+                StateIndex::new(to),
+            );
         }
     }
 
@@ -89,6 +88,7 @@ pub fn mutate_lts<L: LTS, R: Rng>(
     num_of_mutations: usize,
 ) -> Result<LabelledTransitionSystem<L::Label>, MercError> {
     let mut builder = LtsBuilderMem::new(lts.labels().to_vec(), Vec::new());
+    let labels = builder.label_indices(lts.labels());
     builder.require_num_of_states(lts.num_of_states());
 
     let removed_transition = if num_of_mutations > 0 {
@@ -110,9 +110,7 @@ pub fn mutate_lts<L: LTS, R: Rng>(
         for transition in lts.outgoing_transitions(state) {
             // Skip this transition if it is one of the transitions to remove.
             if !to_remove.contains(&index) {
-                builder
-                    .add_transition(state, &lts.labels()[transition.label], transition.to)
-                    .expect("Adding transitions does not fail");
+                builder.add_transition_index(state, labels[transition.label.value()], transition.to);
             }
 
             index += 1;
@@ -128,7 +126,7 @@ pub fn mutate_lts<L: LTS, R: Rng>(
             let from = StateIndex::new(rng.sample(state_uniform));
             let label = rng.sample(label_uniform);
             let to = StateIndex::new(rng.sample(state_uniform));
-            builder.add_transition(from, &lts.labels()[label], to).unwrap();
+            builder.add_transition_index(from, labels[label], to);
         }
     }
 

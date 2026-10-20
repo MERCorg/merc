@@ -278,6 +278,12 @@ impl<L: TransitionLabel> LtsBuilderMem<L> {
         BuilderIndex(index)
     }
 
+    /// Returns the labels of this builder for `labels`, in the same order, so that the transitions
+    /// of an existing LTS can be added by their label index without looking up the label each time.
+    pub fn label_indices(&mut self, labels: &[L]) -> Vec<BuilderIndex> {
+        labels.iter().map(|label| self.label_index(label)).collect()
+    }
+
     /// Adds a transition with a label that [`Self::label_index`] returned, which avoids looking up
     /// the label for every transition.
     pub fn add_transition_index(&mut self, from: StateIndex, label: BuilderIndex, to: StateIndex) {

@@ -1,5 +1,4 @@
 use log::debug;
-use merc_lts::LtsBuilder;
 use oxidd::BooleanFunction;
 use oxidd::Function;
 use oxidd::bdd::BDDFunction;
@@ -69,6 +68,7 @@ pub fn project_feature_transition_system<L: TransitionLabel>(
 
     debug!("Projecting on feature selection {}", FormatConfigSet(feature_selection));
 
+    let builder_labels = builder.label_indices(fts.labels());
     let labels = fts
         .labels()
         .iter()
@@ -84,7 +84,7 @@ pub fn project_feature_transition_system<L: TransitionLabel>(
     for v in fts.iter_states() {
         for edge in fts.outgoing_transitions(v) {
             if labels[edge.label] {
-                builder.add_transition(v, &fts.labels()[edge.label], edge.to)?;
+                builder.add_transition_index(v, builder_labels[edge.label.value()], edge.to);
             }
         }
     }
