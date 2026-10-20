@@ -73,8 +73,9 @@ pub(crate) fn coverage(arguments: Vec<String>) -> Result<(), Box<dyn Error>> {
     cmd!(
         "grcov",
         base_directory,
+        // grcov searches this directory recursively.
         "--binary-path",
-        "./target/debug/deps",
+        "./target/debug",
         "-s",
         ".",
         "-t",
