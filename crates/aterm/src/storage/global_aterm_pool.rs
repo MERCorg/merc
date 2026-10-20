@@ -71,8 +71,6 @@ pub(crate) struct GlobalTermPool {
     orphan_container_protection_set: FxHashMap<usize, Arc<dyn Markable + Sync + Send>>,
 
     // Data structures used for garbage collection
-    /// Used to avoid reallocations for the markings of all terms - uses pointers as keys
-    marked_terms: FxHashSet<ATermIndex>,
     /// Used to avoid reallocations for the markings of all symbols
     marked_symbols: FxHashSet<SymbolIndex>,
     /// A stack used to mark terms recursively.
@@ -114,7 +112,6 @@ impl GlobalTermPool {
             orphan_term_protection_set: FxHashSet::default(),
             orphan_symbol_protection_set: FxHashSet::default(),
             orphan_container_protection_set: FxHashMap::default(),
-            marked_terms: FxHashSet::default(),
             marked_symbols: FxHashSet::default(),
             stack: Vec::new(),
             garbage_collection: true,
@@ -351,7 +348,6 @@ impl GlobalTermPool {
         }
 
         // Clear marking data structures
-        self.marked_terms.clear();
         self.marked_symbols.clear();
         self.stack.clear();
     }
@@ -370,7 +366,6 @@ impl GlobalTermPool {
         }
 
         let mut marker = Marker {
-            marked_terms: &mut self.marked_terms,
             marked_symbols: &mut self.marked_symbols,
             stack: &mut self.stack,
         };
@@ -469,11 +464,14 @@ impl GlobalTermPool {
         // lock, so unmarked terms have no live references that could be dereferenced afterwards.
         unsafe {
             self.terms.retain(|term| {
-                if !self.marked_terms.contains(term) {
+                let shared = term.deref();
+                if !shared.is_marked() {
                     debug_trace!("Dropping term: {:?}", term);
                     return false;
                 }
 
+                // Leave no marks behind for the next collection.
+                shared.unmark();
                 true
             });
         }
@@ -609,7 +607,6 @@ impl fmt::Display for ProtectionMetrics<'_> {
 
 /// Helper struct to pass private data required to mark term recursively.
 pub struct Marker<'a> {
-    marked_terms: &'a mut FxHashSet<ATermIndex>,
     marked_symbols: &'a mut FxHashSet<SymbolIndex>,
     stack: &'a mut Vec<ATermIndex>,
 }
@@ -621,13 +618,11 @@ impl Marker<'_> {
         // drained before the collection pass ends, and a marked term or symbol is by
         // definition retained by the sweep; `term` itself is alive for the borrow.
         unsafe {
-            if !self.marked_terms.contains(term.shared()) {
+            // A term is marked when it is pushed, so that a shared subterm is pushed only once.
+            if term.shared().deref().mark() {
                 self.stack.push(term.shared().copy());
 
                 while let Some(term) = self.stack.pop() {
-                    // Each term should be marked.
-                    self.marked_terms.insert(term.copy());
-
                     // Reconstruct the wide reference once; each `deref` rebuilds it from the
                     // symbol header, so we reuse the borrow for both the symbol and arguments.
                     let shared = term.deref();
@@ -638,10 +633,7 @@ impl Marker<'_> {
                     // The arguments slice already has exactly the symbol's arity as its length
                     // (integer terms reconstruct to an empty slice), so iterating it is correct.
                     for arg in shared.arguments().iter() {
-                        // Skip if unnecessary, otherwise mark before pushing to stack since it can be shared.
-                        if !self.marked_terms.contains(arg.shared()) {
-                            self.marked_terms.insert(arg.shared().copy());
-                            self.marked_symbols.insert(arg.get_head_symbol().shared().copy());
+                        if arg.shared().deref().mark() {
                             self.stack.push(arg.shared().copy());
                         }
                     }
