@@ -40,6 +40,7 @@ pub fn quotient_lts_naive<L: LTS, P: Partition>(
         partition.num_of_blocks(),
         lts.num_of_transitions(),
     );
+    let labels = builder.label_indices(lts.labels());
 
     for state_index in lts.iter_states() {
         for transition in lts.outgoing_transitions(state_index) {
@@ -58,13 +59,11 @@ pub fn quotient_lts_naive<L: LTS, P: Partition>(
                     "Quotienting assumes that the block numbers do not exceed the number of blocks"
                 );
 
-                builder
-                    .add_transition(
-                        StateIndex::new(block.value()),
-                        &lts.labels()[transition.label],
-                        StateIndex::new(to_block.value()),
-                    )
-                    .expect("Adding transitions does not fail");
+                builder.add_transition_index(
+                    StateIndex::new(block.value()),
+                    labels[transition.label.value()],
+                    StateIndex::new(to_block.value()),
+                );
             }
         }
     }
@@ -98,14 +97,13 @@ fn remove_redundant_transitions<L: LTS>(lts: &L) -> LabelledTransitionSystem<L::
         lts.num_of_states(),
         lts.num_of_transitions(),
     );
+    let labels = builder.label_indices(lts.labels());
     builder.require_num_of_states(lts.num_of_states());
 
     for from in lts.iter_states() {
         for transition in lts.outgoing_transitions(from) {
             if !is_redundant_transition(lts, from, transition.label, transition.to) {
-                builder
-                    .add_transition(from, &lts.labels()[transition.label], transition.to)
-                    .expect("Adding transitions does not fail");
+                builder.add_transition_index(from, labels[transition.label.value()], transition.to);
             } else {
                 trace!(
                     "Removing redundant transition: {} -[{}]-> {}",
@@ -206,6 +204,7 @@ pub fn quotient_lts_block<L: LTS, const BRANCHING: bool>(
         partition.num_of_blocks(),
         lts.num_of_transitions(),
     );
+    let labels = builder.label_indices(lts.labels());
 
     // Reused across blocks to find bottom states when BRANCHING.
     let mut visited = vec![false; lts.num_of_states()];
@@ -265,13 +264,11 @@ pub fn quotient_lts_block<L: LTS, const BRANCHING: bool>(
             }
 
             if !(eliminate_tau_loops && lts.is_hidden_label(transition.label) && candidate == transition.to) {
-                builder
-                    .add_transition(
-                        StateIndex::new(*block),
-                        &lts.labels()[transition.label],
-                        StateIndex::new(*partition.block_number(transition.to)),
-                    )
-                    .expect("Adding transitions does not fail");
+                builder.add_transition_index(
+                    StateIndex::new(*block),
+                    labels[transition.label.value()],
+                    StateIndex::new(*partition.block_number(transition.to)),
+                );
             }
         }
     }

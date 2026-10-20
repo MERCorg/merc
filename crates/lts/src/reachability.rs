@@ -80,18 +80,15 @@ where
     let num_reachable = new_to_old.len();
 
     // Use LtsBuilderMem to collect the reachable transitions with renumbered state indices.
-    let labels = lts.labels().to_vec();
-    let mut builder = LtsBuilderMem::new(labels, vec![]);
+    let mut builder = LtsBuilderMem::new(lts.labels().to_vec(), vec![]);
+    let labels = builder.label_indices(lts.labels());
     builder.require_num_of_states(num_reachable);
 
     for &old_state in &new_to_old {
         let new_from = old_to_new[old_state].expect("reachable state must have a mapping");
         for t in lts.outgoing_transitions(old_state) {
             if let Some(new_to) = old_to_new[t.to] {
-                let label = &lts.labels()[t.label.value()];
-                builder
-                    .add_transition(new_from, label, new_to)
-                    .expect("transition should be valid");
+                builder.add_transition_index(new_from, labels[t.label.value()], new_to);
             }
         }
     }
