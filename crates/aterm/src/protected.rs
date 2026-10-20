@@ -2,6 +2,7 @@
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::marker::PhantomData;
 use std::mem::transmute;
 use std::ops::Deref;
 use std::ops::DerefMut;
@@ -17,7 +18,6 @@ use crate::Term;
 use crate::Transmutable;
 use crate::aterm::ATermRef;
 use crate::storage::GcMutex;
-use crate::storage::GcMutexGuard;
 use crate::storage::GcMutexReadGuard;
 use crate::storage::SendContainerProtectionSet;
 use crate::storage::THREAD_TERM_POOL;
@@ -48,15 +48,23 @@ impl<C: Markable + Send + Sync + Transmutable + 'static> Protected<C> {
         }
     }
 
-    /// Provides mutable access to the underlying container, returning a [ProtectedWriteGuard].
-    pub fn write(&mut self) -> ProtectedWriteGuard<'_, C> {
+    /// Provides mutable access to the underlying container through a [ProtectedWriteGuard] that
+    /// only exists during `f`.
+    ///
+    /// A term removed from the container is no longer protected once the guard is dropped, so the
+    /// guard's lifetime `'g` is universally quantified to keep such terms from escaping `f`. As
+    /// with [std::thread::scope], terms that outlive `'env` can still be inserted directly.
+    pub fn write<'env, F, R>(&mut self, f: F) -> R
+    where
+        F: for<'g> FnOnce(&'g mut ProtectedWriteGuard<'g, 'env, C::Target<'g>>) -> R,
+    {
         // SAFETY: Protected is `!Send` so it is only ever used from one thread,
         // and `write` takes `&mut self`, so no other guard from this handle
         // overlaps. The only other access is the global garbage collector,
         // which only accesses the container when this handle is dropped, so it
         // cannot overlap either.
         let mutex = unsafe { &mut *(Arc::as_ptr(&self.container) as *mut GcMutex<C>) };
-        ProtectedWriteGuard::new(mutex.lock_mut())
+        write_scoped(mutex, f)
     }
 
     /// Provides immutable access to the underlying container, returning a [ProtectedReadGuard].
@@ -154,14 +162,17 @@ impl<C: Markable + Send + Sync + Transmutable + 'static> ProtectedSend<C> {
         }
     }
 
-    /// Provides mutable access to the underlying container, returning a [ProtectedWriteGuard].
-    pub fn write(&mut self) -> ProtectedWriteGuard<'_, C> {
+    /// Provides mutable access to the underlying container, see [Protected::write].
+    pub fn write<'env, F, R>(&mut self, f: F) -> R
+    where
+        F: for<'g> FnOnce(&'g mut ProtectedWriteGuard<'g, 'env, C::Target<'g>>) -> R,
+    {
         // SAFETY: `write` takes `&mut self`, so no other guard from this handle overlaps, and
         // ownership (hence any access) is confined to a single thread at a time. The only other
         // access is the global garbage collector, which -- as for `Protected` -- only reaches
         // the container's contents through `GcMutex::lock`, so it cannot overlap either.
         let mutex = unsafe { &mut *(Arc::as_ptr(&self.container) as *mut GcMutex<C>) };
-        ProtectedWriteGuard::new(mutex.lock_mut())
+        write_scoped(mutex, f)
     }
 
     /// Provides immutable access to the underlying container, returning a [ProtectedReadGuard].
@@ -190,31 +201,71 @@ impl<C> Drop for ProtectedSend<C> {
     }
 }
 
-pub struct ProtectedWriteGuard<'a, C: Markable> {
-    reference: GcMutexGuard<'a, C>,
+/// Runs `f` with a [ProtectedWriteGuard] on `mutex`, which prevents garbage collection meanwhile.
+fn write_scoped<'env, C, F, R>(mutex: &mut GcMutex<C>, f: F) -> R
+where
+    C: Markable + Transmutable,
+    F: for<'g> FnOnce(&'g mut ProtectedWriteGuard<'g, 'env, C::Target<'g>>) -> R,
+{
+    // The guard is borrowed for its own lifetime, so it cannot own anything with drop glue that
+    // uses that lifetime. The lock and the debug bookkeeping therefore live here instead.
+    let mut lock = mutex.lock_mut();
+
+    #[cfg(debug_assertions)]
+    let protected = RefCell::new(Vec::new());
+    #[cfg(debug_assertions)]
+    let protected_symbols = RefCell::new(Vec::new());
+
+    // SAFETY: `f` is generic over the lifetime of the container, so nothing that it takes from the
+    // container outlives this call, during which the lock prevents garbage collection.
+    let container = unsafe { lock.transmute_lifetime_mut() };
+    let result = f(&mut ProtectedWriteGuard {
+        container,
+        _env: PhantomData,
+        #[cfg(debug_assertions)]
+        protected: &protected,
+        #[cfg(debug_assertions)]
+        protected_symbols: &protected_symbols,
+    });
+
+    #[cfg(debug_assertions)]
+    {
+        for term in protected.borrow().iter() {
+            debug_assert!(lock.contains_term(term), "Term was protected but not actually inserted");
+        }
+
+        for symbol in protected_symbols.borrow().iter() {
+            debug_assert!(
+                lock.contains_symbol(symbol),
+                "Symbol was protected but not actually inserted"
+            );
+        }
+    }
+
+    result
+}
+
+/// Mutable access to the container of a [Protected] or [ProtectedSend], see [Protected::write].
+pub struct ProtectedWriteGuard<'a, 'env, T: ?Sized> {
+    container: &'a mut T,
+
+    /// Within the closure passed to `write`, the type `&'a mut ProtectedWriteGuard<'a, 'env, T>`
+    /// of its argument implies `'env: 'a`, so terms that outlive `'env` can be inserted. The guard
+    /// is generic over the container with lifetime `'a`, rather than the stored container with
+    /// lifetime `'static`, since the latter would also imply `'static: 'a`, and the compiler then
+    /// requires inserted terms to be `'static`.
+    _env: PhantomData<&'a mut &'env ()>,
 
     /// Terms that have been protected during the lifetime of this guard.
     #[cfg(debug_assertions)]
-    protected: RefCell<Vec<ATermRef<'static>>>,
+    protected: &'a RefCell<Vec<ATermRef<'static>>>,
 
     /// Symbols that have been protected during the lifetime of this guard.
     #[cfg(debug_assertions)]
-    protected_symbols: RefCell<Vec<SymbolRef<'static>>>,
+    protected_symbols: &'a RefCell<Vec<SymbolRef<'static>>>,
 }
 
-impl<'a, C: Markable> ProtectedWriteGuard<'a, C> {
-    fn new(reference: GcMutexGuard<'a, C>) -> Self {
-        #[cfg(debug_assertions)]
-        return ProtectedWriteGuard {
-            reference,
-            protected: RefCell::new(vec![]),
-            protected_symbols: RefCell::new(vec![]),
-        };
-
-        #[cfg(not(debug_assertions))]
-        return ProtectedWriteGuard { reference };
-    }
-
+impl<'a, C: ?Sized> ProtectedWriteGuard<'a, '_, C> {
     /// Yields a term to insert into the container.
     ///
     /// # Safety
@@ -256,40 +307,17 @@ impl<'a, C: Markable> ProtectedWriteGuard<'a, C> {
     }
 }
 
-#[cfg(debug_assertions)]
-impl<C: Markable> Drop for ProtectedWriteGuard<'_, C> {
-    fn drop(&mut self) {
-        {
-            for term in self.protected.borrow().iter() {
-                debug_assert!(
-                    self.reference.contains_term(term),
-                    "Term was protected but not actually inserted"
-                );
-            }
+impl<T: ?Sized> Deref for ProtectedWriteGuard<'_, '_, T> {
+    type Target = T;
 
-            for symbol in self.protected_symbols.borrow().iter() {
-                debug_assert!(
-                    self.reference.contains_symbol(symbol),
-                    "Symbol was protected but not actually inserted"
-                );
-            }
-        }
+    fn deref(&self) -> &T {
+        self.container
     }
 }
 
-impl<'a, C: Markable + Transmutable + 'a> Deref for ProtectedWriteGuard<'a, C> {
-    type Target = C::Target<'a>;
-
-    fn deref(&self) -> &Self::Target {
-        // SAFETY: 'a is the lifetime of the underlying lock guard, which `self` borrows.
-        unsafe { self.reference.transmute_lifetime() }
-    }
-}
-
-impl<C: Markable + Transmutable> DerefMut for ProtectedWriteGuard<'_, C> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        // SAFETY: 'a is the lifetime of the underlying lock guard, which `self` borrows.
-        unsafe { self.reference.deref_mut().transmute_lifetime_mut() }
+impl<T: ?Sized> DerefMut for ProtectedWriteGuard<'_, '_, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        self.container
     }
 }
 
@@ -307,7 +335,8 @@ impl<'a, C: Transmutable> Deref for ProtectedReadGuard<'a, C> {
     type Target = C::Target<'a>;
 
     fn deref(&self) -> &Self::Target {
-        // SAFETY: 'a is the lifetime of the underlying lock guard, which `self` borrows.
+        // SAFETY: 'a is a shared borrow of the container, which therefore cannot be modified or
+        // dropped while terms copied from it with lifetime 'a exist, so they remain protected.
         unsafe { self.reference.transmute_lifetime() }
     }
 }
@@ -328,8 +357,7 @@ mod tests {
         let mut container = Protected::<Vec<ATermRef<'static>>>::new(vec![]);
 
         for _ in 0..1000 {
-            let mut write = container.write();
-            write.push(t.get());
+            container.write(|write| write.push(t.get()));
         }
     }
 }
