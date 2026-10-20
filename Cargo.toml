@@ -20,37 +20,42 @@ split-debuginfo = "packed"
 [workspace]
 resolver = "3"
 members = [
-    "crates/aterm",
-    "crates/aterm/benchmarks",
-    "crates/collections",
-    "crates/data",
-    "crates/explore",
-    "crates/io",
-    "crates/lts",
-    "crates/lts/benchmarks",
-    "crates/macros",
-    "crates/number",
-    "crates/rec-tests",
-    "crates/reduction",
-    "crates/refinement",
-    "crates/sabre_compiling",
-    "crates/sabre_compiling/sabre_ffi",
-    "crates/sabre",
-    "crates/sabre/benchmarks",
-    "crates/sharedmutex",
-    "crates/sharedmutex/benchmarks",
-    "crates/symbolic",
-    "crates/symbolic/benchmarks",
-    "crates/syntax",
-    "crates/tools",
-    "crates/typecheck",
-    "crates/unsafety",
-    "crates/unsafety/benchmarks",
-    "crates/utilities",
-    "crates/utilities/benchmarks",
-    "crates/vpg",
-    "crates/vpg/benchmarks",
+    "crates/core/aterm",
+    "crates/core/aterm/benchmarks",
+    "crates/core/io",
+    "crates/core/collections",
+    "crates/core/number",
+    "crates/core/sharedmutex",
+    "crates/core/sharedmutex/benchmarks",
+    "crates/core/tools",
+    "crates/core/unsafety",
+    "crates/core/unsafety/benchmarks",
+    "crates/core/utilities",
+    "crates/core/utilities/benchmarks",
+
+    "crates/rewriter/data",
+    "crates/rewriter/macros",
+    "crates/rewriter/rec-tests",
+    "crates/rewriter/sabre_compiling",
+    "crates/rewriter/sabre_compiling/sabre_ffi",
+    "crates/rewriter/sabre",
+    "crates/rewriter/sabre/benchmarks",
+
+    "crates/transition_systems/explore",
+    "crates/transition_systems/lts",
+    "crates/transition_systems/lts/benchmarks",
+    "crates/transition_systems/reduction",
+    "crates/transition_systems/refinement",
+    "crates/transition_systems/symbolic",
+    "crates/transition_systems/symbolic/benchmarks",
+    "crates/transition_systems/vpg",
+    "crates/transition_systems/vpg/benchmarks",
+
+    "crates/language/syntax",
+    "crates/language/typecheck",
+
     "crates/xtask",
+    
     "tools/lts",
     "tools/rewrite",
     "tools/sym",
@@ -134,28 +139,32 @@ bindgen = "0.73"
 cargo-emit = "0.2"
 
 # The workspace crates.
-merc_aterm = { version = "3.0", path = "crates/aterm" }
-merc_collections = { version = "3.0", path = "crates/collections" }
-merc_data = { version = "3.0", path = "crates/data" }
-merc_explore = { version = "2.0", path = "crates/explore" }
-merc_io = { version = "3.0", path = "crates/io" }
-merc_lts = { version = "3.0", path = "crates/lts" }
-merc_macros = { version = "2.0", path = "crates/macros" }
-merc_number = { version = "3.0", path = "crates/number" }
-merc_rec-tests = { path = "crates/rec-tests" }
-merc_reduction = { version = "3.0", path = "crates/reduction" }
-merc_refinement = { version = "3.0", path = "crates/refinement" }
-merc_sabre = { version = "3.0", path = "crates/sabre" }
-merc_sabre-compiling = { path = "crates/sabre_compiling" }
-merc_sabre-ffi = { path = "crates/sabre_compiling/sabre_ffi" }
-merc_sharedmutex = { version = "3.0", path = "crates/sharedmutex" }
-merc_symbolic = { version = "3.0",path = "crates/symbolic", features = ["clap"] }
-merc_syntax = { version = "3.0", path = "crates/syntax" }
-merc_tools = { version = "2.0", path = "crates/tools" }
-merc_typecheck = { version = "2.0", path = "crates/typecheck" }
-merc_unsafety = { version = "3.0", path = "crates/unsafety" }
-merc_utilities = { version = "3.0", path = "crates/utilities" }
-merc_vpg = { version = "3.0", path = "crates/vpg", features = ["clap"] }
+merc_aterm = { version = "3.0", path = "crates/core/aterm" }
+merc_collections = { version = "3.0", path = "crates/core/collections" }
+merc_io = { version = "3.0", path = "crates/core/io" }
+merc_number = { version = "3.0", path = "crates/core/number" }
+merc_sharedmutex = { version = "3.0", path = "crates/core/sharedmutex" }
+merc_tools = { version = "2.0", path = "crates/core/tools" }
+merc_unsafety = { version = "3.0", path = "crates/core/unsafety" }
+merc_utilities = { version = "3.0", path = "crates/core/utilities" }
+
+merc_data = { version = "3.0", path = "crates/rewriter/data" }
+merc_macros = { version = "2.0", path = "crates/rewriter/macros" }
+merc_rec-tests = { path = "crates/rewriter/rec-tests" }
+merc_sabre = { version = "3.0", path = "crates/rewriter/sabre" }
+merc_sabre-compiling = { path = "crates/rewriter/sabre_compiling" }
+merc_sabre-ffi = { path = "crates/rewriter/sabre_compiling/sabre_ffi" }
+
+merc_explore = { version = "2.0", path = "crates/transition_systems/explore" }
+merc_lts = { version = "3.0", path = "crates/transition_systems/lts" }
+merc_reduction = { version = "3.0", path = "crates/transition_systems/reduction" }
+merc_refinement = { version = "3.0", path = "crates/transition_systems/refinement" }
+merc_symbolic = { version = "3.0",path = "crates/transition_systems/symbolic", features = ["clap"] }
+merc_vpg = { version = "3.0", path = "crates/transition_systems/vpg", features = ["clap"] }
+
+merc_syntax = { version = "3.0", path = "crates/language/syntax" }
+merc_typecheck = { version = "2.0", path = "crates/language/typecheck" }
+
 
 # Vendored libraries
 merc_pest_consume = { version = "2.1", git = "https://github.com/MERCorg/pest_consume" }

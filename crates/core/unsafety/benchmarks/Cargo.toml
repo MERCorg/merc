@@ -1,0 +1,26 @@
+[package]
+name = "benchmarks_unsafety"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+autobenches = false
+
+[dependencies]
+merc_unsafety.workspace = true
+
+ahash.workspace = true
+criterion.workspace = true
+dashmap.workspace = true
+foldhash = "0.2"
+rand.workspace = true
+rustc-hash.workspace = true
+# The 1.x hasher, for comparison against the 2.x one the workspace uses.
+rustc-hash-v1 = { package = "rustc-hash", version = "1.1" }
+
+[[bench]]
+name = "benchmarks_unsafety"
+harness = false
+
+[lints]
+workspace = true
