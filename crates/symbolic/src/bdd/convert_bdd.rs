@@ -30,11 +30,14 @@ use crate::to_value;
 ///
 /// This basically applies the symbolic transitions to every state in the state
 /// space, and constructs the explicit LTS.
-pub fn convert_symbolic_lts_bdd<B: LtsBuilder<String>, L: TransitionLabel>(
+pub fn convert_symbolic_lts_bdd<B, L>(
     manager_ref: &BDDManagerRef,
     output: &mut B,
     lts: &SymbolicLtsBdd<L>,
-) -> Result<B::LTS, MercError> {
+) -> Result<B::LTS, MercError> 
+    where L: TransitionLabel,
+          B: LtsBuilder<L>,
+{
     // Compute for every read and write index its position in the transition vector.
     let state_variables = lts.state_variables().to_vec();
     let next_state_variables = lts.next_state_variables().to_vec();
@@ -198,8 +201,7 @@ pub fn convert_symbolic_lts_bdd<B: LtsBuilder<String>, L: TransitionLabel>(
                 let label = lts
                     .action_labels()
                     .get(action_value as usize)
-                    .ok_or("Found transition with unknown action label")?
-                    .to_string();
+                    .ok_or("Found transition with unknown action label")?;
 
                 // Find the target state index.
                 let target_index = discovered
