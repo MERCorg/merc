@@ -31,13 +31,10 @@ use crate::ldd_len;
 /// [`TransitionGroup::action_label_index`]). The transitions of a group without
 /// one are all labelled with the first of [`SymbolicLTS::action_labels`], which
 /// is then the single default label provided by the caller.
-pub fn convert_symbolic_lts<B, L>(
-    manager: &LDDManagerRef,
-    output: &mut B,
-    lts: &L,
-) -> Result<B::LTS, MercError> 
-    where L: SymbolicLTS,
-          B: LtsBuilder<L::Label>
+pub fn convert_symbolic_lts<B, L>(manager: &LDDManagerRef, output: &mut B, lts: &L) -> Result<B::LTS, MercError>
+where
+    L: SymbolicLTS,
+    B: LtsBuilder<L::Label>,
 {
     // Compute for every read and write index its position in the transition vector.
     let mut read_positions = Vec::new();

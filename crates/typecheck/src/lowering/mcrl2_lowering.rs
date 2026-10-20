@@ -418,6 +418,7 @@ pub(crate) fn lower_equation(
     let lhs = walker.lower(lhs)?;
     let rhs_id = walker.peek_id();
     let rhs = walker.lower(rhs)?;
+    walker.debug_assert_walked_all();
     let lhs_sort = sorts[*lhs_id];
     let rhs_sort = sorts[*rhs_id];
     let (lhs, rhs) = match ctx.sorts.partial_cmp(lhs_sort, rhs_sort)? {
@@ -441,7 +442,7 @@ pub(crate) fn lower_expression(
 ) -> Option<DataExpression> {
     let EquationTyping { sorts, names } = typing;
 
-    Lowering {
+    let mut walker = Lowering {
         ctx,
         spec,
         sorts,
@@ -449,8 +450,10 @@ pub(crate) fn lower_expression(
         next_id: 0,
         encoding,
         literals: HashMap::new(),
-    }
-    .lower(expr)
+    };
+    let lowered = walker.lower(expr)?;
+    walker.debug_assert_walked_all();
+    Some(lowered)
 }
 
 struct Lowering<'a> {
@@ -475,6 +478,18 @@ impl Lowering<'_> {
         ExprId::new(self.next_id)
     }
 
+    /// Checks, once every root is lowered, that the walk assigned exactly the ids inference
+    /// numbered: a walk that skipped or revisited a node would otherwise read another node's sort
+    /// without failing.
+    fn debug_assert_walked_all(&self) {
+        debug_assert_eq!(
+            self.next_id,
+            self.sorts.len(),
+            "lowering visited a different number of nodes than inference numbered; the walk order \
+             diverged from for_each_expr_child"
+        );
+    }
+
     /// Lowers `expr`, or `None` the moment an unsupported construct is reached (see
     /// [lower_equation]).
     fn lower(&mut self, expr: &DataExpr) -> Option<DataExpression> {
@@ -486,7 +501,7 @@ impl Lowering<'_> {
             // `Resolved` occurs only in a process/PBES-body expression, never in a data
             // specification's own equations (this lowering's only input), but is grouped with
             // `Id` for exhaustiveness.
-            DataExprKind::Id(name) | DataExprKind::Resolved(name, _, _) => self.lower_id(id, name, sort),
+            DataExprKind::Id(name) | DataExprKind::Resolved(name, _) => self.lower_id(id, name, sort),
             DataExprKind::Number(value) => {
                 self.literals.insert(id, value.clone());
                 self.lower_number(sort, value)

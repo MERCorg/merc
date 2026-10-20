@@ -204,7 +204,7 @@ pub(crate) fn build(spec: &DataSpecification, roots: Roots<'_>, typing: &Equatio
             name,
         });
     });
-    
+
     debug_assert_eq!(
         info.nodes.len(),
         typing.sorts.len(),
