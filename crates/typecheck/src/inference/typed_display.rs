@@ -113,7 +113,7 @@ impl<'a> TypedExpr<'a> {
             DataExprKind::EmptyList => write!(f, "[]"),
             DataExprKind::EmptyBag => write!(f, "{{:}}"),
             DataExprKind::EmptySet => write!(f, "{{}}"),
-            DataExprKind::Id(name) | DataExprKind::Resolved(name, _, _) => write!(f, "{name}"),
+            DataExprKind::Id(name) | DataExprKind::Resolved(name, _) => write!(f, "{name}"),
             DataExprKind::Number(value) => write!(f, "{value}"),
             DataExprKind::Bool(value) => write!(f, "{value}"),
             DataExprKind::Set(_) => {
