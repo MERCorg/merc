@@ -9,7 +9,10 @@ use super::DataPosition;
 
 pub type DataSubstitutionBuilder = Protected<Vec<DataExpressionRef<'static>>>;
 
-/// This function substitutes the term 't' at the position 'p' with 'new_subterm', see [super::substitute].
+/// Creates a new term with the subterm at `position` replaced by `new_subterm`.
+///
+/// The term is rebuilt bottom-up: e.g. replacing `a` with `0` in `s(s(a))` at position `[1, 1]`
+/// first constructs `s(0)`, then `s(s(0))`.
 pub fn data_substitute(
     tp: &ThreadTermPool,
     t: &DataExpressionRef<'_>,
