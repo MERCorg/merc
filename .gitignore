@@ -20,7 +20,7 @@ compile_commands.json
 .vscode
 
 # Ignore files created by the compiling rewriter.
-crates/sabre_compiling/tmp/
+crates/rewriter/sabre_compiling/tmp/
 
 # Ignore files created by the fuzzer
 corpus/
@@ -30,7 +30,8 @@ artifacts/
 package/
 
 # Ignore while its not yet clear whether the snaphots are correct
-crates/language/syntax/tests/snapshot
+crates/language/syntax/tests/snapshot/
+crates/language/typecheck/tests/snapshot/
 
 # Ignore temporary files created by CADP
 *.o
