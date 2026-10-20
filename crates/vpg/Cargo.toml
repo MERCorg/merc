@@ -45,3 +45,4 @@ clap = { workspace = true, optional = true }
 [dev-dependencies]
 merc_reduction.workspace = true
 merc_refinement.workspace = true
+merc_syntax = { workspace = true, features = ["counter-example"] }
