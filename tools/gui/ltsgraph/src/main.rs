@@ -353,7 +353,9 @@ async fn run() -> Result<(), MercError> {
                     // Ensure that the labels are strings, such that they can displayed.
                     let lts: Arc<LabelledTransitionSystem<String>> =
                         apply_lts!(lts, (), |lts, _data_spec, _| -> Result<_, MercError> {
-                            Ok(Arc::new(lts.with_state_labels(()).relabel(|label| Ok(label.to_string()))?))
+                            Ok(Arc::new(
+                                lts.with_state_labels(()).relabel(|label| Ok(label.to_string()))?,
+                            ))
                         })?;
 
                     info!(
