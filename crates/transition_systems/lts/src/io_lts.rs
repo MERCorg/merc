@@ -368,7 +368,7 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_lts_state_labels_io() {
-        let (lts, data_spec) = read_lts(include_bytes!("../../../examples/lts/abp.lts").as_ref(), true).unwrap();
+        let (lts, data_spec) = read_lts(include_bytes!("../../../../examples/lts/abp.lts").as_ref(), true).unwrap();
 
         let mut buffer: Vec<u8> = Vec::new();
         write_lts(&mut buffer, &lts, &data_spec).unwrap();

@@ -88,36 +88,33 @@ pub(crate) struct SideInfo<'a> {
 /// of applying a rewrite rule or just because our depth
 /// first search has hit the bottom and needs to explore a
 /// new branch.
-///
-/// 2. There is a side branch. That means we had a hyper
-///    transition. The configuration has multiple children in
-///    the overall tree. We have already explored some of these
-///    child configurations and parked the remaining on the side
-///    stack. We are going to explore the next child
-///    configuration.
-///
-/// 3. There is a delayed rewrite rule. We had found a
-///    matching rewrite rule the first time visiting this
-///    configuration but did not want to apply it yet. At the
-///    moment this is the case for "duplicating" rewrite rules
-///    that copy some subterms. We first examine side branches
-///    on the side stack, meaning that we have explored all
-///    child configurations. Which, in turn, means that the
-///    subterms of the term in the current configuration are in
-///    normal form. Thus the duplicating rewrite rule only
-///    duplicates terms that are in normal form.
-///
-/// 4. There is another type of delayed rewrite rule: one
-///    that is non-linear or has a condition. We had found a
-///    matching rewrite rule the first time visiting this
-///    configuration but our strategy dictates that we only
-///    perform the condition check and check on the equivalence
-///    of positions when the subterms are in normal form. We
-///    perform the checks and apply the rewrite rule if it
-///    indeed matches.
 pub(crate) enum SideInfoType<'a> {
+    /// 2. There is a side branch. That means we had a hyper
+    ///    transition. The configuration has multiple children in
+    ///    the overall tree. We have already explored some of these
+    ///    child configurations and parked the remaining on the side
+    ///    stack. We are going to explore the next child
+    ///    configuration.
     SideBranch(&'a [(DataPosition, usize)]),
+    /// 3. There is a delayed rewrite rule. We had found a
+    ///    matching rewrite rule the first time visiting this
+    ///    configuration but did not want to apply it yet. At the
+    ///    moment this is the case for "duplicating" rewrite rules
+    ///    that copy some subterms. We first examine side branches
+    ///    on the side stack, meaning that we have explored all
+    ///    child configurations. Which, in turn, means that the
+    ///    subterms of the term in the current configuration are in
+    ///    normal form. Thus the duplicating rewrite rule only
+    ///    duplicates terms that are in normal form.
     DelayedRewriteRule(&'a MatchAnnouncement, &'a AnnouncementSabre),
+    /// 4. There is another type of delayed rewrite rule: one
+    ///    that is non-linear or has a condition. We had found a
+    ///    matching rewrite rule the first time visiting this
+    ///    configuration but our strategy dictates that we only
+    ///    perform the condition check and check on the equivalence
+    ///    of positions when the subterms are in normal form. We
+    ///    perform the checks and apply the rewrite rule if it
+    ///    indeed matches.
     EquivalenceAndConditionCheck(&'a MatchAnnouncement, &'a AnnouncementSabre),
 }
 

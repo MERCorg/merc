@@ -6,17 +6,20 @@ use std::hint::black_box;
 use merc_aterm::ATerm;
 use merc_aterm::ATermInt;
 use merc_aterm::ATermList;
-use merc_aterm::ATermStreamable;
-use merc_aterm::ATermWrite;
-use merc_aterm::BinaryATermWriter;
+use merc_aterm::ATermRef;
 use merc_aterm::Symbol;
 use merc_aterm::Term;
 use merc_collections::VecBag;
 use merc_data::DataFunctionSymbol;
 use merc_data::Mcrl2DataSpecification;
+use merc_lts::BuilderIndex;
 use merc_lts::LTS;
+use merc_lts::LabelledTransitionSystem;
 use merc_lts::LtsAction;
+use merc_lts::LtsBuilderMem;
 use merc_lts::LtsMultiAction;
+use merc_lts::StateIndex;
+use merc_lts::StateLabels;
 use merc_lts::read_lts;
 use merc_lts::write_lts;
 
@@ -71,15 +74,13 @@ impl Shape {
     }
 }
 
-/// Returns the label term of the action `name`, with a data argument for `value` if given.
-fn label(name: &str, value: Option<usize>) -> ATerm {
+/// Returns the multi-action `name`, with a data argument for `value` if given.
+fn label(name: &str, value: Option<usize>) -> LtsMultiAction<LtsAction> {
     let arguments = value
         .map(|value| DataFunctionSymbol::new(format!("n{value}").as_str()).into())
         .into_iter()
         .collect();
     LtsMultiAction::new(VecBag::singleton(LtsAction::new(name.to_string(), arguments)))
-        .to_mcrl2_aterm()
-        .expect("A valid multi-action")
 }
 
 /// Returns a state label: a list with one balanced tree of the values, the way mCRL2 stores state
@@ -98,65 +99,74 @@ fn balanced_tree(node: &Symbol, values: &[usize]) -> ATerm {
     ATerm::with_args(node, &[balanced_tree(node, left), balanced_tree(node, right)]).protect()
 }
 
-/// A constant term with the given name.
-fn constant(name: &str) -> ATerm {
-    ATerm::constant(&Symbol::new(name, 0))
+/// The state labels of a generated LTS, one term for every state.
+struct StateVectors(Vec<ATerm>);
+
+impl StateLabels for StateVectors {
+    type Label<'a> = ATermRef<'a>;
+
+    fn get(&self, state_index: StateIndex) -> Option<ATermRef<'_>> {
+        self.0.get(state_index.value()).map(|label| label.copy())
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
 }
 
-/// Writes an `.lts` file of the given shape, with its parts in the order in which mCRL2 writes them.
-fn lts_bytes(shape: Shape) -> Vec<u8> {
+/// Generates the LTS of the given shape, together with its (empty) data specification.
+fn generate_lts(
+    shape: Shape,
+) -> (
+    LabelledTransitionSystem<LtsMultiAction<LtsAction>, StateVectors>,
+    Mcrl2DataSpecification,
+) {
     let n = (TRANSITIONS / 3).isqrt();
-    let transition = constant("transition");
     let node = Symbol::new("node", 2);
 
-    let mut bytes = Vec::new();
-    {
-        let mut writer = BinaryATermWriter::new(&mut bytes).expect("Writing to memory succeeds");
-        writer.write_aterm(&constant("labelled_transition_system")).unwrap();
-        Mcrl2DataSpecification::default().write(&mut writer).unwrap();
-        writer.write_aterm(&ATermList::<ATerm>::empty().into()).unwrap(); // Parameters
-        writer.write_aterm(&ATermList::<ATerm>::empty().into()).unwrap(); // Action labels
+    // The labels a, b and c for every data value, of which plain shapes have only one.
+    let mut builder = LtsBuilderMem::new(Vec::new(), Vec::new());
+    let num_of_values = match shape {
+        Shape::Data => DATA_LABEL_VALUES,
+        _ => 1,
+    };
+    let labels: Vec<[BuilderIndex; 3]> = (0..num_of_values)
+        .map(|value| {
+            let value = matches!(shape, Shape::Data).then_some(value);
+            ["a", "b", "c"].map(|name| builder.label_index(&label(name, value)))
+        })
+        .collect();
 
-        let plain_labels: Vec<ATerm> = ["a", "b", "c"].iter().map(|name| label(name, None)).collect();
-        for i in 0..n {
-            for j in 0..n {
-                let successors = [((i + 1) % n, j), (i, (j + 1) % n), ((i + 1) % n, (j + 1) % n)];
-                for (k, (name, (ni, nj))) in ["a", "b", "c"].iter().zip(successors).enumerate() {
-                    let label = match shape {
-                        Shape::Data => &label(name, Some((i + j) % DATA_LABEL_VALUES)),
-                        _ => &plain_labels[k],
-                    };
-
-                    writer.write_aterm(&transition).unwrap();
-                    writer.write_aterm_int(i * n + j).unwrap();
-                    writer.write_aterm(label).unwrap();
-                    writer.write_aterm_int(ni * n + nj).unwrap();
-                }
+    for i in 0..n {
+        for j in 0..n {
+            let successors = [((i + 1) % n, j), (i, (j + 1) % n), ((i + 1) % n, (j + 1) % n)];
+            for (label, (ni, nj)) in labels[(i + j) % num_of_values].into_iter().zip(successors) {
+                builder.add_transition_index(StateIndex::new(i * n + j), label, StateIndex::new(ni * n + nj));
             }
         }
-
-        for i in 0..n {
-            for j in 0..n {
-                if let Some(values) = shape.state_label(i, j) {
-                    writer.write_aterm(&state_label(&node, &values)).unwrap();
-                }
-            }
-        }
-
-        writer.write_aterm(&constant("initial_state")).unwrap();
-        writer.write_aterm_int(1).unwrap();
-        writer.write_aterm_int(0).unwrap();
-        ATermWrite::flush(&mut writer).unwrap();
     }
-    bytes
+
+    let state_labels = StateVectors(
+        (0..n)
+            .flat_map(|i| (0..n).map(move |j| (i, j)))
+            .filter_map(|(i, j)| shape.state_label(i, j))
+            .map(|values| state_label(&node, &values))
+            .collect(),
+    );
+    let lts = builder
+        .finish(StateIndex::new(0), false)
+        .with_state_labels(state_labels);
+
+    (lts, Mcrl2DataSpecification::default())
 }
 
 /// Benchmarks reading an `.lts` file from memory.
 pub fn bench_read_lts(c: &mut Criterion) {
     let mut group = c.benchmark_group("read_lts");
     for shape in Shape::ALL {
-        let bytes = lts_bytes(shape);
-        let (lts, _) = read_lts(&bytes[..], false).expect("A valid LTS");
+        let (lts, data_spec) = generate_lts(shape);
+        let mut bytes = Vec::new();
+        write_lts(&mut bytes, &lts, &data_spec).expect("Writing to memory succeeds");
 
         group.throughput(Throughput::Elements(lts.num_of_transitions() as u64));
         group.bench_with_input(BenchmarkId::from_parameter(shape.name()), &bytes, |b, bytes| {
@@ -170,7 +180,7 @@ pub fn bench_read_lts(c: &mut Criterion) {
 pub fn bench_write_lts(c: &mut Criterion) {
     let mut group = c.benchmark_group("write_lts");
     for shape in [Shape::Grid, Shape::Data] {
-        let (lts, data_spec) = read_lts(&lts_bytes(shape)[..], false).expect("A valid LTS");
+        let (lts, data_spec) = generate_lts(shape);
 
         group.throughput(Throughput::Elements(lts.num_of_transitions() as u64));
         group.bench_with_input(BenchmarkId::from_parameter(shape.name()), &lts, |b, lts| {

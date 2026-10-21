@@ -29,7 +29,7 @@ use crate::MercError;
 pub fn ensure_snapshot_version(dir: &Path, version: u32) -> Result<bool, MercError> {
     // The snapshot directories are not checked in, so create it on first use.
     std::fs::create_dir_all(dir)?;
-    
+
     let version_path = dir.join("VERSION");
 
     let up_to_date = std::fs::read_to_string(&version_path)

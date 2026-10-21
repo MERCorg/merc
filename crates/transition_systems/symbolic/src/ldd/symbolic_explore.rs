@@ -810,7 +810,10 @@ mod test {
         //
         // Only fixtures that `BreadthFirst` explores within the default manager capacity in reasonable
         // time can be used as an oracle: e.g. `anderson.6` and `anderson.8` run out of nodes.
-        assert_strategies_agree("anderson.4", include_bytes!("../../../../../examples/ldd/anderson.4.ldd"));
+        assert_strategies_agree(
+            "anderson.4",
+            include_bytes!("../../../../../examples/ldd/anderson.4.ldd"),
+        );
         assert_strategies_agree("blocks.2", include_bytes!("../../../../../examples/ldd/blocks.2.ldd"));
     }
 

@@ -14,7 +14,10 @@ use merc_sabre::SabreRewriter;
 use merc_sabre::SetAutomaton;
 
 const CASES: &[(&str, &[&str])] = &[
-    ("fibfree", &[include_str!("../../../../../examples/REC/rec/fibfree.rec")]),
+    (
+        "fibfree",
+        &[include_str!("../../../../../examples/REC/rec/fibfree.rec")],
+    ),
     (
         "benchexpr20",
         &[
@@ -22,7 +25,10 @@ const CASES: &[(&str, &[&str])] = &[
             include_str!("../../../../../examples/REC/rec/asfsdfbenchmark.rec"),
         ],
     ),
-    ("evalexpr", &[include_str!("../../../../../examples/REC/rec/evalexpr.rec")]),
+    (
+        "evalexpr",
+        &[include_str!("../../../../../examples/REC/rec/evalexpr.rec")],
+    ),
     (
         "sieve1000",
         &[

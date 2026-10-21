@@ -669,8 +669,10 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_translate_abp_infinitely_often_receive_d1() {
         let lts = read_aut(include_bytes!("../../../../examples/lts/abp.aut") as &[u8]).unwrap();
-        let spec =
-            UntypedStateFrmSpec::parse(include_str!("../../../../examples/pbes/infinitely_often_receive_d1.mcf")).unwrap();
+        let spec = UntypedStateFrmSpec::parse(include_str!(
+            "../../../../examples/pbes/infinitely_often_receive_d1.mcf"
+        ))
+        .unwrap();
 
         // No `act` declarations: the formula's `r1(d1)` is a "simple action", the label as written
         // in `abp.aut` itself, with no data specification to check `d1` against.

@@ -92,9 +92,7 @@ impl SabreCompilingRewriter {
             info!("Using local dependency {path}");
             dependencies.push(format!(
                 "merc_sabre-ffi = {{ path = '{}' }}",
-                PathBuf::from(path)
-                    .join("../../crates/sabre_compiling/sabre_ffi")
-                    .to_string_lossy()
+                PathBuf::from(path).join("./sabre_ffi").to_string_lossy()
             ));
         } else {
             // Pin to the host's git commit so the loaded library's `#[repr(C)]`
