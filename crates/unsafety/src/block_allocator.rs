@@ -596,7 +596,7 @@ unsafe impl<T: Send, const N: usize> Allocator for AllocBlock<T, N> {
             Layout::new::<T>(),
             "The requested layout should match the type T"
         );
-        
+
         if self.defer_deallocations {
             self.block_allocator.release_object(ptr.cast::<T>());
         } else {

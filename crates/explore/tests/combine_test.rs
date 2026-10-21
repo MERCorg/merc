@@ -197,7 +197,7 @@ fn test_mcrl2_ltscombine() {
         assert!(
             compare_lts(
                 Equivalence::StrongBisim,
-                expected_lts,
+                expected_lts.with_state_labels(()),
                 result_lts,
                 false,
                 false,

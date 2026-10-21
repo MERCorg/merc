@@ -14,6 +14,7 @@ use rustc_hash::FxHashSet;
 use crate::LTS;
 use crate::LabelIndex;
 use crate::StateIndex;
+use crate::StateLabels;
 use crate::Transition;
 use crate::TransitionLabel;
 
@@ -23,9 +24,10 @@ use crate::TransitionLabel;
 /// # Details
 ///
 /// Uses byte compressed vectors to store the states and their outgoing
-/// transitions efficiently in memory.
+/// transitions efficiently in memory. The states are unlabelled by default,
+/// see [StateLabels] for the state labels type `S`.
 #[derive(PartialEq, Eq, Clone)]
-pub struct LabelledTransitionSystem<Label> {
+pub struct LabelledTransitionSystem<Label, S = ()> {
     /// Encodes the states and their outgoing transitions.
     states: ByteCompressedVec<usize>,
     transition_labels: ByteCompressedVec<LabelIndex>,
@@ -36,6 +38,9 @@ pub struct LabelledTransitionSystem<Label> {
 
     /// The index of the initial state.
     initial_state: StateIndex,
+
+    /// The labels of the states, if any.
+    state_labels: S,
 }
 
 impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
@@ -163,6 +168,105 @@ impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
         Self::from_raw_parts(initial_state, states, transition_labels, transition_to, labels)
     }
 
+    /// Creates a labelled transition system from another one, given the permutation of state indices.
+    ///
+    /// The permutation maps old state indices to new state indices, i.e.,
+    /// `permutation(old) = new`. The transition arrays are rebuilt so that
+    /// transitions are contiguous per new state index, and all transition
+    /// targets are updated to reference the new state indices.
+    ///
+    /// # Panics
+    ///
+    /// `permutation` must be a bijection on `0..lts.num_of_states()`; otherwise the result
+    /// violates the internal LTS invariants and panics (in debug mode) inside `assert_valid`.
+    pub fn new_from_permutation<P>(lts: Self, permutation: P) -> Self
+    where
+        P: Fn(StateIndex) -> StateIndex + Copy,
+    {
+        // Build the inverse permutation: inverse[new_index] = old_index
+        let mut inverse = vec![StateIndex::new(0); lts.num_of_states()];
+        for state_index in lts.iter_states() {
+            inverse[*permutation(state_index)] = state_index;
+        }
+
+        // Rebuild transition arrays in the order of the new state indices.
+        let mut states = ByteCompressedVec::new();
+        let mut transition_labels = ByteCompressedVec::new();
+        let mut transition_to = ByteCompressedVec::new();
+
+        for old_index in &inverse {
+            states.push(transition_labels.len());
+
+            let start = lts.states.index(**old_index);
+            let end = lts.states.index(**old_index + 1);
+
+            for i in start..end {
+                transition_labels.push(lts.transition_labels.index(i));
+                transition_to.push(permutation(lts.transition_to.index(i)));
+            }
+        }
+
+        // Add the sentinel state.
+        states.push(transition_labels.len());
+
+        Self::from_raw_parts(
+            permutation(lts.initial_state),
+            states,
+            transition_labels,
+            transition_to,
+            lts.labels,
+        )
+    }
+
+    /// Constructs a [LabelledTransitionSystem] directly from its raw internal arrays.
+    ///
+    /// The `states` array must contain one entry per state holding the start offset of that
+    /// state's transitions in the transition arrays, plus a sentinel entry at the end equal
+    /// to the total number of transitions. `transition_labels` and `transition_to` must have
+    /// equal length and all indices they contain must be in bounds.
+    ///
+    /// # Panics
+    ///
+    /// Panics (in debug mode) if the invariants of the internal representation are violated.
+    pub fn from_raw_parts(
+        initial_state: StateIndex,
+        states: ByteCompressedVec<usize>,
+        transition_labels: ByteCompressedVec<LabelIndex>,
+        transition_to: ByteCompressedVec<StateIndex>,
+        labels: Vec<Label>,
+    ) -> Self {
+        let lts = LabelledTransitionSystem {
+            initial_state,
+            states,
+            transition_labels,
+            transition_to,
+            labels,
+            state_labels: (),
+        };
+        lts.assert_valid();
+        lts
+    }
+}
+
+impl<Label: TransitionLabel, S: StateLabels> LabelledTransitionSystem<Label, S> {
+    /// Consumes the LTS and replaces its state labels by `state_labels`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `state_labels` is neither empty nor has a label for every state.
+    pub fn with_state_labels<T: StateLabels>(self, state_labels: T) -> LabelledTransitionSystem<Label, T> {
+        let lts = LabelledTransitionSystem {
+            initial_state: self.initial_state,
+            states: self.states,
+            transition_labels: self.transition_labels,
+            transition_to: self.transition_to,
+            labels: self.labels,
+            state_labels,
+        };
+        lts.assert_valid();
+        lts
+    }
+
     /// Consumes the current LTS and merges it with another one, returning the merged LTS.
     ///
     /// # Details
@@ -170,7 +274,11 @@ impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
     /// Internally this works by offsetting the state indices of the other LTS by the number of states
     /// in the current LTS, and combining the action labels. The offset is returned such that
     /// can find the states of the other LTS in the merged LTS as the initial state of the other LTS.
-    fn merge_disjoint_impl<L: LTS<Label = Label>>(mut self, other: &L) -> (Self, StateIndex) {
+    /// The state labels are dropped.
+    fn merge_disjoint_impl<L: LTS<Label = Label>>(
+        mut self,
+        other: &L,
+    ) -> (LabelledTransitionSystem<Label>, StateIndex) {
         // Determine the combination of action labels, keeping a map from label to
         // its index so membership checks stay O(1) instead of scanning the vector.
         let mut all_labels = self.labels().to_vec();
@@ -222,7 +330,7 @@ impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
         debug_assert_eq!(self.num_of_states(), total_number_of_states);
 
         (
-            Self::from_raw_parts(
+            LabelledTransitionSystem::from_raw_parts(
                 self.initial_state,
                 self.states,
                 self.transition_labels,
@@ -233,62 +341,12 @@ impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
         )
     }
 
-    /// Creates a labelled transition system from another one, given the permutation of state indices.
-    ///
-    /// The permutation maps old state indices to new state indices, i.e.,
-    /// `permutation(old) = new`. The transition arrays are rebuilt so that
-    /// transitions are contiguous per new state index, and all transition
-    /// targets are updated to reference the new state indices.
-    ///
-    /// # Panics
-    ///
-    /// `permutation` must be a bijection on `0..lts.num_of_states()`; otherwise the result
-    /// violates the internal LTS invariants and panics (in debug mode) inside `assert_valid`.
-    pub fn new_from_permutation<P>(lts: Self, permutation: P) -> Self
-    where
-        P: Fn(StateIndex) -> StateIndex + Copy,
-    {
-        // Build the inverse permutation: inverse[new_index] = old_index
-        let mut inverse = vec![StateIndex::new(0); lts.num_of_states()];
-        for state_index in lts.iter_states() {
-            inverse[*permutation(state_index)] = state_index;
-        }
-
-        // Rebuild transition arrays in the order of the new state indices.
-        let mut states = ByteCompressedVec::new();
-        let mut transition_labels = ByteCompressedVec::new();
-        let mut transition_to = ByteCompressedVec::new();
-
-        for old_index in &inverse {
-            states.push(transition_labels.len());
-
-            let start = lts.states.index(**old_index);
-            let end = lts.states.index(**old_index + 1);
-
-            for i in start..end {
-                transition_labels.push(lts.transition_labels.index(i));
-                transition_to.push(permutation(lts.transition_to.index(i)));
-            }
-        }
-
-        // Add the sentinel state.
-        states.push(transition_labels.len());
-
-        Self::from_raw_parts(
-            permutation(lts.initial_state),
-            states,
-            transition_labels,
-            transition_to,
-            lts.labels,
-        )
-    }
-
     /// Consumes the LTS and relabels its transition labels according to the
     /// given mapping.
     ///
     /// Note that this only relabels the visible labels, since the hidden label
-    /// must be kept consistent.
-    pub fn relabel<L, F>(self, labelling: F) -> Result<LabelledTransitionSystem<L>, MercError>
+    /// must be kept consistent. The state labels are kept.
+    pub fn relabel<L, F>(self, labelling: F) -> Result<LabelledTransitionSystem<L, S>, MercError>
     where
         F: Fn(Label) -> Result<L, MercError>,
         L: TransitionLabel,
@@ -312,12 +370,13 @@ impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
             self.transition_labels,
             self.transition_to,
             new_labels,
-        ))
+        )
+        .with_state_labels(self.state_labels))
     }
 
     /// A [Self::relabel] variant that also applies to the tau label. This is
     /// useful when the tau label cannot be constructed from `L::tau_label()`.
-    pub fn relabel_all<L, F>(self, labelling: F) -> Result<LabelledTransitionSystem<L>, MercError>
+    pub fn relabel_all<L, F>(self, labelling: F) -> Result<LabelledTransitionSystem<L, S>, MercError>
     where
         F: Fn(Label) -> Result<L, MercError>,
         L: TransitionLabel,
@@ -330,35 +389,8 @@ impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
             self.transition_labels,
             self.transition_to,
             new_labels,
-        ))
-    }
-
-    /// Constructs a [LabelledTransitionSystem] directly from its raw internal arrays.
-    ///
-    /// The `states` array must contain one entry per state holding the start offset of that
-    /// state's transitions in the transition arrays, plus a sentinel entry at the end equal
-    /// to the total number of transitions. `transition_labels` and `transition_to` must have
-    /// equal length and all indices they contain must be in bounds.
-    ///
-    /// # Panics
-    ///
-    /// Panics (in debug mode) if the invariants of the internal representation are violated.
-    pub fn from_raw_parts(
-        initial_state: StateIndex,
-        states: ByteCompressedVec<usize>,
-        transition_labels: ByteCompressedVec<LabelIndex>,
-        transition_to: ByteCompressedVec<StateIndex>,
-        labels: Vec<Label>,
-    ) -> Self {
-        let lts = LabelledTransitionSystem {
-            initial_state,
-            states,
-            transition_labels,
-            transition_to,
-            labels,
-        };
-        lts.assert_valid();
-        lts
+        )
+        .with_state_labels(self.state_labels))
     }
 
     /// Checks that the internal representation satisfies all structural invariants.
@@ -369,6 +401,13 @@ impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
                 .expect("At least one label (the hidden label) must be provided")
                 .is_tau_label(),
             "The first label must be the hidden label."
+        );
+
+        assert!(
+            self.state_labels.is_empty() || self.state_labels.len() == self.num_of_states(),
+            "There must be either no state labels or one for each of the {} states, found {}.",
+            self.num_of_states(),
+            self.state_labels.len()
         );
 
         // The remaining checks are debug assertions, but their loops would still visit every
@@ -465,8 +504,12 @@ impl<Label: TransitionLabel> LabelledTransitionSystem<Label> {
     }
 }
 
-impl<L: TransitionLabel> LTS for LabelledTransitionSystem<L> {
+impl<L: TransitionLabel, S: StateLabels> LTS for LabelledTransitionSystem<L, S> {
     type Label = L;
+    type StateLabel<'a>
+        = S::Label<'a>
+    where
+        Self: 'a;
 
     fn initial_state_index(&self) -> StateIndex {
         self.initial_state
@@ -507,7 +550,11 @@ impl<L: TransitionLabel> LTS for LabelledTransitionSystem<L> {
         label_index.value() == 0
     }
 
-    fn merge_disjoint<T: LTS<Label = Self::Label>>(self, other: &T) -> (Self, StateIndex) {
+    fn state_label(&self, state_index: StateIndex) -> Option<S::Label<'_>> {
+        self.state_labels.get(state_index)
+    }
+
+    fn merge_disjoint<T: LTS<Label = Self::Label>>(self, other: &T) -> (LabelledTransitionSystem<L>, StateIndex) {
         self.merge_disjoint_impl(other)
     }
 }
@@ -545,7 +592,7 @@ impl fmt::Display for LtsMetrics {
 
 /// Checks that two LTSs are equivalent, for testing purposes.
 #[cfg(test)]
-pub(crate) fn check_equivalent<L: LTS>(lts: &L, lts_read: &L) {
+pub(crate) fn check_equivalent<L: LTS, R: LTS<Label = L::Label>>(lts: &L, lts_read: &R) {
     println!("LTS labels: {:?}", lts.labels());
     println!("Read LTS labels: {:?}", lts_read.labels());
 

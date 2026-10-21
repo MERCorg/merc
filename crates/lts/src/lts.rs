@@ -34,6 +34,11 @@ where
     /// The associated type for transition labels.
     type Label: TransitionLabel;
 
+    /// The associated type for state labels, borrowed from the LTS.
+    type StateLabel<'a>
+    where
+        Self: 'a;
+
     /// Returns the index of the initial state
     fn initial_state_index(&self) -> StateIndex;
 
@@ -61,6 +66,15 @@ where
 
     /// Returns true iff the given label index is a hidden label.
     fn is_hidden_label(&self, label_index: LabelIndex) -> bool;
+
+    /// Returns the label of the given state, or `None` if the LTS has no state labels.
+    fn state_label(&self, state_index: StateIndex) -> Option<Self::StateLabel<'_>>;
+
+    /// Returns the labels of all states in order, which is empty if the LTS has no state labels.
+    fn state_labels(&self) -> impl Iterator<Item = Self::StateLabel<'_>> + '_ {
+        self.iter_states()
+            .map_while(|state_index| self.state_label(state_index))
+    }
 
     /// Consumes the current LTS and merges it with another one, returning the
     /// disjoint merged LTS and the initial state of the other LTS in the merged
@@ -111,6 +125,38 @@ pub trait TransitionLabel: Ord + Hash + Eq + Clone + fmt::Display + fmt::Debug {
 
     /// Used for generating labels for the random LTSs
     fn from_index(i: usize) -> Self;
+}
+
+/// Stores the state labels of a [LabelledTransitionSystem], either one label
+/// for every state or none at all. The unit type stores no state labels.
+pub trait StateLabels {
+    /// The label of a single state, borrowed from the storage.
+    type Label<'a>
+    where
+        Self: 'a;
+
+    /// Returns the label of the given state, or `None` if there are no state labels.
+    fn get(&self, state_index: StateIndex) -> Option<Self::Label<'_>>;
+
+    /// Returns the number of stored state labels.
+    fn len(&self) -> usize;
+
+    /// Returns true iff no state labels are stored.
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+impl StateLabels for () {
+    type Label<'a> = ();
+
+    fn get(&self, _state_index: StateIndex) -> Option<()> {
+        None
+    }
+
+    fn len(&self) -> usize {
+        0
+    }
 }
 
 /// Represents a transition in the LTS originating from some known state.

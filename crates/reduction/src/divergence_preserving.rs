@@ -45,6 +45,10 @@ impl<'a, L: LTS> DivergencePreservingLts<'a, L> {
 
 impl<L: LTS> LTS for DivergencePreservingLts<'_, L> {
     type Label = L::Label;
+    type StateLabel<'b>
+        = L::StateLabel<'b>
+    where
+        Self: 'b;
 
     fn outgoing_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = Transition> + '_ {
         self.lts.outgoing_transitions(state_index).map(move |transition| {
@@ -84,6 +88,7 @@ impl<L: LTS> LTS for DivergencePreservingLts<'_, L> {
             fn num_of_transitions(&self) -> usize;
             fn iter_states(&self) -> impl Iterator<Item = StateIndex> + '_;
             fn is_hidden_label(&self, label_index: LabelIndex) -> bool;
+            fn state_label(&self, state_index: StateIndex) -> Option<L::StateLabel<'_>>;
         }
     }
 }

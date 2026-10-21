@@ -12,6 +12,7 @@ use crate::LTS;
 use crate::LabelledTransitionSystem;
 use crate::LtsAction;
 use crate::LtsMultiAction;
+use crate::LtsStateLabels;
 use crate::SimpleAction;
 use crate::read_aut;
 use crate::read_bcg;
@@ -134,7 +135,7 @@ pub enum GenericLts {
     /// action arguments are typed over. Multi-action labels are stored as proper terms so they
     /// can be written back via [`crate::io_lts::write_lts`], which requires that specification.
     Lts(
-        LabelledTransitionSystem<LtsMultiAction<LtsAction>>,
+        LabelledTransitionSystem<LtsMultiAction<LtsAction>, LtsStateLabels>,
         Mcrl2DataSpecification,
     ),
     /// The LTS in the CADP BCG format.
@@ -165,8 +166,8 @@ impl GenericLts {
             T,
         ) -> R,
         FLts: FnOnce(
-            LabelledTransitionSystem<LtsMultiAction<LtsAction>>,
-            LabelledTransitionSystem<LtsMultiAction<LtsAction>>,
+            LabelledTransitionSystem<LtsMultiAction<LtsAction>, LtsStateLabels>,
+            LabelledTransitionSystem<LtsMultiAction<LtsAction>, LtsStateLabels>,
             (Mcrl2DataSpecification, Mcrl2DataSpecification),
             T,
         ) -> R,
@@ -189,7 +190,7 @@ impl GenericLts {
     where
         F: FnOnce(LabelledTransitionSystem<String>, (), T) -> R,
         G: FnOnce(LabelledTransitionSystem<LtsMultiAction<SimpleAction>>, (), T) -> R,
-        H: FnOnce(LabelledTransitionSystem<LtsMultiAction<LtsAction>>, Mcrl2DataSpecification, T) -> R,
+        H: FnOnce(LabelledTransitionSystem<LtsMultiAction<LtsAction>, LtsStateLabels>, Mcrl2DataSpecification, T) -> R,
     {
         match self {
             GenericLts::Aut(lts) => apply_aut(lts, (), arguments),
@@ -234,7 +235,7 @@ pub fn apply_slice<T, FAut, FAutMcrl2, FLts, R>(
 where
     FAut: FnOnce(Vec<&LabelledTransitionSystem<String>>, T) -> R,
     FAutMcrl2: FnOnce(Vec<&LabelledTransitionSystem<LtsMultiAction<SimpleAction>>>, T) -> R,
-    FLts: FnOnce(Vec<&LabelledTransitionSystem<LtsMultiAction<LtsAction>>>, T) -> R,
+    FLts: FnOnce(Vec<&LabelledTransitionSystem<LtsMultiAction<LtsAction>, LtsStateLabels>>, T) -> R,
 {
     if lts_slice.is_empty() {
         return Err("Cannot apply function to empty slice of GenericLts".into());
@@ -264,14 +265,15 @@ where
             Ok(apply_aut_mcrl2(aut_lts?, arguments))
         }
         GenericLts::Lts(..) => {
-            let lts_lts: Result<Vec<&LabelledTransitionSystem<LtsMultiAction<LtsAction>>>, MercError> = lts_slice
-                .iter()
-                .enumerate()
-                .map(|(idx, lts)| match lts {
-                    GenericLts::Lts(lts_obj, _) => Ok(lts_obj),
-                    _ => Err(format!("Expected Lts variant at index {}, got a different variant", idx).into()),
-                })
-                .collect();
+            let lts_lts: Result<Vec<&LabelledTransitionSystem<LtsMultiAction<LtsAction>, LtsStateLabels>>, MercError> =
+                lts_slice
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, lts)| match lts {
+                        GenericLts::Lts(lts_obj, _) => Ok(lts_obj),
+                        _ => Err(format!("Expected Lts variant at index {}, got a different variant", idx).into()),
+                    })
+                    .collect();
             Ok(apply_lts(lts_lts?, arguments))
         }
     }
@@ -292,7 +294,7 @@ pub fn read_explicit_lts(path: &Path, format: LtsFormat, timing: &mut Timing) ->
             }
             LtsFormat::Lts => {
                 let file = File::open(path)?;
-                let (lts, data_spec) = read_lts(&file, false)?;
+                let (lts, data_spec) = read_lts(&file, true)?;
                 GenericLts::Lts(lts, data_spec)
             }
             LtsFormat::Bcg => GenericLts::Bcg(read_bcg(path)?),
