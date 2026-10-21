@@ -35,9 +35,8 @@ pub(crate) struct Binding<'a> {
     value: DataExpressionRef<'a>,
 }
 
-/// A held write guard onto a [`BindingArena`]'s chain, obtained once per
-/// search.
-pub(crate) type BindingGuard<'a> = ProtectedWriteGuard<'a, ArenaList<Binding<'static>>>;
+/// A write guard onto a [`BindingArena`]'s chain, obtained once per search.
+pub(crate) type BindingGuard<'g, 'env> = ProtectedWriteGuard<'g, 'env, ArenaList<Binding<'g>>>;
 
 /// Backing store for every [`BindingChain`] produced during one search.
 ///
@@ -80,14 +79,14 @@ impl BindingArena {
     /// before a `clear` indexes into the discarded nodes and must not be used
     /// afterwards.
     pub(crate) fn clear(&mut self) {
-        self.chain.write().clear();
+        self.chain.write(|chain| chain.clear());
         self.scratch.closed.clear();
     }
 
     /// Returns a new chain with `variable ↦ value` recorded in front of
     /// `parent`. `parent` remains valid (siblings share it).
     pub(crate) fn extend(
-        guard: &mut BindingGuard<'_>,
+        guard: &mut BindingGuard<'_, '_>,
         parent: BindingChain,
         variable: &DataVariableRef<'_>,
         value: &DataExpressionRef<'_>,
@@ -100,8 +99,8 @@ impl BindingArena {
     }
 
     /// Returns the immediate image bound to `variable` along `chain`, if any.
-    fn lookup<'g, 'h>(
-        guard: &'g BindingGuard<'h>,
+    fn lookup<'g>(
+        guard: &'g BindingGuard<'_, '_>,
         chain: BindingChain,
         variable: &DataVariableRef<'_>,
     ) -> Option<DataExpressionRef<'g>> {
@@ -130,7 +129,7 @@ impl BindingArena {
     /// Panics if a variable in `vars`, or one they transitively depend on, is
     /// not bound along `chain`.
     pub(crate) fn resolve<R: RewriteEngine>(
-        guard: &BindingGuard<'_>,
+        guard: &BindingGuard<'_, '_>,
         rewriter: &mut R,
         scratch: &mut ResolveScratch,
         chain: BindingChain,
@@ -151,7 +150,7 @@ impl BindingArena {
 
     /// Like [`Self::lookup`], but panics when `variable` is unbound.
     fn lookup_bound<'g>(
-        guard: &'g BindingGuard<'_>,
+        guard: &'g BindingGuard<'_, '_>,
         chain: BindingChain,
         variable: &DataVariableRef<'_>,
     ) -> DataExpressionRef<'g> {
@@ -167,7 +166,7 @@ impl BindingArena {
     /// [`ATermRef`](merc_aterm::ATermRef) from `arguments()` without
     /// `protect`ing it first.
     fn substitute<'a, 'b, T: Term<'a, 'b>>(
-        guard: &BindingGuard<'_>,
+        guard: &BindingGuard<'_, '_>,
         scratch: &mut ResolveScratch,
         chain: BindingChain,
         term: &'b T,
@@ -222,7 +221,10 @@ impl BindingArena {
 
     /// Returns a [`RewriteSubstitution`] view of `chain`, with no intervening
     /// collection to build.
-    pub(crate) fn substitution<'g, 'h>(guard: &'g BindingGuard<'h>, chain: BindingChain) -> ArenaSubstitution<'g, 'h> {
+    pub(crate) fn substitution<'s, 'g, 'env>(
+        guard: &'s BindingGuard<'g, 'env>,
+        chain: BindingChain,
+    ) -> ArenaSubstitution<'s, 'g, 'env> {
         ArenaSubstitution::new(guard, chain)
     }
 }
@@ -271,18 +273,18 @@ unsafe impl Transmutable for Binding<'static> {
 }
 
 /// A [`RewriteSubstitution`] backed directly by a [`BindingArena`] chain.
-pub(crate) struct ArenaSubstitution<'g, 'h> {
-    guard: &'g BindingGuard<'h>,
+pub(crate) struct ArenaSubstitution<'s, 'g, 'env> {
+    guard: &'s BindingGuard<'g, 'env>,
     chain: BindingChain,
 }
 
-impl<'g, 'h> ArenaSubstitution<'g, 'h> {
-    fn new(guard: &'g BindingGuard<'h>, chain: BindingChain) -> Self {
+impl<'s, 'g, 'env> ArenaSubstitution<'s, 'g, 'env> {
+    fn new(guard: &'s BindingGuard<'g, 'env>, chain: BindingChain) -> Self {
         ArenaSubstitution { guard, chain }
     }
 }
 
-impl RewriteSubstitution for ArenaSubstitution<'_, '_> {
+impl RewriteSubstitution for ArenaSubstitution<'_, '_, '_> {
     fn get<'a>(&'a self, variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>> {
         BindingArena::lookup(self.guard, self.chain, variable)
     }
@@ -344,22 +346,23 @@ mod tests {
         .into();
 
         let mut arena = BindingArena::default();
-        let mut guard = arena.chain.write();
-        let chain = BindingChain::default();
-        let chain = BindingArena::extend(&mut guard, chain, &v.copy(), &v_value.copy());
-        let chain = BindingArena::extend(&mut guard, chain, &y1.copy(), &a.copy());
-        let chain = BindingArena::extend(&mut guard, chain, &y2.copy(), &b.copy());
-
         let mut rewriter = InnermostRewriter::new(&RewriteSpecification::new(vec![]));
         let mut resolved = Vec::new();
-        BindingArena::resolve(
-            &guard,
-            &mut rewriter,
-            &mut arena.scratch,
-            chain,
-            std::slice::from_ref(&v),
-            &mut resolved,
-        );
+        arena.chain.write(|guard| {
+            let chain = BindingChain::default();
+            let chain = BindingArena::extend(guard, chain, &v.copy(), &v_value.copy());
+            let chain = BindingArena::extend(guard, chain, &y1.copy(), &a.copy());
+            let chain = BindingArena::extend(guard, chain, &y2.copy(), &b.copy());
+
+            BindingArena::resolve(
+                guard,
+                &mut rewriter,
+                &mut arena.scratch,
+                chain,
+                std::slice::from_ref(&v),
+                &mut resolved,
+            );
+        });
         let expected: DataExpression = DataApplication::with_args(&c, &[a, b]).into();
         assert_eq!(resolved, vec![expected]);
     }
@@ -386,12 +389,13 @@ mod tests {
             DataApplication::with_args(&c, &[DataExpression::from(y.clone()), shared.clone()]).into();
 
         let mut arena = BindingArena::default();
-        let mut guard = arena.chain.write();
-        let chain = BindingChain::default();
-        let chain = BindingArena::extend(&mut guard, chain, &v.copy(), &v_value.copy());
-        let chain = BindingArena::extend(&mut guard, chain, &y.copy(), &a.copy());
+        let substituted = arena.chain.write(|guard| {
+            let chain = BindingChain::default();
+            let chain = BindingArena::extend(guard, chain, &v.copy(), &v_value.copy());
+            let chain = BindingArena::extend(guard, chain, &y.copy(), &a.copy());
 
-        let substituted = BindingArena::substitute(&guard, &mut arena.scratch, chain, &v_value);
+            BindingArena::substitute(guard, &mut arena.scratch, chain, &v_value)
+        });
         let expected: DataExpression = DataApplication::with_args(&c, &[a, shared]).into();
         assert_eq!(substituted, Some(expected));
     }
@@ -402,14 +406,15 @@ mod tests {
         let v = DataVariable::with_sort("v", nat().copy());
         let mut resolved = Vec::new();
         let mut arena = BindingArena::default();
-        let guard = arena.chain.write();
-        BindingArena::resolve(
-            &guard,
-            &mut InnermostRewriter::new(&RewriteSpecification::new(vec![])),
-            &mut arena.scratch,
-            BindingChain::default(),
-            &[v],
-            &mut resolved,
-        );
+        arena.chain.write(|guard| {
+            BindingArena::resolve(
+                guard,
+                &mut InnermostRewriter::new(&RewriteSpecification::new(vec![])),
+                &mut arena.scratch,
+                BindingChain::default(),
+                &[v],
+                &mut resolved,
+            )
+        });
     }
 }
