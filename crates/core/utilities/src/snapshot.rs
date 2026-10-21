@@ -15,7 +15,7 @@ use crate::MercError;
 
 /// Compares the version recorded in `<dir>/VERSION` to `version` and returns
 /// whether it already matched. If it did not, the file is updated to
-/// `version`.
+/// `version`. Creates `dir` if it does not exist yet.
 ///
 /// Bump the version a crate passes in whenever its snapshot format changes
 /// (e.g. a pretty-printer's output changes) to force every snapshot under
@@ -27,6 +27,9 @@ use crate::MercError;
 /// renaming it into place, which is atomic: concurrent readers only ever see
 /// either the old or the new complete contents, never a torn write.
 pub fn ensure_snapshot_version(dir: &Path, version: u32) -> Result<bool, MercError> {
+    // The snapshot directories are not checked in, so create it on first use.
+    std::fs::create_dir_all(dir)?;
+    
     let version_path = dir.join("VERSION");
 
     let up_to_date = std::fs::read_to_string(&version_path)
