@@ -2,16 +2,14 @@ use std::io::Read;
 use std::io::Write;
 use std::io::{self};
 
-use bitstream_io::BigEndian;
-use bitstream_io::BitRead;
-use bitstream_io::BitReader;
-use bitstream_io::BitWrite;
-use bitstream_io::BitWriter;
 use log::error;
 
-use merc_number::read_u64_variablelength;
-use merc_number::write_u64_variablelength;
+use merc_number::read_variablelength;
+use merc_number::write_variablelength;
 use merc_utilities::MercError;
+
+use crate::BitReader;
+use crate::BitWriter;
 
 /// Trait for writing bit-level data.
 pub trait BitStreamWrite {
@@ -19,7 +17,7 @@ pub trait BitStreamWrite {
     ///
     /// # Errors
     ///
-    /// Returns an error if `number_of_bits` exceeds 64.
+    /// Returns an error if `number_of_bits` exceeds 64, or `value` does not fit in it.
     fn write_bits(&mut self, value: u64, number_of_bits: u8) -> Result<(), MercError>;
 
     /// Writes a string prefixed with its length as a variable-width integer.
@@ -55,7 +53,7 @@ pub trait BitStreamRead {
 
 /// Bit-level writer wrapping an underlying byte writer.
 pub struct BitStreamWriter<W: Write> {
-    writer: BitWriter<W, BigEndian>,
+    writer: BitWriter<W>,
 }
 
 impl<W: Write> BitStreamWriter<W> {
@@ -77,7 +75,7 @@ impl<W: Write> Drop for BitStreamWriter<W> {
 
 /// Bit-level reader wrapping an underlying byte reader.
 pub struct BitStreamReader<R: Read> {
-    reader: BitReader<R, BigEndian>,
+    reader: BitReader<R>,
     text_buffer: Vec<u8>,
 }
 
@@ -92,36 +90,34 @@ impl<R: Read> BitStreamReader<R> {
 }
 
 impl<W: Write> BitStreamWrite for BitStreamWriter<W> {
+    #[inline]
     fn write_bits(&mut self, value: u64, number_of_bits: u8) -> Result<(), MercError> {
-        if number_of_bits > 64 {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "number_of_bits must be <= 64").into());
-        }
-        Ok(self.writer.write_var(number_of_bits as u32, value)?)
+        Ok(self.writer.write_bits(value, u32::from(number_of_bits))?)
     }
 
     fn write_string(&mut self, s: &str) -> Result<(), MercError> {
         self.write_integer(s.len() as u64)?;
-        self.writer.write_bytes(s.as_bytes())?;
+        for byte in s.bytes() {
+            self.writer.write_bits(u64::from(byte), 8)?;
+        }
         Ok(())
     }
 
     fn write_integer(&mut self, value: u64) -> Result<(), MercError> {
-        write_u64_variablelength(&mut self.writer, value)?;
-        Ok(())
+        Ok(write_variablelength(value, |byte| {
+            self.writer.write_bits(u64::from(byte), 8)
+        })?)
     }
 
     fn flush(&mut self) -> Result<(), MercError> {
-        self.writer.byte_align()?;
         Ok(self.writer.flush()?)
     }
 }
 
 impl<R: Read> BitStreamRead for BitStreamReader<R> {
+    #[inline]
     fn read_bits(&mut self, number_of_bits: u8) -> Result<u64, MercError> {
-        if number_of_bits > 64 {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "number_of_bits must be <= 64").into());
-        }
-        Ok(self.reader.read_var(number_of_bits as u32)?)
+        Ok(self.reader.read_bits(u32::from(number_of_bits))?)
     }
 
     fn read_string(&mut self) -> Result<String, MercError> {
@@ -134,8 +130,10 @@ impl<R: Read> BitStreamRead for BitStreamReader<R> {
         self.text_buffer
             .try_reserve(length_usize)
             .map_err(|_| io::Error::new(io::ErrorKind::OutOfMemory, "string too large to allocate"))?;
-        self.text_buffer.resize(length_usize, 0);
-        self.reader.read_bytes(&mut self.text_buffer)?;
+        for _ in 0..length_usize {
+            let byte = self.reader.read_bits(8)? as u8;
+            self.text_buffer.push(byte);
+        }
 
         // Validate in place and copy the result out, so `text_buffer` keeps its
         // allocation for reuse on the next call (taking it would reset it to empty).
@@ -145,7 +143,7 @@ impl<R: Read> BitStreamRead for BitStreamReader<R> {
     }
 
     fn read_integer(&mut self) -> Result<u64, MercError> {
-        read_u64_variablelength(&mut self.reader)
+        Ok(read_variablelength(|| self.reader.read_bits(8).map(|byte| byte as u8))?)
     }
 }
 
@@ -169,6 +167,48 @@ mod tests {
         Integer(u64),
         /// (value, num_of_bits), where num_of_bits must be at most 64.
         Bits(u64, u8),
+    }
+
+    /// Encodes the instructions bit by bit, independently of the writer, as the reference for the
+    /// format: most significant bit first, integers in groups of seven bits with the least
+    /// significant group first, and zero bits to pad the last byte.
+    fn reference_encoding(instructions: &[Instruction]) -> Vec<u8> {
+        fn push(bits: &mut Vec<bool>, value: u64, number_of_bits: u8) {
+            for i in (0..number_of_bits).rev() {
+                bits.push((value >> i) & 1 == 1);
+            }
+        }
+
+        fn push_integer(bits: &mut Vec<bool>, mut value: u64) {
+            while value > 0b0111_1111 {
+                push(bits, (value & 0b0111_1111) | 0b1000_0000, 8);
+                value >>= 7;
+            }
+            push(bits, value, 8);
+        }
+
+        let mut bits = Vec::new();
+        for instruction in instructions {
+            match instruction {
+                Instruction::String(string) => {
+                    push_integer(&mut bits, string.len() as u64);
+                    for byte in string.bytes() {
+                        push(&mut bits, u64::from(byte), 8);
+                    }
+                }
+                Instruction::Integer(value) => push_integer(&mut bits, *value),
+                Instruction::Bits(value, number_of_bits) => push(&mut bits, *value, *number_of_bits),
+            }
+        }
+
+        bits.chunks(8)
+            .map(|byte| {
+                byte.iter()
+                    .chain(std::iter::repeat(&false))
+                    .take(8)
+                    .fold(0u8, |acc, &bit| (acc << 1) | u8::from(bit))
+            })
+            .collect()
     }
 
     /// Minimum number of bits needed to represent `value` (at least 1).
@@ -220,6 +260,12 @@ mod tests {
 
                 writer.flush().expect("Failed to write into stream");
             }
+
+            assert_eq!(
+                buffer,
+                reference_encoding(&instructions),
+                "The encoding must match the reference"
+            );
 
             let mut reader = BitStreamReader::new(&buffer[..]);
 
@@ -305,6 +351,48 @@ mod tests {
 
         let mut reader = BitStreamReader::new(&buffer[..]);
         assert!(reader.read_string().is_err(), "Invalid UTF-8 should produce an error");
+    }
+
+    #[test]
+    fn test_integer_boundaries() {
+        // Edge values and the boundaries at which the encoding grows by a byte, written after three
+        // bits so that no integer is byte aligned.
+        let mut values = vec![0, u64::MAX];
+        for shift in (7..64).step_by(7) {
+            values.extend([(1u64 << shift) - 1, 1u64 << shift]);
+        }
+
+        let mut buffer = Vec::new();
+        {
+            let mut writer = BitStreamWriter::new(&mut buffer);
+            writer.write_bits(0b101, 3).unwrap();
+            for value in &values {
+                writer.write_integer(*value).unwrap();
+            }
+            writer.flush().unwrap();
+        }
+
+        let mut reader = BitStreamReader::new(&buffer[..]);
+        assert_eq!(reader.read_bits(3).unwrap(), 0b101);
+        for value in &values {
+            assert_eq!(reader.read_integer().unwrap(), *value);
+        }
+    }
+
+    #[test]
+    fn test_read_past_end_is_error() {
+        let mut buffer = Vec::new();
+        {
+            let mut writer = BitStreamWriter::new(&mut buffer);
+            writer.write_bits(0b10110, 5).unwrap();
+            writer.flush().unwrap();
+        }
+        assert_eq!(buffer, vec![0b1011_0000], "The last byte is padded with zero bits");
+
+        let mut reader = BitStreamReader::new(&buffer[..]);
+        assert_eq!(reader.read_bits(5).unwrap(), 0b10110);
+        assert_eq!(reader.read_bits(3).unwrap(), 0, "The padding reads as zero bits");
+        assert!(reader.read_bits(1).is_err(), "Reading past the end must fail");
     }
 
     #[test]

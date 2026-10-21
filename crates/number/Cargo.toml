@@ -16,5 +16,4 @@ workspace = true
 merc_utilities.workspace = true
 
 rand.workspace = true
-bitstream-io.workspace = true
 num.workspace = true

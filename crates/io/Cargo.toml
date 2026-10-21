@@ -13,7 +13,6 @@ rust-version.workspace = true
 merc_number.workspace = true
 merc_utilities.workspace = true
 
-bitstream-io.workspace = true
 log.workspace = true
 rand.workspace = true
 regex.workspace = true

@@ -151,6 +151,7 @@ name = "benchmarks_lts"
 version = "2.0.0"
 dependencies = [
  "criterion",
+ "merc_aterm",
  "merc_collections",
  "merc_data",
  "merc_lts",
@@ -250,15 +251,6 @@ name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
-
-[[package]]
-name = "bitstream-io"
-version = "4.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7eff00be299a18769011411c9def0d827e8f2d7bf0c3dbf53633147a8867fd1f"
-dependencies = [
- "no_std_io2",
-]
 
 [[package]]
 name = "bitvec"
@@ -1196,7 +1188,6 @@ dependencies = [
 name = "merc_io"
 version = "3.0.0"
 dependencies = [
- "bitstream-io",
  "log",
  "merc_number",
  "merc_utilities",
@@ -1244,7 +1235,6 @@ dependencies = [
 name = "merc_number"
 version = "3.0.0"
 dependencies = [
- "bitstream-io",
  "merc_utilities",
  "num",
  "rand",
@@ -1561,15 +1551,6 @@ name = "nanorand"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e3d189da485332e96ba8a5ef646a311871abd7915bf06ac848a9117f19cf6e4"
-
-[[package]]
-name = "no_std_io2"
-version = "0.9.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "418abd1b6d34fbf6cae440dc874771b0525a604428704c76e48b29a5e67b8003"
-dependencies = [
- "memchr",
-]
 
 [[package]]
 name = "nom"
