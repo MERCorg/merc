@@ -166,8 +166,7 @@ pub fn bench_read_lts(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmarks writing an `.lts` file to memory. Only the shapes without state labels are
-/// included, since `write_lts` does not write state labels.
+/// Benchmarks writing the transitions of an `.lts` file to memory, without state labels.
 pub fn bench_write_lts(c: &mut Criterion) {
     let mut group = c.benchmark_group("write_lts");
     for shape in [Shape::Grid, Shape::Data] {

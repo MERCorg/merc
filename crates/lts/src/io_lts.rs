@@ -10,12 +10,15 @@ use log::info;
 use merc_aterm::ATerm;
 use merc_aterm::ATermList;
 use merc_aterm::ATermRead;
+use merc_aterm::ATermRef;
 use merc_aterm::ATermStreamable;
 use merc_aterm::ATermWrite;
 use merc_aterm::BinaryATermReader;
 use merc_aterm::BinaryATermWriter;
 use merc_aterm::GarbageCollectionPause;
+use merc_aterm::Protected;
 use merc_aterm::Symbol;
+use merc_aterm::Term;
 use merc_aterm::is_list_term;
 use merc_data::Mcrl2DataSpecification;
 use merc_io::LargeFormatter;
@@ -31,21 +34,72 @@ use crate::LtsBuilder;
 use crate::LtsBuilderMem;
 use crate::LtsMultiAction;
 use crate::StateIndex;
+use crate::StateLabels;
+
+/// The state labels of the mCRL2 `.lts` format, which are lists of state vectors.
+///
+/// The terms are kept in a single [Protected] container instead of one [ATerm]
+/// per state, since every protected term costs an entry in the protection set.
+#[derive(Default, PartialEq, Eq)]
+pub struct LtsStateLabels {
+    labels: Protected<Vec<ATermRef<'static>>>,
+}
+
+impl Clone for LtsStateLabels {
+    fn clone(&self) -> Self {
+        let source = self.labels.read();
+        let mut labels: Protected<Vec<ATermRef<'static>>> = Protected::new(Vec::with_capacity(source.len()));
+        labels.write(|labels| labels.extend(source.iter().map(|label| label.copy())));
+        LtsStateLabels { labels }
+    }
+}
+
+impl StateLabels for LtsStateLabels {
+    type Label<'a> = ATermRef<'a>;
+
+    fn get(&self, state_index: StateIndex) -> Option<ATermRef<'_>> {
+        self.labels.read().get(state_index.value()).map(|label| label.copy())
+    }
+
+    fn len(&self) -> usize {
+        self.labels.read().len()
+    }
+}
+
+/// A state label that can be written by [write_lts], which allows writing an
+/// LTS without state labels, such as the result of a reduction.
+pub trait LtsStateLabel {
+    /// Returns the term written for this state label, or `None` to write no state labels.
+    fn to_lts_term(&self) -> Option<ATerm>;
+}
+
+impl LtsStateLabel for () {
+    fn to_lts_term(&self) -> Option<ATerm> {
+        None
+    }
+}
+
+impl LtsStateLabel for ATermRef<'_> {
+    fn to_lts_term(&self) -> Option<ATerm> {
+        Some(self.protect())
+    }
+}
 
 /// Loads a labelled transition system from the binary 'lts' format of the mCRL2 toolset,
-/// together with the data specification that its action arguments are typed over.
+/// together with the data specification that its action arguments are typed over. The
+/// state labels are only kept if `read_state_labels` is true.
 ///
 /// # Errors
 ///
 /// Returns an error if the stream does not start with the LTS marker, contains a
-/// probabilistic transition (not supported), is missing its initial state, or is
-/// otherwise malformed.
+/// probabilistic transition (not supported), is missing its initial state, has state
+/// labels for only some of the states, or is otherwise malformed.
 pub fn read_lts<R: Read>(
     reader: R,
     read_state_labels: bool,
 ) -> Result<
     (
-        LabelledTransitionSystem<LtsMultiAction<LtsAction>>,
+        LabelledTransitionSystem<LtsMultiAction<LtsAction>, LtsStateLabels>,
         Mcrl2DataSpecification,
     ),
     MercError,
@@ -80,7 +134,7 @@ pub fn read_lts<R: Read>(
         1,
     );
 
-    let mut state_labels = Vec::new();
+    let mut state_labels = LtsStateLabels::default();
 
     // Compared against every term read, so created once.
     let transition_marker = transition_marker();
@@ -114,9 +168,8 @@ pub fn read_lts<R: Read>(
                     return Err("Probabilistic transitions are not supported yet.".into());
                 } else if is_list_term(&t) {
                     if read_state_labels {
-                        let t: ATermList<ATerm> = t.into();
-                        debug!("Read state label: {:?}", t.to_vec());
-                        state_labels.push(t);
+                        debug!("Read state label: {t:?}");
+                        state_labels.labels.write(|labels| labels.push(t.copy()));
                     }
                 } else if t == initial_state_marker {
                     let length = reader.read_aterm_int()?;
@@ -135,11 +188,21 @@ pub fn read_lts<R: Read>(
     }
     info!("Finished reading LTS.");
 
-    Ok((
-        // Untrusted input can always contain duplicates.
-        builder.finish(initial_state.ok_or("Missing initial state")?, true),
-        data_spec,
-    ))
+    // Labelled states without transitions must still exist.
+    builder.require_num_of_states(state_labels.len());
+
+    // Untrusted input can always contain duplicates.
+    let lts = builder.finish(initial_state.ok_or("Missing initial state")?, true);
+    if !state_labels.is_empty() && state_labels.len() != lts.num_of_states() {
+        return Err(format!(
+            "Found {} state labels for {} states.",
+            state_labels.len(),
+            lts.num_of_states()
+        )
+        .into());
+    }
+
+    Ok((lts.with_state_labels(state_labels), data_spec))
 }
 
 /// Write a labelled transition system in binary 'lts' format to the given
@@ -179,9 +242,10 @@ pub fn read_lts<R: Read>(
 ///
 /// state_label (index derived from order of appearance):
 ///    `state_label: ATermList::<DataExpression>`
-pub fn write_lts<L, W>(writer: &mut W, lts: &L, data_spec: &Mcrl2DataSpecification) -> Result<(), MercError>
+pub fn write_lts<'a, L, W>(writer: &mut W, lts: &'a L, data_spec: &Mcrl2DataSpecification) -> Result<(), MercError>
 where
     L: LTS<Label = LtsMultiAction<LtsAction>>,
+    L::StateLabel<'a>: LtsStateLabel,
     W: Write,
 {
     info!("Writing LTS in .lts format...");
@@ -206,6 +270,12 @@ where
     writer.write_aterm(&initial_state_marker())?;
     writer.write_aterm_int(1)?; // Length of initial state is 1.
     writer.write_aterm_int(*lts.initial_state_index())?;
+
+    for state_label in lts.state_labels() {
+        if let Some(term) = state_label.to_lts_term() {
+            writer.write_aterm(&term)?;
+        }
+    }
 
     let num_of_transitions = lts.num_of_transitions();
     let progress = TimeProgress::new(
@@ -292,6 +362,24 @@ mod tests {
         assert_eq!(lts.num_of_states(), 74);
         assert_eq!(lts.num_of_transitions(), 92);
         assert_eq!(*lts.initial_state_index(), 0);
+        assert_eq!(lts.state_labels().count(), 74);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)]
+    fn test_lts_state_labels_io() {
+        let (lts, data_spec) = read_lts(include_bytes!("../../../examples/lts/abp.lts").as_ref(), true).unwrap();
+
+        let mut buffer: Vec<u8> = Vec::new();
+        write_lts(&mut buffer, &lts, &data_spec).unwrap();
+        let (result_lts, _data_spec) = read_lts(&buffer[..], true).unwrap();
+
+        assert!(lts.state_labels().eq(result_lts.state_labels()));
+        assert_eq!(lts.state_labels().count(), lts.num_of_states());
+
+        // Dropping the state labels on reading also works.
+        let (result_lts, _data_spec) = read_lts(&buffer[..], false).unwrap();
+        assert_eq!(result_lts.state_labels().count(), 0);
     }
 
     #[test]

@@ -204,6 +204,7 @@ fn test_mcrl2_explore_abp_lts_format() {
             Equivalence::StrongBisim,
             reference_lts,
             result_lts
+                .with_state_labels(())
                 .relabel(|label| LtsMultiAction::<SimpleAction>::from_string(&label.to_string()))
                 .unwrap(),
             false,

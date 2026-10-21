@@ -293,6 +293,10 @@ impl<L: TransitionLabel> fmt::Display for FeaturedLabel<L> {
 
 impl<L: TransitionLabel> LTS for FeatureTransitionSystem<L> {
     type Label = FeaturedLabel<L>;
+    type StateLabel<'a>
+        = ()
+    where
+        Self: 'a;
 
     fn merge_disjoint<Lts>(self, _other: &Lts) -> (LabelledTransitionSystem<FeaturedLabel<L>>, StateIndex) {
         unimplemented!("Merging feature transition systems is not yet implemented")
@@ -308,6 +312,7 @@ impl<L: TransitionLabel> LTS for FeatureTransitionSystem<L> {
             fn outgoing_transitions(&self, state_index: StateIndex) -> impl Iterator<Item = Transition>;
             fn iter_states(&self) -> impl Iterator<Item = StateIndex> + '_;
             fn is_hidden_label(&self, label_index: LabelIndex) -> bool;
+            fn state_label(&self, state_index: StateIndex) -> Option<()>;
         }
     }
 }
