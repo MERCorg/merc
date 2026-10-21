@@ -196,15 +196,20 @@ impl<T: Send, const N: usize> BlockAllocator<T, N> {
     /// Marks a previously-allocated pointer as free without adding it to a free list, so that
     /// the next [`Self::remove_free_blocks`] finds it while scanning the blocks in memory order
     /// instead of walking the free lists. The slot is only reused after that call.
-    pub fn release_object(&self, ptr: NonNull<T>) {
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must have been returned by [`Self::allocate_object`] of this allocator, must not
+    /// have been released or deallocated since, and its value must no longer be used.
+    pub unsafe fn release_object(&self, ptr: NonNull<T>) {
         #[cfg(debug_assertions)]
         debug_assert!(
             self.released.lock().expect("Lock poisoned").insert(ptr.addr().get()),
             "The object at {ptr:?} was released twice"
         );
 
-        // SAFETY: `ptr` was returned by `allocate_object`, so it points to an entry of a block
-        // that stays valid until `remove_free_blocks`, and its value is no longer used.
+        // SAFETY: By the contract of this function, `ptr` points to an entry of a block of this
+        // allocator that stays valid until `remove_free_blocks`, and its value is no longer used.
         unsafe {
             *(*ptr.cast::<Entry<T>>().as_ptr()).next = NONEXISTING_VALUE as *mut Entry<T>;
         }
@@ -598,7 +603,9 @@ unsafe impl<T: Send, const N: usize> Allocator for AllocBlock<T, N> {
         );
 
         if self.defer_deallocations {
-            self.block_allocator.release_object(ptr.cast::<T>());
+            // SAFETY: The contract of `deallocate` requires that `ptr` is currently allocated by
+            // this allocator, so it came from `allocate_object` and is no longer used.
+            unsafe { self.block_allocator.release_object(ptr.cast::<T>()) };
         } else {
             self.block_allocator.deallocate_object(ptr.cast::<T>());
         }
@@ -830,7 +837,8 @@ mod tests {
 
             // Free every block's first half in either way, and keep its second half.
             match value % 8 {
-                0..2 => allocator.release_object(ptr),
+                // SAFETY: `ptr` was just allocated and is not used afterwards.
+                0..2 => unsafe { allocator.release_object(ptr) },
                 2..4 => allocator.deallocate_object(ptr),
                 _ => live.push((ptr, value)),
             }
@@ -854,7 +862,8 @@ mod tests {
         }
 
         for (ptr, _) in live {
-            allocator.release_object(ptr);
+            // SAFETY: `ptr` is still allocated and is not used afterwards.
+            unsafe { allocator.release_object(ptr) };
         }
         let (removed, _) = allocator.remove_free_blocks();
         assert_eq!(removed, 8, "all blocks are empty");
@@ -866,8 +875,12 @@ mod tests {
     fn test_double_release_is_detected() {
         let allocator: BlockAllocator<usize, 8> = BlockAllocator::new();
         let ptr = allocator.allocate_object().unwrap();
-        allocator.release_object(ptr);
-        allocator.release_object(ptr);
+        // SAFETY: The first release is valid; the second violates the contract on purpose to
+        // check that the debug assertion catches it before anything is written.
+        unsafe {
+            allocator.release_object(ptr);
+            allocator.release_object(ptr);
+        }
     }
 
     #[test]
