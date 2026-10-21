@@ -15,6 +15,7 @@ pub use innermost_rewriter::AnnouncementInnermost;
 pub use innermost_rewriter::InnermostRewriter;
 pub use naive_rewriter::NaiveRewriter;
 pub use quantifier::Enumerator;
+pub use quantifier::NoQuantifierEnumerator;
 pub use rewrite_specification::Condition;
 pub use rewrite_specification::RewriteSpecification;
 pub use rewrite_specification::Rule;
