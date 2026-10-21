@@ -61,11 +61,11 @@ impl<R: Read> BitReader<R> {
         let high_bits = self.num_bits;
         let high = self.buffer & low_bits(high_bits);
 
-        // Read as many of the next eight bytes as there are, since the end of the stream may
-        // follow the bits that are requested.
+        // Read until the requested bits are available, keeping any further bytes that a read
+        // returns. Reading more would block, or fail, on input that is not needed yet.
         let mut bytes = [0u8; 8];
         let mut filled = 0;
-        while filled < bytes.len() {
+        while (filled as u32) * 8 < number_of_bits - high_bits {
             match self.reader.read(&mut bytes[filled..]) {
                 Ok(0) => break,
                 Ok(read) => filled += read,
@@ -234,6 +234,32 @@ mod tests {
         assert_eq!(reader.read_bits(5).unwrap(), 0b10110);
         assert_eq!(reader.read_bits(3).unwrap(), 0, "The padding reads as zero bits");
         assert!(reader.read_bits(1).is_err(), "Reading past the end must fail");
+    }
+
+    #[test]
+    fn test_read_stops_once_bits_are_available() {
+        /// Returns the given bytes, after which reading would block.
+        struct Partial<'a>(&'a [u8]);
+
+        impl std::io::Read for Partial<'_> {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                if self.0.is_empty() {
+                    return Err(std::io::ErrorKind::WouldBlock.into());
+                }
+                let read = self.0.len().min(buf.len());
+                buf[..read].copy_from_slice(&self.0[..read]);
+                self.0 = &self.0[read..];
+                Ok(read)
+            }
+        }
+
+        let mut reader = BitReader::new(Partial(&[0xab]));
+        assert_eq!(reader.read_bits(8).unwrap(), 0xab);
+
+        // Bytes beyond the requested bits that a single read returns are kept.
+        let mut reader = BitReader::new(Partial(&[0xab, 0xcd]));
+        assert_eq!(reader.read_bits(4).unwrap(), 0xa);
+        assert_eq!(reader.read_bits(12).unwrap(), 0xbcd);
     }
 
     #[test]
