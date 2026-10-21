@@ -254,12 +254,10 @@ impl Enumerator {
 
         self.bindings_arena.clear();
         let body = rewriter.rewrite(body);
-        // Scoped so this guard is dropped before `drive` below takes its own:
-        // `Protected::write` only ever hands out one guard at a time.
-        let (remaining, body, initial_bindings) = {
-            let mut guard = self.bindings_arena.chain.write();
-            apply_one_point_rule(rewriter, &mut guard, vars.to_vec(), body, polarity)
-        };
+        let (remaining, body, initial_bindings) = self
+            .bindings_arena
+            .chain
+            .write(|guard| apply_one_point_rule(rewriter, guard, vars.to_vec(), body, polarity));
 
         let mut found: Option<Vec<DataExpression>> = None;
         let outcome = self.drive(
@@ -339,157 +337,161 @@ impl Enumerator {
         self.remaining_arena.clear();
         // Both guards are held for the whole call rather than re-acquired per
         // access.
-        let mut var_pool = self.var_pool.write();
-        var_pool.clear();
-        let mut bindings = self.bindings_arena.chain.write();
-        for variable in remaining_vars {
-            // SAFETY: the resulting ref is pushed into `var_pool` immediately below.
-            let var_ref = unsafe { var_pool.protect(variable) };
-            var_pool.push(var_ref.into());
-        }
-        // `var_pool` was cleared above, so the original variables occupy its first indices.
-        let initial_indices = 0..u32::try_from(var_pool.len()).expect("more variables than fit in a u32");
-
-        self.queue.push_back(WorkItem {
-            remaining: RemainingList::new(&mut self.remaining_arena, initial_indices),
-            body,
-            bindings: initial_bindings,
-            depth: 0,
-        });
-
-        while let Some(item) = self.queue.pop_front() {
-            if item.body == *reject {
-                continue;
-            }
-
-            // Counted here rather than per constructor expansion, so the bound
-            // covers every branch the search takes, not only the ones over an
-            // infinite sort.
-            if bounded {
-                if processed >= limits.max_items {
-                    return Outcome::LimitReached;
+        self.var_pool.write(|var_pool| {
+            var_pool.clear();
+            self.bindings_arena.chain.write(|bindings| {
+                for variable in remaining_vars {
+                    // SAFETY: the resulting ref is pushed into `var_pool` immediately below.
+                    let var_ref = unsafe { var_pool.protect(variable) };
+                    var_pool.push(var_ref.into());
                 }
-                processed += 1;
-            }
+                // `var_pool` was cleared above, so the original variables occupy its first indices.
+                let initial_indices = 0..u32::try_from(var_pool.len()).expect("more variables than fit in a u32");
 
-            if item.remaining.is_empty() {
-                if item.body != *accept {
-                    undecided.get_or_insert_with(|| item.body.clone());
-                    continue;
-                }
+                self.queue.push_back(WorkItem {
+                    remaining: RemainingList::new(&mut self.remaining_arena, initial_indices),
+                    body,
+                    bindings: initial_bindings,
+                    depth: 0,
+                });
 
-                BindingArena::resolve(
-                    &bindings,
-                    rewriter,
-                    &mut self.bindings_arena.scratch,
-                    item.bindings,
-                    all_vars,
-                    &mut self.solution_buf,
-                );
-                let solution = Solution {
-                    values: &self.solution_buf,
-                };
-
-                match on_leaf(rewriter, &solution) {
-                    ControlFlow::Break(b) => return Outcome::Stopped(b),
-                    ControlFlow::Continue(()) => continue,
-                }
-            }
-
-            // Only a constructor expansion nests deeper.
-            if bounded && item.depth >= limits.max_depth {
-                truncated = true;
-                continue;
-            }
-
-            // Not protected: `variable_ref` borrows straight from `var_pool`.
-            let (variable_index, rest) = item
-                .remaining
-                .pop_front(&mut self.remaining_arena)
-                .expect("checked non-empty above");
-            let variable_ref = &var_pool[variable_index as usize];
-
-            let Some(sort_id) = self.plans.get(&variable_ref.sort()) else {
-                return Outcome::NotEnumerable(variable_ref.protect(), NotEnumerableReason::UnknownSort);
-            };
-
-            match self.plans.plan(sort_id).enumerability() {
-                SortEnumerability::NotEnumerable(reason) => {
-                    return Outcome::NotEnumerable(variable_ref.protect(), reason);
-                }
-                SortEnumerability::Finite => {
-                    // A free function over the single field, so the elements
-                    // stay borrowed while the other fields are mutated below.
-                    // No mutation of `var_pool` happens in this arm, so
-                    // `variable_ref` stays valid for the whole loop as-is.
-                    let elements = cached_finite_elements(&mut self.finite_elements, rewriter, &self.plans, sort_id);
-                    for element in elements {
-                        let element_ref = element.copy();
-                        let new_bindings =
-                            BindingArena::extend(&mut bindings, item.bindings, variable_ref, &element_ref);
-                        let new_body = rewrite_bound(rewriter, &item.body, variable_ref, &element_ref);
-                        self.queue.push_back(WorkItem {
-                            remaining: rest,
-                            body: new_body,
-                            bindings: new_bindings,
-                            depth: item.depth,
-                        });
+                while let Some(item) = self.queue.pop_front() {
+                    if item.body == *reject {
+                        continue;
                     }
-                }
-                SortEnumerability::InfiniteEnumerable => {
-                    // Iterate the constructors through an owned handle, so the
-                    // other fields of `self` stay mutable in the loop body.
-                    let plans = self.plans.clone();
-                    for constructor in plans.plan(sort_id).constructors() {
-                        self.fresh_indices_buf.clear();
-                        self.constructor_args_buf.clear();
-                        for &argument_sort in constructor.arguments() {
-                            let fresh = generator.generate(plans.plan(argument_sort).sort().copy());
-                            self.constructor_args_buf.push(DataExpression::from(fresh.clone()));
-                            // SAFETY: the resulting ref is pushed into `var_pool` immediately below.
-                            let fresh_ref = unsafe { var_pool.protect(&fresh) };
-                            self.fresh_indices_buf
-                                .push(u32::try_from(var_pool.len()).expect("more variables than fit in a u32"));
-                            var_pool.push(fresh_ref.into());
+
+                    // Counted here rather than per constructor expansion, so the bound
+                    // covers every branch the search takes, not only the ones over an
+                    // infinite sort.
+                    if bounded {
+                        if processed >= limits.max_items {
+                            return Outcome::LimitReached;
+                        }
+                        processed += 1;
+                    }
+
+                    if item.remaining.is_empty() {
+                        if item.body != *accept {
+                            undecided.get_or_insert_with(|| item.body.clone());
+                            continue;
                         }
 
-                        let value: DataExpression = if self.constructor_args_buf.is_empty() {
-                            constructor.symbol().clone().into()
-                        } else {
-                            DataApplication::with_args(constructor.symbol(), &self.constructor_args_buf).into()
+                        BindingArena::resolve(
+                            bindings,
+                            rewriter,
+                            &mut self.bindings_arena.scratch,
+                            item.bindings,
+                            all_vars,
+                            &mut self.solution_buf,
+                        );
+                        let solution = Solution {
+                            values: &self.solution_buf,
                         };
-                        // `rewrite_with` splices substitution images in without rewriting them,
-                        // so they must already be normal forms — a constructor application is
-                        // not automatically one (`@c0`/`@succ_nat(_)` under a machine-word
-                        // `Nat` encoding still rewrite into digit form).
-                        let rewritten = rewriter.rewrite(&value);
-                        let value_ref = rewritten.copy();
 
-                        // Re-borrowed from `var_pool` here, rather than reusing
-                        // `variable_ref` from before the match.
-                        let variable_ref = &var_pool[variable_index as usize];
-                        let new_bindings =
-                            BindingArena::extend(&mut bindings, item.bindings, &variable_ref.copy(), &value_ref);
-                        let new_body = rewrite_bound(rewriter, &item.body, &variable_ref.copy(), &value_ref);
+                        match on_leaf(rewriter, &solution) {
+                            ControlFlow::Break(b) => return Outcome::Stopped(b),
+                            ControlFlow::Continue(()) => continue,
+                        }
+                    }
 
-                        self.queue.push_back(WorkItem {
-                            remaining: rest.with_appended(&mut self.remaining_arena, self.fresh_indices_buf.drain(..)),
-                            body: new_body,
-                            bindings: new_bindings,
-                            depth: item.depth + 1,
-                        });
+                    // Only a constructor expansion nests deeper.
+                    if bounded && item.depth >= limits.max_depth {
+                        truncated = true;
+                        continue;
+                    }
+
+                    // Not protected: `variable_ref` borrows straight from `var_pool`.
+                    let (variable_index, rest) = item
+                        .remaining
+                        .pop_front(&mut self.remaining_arena)
+                        .expect("checked non-empty above");
+                    let variable_ref = &var_pool[variable_index as usize];
+
+                    let Some(sort_id) = self.plans.get(&variable_ref.sort()) else {
+                        return Outcome::NotEnumerable(variable_ref.protect(), NotEnumerableReason::UnknownSort);
+                    };
+
+                    match self.plans.plan(sort_id).enumerability() {
+                        SortEnumerability::NotEnumerable(reason) => {
+                            return Outcome::NotEnumerable(variable_ref.protect(), reason);
+                        }
+                        SortEnumerability::Finite => {
+                            // A free function over the single field, so the elements
+                            // stay borrowed while the other fields are mutated below.
+                            // No mutation of `var_pool` happens in this arm, so
+                            // `variable_ref` stays valid for the whole loop as-is.
+                            let elements =
+                                cached_finite_elements(&mut self.finite_elements, rewriter, &self.plans, sort_id);
+                            for element in elements {
+                                let element_ref = element.copy();
+                                let new_bindings =
+                                    BindingArena::extend(bindings, item.bindings, variable_ref, &element_ref);
+                                let new_body = rewrite_bound(rewriter, &item.body, variable_ref, &element_ref);
+                                self.queue.push_back(WorkItem {
+                                    remaining: rest,
+                                    body: new_body,
+                                    bindings: new_bindings,
+                                    depth: item.depth,
+                                });
+                            }
+                        }
+                        SortEnumerability::InfiniteEnumerable => {
+                            // Iterate the constructors through an owned handle, so the
+                            // other fields of `self` stay mutable in the loop body.
+                            let plans = self.plans.clone();
+                            for constructor in plans.plan(sort_id).constructors() {
+                                self.fresh_indices_buf.clear();
+                                self.constructor_args_buf.clear();
+                                for &argument_sort in constructor.arguments() {
+                                    let fresh = generator.generate(plans.plan(argument_sort).sort().copy());
+                                    self.constructor_args_buf.push(DataExpression::from(fresh.clone()));
+                                    // SAFETY: the resulting ref is pushed into `var_pool` immediately below.
+                                    let fresh_ref = unsafe { var_pool.protect(&fresh) };
+                                    self.fresh_indices_buf
+                                        .push(u32::try_from(var_pool.len()).expect("more variables than fit in a u32"));
+                                    var_pool.push(fresh_ref.into());
+                                }
+
+                                let value: DataExpression = if self.constructor_args_buf.is_empty() {
+                                    constructor.symbol().clone().into()
+                                } else {
+                                    DataApplication::with_args(constructor.symbol(), &self.constructor_args_buf).into()
+                                };
+                                // `rewrite_with` splices substitution images in without rewriting them,
+                                // so they must already be normal forms — a constructor application is
+                                // not automatically one (`@c0`/`@succ_nat(_)` under a machine-word
+                                // `Nat` encoding still rewrite into digit form).
+                                let rewritten = rewriter.rewrite(&value);
+                                let value_ref = rewritten.copy();
+
+                                // Re-borrowed from `var_pool` here, rather than reusing
+                                // `variable_ref` from before the match.
+                                let variable_ref = &var_pool[variable_index as usize];
+                                let new_bindings =
+                                    BindingArena::extend(bindings, item.bindings, &variable_ref.copy(), &value_ref);
+                                let new_body = rewrite_bound(rewriter, &item.body, &variable_ref.copy(), &value_ref);
+
+                                self.queue.push_back(WorkItem {
+                                    remaining: rest
+                                        .with_appended(&mut self.remaining_arena, self.fresh_indices_buf.drain(..)),
+                                    body: new_body,
+                                    bindings: new_bindings,
+                                    depth: item.depth + 1,
+                                });
+                            }
+                        }
                     }
                 }
-            }
-        }
 
-        if truncated {
-            Outcome::LimitReached
-        } else if let Some(body) = undecided {
-            Outcome::Undecided(body)
-        } else {
-            Outcome::Exhausted
-        }
+                if truncated {
+                    Outcome::LimitReached
+                } else if let Some(body) = undecided {
+                    Outcome::Undecided(body)
+                } else {
+                    Outcome::Exhausted
+                }
+            })
+        })
     }
 }
 
