@@ -19,14 +19,14 @@ use merc_syntax::SourceMap;
 use merc_syntax::Span;
 use merc_syntax::UntypedPbes;
 
-use crate::DataSpecification;
-use crate::NumberEncoding;
-use crate::ResolvedSortId;
-use crate::TypingInfo;
-use crate::checking;
+use merc_typecheck::DataSpecification;
+use merc_typecheck::NumberEncoding;
+use merc_typecheck::TypingInfo;
+use merc_typecheck::internal::ResolvedSortId;
+use merc_typecheck::internal::checking;
 
-use super::PbesError;
-use super::check;
+use crate::PbesError;
+use crate::check;
 
 /// A type-checked mCRL2 PBES: the data specification plus its `glob`, propositional-variable
 /// equations, and `init`, all resolved and checked against it. See the module doc comment for
@@ -102,18 +102,18 @@ impl PbesSpecification {
 
 /// The resolved global-variable and per-equation-parameter tables, built once by [`Self::build`]
 /// and used by [`super::check`]'s scoped walk to resolve every `PropVarInst` it reaches.
-pub(super) struct DeclarationTables {
+pub(crate) struct DeclarationTables {
     /// Resolved sort of each `glob` declaration, parallel to `spec.global_variables`.
-    pub(super) global_sorts: Vec<ResolvedSortId>,
+    pub(crate) global_sorts: Vec<ResolvedSortId>,
     /// Resolved `(name, sort)` parameters of each equation, parallel to `spec.equations`.
-    pub(super) equation_params: Vec<Vec<(String, ResolvedSortId)>>,
+    pub(crate) equation_params: Vec<Vec<(String, ResolvedSortId)>>,
     /// `spec.equations[i].variable.identifier.span`, parallel to `equation_params` — mirrors
     /// `crate::process::process_specification::DeclarationTables::action_decl_spans`.
-    pub(super) equation_decl_spans: Vec<Span>,
+    pub(crate) equation_decl_spans: Vec<Span>,
     /// Propositional-variable name -> index into `spec.equations`/`equation_params`. A single
     /// slot per name, not a `Vec<usize>`: unlike the process crate's actions/processes, PBES
     /// equations are declared once each — no overloading.
-    pub(super) equations_by_name: HashMap<String, usize>,
+    pub(crate) equations_by_name: HashMap<String, usize>,
 }
 
 impl DeclarationTables {
@@ -172,7 +172,7 @@ impl DeclarationTables {
 
 /// Resolves a sort expression occurring in a `glob`/PBES-equation-parameter declaration, see
 /// [`checking::resolve_declared_sort`].
-pub(super) fn resolve_declared_sort(
+pub(crate) fn resolve_declared_sort(
     data: &mut DataSpecification,
     sort: &SortExpression,
 ) -> Result<ResolvedSortId, PbesError> {

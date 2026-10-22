@@ -13,24 +13,28 @@ use merc_syntax::Traverse;
 use merc_syntax::UntypedPbes;
 use merc_syntax::VarId;
 
-use crate::DataSpecification;
-use crate::ResolvedName;
-use crate::ResolvedSortId;
-use crate::TypingInfo;
-use crate::checking::Scope;
-use crate::checking::check_expression_against;
-use crate::checking::collect_binder_sorts;
-use crate::checking::declare_variables;
-use crate::declared_span;
-use crate::typing_info;
+use merc_typecheck::DataSpecification;
+use merc_typecheck::ResolvedName;
+use merc_typecheck::TypingInfo;
+use merc_typecheck::internal::ResolvedSortId;
+use merc_typecheck::internal::SortReference;
+use merc_typecheck::internal::bool_sort;
+use merc_typecheck::internal::checking::Scope;
+use merc_typecheck::internal::checking::check_expression_against;
+use merc_typecheck::internal::checking::collect_binder_sorts;
+use merc_typecheck::internal::checking::declare_variables;
+use merc_typecheck::internal::collect_sort_name_references;
+use merc_typecheck::internal::declared_span;
+use merc_typecheck::internal::push_resolved_name;
+use merc_typecheck::internal::push_sort_references;
 
-use super::PbesError;
-use super::pbes_specification::DeclarationTables;
-use super::pbes_specification::resolve_declared_sort;
+use crate::PbesError;
+use crate::pbes_specification::DeclarationTables;
+use crate::pbes_specification::resolve_declared_sort;
 
 /// Checks a PBES specification against its declaration tables, returning typing
 /// information for all expressions.
-pub(super) fn check_pbes_specification(
+pub(crate) fn check_pbes_specification(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
     spec: &UntypedPbes,
@@ -39,11 +43,12 @@ pub(super) fn check_pbes_specification(
     let mut sort_references = Vec::new();
 
     for decl in &spec.global_variables {
-        typing_info::collect_sort_name_references(&decl.sort, &mut sort_references);
+        collect_sort_name_references(&decl.sort, &mut sort_references);
     }
+
     for eqn in &spec.equations {
         for param in &eqn.variable.parameters {
-            typing_info::collect_sort_name_references(&param.sort, &mut sort_references);
+            collect_sort_name_references(&param.sort, &mut sort_references);
         }
     }
 
@@ -69,7 +74,7 @@ pub(super) fn check_pbes_specification(
     // scope = globals only, since it sits outside every equation's own parameter scope.
     check_prop_var_inst(data, tables, &globals, &spec.init, &mut typing)?;
 
-    typing_info::push_sort_references(data, &sort_references, &mut typing);
+    push_sort_references(data, &sort_references, &mut typing);
     Ok(typing)
 }
 
@@ -78,7 +83,7 @@ fn collect_scope(
     data: &mut DataSpecification,
     expr: &PbesExpr,
     scope: &mut Vec<(VarId, ResolvedSortId)>,
-    sort_references: &mut Vec<typing_info::SortReference>,
+    sort_references: &mut Vec<SortReference>,
     typing: &mut TypingInfo,
 ) -> Result<(), PbesError> {
     expr.try_visit(|expr| {
@@ -108,7 +113,7 @@ fn check_pbes_expr(
             | PbesExprKind::Quantifier { .. } => {}
 
             PbesExprKind::DataValExpr(data_expr) => {
-                let bool_sort = data.context().sorts.bool_sort();
+                let bool_sort = bool_sort(data);
                 check_expression_against::<PbesError>(data, scope, data_expr, bool_sort, typing)?;
             }
 
@@ -138,7 +143,8 @@ fn check_prop_var_inst(
             candidates: tables.equations_by_name.keys().cloned().collect(),
         });
     };
-    typing.push(
+    push_resolved_name(
+        typing,
         inst.identifier.span.clone(),
         ResolvedName::PropositionalVariable {
             name: inst.identifier.node.clone(),

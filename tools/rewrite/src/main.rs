@@ -11,6 +11,7 @@ use log::info;
 use log::warn;
 
 use merc_data::DataExpression;
+use merc_pbes::PbesSpecification;
 use merc_rec_tests::load_rec_from_file;
 use merc_rewrite::Rewriter;
 use merc_rewrite::rewrite_rec;
@@ -31,7 +32,6 @@ use merc_typecheck::DataSpecification;
 use merc_typecheck::FormulaType;
 use merc_typecheck::ModalSpecification;
 use merc_typecheck::NumberEncoding;
-use merc_typecheck::PbesSpecification;
 use merc_typecheck::PresSpecification;
 use merc_typecheck::ProcessSpecification;
 use merc_unsafety::print_allocator_metrics;

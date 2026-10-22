@@ -162,7 +162,7 @@ impl TypingInfo {
         best
     }
 
-    pub(crate) fn merge(&mut self, mut other: TypingInfo) {
+    pub fn merge(&mut self, mut other: TypingInfo) {
         self.nodes.append(&mut other.nodes);
     }
 
@@ -344,12 +344,12 @@ impl DeclarationIndex {
 /// `Span::default()` marks a declaration synthesized without a real source location, rather than a
 /// real position at the start of the file; normalize it to `None` so a consumer doesn't render a
 /// misleading declaration site.
-pub(crate) fn declared_span(span: &Span) -> Option<Span> {
+pub fn declared_span(span: &Span) -> Option<Span> {
     (*span != Span::default()).then(|| span.clone())
 }
 
 /// A single sort-name occurrence gathered by [`collect_sort_name_references`].
-pub(crate) struct SortReference {
+pub struct SortReference {
     pub(crate) span: Span,
     pub(crate) name: String,
     pub(crate) complex: Option<ComplexSort>,
@@ -368,7 +368,7 @@ pub(crate) struct SortReference {
 /// Appends every `Reference`/`Resolved`/`Simple`/`Complex` leaf reachable in `sort` to `out`, as
 /// `(its own occurrence span, name)`. Other compound kinds (`Product`, `Function`,
 /// `FlattenedFunction`, `Struct`) are walked via [`Traverse`] until a named leaf is reached.
-pub(crate) fn collect_sort_name_references(sort: &SortExpression, out: &mut Vec<SortReference>) {
+pub fn collect_sort_name_references(sort: &SortExpression, out: &mut Vec<SortReference>) {
     sort.visit::<Infallible, _>(|node| {
         match &node.node {
             SortExpressionKind::Reference(name) => {
@@ -484,7 +484,7 @@ fn sort_declaration_by_id(spec: &UntypedDataSpecification, id: SortId) -> Option
 /// which has no declaration site, and a primitive basic-sort name (`Bool`, `Nat`, …), which still
 /// has a real declaration span in `system`'s own textual re-declaration of it (`sort Nat;` in
 /// `nat.mcrl2`), found by name instead.
-pub(crate) fn push_sort_references(spec: &DataSpecification, references: &[SortReference], typing: &mut TypingInfo) {
+pub fn push_sort_references(spec: &DataSpecification, references: &[SortReference], typing: &mut TypingInfo) {
     let index = spec.declaration_index();
     for reference in references {
         let name = &reference.name;

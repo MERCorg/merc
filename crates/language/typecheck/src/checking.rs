@@ -28,7 +28,7 @@ use crate::typing_info;
 /// A flat list suffices rather than a stack of nested scopes: variable resolution already tied
 /// every occurrence to its binder's unique [VarId], so a binder can only ever be found by the
 /// occurrences it actually scopes over.
-pub(crate) type Scope = [(VarId, ResolvedSortId)];
+pub type Scope = [(VarId, ResolvedSortId)];
 
 /// Prepares a raw expression for inference: resolves its embedded binder sorts (see
 /// [`DataSpecification::resolve_expression_binder_sorts`]) and lowers it, exactly as
@@ -48,7 +48,7 @@ where
 ///
 /// Generic over the caller's own error type `E` (`ProcessError`, `PbesError`, …), which must
 /// convert from [`WellTypedError`] and [`InferenceError`].
-pub(crate) fn check_expression_against<E>(
+pub fn check_expression_against<E>(
     data: &mut DataSpecification,
     scope: &Scope,
     expr: &DataExpr,
@@ -75,7 +75,7 @@ where
 /// Brings `variables`, whose sorts are already resolved to `sorts`, into `scope`, and records each
 /// variable's own declaration occurrence in `typing` so it can be hovered/go-to-definition'd the
 /// same as a use of it (see [`typing_info::push_binder_declaration`]).
-pub(crate) fn declare_variables<'a, V, S>(
+pub fn declare_variables<'a, V, S>(
     data: &DataSpecification,
     scope: &mut Vec<(VarId, ResolvedSortId)>,
     typing: &mut TypingInfo,
@@ -100,7 +100,7 @@ pub(crate) fn declare_variables<'a, V, S>(
 
 /// Resolves the sorts of the given binder variables with `resolve`, recording their sort
 /// references, and declares them (see [`declare_variables`]).
-pub(crate) fn collect_binder_sorts<E, F>(
+pub fn collect_binder_sorts<E, F>(
     data: &mut DataSpecification,
     scope: &mut Vec<(VarId, ResolvedSortId)>,
     sort_references: &mut Vec<typing_info::SortReference>,
@@ -124,7 +124,7 @@ where
 /// fixpoint-variable parameter or binder, …): rejects an anonymous `struct` (never legal in a
 /// declaration position), then defers to [`DataSpecification::resolve_declared_sort`] for the rest.
 /// `anonymous_struct` builds the caller's own error variant for that rejection.
-pub(crate) fn resolve_declared_sort<E, F>(
+pub fn resolve_declared_sort<E, F>(
     data: &mut DataSpecification,
     sort: &SortExpression,
     anonymous_struct: F,
