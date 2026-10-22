@@ -30,18 +30,15 @@ merc_sharedmutex.workspace = true
 merc_unsafety.workspace = true
 merc_utilities.workspace = true
 
-merc_pest_consume.workspace = true
-
 allocator-api2.workspace = true
 delegate.workspace = true
 equivalent.workspace = true
 itertools.workspace = true
 log.workspace = true
 parking_lot.workspace = true
-pest_derive.workspace = true
-pest.workspace = true
 rand.workspace = true
 rustc-hash.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 trybuild.workspace = true
