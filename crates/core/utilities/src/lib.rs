@@ -50,6 +50,7 @@ pub use tagged_index::IdAllocator;
 pub use tagged_index::MercIndex;
 pub use tagged_index::TagIndex;
 pub use tagged_ptr::AtomicTaggedPtr;
+pub use tagged_ptr::AtomicTaggedUsize;
 pub use test_logger::silence_ena_logging;
 pub use test_logger::test_logger;
 pub use test_logger::test_threads;

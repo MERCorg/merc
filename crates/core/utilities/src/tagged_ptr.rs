@@ -2,6 +2,7 @@ use std::fmt;
 use std::mem::align_of;
 use std::ptr::NonNull;
 use std::sync::atomic::AtomicPtr;
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 /// An atomic pointer to a `T` that stores a flag in the lowest bit of its address.
@@ -67,6 +68,60 @@ impl<T> fmt::Debug for AtomicTaggedPtr<T> {
     }
 }
 
+/// An atomic `usize` that stores a flag in its most significant bit, see [AtomicTaggedPtr].
+///
+/// Values must leave that bit free, which is checked on construction. All operations are relaxed
+/// for the same reason as for [AtomicTaggedPtr].
+pub struct AtomicTaggedUsize {
+    value: AtomicUsize,
+}
+
+impl AtomicTaggedUsize {
+    /// The bit of the value that stores the flag.
+    const TAG: usize = 1 << (usize::BITS - 1);
+
+    /// Creates an untagged value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the most significant bit of `value` is set.
+    pub fn new(value: usize) -> Self {
+        assert!(value & Self::TAG == 0, "The value {value} must leave the tag bit free");
+        Self {
+            value: AtomicUsize::new(value),
+        }
+    }
+
+    /// Returns the value without the tag.
+    pub fn load(&self) -> usize {
+        self.value.load(Ordering::Relaxed) & !Self::TAG
+    }
+
+    /// Returns true iff the tag is set.
+    pub fn is_tagged(&self) -> bool {
+        self.value.load(Ordering::Relaxed) & Self::TAG != 0
+    }
+
+    /// Sets the tag and returns whether it was already set.
+    pub fn set_tag(&self) -> bool {
+        self.value.fetch_or(Self::TAG, Ordering::Relaxed) & Self::TAG != 0
+    }
+
+    /// Clears the tag.
+    pub fn clear_tag(&self) {
+        self.value.fetch_and(!Self::TAG, Ordering::Relaxed);
+    }
+}
+
+impl fmt::Debug for AtomicTaggedUsize {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("AtomicTaggedUsize")
+            .field("value", &self.load())
+            .field("tagged", &self.is_tagged())
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::ptr::NonNull;
@@ -74,6 +129,7 @@ mod tests {
     use std::thread;
 
     use super::AtomicTaggedPtr;
+    use super::AtomicTaggedUsize;
 
     #[test]
     fn test_tag_does_not_change_pointer() {
@@ -111,6 +167,48 @@ mod tests {
 
         for _ in 0..10_000 {
             assert_eq!(tagged.load(), ptr.as_ptr());
+        }
+        toggler.join().unwrap();
+    }
+
+    #[test]
+    fn test_tag_does_not_change_value() {
+        let tagged = AtomicTaggedUsize::new(42);
+
+        assert!(!tagged.is_tagged());
+        assert!(!tagged.set_tag(), "the tag was not set before");
+        assert!(tagged.is_tagged());
+        assert!(tagged.set_tag(), "the tag was already set");
+        assert_eq!(tagged.load(), 42);
+
+        tagged.clear_tag();
+        assert!(!tagged.is_tagged());
+        assert_eq!(tagged.load(), 42);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_value_with_tag_bit_is_rejected() {
+        AtomicTaggedUsize::new(usize::MAX);
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // Too slow under miri.
+    fn test_concurrent_loads_see_untagged_value() {
+        let tagged = Arc::new(AtomicTaggedUsize::new(7));
+
+        let toggler = {
+            let tagged = tagged.clone();
+            thread::spawn(move || {
+                for _ in 0..10_000 {
+                    tagged.set_tag();
+                    tagged.clear_tag();
+                }
+            })
+        };
+
+        for _ in 0..10_000 {
+            assert_eq!(tagged.load(), 7);
         }
         toggler.join().unwrap();
     }
