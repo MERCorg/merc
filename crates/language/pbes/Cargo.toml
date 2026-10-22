@@ -1,0 +1,32 @@
+[package]
+name = "merc_pbes"
+readme = "README.md"
+
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+delegate.workspace = true
+ena.workspace = true
+log.workspace = true
+rustc-hash.workspace = true
+thiserror.workspace = true
+
+merc_aterm.workspace = true
+merc_collections.workspace = true
+merc_data.workspace = true
+merc_macros.workspace = true
+merc_syntax.workspace = true
+merc_typecheck = { workspace = true, features = ["internal"] }
+merc_utilities.workspace = true
+
+[dev-dependencies]
+rand.workspace = true
+test-case.workspace = true
+
+[lints]
+workspace = true

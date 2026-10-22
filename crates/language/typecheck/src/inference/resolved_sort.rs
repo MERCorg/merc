@@ -12,13 +12,13 @@ use merc_utilities::TagIndex;
 use crate::TypeCheckContext;
 
 /// A unique type for interned resolved sorts.
-pub(crate) struct ResolvedSortTag;
+pub struct ResolvedSortTag;
 
 /// An index into a [SortInterner], identifying a unique resolved sort.
 ///
 /// Because sorts are interned, two ids are equal if and only if the sorts they
 /// denote are equal, so equality of sorts is a comparison of two integers.
-pub(crate) type ResolvedSortId = TagIndex<usize, ResolvedSortTag>;
+pub type ResolvedSortId = TagIndex<usize, ResolvedSortTag>;
 
 /// A type in the mCRL2 type system, called a *sort*.
 ///

@@ -6,7 +6,6 @@ mod ir;
 mod lowering;
 mod modal;
 mod number_encoding;
-mod pbes;
 mod pres;
 mod process;
 mod resolution;
@@ -36,8 +35,6 @@ pub use modal::ModalEquationSystem;
 pub use modal::ModalError;
 pub use modal::ModalSpecification;
 pub use number_encoding::NumberEncoding;
-pub use pbes::PbesError;
-pub use pbes::PbesSpecification;
 pub use pres::PresError;
 pub use pres::PresSpecification;
 pub use process::ProcessError;
@@ -48,3 +45,47 @@ pub use typing_info::ResolvedName;
 pub use typing_info::TypedNode;
 pub use typing_info::TypingInfo;
 pub(crate) use typing_info::declared_span;
+
+/// The building blocks for type checking a specification defined in another crate, such as the
+/// PBES specifications of `merc_pbes`: variable resolution, scoped expression checking, and
+/// recording typing information. These are implementation details of the type checker and not a
+/// stable interface, hence only available with the `internal` feature.
+#[cfg(feature = "internal")]
+#[doc(hidden)]
+pub mod internal {
+    use merc_syntax::Span;
+
+    use crate::DataSpecification;
+    use crate::ResolvedName;
+    use crate::TypingInfo;
+
+    pub use crate::inference::ResolvedSortId;
+    pub use crate::inference::ResolvedSortTag;
+    pub use crate::resolution::NameStack;
+    pub use crate::resolution::Scope as VariableScope;
+    pub use crate::resolution::resolve_in_data_expr;
+    pub use crate::resolution::resolve_in_prop_var_inst;
+    pub use crate::typing_info::SortReference;
+    pub use crate::typing_info::collect_sort_name_references;
+    pub use crate::typing_info::declared_span;
+    pub use crate::typing_info::push_sort_references;
+
+    /// The resolved `Bool` sort of `data`.
+    pub fn bool_sort(data: &DataSpecification) -> ResolvedSortId {
+        data.context().sorts.bool_sort()
+    }
+
+    /// Records that the occurrence at `span` resolves to `name`.
+    pub fn push_resolved_name(typing: &mut TypingInfo, span: Span, name: ResolvedName) {
+        typing.push(span, name);
+    }
+
+    /// Shared building blocks for checking expressions in the scope of a declaration.
+    pub mod checking {
+        pub use crate::checking::Scope;
+        pub use crate::checking::check_expression_against;
+        pub use crate::checking::collect_binder_sorts;
+        pub use crate::checking::declare_variables;
+        pub use crate::checking::resolve_declared_sort;
+    }
+}

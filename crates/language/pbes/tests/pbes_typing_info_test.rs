@@ -1,9 +1,5 @@
-//! Tests for [`PbesSpecification::typing_info`]: the span-keyed hover/go-to-definition
-//! information accumulated over a checked PBES's `val(...)` expressions, `PropVarInst` arguments,
-//! and quantifier binders.
-
+use merc_pbes::PbesSpecification;
 use merc_syntax::UntypedPbes;
-use merc_typecheck::PbesSpecification;
 use merc_typecheck::ResolvedName;
 use merc_typecheck::TypingInfo;
 

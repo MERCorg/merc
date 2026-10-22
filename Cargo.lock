@@ -1061,6 +1061,7 @@ dependencies = [
  "log",
  "merc_aterm",
  "merc_data",
+ "merc_pbes",
  "merc_rec-tests",
  "merc_sabre",
  "merc_sabre-compiling",
@@ -1242,6 +1243,26 @@ dependencies = [
  "merc_utilities",
  "num",
  "rand",
+]
+
+[[package]]
+name = "merc_pbes"
+version = "2.0.0"
+dependencies = [
+ "delegate",
+ "ena",
+ "log",
+ "merc_aterm",
+ "merc_collections",
+ "merc_data",
+ "merc_macros",
+ "merc_syntax",
+ "merc_typecheck",
+ "merc_utilities",
+ "rand",
+ "rustc-hash 2.1.3",
+ "test-case",
+ "thiserror",
 ]
 
 [[package]]

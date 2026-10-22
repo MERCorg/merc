@@ -1,10 +1,6 @@
-//! Whole-PBES-specification type-checking tests: global variables, propositional-variable
-//! equations, and `init`, on top of the data-specification checking `data_specification_test.rs`
-//! already covers.
-
+use merc_pbes::PbesError;
+use merc_pbes::PbesSpecification;
 use merc_syntax::UntypedPbes;
-use merc_typecheck::PbesError;
-use merc_typecheck::PbesSpecification;
 
 /// Type checks `text`, asserting it is accepted.
 #[track_caller]
