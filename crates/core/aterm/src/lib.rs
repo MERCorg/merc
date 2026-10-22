@@ -19,7 +19,7 @@ pub mod storage;
 pub(crate) use aterm_int::*;
 pub(crate) use aterm_list::*;
 pub(crate) use garbage_collection_pause::is_garbage_collection_paused;
-pub(crate) use parse_term::*;
+pub(crate) use parse_term::parse_term;
 #[cfg(test)]
 pub(crate) use random_term::*;
 
@@ -51,6 +51,7 @@ pub use aterm_string::ATermString;
 pub use aterm_string::ATermStringRef;
 pub use garbage_collection_pause::GarbageCollectionPause;
 pub use markable::Markable;
+pub use parse_term::ParseTermError;
 pub use protected::Protected;
 pub use protected::ProtectedReadGuard;
 pub use protected::ProtectedSend;

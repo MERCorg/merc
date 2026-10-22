@@ -1146,15 +1146,13 @@ dependencies = [
  "merc_io",
  "merc_macros",
  "merc_number",
- "merc_pest_consume",
  "merc_sharedmutex",
  "merc_unsafety",
  "merc_utilities",
  "parking_lot",
- "pest",
- "pest_derive",
  "rand",
  "rustc-hash 2.1.3",
+ "thiserror",
  "trybuild",
 ]
 

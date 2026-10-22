@@ -12,7 +12,6 @@ use std::sync::Mutex;
 
 use log::debug;
 
-use merc_pest_consume::Parser;
 use merc_sharedmutex::RecursiveLock;
 use merc_sharedmutex::RecursiveLockReadGuard;
 use merc_unsafety::ProtectionIndex;
@@ -24,15 +23,14 @@ use merc_utilities::debug_trace;
 use crate::ATermIndex;
 use crate::Markable;
 use crate::Return;
-use crate::Rule;
 use crate::Symb;
 use crate::Symbol;
 use crate::SymbolRef;
 use crate::Term;
-use crate::TermParser;
 use crate::aterm::ATerm;
 use crate::aterm::ATermRef;
 use crate::is_garbage_collection_paused;
+use crate::parse_term;
 use crate::storage::GlobalTermPool;
 use crate::storage::GlobalTermPoolGuard;
 use crate::storage::MAX_FIXED_ARITY;
@@ -436,10 +434,7 @@ impl ThreadTermPool {
 
     /// Parse the given string and returns the Term representation.
     pub fn from_string(&self, text: &str) -> Result<ATerm, MercError> {
-        let mut result = TermParser::parse(Rule::TermSpec, text)?;
-        let root = result.next().unwrap();
-
-        Ok(TermParser::TermSpec(root).unwrap())
+        Ok(parse_term(self, text)?)
     }
 
     /// Protects a symbol from garbage collection.
