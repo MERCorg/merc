@@ -25,11 +25,11 @@ jobs:
     - name: Run Kani on merc_unsafety
       uses: model-checking/kani-github-action@v1
       with:
-        working-directory: crates/unsafety
+        working-directory: crates/core/unsafety
         requested_version: 0.68.0
 
     - name: Run Kani on merc_number
       uses: model-checking/kani-github-action@v1
       with:
-        working-directory: crates/number
+        working-directory: crates/core/number
         requested_version: 0.68.0
