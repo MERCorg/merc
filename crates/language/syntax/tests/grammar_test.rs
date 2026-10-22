@@ -16,6 +16,7 @@ use test_case::test_case;
 /// whose names *start* with `in`, `div`, or `mod` were incorrectly tokenised
 /// as a keyword followed by the rest of the identifier.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn keywords_are_not_prefix_of_identifiers() {
     // `index` starts with `in` — must parse as a plain identifier.
     UntypedProcessSpecification::parse("map index: Bool -> Bool;")
@@ -34,6 +35,7 @@ fn keywords_are_not_prefix_of_identifiers() {
 /// `"3 div 2"` could mis-parse because the parser consumed the trailing space
 /// as part of the number and left `div` unrecognised as an operator.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn number_token_does_not_absorb_whitespace() {
     // A Number followed immediately by a keyword must still parse correctly.
     // Parsing fails on the leading `val(...)` wrapper in a data-specification
@@ -50,6 +52,7 @@ fn number_token_does_not_absorb_whitespace() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn test_parse_ifthen() {
     let expr = "init a -> b <> b;";
 
@@ -119,6 +122,7 @@ fn test_parse_ifthen() {
 // }
 
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn test_parse_keywords() {
     let expr = "map or : Boolean # Boolean -> Boolean ;";
 
@@ -133,6 +137,7 @@ fn test_parse_keywords() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn test_parse_sort_spec() {
     let sort_spec = indoc! {"
         sort D = Bool -> Int -> Bool;
@@ -161,6 +166,7 @@ fn test_parse_sort_spec() {
 /// (`merc_typecheck::resolve_type_var_ids`) that runs later, before type checking, precisely so
 /// the parser doesn't need to know which names are in scope as type variables.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn test_parse_type_var_spec() {
     let spec = indoc! {"
         type_var S;
@@ -212,6 +218,7 @@ fn is_list_of_reference(sort: &merc_syntax::SortExpression, name: &str) -> bool 
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn test_parse_regular_expression() {
     let spec = "[true++false]true";
 
@@ -226,6 +233,7 @@ fn test_parse_regular_expression() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn test_parse_procexpr() {
     test_logger();
 
@@ -246,6 +254,7 @@ fn test_parse_procexpr() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn test_parse_statefrm() {
     test_logger();
 
@@ -264,6 +273,7 @@ fn test_parse_statefrm() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn test_sort_precedence() {
     let term = "Bool # Int -> Int -> Bool";
 
@@ -326,6 +336,7 @@ fn test_machine_number_spec(spec: &str) {
 
 /// `EqnSpec`'s span covers the whole `var ... eqn ...` block.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn eqn_spec_span_covers_the_whole_block() {
     let text = "sort D;\nvar x: D;\neqn x = x;";
     let spec = UntypedDataSpecification::parse(text).expect("the specification should parse");
@@ -340,6 +351,7 @@ fn eqn_spec_span_covers_the_whole_block() {
 
 /// A block with no `var` section starts its span at `eqn`, not at some earlier declaration.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn eqn_spec_span_without_a_var_section_starts_at_eqn() {
     let text = "map f: Bool;\neqn f = true;";
     let spec = UntypedDataSpecification::parse(text).expect("the specification should parse");
@@ -352,6 +364,7 @@ fn eqn_spec_span_without_a_var_section_starts_at_eqn() {
 /// A grouped declaration (`sort A, B, C;`, and its `cons`/`map`/`var`/`glob`/`act` siblings) gives
 /// each identifier its own precise span.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn grouped_sort_declarations_get_distinct_precise_spans() {
     let text = "sort A, B, C;";
     let spec = UntypedDataSpecification::parse(text).expect("the specification should parse");
@@ -366,6 +379,7 @@ fn grouped_sort_declarations_get_distinct_precise_spans() {
 /// The `sort A = Bool;` alias form (never grouped — it only ever names one sort) gets a span
 /// precisely covering the identifier, not the whole `A = Bool;`.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn sort_alias_declaration_span_is_precisely_the_identifier() {
     let text = "sort L = List(Nat);";
     let spec = UntypedDataSpecification::parse(text).expect("the specification should parse");
@@ -376,6 +390,7 @@ fn sort_alias_declaration_span_is_precisely_the_identifier() {
 /// A `struct` sort expression's own constructor/projection/recogniser names each get a precise
 /// span of their own.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn struct_constructor_projection_and_recogniser_get_precise_spans() {
     let text = "sort D = struct c1(a1: Bool, Nat)?is_c1 | c2;";
     let spec = UntypedDataSpecification::parse(text).expect("the specification should parse");
@@ -400,6 +415,7 @@ fn struct_constructor_projection_and_recogniser_get_precise_spans() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn grouped_constructor_declarations_get_distinct_precise_spans() {
     let text = "sort D; cons c1, c2: D;";
     let spec = UntypedDataSpecification::parse(text).expect("the specification should parse");
@@ -414,6 +430,7 @@ fn grouped_constructor_declarations_get_distinct_precise_spans() {
 /// Each `ActDecl` exploded out of a grouped `act a, b: Bool;` gets its own precise identifier
 /// span.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn grouped_action_declarations_get_distinct_precise_spans() {
     let text = "act a, b: Bool;";
     let spec = UntypedProcessSpecification::parse(text).expect("the specification should parse");
@@ -431,6 +448,7 @@ fn grouped_action_declarations_get_distinct_precise_spans() {
 /// `Assignment` (a process instantiation's `x = e`, as in `P(x = 1)`) carries a span precisely
 /// covering the identifier.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn assignment_span_is_precisely_the_identifier() {
     let text = "proc P(x: Bool) = delta; init P(x = true);";
     let spec = UntypedProcessSpecification::parse(text).expect("the specification should parse");
@@ -443,6 +461,7 @@ fn assignment_span_is_precisely_the_identifier() {
 
 /// `ProcDecl` carries both its own span and the identifier span.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn process_declaration_identifier_span_is_precisely_the_identifier() {
     let text = "proc P(x: Bool) = delta;\nproc Q = tau;\ninit P(true);";
     let spec = UntypedProcessSpecification::parse(text).expect("the specification should parse");
@@ -464,6 +483,7 @@ fn process_declaration_identifier_span_is_precisely_the_identifier() {
 /// `identifier`'s own span, covering only `Id` — mirroring `ActionName`, so a later pass (hover,
 /// go-to-definition) can point at just the name rather than the whole instantiation.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn prop_var_inst_identifier_span_is_precisely_the_identifier() {
     let text = "pbes mu X(n: Nat) = val(n == n); init X(0);";
     let pbes = merc_syntax::UntypedPbes::parse(text).expect("the specification should parse");
@@ -476,6 +496,7 @@ fn prop_var_inst_identifier_span_is_precisely_the_identifier() {
 
 /// `PropVarDecl` carries both its own span and the identifier span
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn prop_var_decl_identifier_span_is_precisely_the_identifier() {
     let text = "pbes mu X(n: Nat) = val(n == n) && Y; nu Y = val(true); init X(0);";
     let pbes = merc_syntax::UntypedPbes::parse(text).expect("the specification should parse");
@@ -496,6 +517,7 @@ fn prop_var_decl_identifier_span_is_precisely_the_identifier() {
 /// `EqnSpec`'s span must not absorb whitespace or a following declaration past its own final
 /// `;`.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn eqn_spec_span_does_not_absorb_trailing_whitespace() {
     let text = "sort D;\nvar x: D;\neqn x = x;\n\nmap g: D;\n";
     let spec = UntypedDataSpecification::parse(text).expect("the specification should parse");

@@ -7,6 +7,7 @@ use delegate::delegate;
 use merc_aterm::ATerm;
 use merc_aterm::ATermArgs;
 use merc_aterm::ATermIndex;
+use merc_aterm::ATermInt;
 use merc_aterm::ATermList;
 use merc_aterm::ATermRef;
 use merc_aterm::ATermString;
@@ -18,6 +19,7 @@ use merc_aterm::TermBuilder;
 use merc_aterm::TermIterator;
 use merc_aterm::Transmutable;
 use merc_aterm::Yield;
+use merc_aterm::is_int_term;
 use merc_aterm::storage::Marker;
 use merc_aterm::storage::THREAD_TERM_POOL;
 use merc_macros::merc_derive_terms;
@@ -743,6 +745,13 @@ pub fn to_untyped_data_expression(t: ATerm, variables: Option<&AHashSet<String>>
                 tp,
                 t,
                 |_tp, args, t| {
+                    if is_int_term(&t) {
+                        // Numerals such as '0' are untyped constants, like any other identifier.
+                        return Ok(Yield::Term(
+                            DataFunctionSymbol::new(ATermInt::from(t).value().to_string().as_str()).into(),
+                        ));
+                    }
+
                     let name = t.get_head_symbol().name();
                     if t.get_head_symbol().arity() == 0 {
                         if variables.is_some_and(|v| v.contains(name)) {

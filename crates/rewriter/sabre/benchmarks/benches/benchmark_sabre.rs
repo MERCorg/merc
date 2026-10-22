@@ -111,13 +111,19 @@ pub fn criterion_benchmark_sabre_rewriter(c: &mut Criterion) {
 /// [ConditionCache] takes markedly fewer steps than a 1-entry one that is
 /// evicted before a subterm's second use arrives.
 const CONDITION_CACHE_CASES: &[(&str, &[&str])] = &[
-    ("oddeven", &[include_str!("../../../../examples/REC/rec/oddeven.rec")]),
-    ("evalexpr", &[include_str!("../../../../examples/REC/rec/evalexpr.rec")]),
+    (
+        "oddeven",
+        &[include_str!("../../../../../examples/REC/rec/oddeven.rec")],
+    ),
+    (
+        "evalexpr",
+        &[include_str!("../../../../../examples/REC/rec/evalexpr.rec")],
+    ),
     (
         "tak18",
         &[
-            include_str!("../../../../examples/REC/rec/tak18.rec"),
-            include_str!("../../../../examples/REC/rec/tak.rec"),
+            include_str!("../../../../../examples/REC/rec/tak18.rec"),
+            include_str!("../../../../../examples/REC/rec/tak.rec"),
         ],
     ),
 ];
