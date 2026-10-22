@@ -71,8 +71,6 @@ pub(crate) struct GlobalTermPool {
     orphan_container_protection_set: FxHashMap<usize, Arc<dyn Markable + Sync + Send>>,
 
     // Data structures used for garbage collection
-    /// Used to avoid reallocations for the markings of all symbols
-    marked_symbols: FxHashSet<SymbolIndex>,
     /// A stack used to mark terms recursively.
     stack: Vec<ATermIndex>,
 
@@ -112,7 +110,6 @@ impl GlobalTermPool {
             orphan_term_protection_set: FxHashSet::default(),
             orphan_symbol_protection_set: FxHashSet::default(),
             orphan_container_protection_set: FxHashMap::default(),
-            marked_symbols: FxHashSet::default(),
             stack: Vec::new(),
             garbage_collection: true,
             gc_budget: AtomicUsize::new(0),
@@ -347,7 +344,6 @@ impl GlobalTermPool {
         }
 
         // Clear marking data structures
-        self.marked_symbols.clear();
         self.stack.clear();
     }
 
@@ -355,19 +351,10 @@ impl GlobalTermPool {
     /// and reclaims protection sets of threads that have exited.
     fn mark_roots(&mut self) {
         // Mark the default symbols
-        // SAFETY: mark-set entries only live for the duration of this collection pass
-        // (the sets are drained by the sweep below), and a marked symbol is by
-        // definition retained by the sweep.
-        unsafe {
-            self.marked_symbols.insert(self.int_symbol.shared().copy());
-            self.marked_symbols.insert(self.list_symbol.shared().copy());
-            self.marked_symbols.insert(self.empty_list_symbol.shared().copy());
-        }
-
-        let mut marker = Marker {
-            marked_symbols: &mut self.marked_symbols,
-            stack: &mut self.stack,
-        };
+        let mut marker = Marker { stack: &mut self.stack };
+        marker.mark_symbol(&self.int_symbol);
+        marker.mark_symbol(&self.list_symbol);
+        marker.mark_symbol(&self.empty_list_symbol);
 
         // Loop through all protection sets and mark the terms.
         for pool in self.thread_pools.iter().flatten() {
@@ -376,10 +363,8 @@ impl GlobalTermPool {
 
             for (_root, symbol) in pool.symbol_protection_set.iter() {
                 debug_trace!("Marking root {_root} symbol {symbol:?}");
-                // Remove all symbols that are not protected
-                // SAFETY: the protection set keeps the symbol alive, and the mark-set
-                // entry is dropped when the sweep below finishes.
-                marker.marked_symbols.insert(unsafe { symbol.copy() });
+                // SAFETY: the protection set keeps the symbol alive.
+                unsafe { symbol.deref() }.mark();
             }
 
             for (_root, term) in pool.term_protection_set.iter() {
@@ -426,9 +411,8 @@ impl GlobalTermPool {
 
         for symbol in &self.orphan_symbol_protection_set {
             debug_trace!("Marking orphaned symbol {symbol:?}");
-            // SAFETY: the orphan set keeps the symbol alive, and the mark-set entry is dropped
-            // when the sweep below finishes.
-            marker.marked_symbols.insert(unsafe { symbol.copy() });
+            // SAFETY: the orphan set keeps the symbol alive.
+            unsafe { symbol.deref() }.mark();
         }
 
         for container in self.orphan_container_protection_set.values() {
@@ -479,11 +463,14 @@ impl GlobalTermPool {
         // SAFETY: Unmarked symbols are not referenced by any marked term or protection set root.
         unsafe {
             self.symbol_pool.retain(|symbol| {
-                if !self.marked_symbols.contains(symbol) {
+                let shared = symbol.deref();
+                if !shared.is_marked() {
                     debug_trace!("Dropping symbol: {:?}", symbol);
                     return false;
                 }
 
+                // Leave no marks behind for the next collection.
+                shared.unmark();
                 true
             });
         }
@@ -606,16 +593,15 @@ impl fmt::Display for ProtectionMetrics<'_> {
 
 /// Helper struct to pass private data required to mark term recursively.
 pub struct Marker<'a> {
-    marked_symbols: &'a mut FxHashSet<SymbolIndex>,
     stack: &'a mut Vec<ATermIndex>,
 }
 
 impl Marker<'_> {
     // Marks the given term as being reachable.
     pub fn mark(&mut self, term: &ATermRef<'_>) {
-        // SAFETY: all copies below go into the mark sets and the work stack, which are
-        // drained before the collection pass ends, and a marked term or symbol is by
-        // definition retained by the sweep; `term` itself is alive for the borrow.
+        // SAFETY: all copies below go into the work stack, which is drained before the
+        // collection pass ends, and a marked term or symbol is by definition retained by
+        // the sweep; `term` itself is alive for the borrow.
         unsafe {
             // A term is marked when it is pushed, so that a shared subterm is pushed only once.
             if term.shared().deref().mark() {
@@ -627,7 +613,7 @@ impl Marker<'_> {
                     let shared = term.deref();
 
                     // Mark the function symbol.
-                    self.marked_symbols.insert(shared.symbol().shared().copy());
+                    shared.symbol().shared().deref().mark();
 
                     // The arguments slice already has exactly the symbol's arity as its length
                     // (integer terms reconstruct to an empty slice), so iterating it is correct.
@@ -643,9 +629,8 @@ impl Marker<'_> {
 
     /// Marks the given symbol as being reachable.
     pub fn mark_symbol(&mut self, symbol: &SymbolRef<'_>) {
-        // SAFETY: see `mark`; the entry is dropped when the sweep finishes and a marked
-        // symbol is retained by it.
-        self.marked_symbols.insert(unsafe { symbol.shared().copy() });
+        // SAFETY: `symbol` is alive for the borrow.
+        unsafe { symbol.shared().deref() }.mark();
     }
 }
 
@@ -656,9 +641,11 @@ mod tests {
     use merc_utilities::random_test;
 
     use crate::ATerm;
+    use crate::Symb;
     use crate::Symbol;
     use crate::Term;
     use crate::random_term;
+    use crate::storage::THREAD_TERM_POOL;
 
     #[test]
     #[cfg_attr(miri, ignore)]
@@ -677,6 +664,23 @@ mod tests {
                 }
             }
         });
+    }
+
+    #[test]
+    fn test_symbol_reachable_through_term_survives_collection() {
+        let term = {
+            let f = Symbol::new("only_reachable_through_term", 1);
+            ATerm::with_args(&f, &[ATerm::constant(&Symbol::new("a", 0))]).protect()
+        };
+
+        // Collect twice, so the second collection also sees the marks cleared by the first.
+        THREAD_TERM_POOL.with(|tp| tp.force_collect_garbage());
+        THREAD_TERM_POOL.with(|tp| tp.force_collect_garbage());
+
+        let head = term.get_head_symbol();
+        assert_eq!(head.name(), "only_reachable_through_term");
+        assert_eq!(head.arity(), 1, "the mark must not leak into the arity");
+        assert_eq!(head, Symbol::new("only_reachable_through_term", 1).copy());
     }
 
     #[test]
