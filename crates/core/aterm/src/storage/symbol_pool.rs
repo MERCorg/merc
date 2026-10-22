@@ -15,6 +15,7 @@ use merc_unsafety::SliceDst;
 use merc_unsafety::StablePointer;
 use merc_unsafety::StablePointerSet;
 use merc_unsafety::repr_c;
+use merc_utilities::AtomicTaggedUsize;
 
 use crate::Symb;
 use crate::SymbolIndex;
@@ -155,8 +156,10 @@ impl SymbolPool {
 /// arity on the term hot path does not need to reconstruct the wide pointer.
 #[repr(C)]
 pub(crate) struct SymbolHeader {
-    /// Number of arguments
-    arity: usize,
+    /// Number of arguments, tagged with the garbage collection mark so that marking needs no
+    /// separate set. As for terms, the mark is only changed while the pool is held exclusively,
+    /// but other threads may read the arity meanwhile.
+    arity: AtomicTaggedUsize,
     /// Length of the name in bytes
     len: usize,
 }
@@ -183,7 +186,22 @@ impl SharedSymbol {
 
     /// Returns the arity of the function symbol
     pub fn arity(&self) -> usize {
-        self.header.arity
+        self.header.arity.load()
+    }
+
+    /// Marks the symbol as reachable and returns true iff it was not marked before.
+    pub(crate) fn mark(&self) -> bool {
+        !self.header.arity.set_tag()
+    }
+
+    /// Returns true iff the symbol is marked as reachable.
+    pub(crate) fn is_marked(&self) -> bool {
+        self.header.arity.is_tagged()
+    }
+
+    /// Removes the reachability mark of the symbol.
+    pub(crate) fn unmark(&self) {
+        self.header.arity.clear_tag()
     }
 
     /// Returns a unique index for this shared symbol
@@ -199,7 +217,7 @@ impl SharedSymbol {
     /// `ptr` must point to a live [SharedSymbol].
     pub(crate) unsafe fn arity_of(ptr: ErasedPtr) -> usize {
         // SAFETY: the caller guarantees that `ptr` points to a live symbol, which starts with its header.
-        unsafe { ptr.cast::<SymbolHeader>().as_ref().arity }
+        unsafe { ptr.cast::<SymbolHeader>().as_ref().arity.load() }
     }
 
     /// Constructs a symbol in the uninitialised memory at `ptr`, which must be
@@ -208,7 +226,10 @@ impl SharedSymbol {
         // SAFETY: the caller guarantees `ptr` is allocated with the layout for `name.len()` bytes.
         unsafe {
             ptr.cast::<SymbolHeader>()
-                .write(SymbolHeader { arity, len: name.len() });
+                .write(SymbolHeader {
+                    arity: AtomicTaggedUsize::new(arity),
+                    len: name.len(),
+                });
             std::ptr::copy_nonoverlapping(name.as_ptr(), (&raw mut (*ptr).name).cast::<u8>(), name.len());
         }
     }
