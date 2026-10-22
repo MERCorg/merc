@@ -35,7 +35,7 @@ rfd = { version = "0.17" }
 slint = { version = "1.18", features = ["compat-1-2", "std", "accessibility", "backend-winit", "renderer-femtovg"], default-features = false }
 slint-build = "1.18"
 tiny-skia = "0.12"
-tokio = { version = "1.53", features = ["rt", "macros"] }
+tokio = { version = "1.54", features = ["rt", "macros"] }
 # This version must be kept in sync with femtovg
 wgpu = "30.0"
 rand = "0.10"
@@ -44,9 +44,11 @@ rand = "0.10"
 criterion = "0.8"
 
 # The workspace libraries.
-merc_io = { path = "../../crates/io" }
-merc_lts = { path = "../../crates/lts" }
 merc_ltsgraph_lib = { path = "ltsgraph-lib" }
-merc_tools = { path = "../../crates/tools" }
-merc_unsafety = { path = "../../crates/unsafety" }
-merc_utilities = { path = "../../crates/utilities" }
+
+merc_io = { path = "../../crates/core/io" }
+merc_tools = { path = "../../crates/core/tools" }
+merc_unsafety = { path = "../../crates/core/unsafety" }
+merc_utilities = { path = "../../crates/core/utilities" }
+
+merc_lts = { path = "../../crates/transition_systems/lts" }

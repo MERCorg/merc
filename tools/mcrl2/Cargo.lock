@@ -973,6 +973,7 @@ name = "merc_io"
 version = "3.0.0"
 dependencies = [
  "log",
+ "merc_number",
  "merc_utilities",
  "rand",
  "regex",

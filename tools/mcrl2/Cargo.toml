@@ -51,22 +51,26 @@ which = "8.0"
 mcrl2 = { path = "crates/mcrl2" }
 mcrl2-macros = { path = "crates/mcrl2-macros" }
 mcrl2-sys = { git = "https://github.com/MERCorg/mCRL2-sys", rev = "e337b2dc8243844f8b40cf2c632417b3ec58c421" }
-merc_aterm = { path = "../../crates/aterm" }
-merc_collections = { path = "../../crates/collections" }
-merc_data = { path = "../../crates/data" }
-merc_explore = { path = "../../crates/explore", features = ["clap"] }
-merc_io = { path = "../../crates/io" }
 merc_lps = { path = "crates/merc_lps" }
-merc_lts = { path = "../../crates/lts", features = ["clap"] }
 merc_pbes = { path = "crates/merc_pbes" }
-merc_reduction = { path = "../../crates/reduction" }
-merc_symbolic = { path = "../../crates/symbolic", features = ["clap"] }
-merc_tools = { path = "../../crates/tools" }
-merc_typecheck = { path = "../../crates/typecheck" }
-merc_unsafety = { path = "../../crates/unsafety" }
-merc_syntax = { path = "../../crates/syntax" }
-merc_utilities = { path = "../../crates/utilities" }
-merc_vpg = { path = "../../crates/vpg" }
+
+merc_aterm = { path = "../../crates/core/aterm" }
+merc_collections = { path = "../../crates/core/collections" }
+merc_io = { path = "../../crates/core/io" }
+merc_tools = { path = "../../crates/core/tools" }
+merc_unsafety = { path = "../../crates/core/unsafety" }
+merc_utilities = { path = "../../crates/core/utilities" }
+
+merc_data = { path = "../../crates/rewriter/data" }
+
+merc_explore = { path = "../../crates/transition_systems/explore", features = ["clap"] }
+merc_lts = { path = "../../crates/transition_systems/lts", features = ["clap"] }
+merc_reduction = { path = "../../crates/transition_systems/reduction" }
+merc_symbolic = { path = "../../crates/transition_systems/symbolic", features = ["clap"] }
+merc_vpg = { path = "../../crates/transition_systems/vpg" }
+
+merc_typecheck = { path = "../../crates/language/typecheck" }
+merc_syntax = { path = "../../crates/language/syntax" }
 
 oxidd = { version = "0.13", features = ["multi-threading"] }
 
