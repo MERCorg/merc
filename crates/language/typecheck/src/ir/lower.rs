@@ -163,6 +163,7 @@ mod tests {
     #[test_case("x / y", "/(x, y)"; "divide")]
     #[test_case("x div y", "div(x, y)"; "int div")]
     #[test_case("x mod y", "mod(x, y)"; "modulo")]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_lower_binary_operator(text: &str, expected: &str) {
         assert_eq!(lowered(text), expected);
     }
@@ -171,6 +172,7 @@ mod tests {
     #[test_case("-x", "-(x)"; "unary minus")]
     #[test_case("#x", "#(x)"; "size")]
     #[test_case("-5", "-(5)"; "negative number literal parses as unary minus")]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_lower_unary_operator(text: &str, expected: &str) {
         assert_eq!(lowered(text), expected);
     }
@@ -180,11 +182,13 @@ mod tests {
     #[test_case("[]", "[]"; "empty list")]
     #[test_case("[[x], []]", "|>(|>(x, []), |>([], []))"; "nested lists")]
     #[test_case("[x + y]", "|>(+(x, y), [])"; "operator inside element")]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_lower_list_literal(text: &str, expected: &str) {
         assert_eq!(lowered(text), expected);
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_lower_function_update() {
         assert_eq!(lowered("f[x -> y]"), "@func_update(f, x, y)");
         assert_eq!(
@@ -201,6 +205,7 @@ mod tests {
     #[test_case("{ n: Nat | n < m }", "{ n: Nat | <(n, m) }"; "comprehension predicate")]
     #[test_case("g(x + y)", "g(+(x, y))"; "application arguments")]
     #[test_case("f[x -> y](z)", "@func_update(f, x, y)(z)"; "application function position")]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_lower_recurses(text: &str, expected: &str) {
         assert_eq!(lowered(text), expected);
     }
@@ -211,11 +216,13 @@ mod tests {
     #[test_case("5"; "number literal")]
     #[test_case("{}"; "empty set")]
     #[test_case("{:}"; "empty bag")]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_lower_keeps_literals(text: &str) {
         assert_eq!(lowered(text), text);
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_boolean_literal_is_not_an_identifier() {
         assert!(matches!(
             lower_data_expr(parse_expr("true")).node,
@@ -224,6 +231,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_lower_data_expressions_covers_conditions() {
         let mut spec = UntypedDataSpecification::parse("map f: Bool; var n: Nat; eqn n < 2 -> f = n == n;").unwrap();
         lower_data_expressions(&mut spec);

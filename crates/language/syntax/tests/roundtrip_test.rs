@@ -26,6 +26,7 @@ use merc_utilities::random_test;
 /// PBES quantifiers used to panic because `forall`/`exists` were registered as
 /// prefix operators but only handled in the postfix closure.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn pbes_quantifiers_parse() {
     let pbes = UntypedPbes::parse("pbes mu X = forall n: Nat . val(n < 3) => exists m: Nat . val(m < n); init X;")
         .expect("PBES with quantifiers should parse");
@@ -42,6 +43,7 @@ fn pbes_quantifiers_parse() {
 
 /// `sum`/`inf`/`sup` state-formula operators used to all collapse to `Bound::Sup`.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn state_formula_bounds_are_distinct() {
     for (input, expected) in [
         ("sum n: Nat . val(n < 3)", Bound::Sum),
@@ -58,6 +60,7 @@ fn state_formula_bounds_are_distinct() {
 
 /// The process `<<` (until) operator used to hit `unimplemented!`.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn process_until_operator_parses() {
     let spec = UntypedProcessSpecification::parse("init a << b;").expect("`<<` should parse");
     match spec.init.expect("init present").into_node() {
@@ -68,6 +71,7 @@ fn process_until_operator_parses() {
 
 /// A bare `delay` / `yaled` (without `@time`) used to fail to parse.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn bare_delay_and_yaled_parse() {
     assert!(matches!(
         UntypedStateFrmSpec::parse("delay").unwrap().formula.node,
@@ -87,6 +91,7 @@ fn bare_delay_and_yaled_parse() {
 /// was registered as a postfix operator (`Rule::ActFrmAt`) but had no `ActFrmKind` variant and no
 /// `.map_postfix` handler, so pest's `unwrap()` on the missing mapping crashed.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn action_formula_at_parses() {
     let spec = UntypedStateFrmSpec::parse("<a@3>true").expect("`@` on an action formula should parse");
     let StateFrmKind::Modality { formula, .. } = &spec.formula.node else {
@@ -104,6 +109,7 @@ fn action_formula_at_parses() {
 
 /// The left-merge operator must print as `||_` so that the output reparses.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn left_merge_round_trips() {
     let printed = format!("{}", UntypedProcessSpecification::parse("init a ||_ b;").unwrap());
     assert!(printed.contains("||_"), "left merge should print as ||_: {printed}");
@@ -111,6 +117,7 @@ fn left_merge_round_trips() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn action_formula_at_round_trips() {
     let printed = format!("{}", UntypedStateFrmSpec::parse("<a@3>true").unwrap());
     UntypedStateFrmSpec::parse(&printed).expect("printed `@` action formula should reparse");
@@ -119,6 +126,7 @@ fn action_formula_at_round_trips() {
 /// A PRES used the `pbes` keyword, dropped infix operators, and mismatched the
 /// constant-multiply rules. Exercise a spec that touches all of those.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn pres_specification_parses() {
     let pres = UntypedPres::parse(
         "pres \
@@ -132,6 +140,7 @@ fn pres_specification_parses() {
 
 /// Test that PRES examples print and parse back to the same form.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn pres_examples_print_parse_fixpoint() {
     let examples = [
         "pres mu X = true; init X;",
@@ -173,6 +182,7 @@ fn pres_examples_print_parse_fixpoint() {
 
 /// `visit_*` must return a `Break` value produced by a nested (non-root) node.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn visitor_breaks_from_nested_node() {
     // The `Y` identifier only appears below the top-level conjunction.
     let spec = UntypedStateFrmSpec::parse("true && (mu X. (X && Y))").unwrap();
@@ -194,6 +204,7 @@ fn visitor_breaks_from_nested_node() {
 /// after `var`, so printing an empty `var\n` block produces output that cannot
 /// be parsed back.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn eqn_spec_without_variables_no_empty_var_section() {
     let spec = UntypedDataSpecification::parse("eqn true = false;").expect("eqn without var should parse");
     let printed = format!("{spec}");
@@ -208,6 +219,7 @@ fn eqn_spec_without_variables_no_empty_var_section() {
 /// instead of the correct `id: s1 # s2` form. The incorrect form would fail to
 /// reparse because the grammar expects a colon-separated sort product.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn act_decl_with_args_prints_colon_hash() {
     let spec = UntypedProcessSpecification::parse("act a: Bool # Nat;")
         .expect("action declaration with sort args should parse");
@@ -224,6 +236,7 @@ fn act_decl_with_args_prints_colon_hash() {
 /// `self.recogniser`, so e.g. `struct b1?is_b1 | b2?is_b2` reprinted without either
 /// recognizer, silently losing the generated `is_b1`/`is_b2` projection functions.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn nullary_struct_constructor_recognizer_is_printed() {
     let spec = UntypedProcessSpecification::parse("sort D = struct b1?is_b1 | b2?is_b2;\ninit delta;")
         .expect("struct with nullary-constructor recognizers should parse");

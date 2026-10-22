@@ -1,5 +1,5 @@
 //! Tests for `InnermostRewriter`'s handling of binder terms (`exists`, `forall`, `lambda`),
-//! independent of any [merc_sabre::Enumerator] — see `crates/enumerate/tests` for tests that
+//! independent of any [merc_sabre::Enumerator] — see `crates/rewriter/enumerate/tests` for tests that
 //! wire one in and have quantifiers decided.
 
 use ahash::AHashSet;

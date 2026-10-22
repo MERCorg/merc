@@ -837,6 +837,7 @@ mod tests {
     use super::structured_sort_equations;
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_container_templates_declare_type_var() {
         // `list.mcrl2`/`bag.mcrl2`/... each declare one `type_var S;`, resolved
         // once by `parse_template_bare` — no bare `Reference("S")` should remain.

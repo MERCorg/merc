@@ -507,6 +507,7 @@ mod tests {
     use super::resolve_process_variables;
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_action_argument_resolves_to_process_parameter() {
         let text = "act a: Nat; proc P(n: Nat) = a(n); init P(1);";
         let mut spec = UntypedProcessSpecification::parse(text).unwrap();
@@ -527,6 +528,7 @@ mod tests {
     /// Rebasing a resolved tree moves every binder's declaration span, but must leave its
     /// expressions equal to, and hashing the same as, the originals.
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_rebased_resolved_expression_keeps_its_identity() {
         let text = "map f: Nat -> Nat; var n: Nat; eqn f(n) = n;";
         let mut spec = UntypedDataSpecification::parse(text).unwrap();
@@ -557,6 +559,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_sum_bound_variable_resolves_to_its_own_binder() {
         let text = "act a: Nat; proc P = sum x: Nat . a(x); init P;";
         let mut spec = UntypedProcessSpecification::parse(text).unwrap();
@@ -576,6 +579,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_dist_weight_sees_its_own_bound_variable() {
         let text = "act a; proc P = dist x: Pos[1/x] . a; init P;";
         let mut spec = UntypedProcessSpecification::parse(text).unwrap();
@@ -600,6 +604,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_assignment_value_resolves_but_key_does_not() {
         let text = "proc P(n: Nat) = P(n = n); init P(0);";
         let mut spec = UntypedProcessSpecification::parse(text).unwrap();
@@ -621,6 +626,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_nested_data_binder_inside_process_action_argument_resolves() {
         let text = "act a: Bool; proc P(n: Nat) = a(exists x: Nat . x == n); init P(0);";
         let mut spec = UntypedProcessSpecification::parse(text).unwrap();
@@ -653,6 +659,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_undeclared_name_is_left_unresolved() {
         let text = "act a: Nat; proc P = a(m); init P;";
         let mut spec = UntypedProcessSpecification::parse(text).unwrap();
@@ -667,6 +674,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_data_specification_equation_variable_resolves_to_its_var_block_declaration() {
         let text = "map f: Nat -> Nat; var x: Nat; eqn f(x) = x;";
         let mut spec = UntypedDataSpecification::parse(text).unwrap();
@@ -688,6 +696,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_data_specification_equation_condition_resolves_too() {
         let text = "map f: Bool -> Nat; var x: Bool; eqn x -> f(x) = 0;";
         let mut spec = UntypedDataSpecification::parse(text).unwrap();
@@ -705,6 +714,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_data_specification_variable_scope_does_not_leak_across_var_blocks() {
         let text = "map f: Nat -> Nat; g: Bool -> Nat; var x: Nat; eqn f(x) = x; var y: Bool; eqn g(y) = y;";
         let mut spec = UntypedDataSpecification::parse(text).unwrap();
@@ -727,6 +737,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_fixed_point_variable_resolves_to_its_own_binder() {
         let text = "mu X(n: Nat = 0) . val(n) || X(n)";
         let mut spec = UntypedStateFrmSpec::parse(text).unwrap();
@@ -746,6 +757,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_nested_fixed_point_variables_of_the_same_name_do_not_share_an_id() {
         // The inner, parameter-less `X` refers to the *inner* `nu X`, shadowing the outer `mu X`
         // of the same name — the two binders must never share a StateVarId.
@@ -780,6 +792,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_action_formula_quantifier_resolves_to_its_own_binder_and_can_see_an_outer_state_formula_binder() {
         // Exercises `resolve_in_act_frm`'s own scoping specifically: `m` is bound by the action
         // formula's own `exists`, `n` by the *enclosing* state formula's `forall`, reached by
@@ -826,6 +839,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_action_formula_quantifier_shadows_an_outer_state_formula_binder_of_the_same_name() {
         // `n` is bound twice: the outer `forall` (`Bool`) and the action formula's own `exists`
         // (`Nat`). Inside the action formula, `n` must resolve to the *inner* binder -- the two

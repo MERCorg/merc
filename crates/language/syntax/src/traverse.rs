@@ -1158,6 +1158,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_is_top_down_and_left_to_right() {
         let formula = state_formula("mu X. [a]X && mu Y. Y && Z");
 
@@ -1165,6 +1166,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_state_formula_breaks_from_nested_node() {
         // `Z` only occurs below the top-level conjunction.
         let formula = state_formula("true && (mu X. (X && Z))");
@@ -1178,6 +1180,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_regular_formula_breaks_from_nested_node() {
         let formula = regular_formula("a . (b* + c)");
 
@@ -1190,6 +1193,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_action_formula_breaks_from_nested_node() {
         let formula = action_formula("a && (b || !c)");
 
@@ -1202,6 +1206,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_sort_expression_breaks_from_nested_node() {
         let sort = sort_expression("A # List(B) -> C");
 
@@ -1214,6 +1219,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_data_expression_breaks_from_nested_node() {
         let expr = DataExpr::parse("f(g(a), b)").expect("the data expression should parse");
 
@@ -1228,6 +1234,7 @@ mod tests {
     /// The children of a function update sit behind a `Box`, which the traversal has to reach
     /// through explicitly.
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_data_expression_descends_into_function_update() {
         let expr = DataExpr::parse("f[a -> b]").expect("the data expression should parse");
 
@@ -1244,6 +1251,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_process_expression_breaks_from_nested_node() {
         let spec = UntypedProcessSpecification::parse("init a . (sum n: Nat . b(n)) + delta;")
             .expect("the process specification should parse");
@@ -1258,6 +1266,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_pbes_expression_breaks_from_nested_node() {
         let pbes = UntypedPbes::parse("pbes mu X = forall n: Nat . (val(n < 3) => !X); init X;")
             .expect("the PBES should parse");
@@ -1271,6 +1280,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_pres_expression_breaks_from_nested_node() {
         let pres =
             UntypedPres::parse("pres mu X = sup n: Nat . (val(n < 3) + X); init X;").expect("the PRES should parse");
@@ -1285,6 +1295,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_prune_skips_the_children() {
         let formula = state_formula("true && (mu X. (X && Z))");
 
@@ -1301,6 +1312,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_threads_the_context() {
         let formula = state_formula("true && (mu X. (X && Z))");
 
@@ -1319,6 +1331,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_reports_the_error_of_the_callback() {
         let formula = state_formula("mu X. X");
 
@@ -1328,6 +1341,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_apply_collects_variables() {
         let formula = state_formula("mu X. [a]X && mu X. X && Y");
 
@@ -1345,6 +1359,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_apply_without_replacement_is_the_identity() {
         for input in [
             "mu X. [a . b*]X && nu Y. <c>Y",
@@ -1360,6 +1375,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_apply_does_not_descend_into_the_replacement() {
         let formula = state_formula("X && Y");
 
@@ -1384,6 +1400,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_apply_with_breaks_and_keeps_what_was_rewritten() {
         let mut formula = state_formula("X && Y");
 
@@ -1402,6 +1419,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_children_reaches_every_child() {
         let formula = state_formula("[a]X && (nu Z0. Z0)");
 
@@ -1420,6 +1438,7 @@ mod tests {
     /// formula: `RegFrm`/`ActFrm` are a different node type. `visit_mixed` is the traversal that
     /// crosses into them.
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_mixed_crosses_from_state_formula_into_its_regular_and_action_formulas() {
         let formula = state_formula("[a . b*]X");
 
@@ -1442,6 +1461,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_try_visit_mixed_reports_the_error_of_the_callback() {
         let formula = state_formula("[a]true");
 
@@ -1453,6 +1473,7 @@ mod tests {
     /// `state_vars` grows for a `FixedPoint`'s body and shrinks once that body is visited, so an
     /// inner fixpoint's variable is invisible outside it, including to a sibling formula.
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_scoped_pushes_and_pops_fixpoint_variables_like_a_real_checker() {
         let formula = state_formula("mu X. (mu Y. X) && Z");
 
@@ -1495,6 +1516,7 @@ mod tests {
     /// The scoped state may borrow from the tree being walked (`&str` names here), which a callback
     /// bound over an anonymous `&Self` lifetime would reject.
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_scoped_state_can_borrow_from_the_tree() {
         let formula = state_formula("mu X. (mu Y. X) && Z");
 
@@ -1527,6 +1549,7 @@ mod tests {
     /// `exit` must still run, innermost first, for every scope still open when the walk breaks
     /// early, or scoped state is left corrupted.
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_visit_scoped_unwinds_open_scopes_on_break() {
         let formula = state_formula("mu X. (mu Y. Z)");
 
@@ -1561,6 +1584,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_transform_visits_bottom_up_left_to_right() {
         // A leaf's own children (none) finish before it does, each operand of `&&` finishes before
         // the `&&` node itself, and the left operand before the right one.
@@ -1577,6 +1601,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_transform_no_op_reassembles_the_exact_same_tree() {
         // Exercises the take-apart/reassemble round trip across every shape in one formula: a
         // `FixedPoint`'s own variable, a `Modality`'s `RegFrm`, a `Quantifier` binder, and a
@@ -1594,6 +1619,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_transform_rewrites_every_node_including_the_root() {
         let mut formula = state_formula("X && Y");
 
@@ -1606,6 +1632,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_transform_children_rewrites_children_but_not_the_root() {
         let mut formula = state_formula("X && Y");
 
@@ -1620,6 +1647,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_try_transform_propagates_an_error_without_rewriting_further() {
         let mut formula = state_formula("X && Y");
 

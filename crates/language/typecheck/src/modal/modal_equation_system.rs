@@ -294,6 +294,7 @@ mod tests {
     use super::ModalEquationSystem;
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_fixpoint_equation_system_construction() {
         let mut spec = UntypedStateFrmSpec::parse("mu X. [a]X && nu Y. <b>true").unwrap();
         let mut state_var_ids = resolve_modal_variables(&mut spec.formula);
@@ -307,6 +308,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_fixpoint_equation_system_example() {
         let mut spec =
             UntypedStateFrmSpec::parse(include_str!("../../../../../examples/vpg/running_example.mcf")).unwrap();
@@ -321,6 +323,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_fixpoint_equation_system_shadowed_names_do_not_collide() {
         // `mu X. (nu X. ...)`: legal mCRL2 syntax where the inner `X` shadows the outer one.
         // Equations are keyed by `StateVarId`, assigned during resolution, so this must not panic
