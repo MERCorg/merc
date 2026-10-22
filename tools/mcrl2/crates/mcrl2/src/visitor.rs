@@ -1,7 +1,9 @@
 use std::marker::PhantomData;
 use std::ops::ControlFlow;
 
-use mcrl2_sys::atermpp::ffi::_aterm;
+use merc_utilities::BinaryChain;
+use merc_utilities::ChainIter;
+use merc_utilities::ChainStack;
 
 use crate::ATermRef;
 use crate::DataAbstractionRef;
@@ -332,98 +334,45 @@ impl PbesConnective {
     }
 }
 
-/// A reusable worklist for [`PbesFlattenIter`].
+/// A reusable worklist for flattening [`PbesConnective`] chains with [`ChainIter`].
 ///
-/// Holds bare term addresses so it carries no lifetime and can live in a
-/// long-lived per-thread context; each traversal re-attaches the lifetime of the
-/// chain it walks.
-#[derive(Default)]
-pub struct PbesFlattenStack {
-    stack: Vec<*const _aterm>,
-}
+/// It is empty between traversals, so the `'static` lifetime lets it live in a long-lived
+/// per-thread context; each traversal borrows it for the lifetime of the chain it walks.
+pub type PbesFlattenStack = ChainStack<PbesExpressionRef<'static>>;
 
-// SAFETY: the addresses are only pushed and popped, never dereferenced by the
-// stack itself; the iterator hands each one back as a reference bound to the
-// lifetime of the parent term that keeps it live.
-unsafe impl Send for PbesFlattenStack {}
+impl<'a> BinaryChain for PbesExpressionRef<'a> {
+    type Op = PbesConnective;
 
-impl PbesFlattenStack {
-    pub fn new() -> Self {
-        PbesFlattenStack::default()
-    }
-}
-
-/// Yields every leaf of a nested `&&` (or `||`) chain, left to right.
-///
-/// Allocates nothing and, in particular, protects nothing: every leaf is a
-/// subterm of the term it was built from, which the caller already holds live.
-pub struct PbesFlattenIter<'a, 'b> {
-    /// Terms still to be examined, deepest-rightmost last.
-    stack: &'b mut Vec<*const _aterm>,
-
-    /// The connective being flattened; anything else is a leaf.
-    connective: PbesConnective,
-
-    /// Ties each yielded leaf to the chain it is a subterm of.
-    parent: PhantomData<PbesExpressionRef<'a>>,
-}
-
-impl PbesFlattenIter<'_, '_> {
-    /// Starts a traversal of the `connective` chain rooted at `expr`. A term that
-    /// is not an application of `connective` is a chain of one.
-    ///
-    /// `stack` is cleared on entry and reused, and is what keeps the walk
-    /// iterative: quantifier enumeration produces one operand per enumerated
-    /// value, far deeper than the call stack can safely recurse over.
-    pub fn new<'a, 'b>(
-        expr: PbesExpressionRef<'a>,
-        connective: PbesConnective,
-        stack: &'b mut PbesFlattenStack,
-    ) -> PbesFlattenIter<'a, 'b> {
-        stack.stack.clear();
-        stack.stack.push(expr.address());
-
-        PbesFlattenIter {
-            stack: &mut stack.stack,
-            connective,
-            parent: PhantomData,
-        }
-    }
-}
-
-impl<'a> Iterator for PbesFlattenIter<'a, '_> {
-    type Item = PbesExpressionRef<'a>;
-
-    fn next(&mut self) -> Option<PbesExpressionRef<'a>> {
-        while let Some(address) = self.stack.pop() {
-            // SAFETY: every address on the stack is the chain root or a subterm of
-            // it, and the root is live for 'a, so the term is live for 'a too.
-            let term = unsafe { ATermRef::new(address) };
-
-            if self.connective.matches(&term) {
-                // Right operand first, so the left one is popped first and the
-                // leaves come out in the order they are written.
-                self.stack.push(term.arg(1).address());
-                self.stack.push(term.arg(0).address());
-            } else {
-                return Some(term.into());
-            }
+    /// Allocates nothing and, in particular, protects nothing: both operands are subterms of
+    /// `self`, which the caller already holds live.
+    fn binary_operands(self, op: PbesConnective) -> Option<(Self, Self)> {
+        let term: ATermRef<'a> = self.into();
+        if !op.matches(&term) {
+            return None;
         }
 
-        None
+        // SAFETY: the arguments are subterms of `term`, which is live for 'a, so they are live
+        // for 'a too.
+        let (lhs, rhs) = unsafe {
+            (
+                ATermRef::new(term.arg(0).address()),
+                ATermRef::new(term.arg(1).address()),
+            )
+        };
+        Some((lhs.into(), rhs.into()))
     }
 }
 
 /// Appends every non-`&&` leaf of a nested AND chain to `out`, reusing the buffer.
 pub fn flatten_pbes_and_into(expr: PbesExpressionRef<'_>, out: &mut Vec<PbesExpression>) {
     let mut stack = PbesFlattenStack::new();
-    out.extend(PbesFlattenIter::new(expr, PbesConnective::And, &mut stack).map(|leaf| leaf.protect()));
+    out.extend(ChainIter::new(expr, PbesConnective::And, &mut stack).map(|leaf| leaf.protect()));
 }
 
 /// Appends every non-`||` leaf of a nested OR chain to `out`, reusing the buffer.
 pub fn flatten_pbes_or_into(expr: PbesExpressionRef<'_>, out: &mut Vec<PbesExpression>) {
     let mut stack = PbesFlattenStack::new();
-    out.extend(PbesFlattenIter::new(expr, PbesConnective::Or, &mut stack).map(|leaf| leaf.protect()));
+    out.extend(ChainIter::new(expr, PbesConnective::Or, &mut stack).map(|leaf| leaf.protect()));
 }
 
 /// Recursively collects the arguments of a nested application chain where `is_op` matches,

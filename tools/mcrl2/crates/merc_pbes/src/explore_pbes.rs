@@ -15,7 +15,6 @@ use mcrl2::PbesConnective;
 use mcrl2::PbesExpression;
 use mcrl2::PbesExpressionRef;
 use mcrl2::PbesExpressionVisitor;
-use mcrl2::PbesFlattenIter;
 use mcrl2::PbesFlattenStack;
 use mcrl2::PbesPropositionalVariableInstantiationRef;
 use mcrl2::PbesRewriteContext;
@@ -33,6 +32,7 @@ use merc_explore::OwnedStateEffect;
 use merc_explore::StateEffect;
 use merc_explore::Summand;
 use merc_unsafety::ConcurrentIndexedSet;
+use merc_utilities::ChainIter;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
 use merc_vpg::PGBuilder;
@@ -629,7 +629,7 @@ where
         PbesConnective::And
     };
 
-    for leaf in PbesFlattenIter::new(formula, connective, stack) {
+    for leaf in ChainIter::new(formula, connective, stack) {
         emit_as_target(leaf, tables, buf, report)?;
     }
 
