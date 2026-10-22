@@ -29,7 +29,6 @@ use mcrl2::PbesConnective;
 use mcrl2::PbesExistsRef;
 use mcrl2::PbesExpression;
 use mcrl2::PbesExpressionRef;
-use mcrl2::PbesFlattenIter;
 use mcrl2::PbesFlattenStack;
 use mcrl2::PbesForallRef;
 use mcrl2::PbesImpRef;
@@ -53,6 +52,7 @@ use mcrl2::is_untyped_identifier;
 use mcrl2::is_variable;
 use mcrl2::is_where_clause;
 use mcrl2::pbes_expression_pvi;
+use merc_utilities::ChainIter;
 use merc_utilities::MercError;
 
 use crate::explore_common::UNIFY_IGNORE_CE_EQUATIONS;
@@ -676,7 +676,7 @@ impl SdgBuilder {
             };
 
             let mut stack = PbesFlattenStack::new();
-            for leaf in PbesFlattenIter::new(term.copy(), connective, &mut stack) {
+            for leaf in ChainIter::new(term.copy(), connective, &mut stack) {
                 self.visit_child(node, leaf, EdgeColour::Uncoloured, equation)?;
             }
         } else if is_pbes_imp(&r) {

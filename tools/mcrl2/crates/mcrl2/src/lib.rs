@@ -143,7 +143,6 @@ pub use visitor::PbesClosureVisitor;
 pub use visitor::PbesConnective;
 pub use visitor::PbesExpressionContextVisitor;
 pub use visitor::PbesExpressionVisitor;
-pub use visitor::PbesFlattenIter;
 pub use visitor::PbesFlattenStack;
 pub use visitor::VisitResult;
 pub use visitor::flatten_associative;
