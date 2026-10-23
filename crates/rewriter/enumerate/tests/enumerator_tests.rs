@@ -808,3 +808,24 @@ fn test_find_witness_over_nat_with_a_bounded_guard() {
         }
     }
 }
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn test_enumerate_normalises_reducible_finite_constants() {
+    // `ea` rewrites to `eb`, so a finite element that is not rewritten first
+    // leaves `p(ea)` stuck once it is spliced into the body.
+    let spec = lower_without_prelude(
+        "sort E;
+         cons ea, eb: E;
+         map p: E -> Bool;
+             goal: E -> Bool;
+         var e: E;
+         eqn ea = eb;
+             p(eb) = true;
+             goal(e) = p(e);",
+    );
+
+    let (outcome, results) = solutions(&spec, "goal", usize::MAX);
+    assert!(matches!(outcome, Outcome::Exhausted), "{outcome:?}");
+    assert_eq!(results.len(), 2, "{results:?}");
+}

@@ -140,7 +140,10 @@ impl<'a, R: RewriteEngine> NaiveEnumerator<'a, R> {
             let plans = self.plans;
             for constructor in plans.plan(sort_id).constructors() {
                 if constructor.arity() == 0 {
-                    result.push(constructor.symbol().clone().into());
+                    // `rewrite_with` requires normal-form images, and constants
+                    // such as `@c0` are not automatically one.
+                    let value: DataExpression = constructor.symbol().clone().into();
+                    result.push(self.rewriter.rewrite(&value));
                     continue;
                 }
 
