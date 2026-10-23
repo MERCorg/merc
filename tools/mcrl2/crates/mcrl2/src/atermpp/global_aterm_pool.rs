@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use std::fmt::Display;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::LazyLock;
@@ -105,12 +106,15 @@ impl GlobalTermPool {
     /// Marks the terms in all protection sets.
     fn mark_protection_sets(&mut self, mut todo: Pin<&mut ffi::term_mark_stack>) {
         trace!("Marking terms:");
+        let mut statistics = PoolStatistics::new(self);
+
         for set in self.thread_protection_sets.iter().flatten() {
             // SAFETY: garbage collection holds the global exclusive lock, so no
             // other thread can be mutating the protection set; reading it
             // without taking the busy/forbidden lock is sound here.
             unsafe {
                 let protection_set = set.get();
+                statistics.add_terms(protection_set);
 
                 for (root, term) in protection_set.iter() {
                     mcrl2_aterm_mark_address(term.ptr.as_ref().expect("Must be a valid pointer"), todo.as_mut());
@@ -126,6 +130,7 @@ impl GlobalTermPool {
             // taking the busy/forbidden lock is sound here.
             unsafe {
                 let protection_set = set.get();
+                statistics.add_containers(protection_set);
 
                 for (root, container) in protection_set.iter() {
                     container.mark(todo.as_mut());
@@ -148,7 +153,7 @@ impl GlobalTermPool {
             trace!("Marked send term {:?}, index {root}", term.ptr);
         }
 
-        debug!("Collecting garbage \n{:?}", self);
+        debug!("Collecting garbage \n{statistics}");
     }
 
     /// Counts the number of terms in all protection sets.
@@ -187,46 +192,87 @@ impl GlobalTermPool {
 
 impl Debug for GlobalTermPool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut protected = 0;
-        let mut total = 0;
-        let mut max = 0;
+        let mut statistics = PoolStatistics::new(self);
 
+        // These sets belong to other threads, which mutate them through
+        // `write_exclusive`. That only takes the shared lock, since each set has
+        // a single writer, so a read() here could race with those mutations.
+        // write() takes the exclusive lock, which waits until every thread has
+        // left its shared section.
         for set in self.thread_protection_sets.iter().flatten() {
-            // We need write() to ensure that nobody else has write_exclusive on
-            // this protection set.
-            let protection_set = set.write();
-            protected += protection_set.len();
-            total += protection_set.number_of_insertions();
-            max += protection_set.maximum_size();
+            statistics.add_terms(&set.write());
         }
 
-        let mut num_containers = 0;
-        let mut max_containers = 0;
-        let mut total_containers = 0;
-        let mut inside_containers = 0;
         for set in self.thread_container_sets.iter().flatten() {
-            let protection_set = set.write();
-            num_containers += protection_set.len();
-            total_containers += protection_set.number_of_insertions();
-            max_containers += protection_set.maximum_size();
-
-            for (_index, container) in protection_set.iter() {
-                inside_containers += container.len();
-            }
+            statistics.add_containers(&set.write());
         }
 
+        write!(f, "{statistics}")
+    }
+}
+
+/// Protection set statistics of the [GlobalTermPool]. Reading the sets of other
+/// threads requires the exclusive lock: [Debug] takes it, while garbage
+/// collection already holds it and therefore gathers these statistics without
+/// a guard, since taking the non-reentrant exclusive lock again deadlocks.
+struct PoolStatistics {
+    len: usize,
+    capacity: usize,
+    protected: usize,
+    total: u64,
+    max: usize,
+    num_containers: usize,
+    total_containers: u64,
+    max_containers: usize,
+    inside_containers: usize,
+}
+
+impl PoolStatistics {
+    fn new(pool: &GlobalTermPool) -> PoolStatistics {
+        PoolStatistics {
+            len: pool.len(),
+            capacity: pool.capacity(),
+            protected: 0,
+            total: 0,
+            max: 0,
+            num_containers: 0,
+            total_containers: 0,
+            max_containers: 0,
+            inside_containers: 0,
+        }
+    }
+
+    fn add_terms(&mut self, set: &ProtectionSet<ATermPtr>) {
+        self.protected += set.len();
+        self.total += set.number_of_insertions();
+        self.max += set.maximum_size();
+    }
+
+    fn add_containers(&mut self, set: &ProtectionSet<Arc<dyn Markable + Sync + Send>>) {
+        self.num_containers += set.len();
+        self.total_containers += set.number_of_insertions();
+        self.max_containers += set.maximum_size();
+
+        for (_index, container) in set.iter() {
+            self.inside_containers += container.len();
+        }
+    }
+}
+
+impl Display for PoolStatistics {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "{} terms, max capacity {}, {} variables in thread root sets and {} in {} containers (term set {} insertions, max {}; container set {} insertions, max {})",
-            self.len(),
-            self.capacity(),
-            protected,
-            inside_containers,
-            num_containers,
-            total,
-            max,
-            total_containers,
-            max_containers,
+            self.len,
+            self.capacity,
+            self.protected,
+            self.inside_containers,
+            self.num_containers,
+            self.total,
+            self.max,
+            self.total_containers,
+            self.max_containers,
         )
     }
 }
