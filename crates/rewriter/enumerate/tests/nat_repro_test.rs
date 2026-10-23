@@ -17,6 +17,7 @@ use merc_typecheck::NumberEncoding;
 /// Regression test for a bug where `Enumerator::enumerate` found zero
 /// solutions for a real, machine-word-encoded `Nat` sort.
 #[test]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
 fn enumerate_finds_every_solution_for_real_machine_word_nat() {
     let untyped = UntypedDataSpecification::parse(
         "map goal: Nat -> Bool;
