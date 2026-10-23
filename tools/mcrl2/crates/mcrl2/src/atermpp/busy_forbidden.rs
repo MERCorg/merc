@@ -1,3 +1,5 @@
+#[cfg(debug_assertions)]
+use std::cell::Cell;
 use std::cell::UnsafeCell;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -7,6 +9,7 @@ use mcrl2_sys::atermpp::ffi::mcrl2_aterm_pool_lock_exclusive;
 use mcrl2_sys::atermpp::ffi::mcrl2_aterm_pool_lock_shared;
 use mcrl2_sys::atermpp::ffi::mcrl2_aterm_pool_unlock_exclusive;
 use mcrl2_sys::atermpp::ffi::mcrl2_aterm_pool_unlock_shared;
+use merc_utilities::PhantomUnsend;
 
 /// Provides access to the mCRL2 busy forbidden protocol, where there
 /// are thread local busy flags and one central storage for the forbidden
@@ -51,10 +54,12 @@ impl<'a, T: ?Sized> BfTermPool<T> {
 
     /// Provides write access to the underlying object.
     pub fn write(&'a self) -> BfTermPoolWrite<'a, T> {
+        let exclusive = ExclusiveSection::enter();
         mcrl2_aterm_pool_lock_exclusive();
 
         BfTermPoolWrite {
             mutex: self,
+            _exclusive: exclusive,
             _marker: Default::default(),
         }
     }
@@ -111,7 +116,45 @@ impl<T: ?Sized> Drop for BfTermPoolRead<'_, T> {
 
 pub(crate) struct BfTermPoolWrite<'a, T: ?Sized> {
     mutex: &'a BfTermPool<T>,
+    /// Dropped after `Drop::drop` has left the exclusive section.
+    _exclusive: ExclusiveSection,
     _marker: PhantomData<&'a ()>,
+}
+
+#[cfg(debug_assertions)]
+thread_local! {
+    static IN_EXCLUSIVE_SECTION: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Marks the current thread as being inside the exclusive section of the aterm pool for its
+/// lifetime. The exclusive lock is not reentrant, so in debug builds entering it again panics
+/// instead of deadlocking.
+pub(crate) struct ExclusiveSection {
+    // The flag is thread local, so the section must end on the thread that entered it.
+    _unsend: PhantomUnsend,
+}
+
+impl ExclusiveSection {
+    pub(crate) fn enter() -> ExclusiveSection {
+        #[cfg(debug_assertions)]
+        IN_EXCLUSIVE_SECTION.with(|in_section| {
+            assert!(
+                !in_section.replace(true),
+                "Can not acquire exclusive lock inside of exclusive section"
+            );
+        });
+
+        ExclusiveSection {
+            _unsend: Default::default(),
+        }
+    }
+}
+
+impl Drop for ExclusiveSection {
+    fn drop(&mut self) {
+        #[cfg(debug_assertions)]
+        IN_EXCLUSIVE_SECTION.with(|in_section| in_section.set(false));
+    }
 }
 
 impl<T: ?Sized> Deref for BfTermPoolWrite<'_, T> {
@@ -219,5 +262,15 @@ mod tests {
         let guard = pool.read();
         let final_value = *guard;
         assert_eq!(final_value, 200); // 100 iterations * 2 threads
+    }
+
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "Can not acquire exclusive lock inside of exclusive section")]
+    fn test_nested_write_panics() {
+        let pool = BfTermPool::new(0u64);
+
+        let _guard = pool.write();
+        let _nested = pool.write();
     }
 }
