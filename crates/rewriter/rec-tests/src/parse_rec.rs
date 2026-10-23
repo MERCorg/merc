@@ -339,6 +339,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_raw_parsing() {
         assert!(RecParser::parse(Rule::single_term, "f(a").is_err());
         assert!(RecParser::parse(Rule::single_term, "f()").is_err());
@@ -354,6 +355,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_parsing_rewrite_rule() {
         let expected = RewriteRuleSyntax {
             lhs: ATerm::from_string("f(x,b)").unwrap(),
@@ -381,6 +383,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_variable_parsing() {
         let mut parse_result = RecParser::parse(Rule::var_decl, "X Y Val Max : Nat").unwrap();
         let node = ParseNode::new(parse_result.next().unwrap());
