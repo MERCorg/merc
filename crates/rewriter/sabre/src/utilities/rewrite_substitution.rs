@@ -101,7 +101,7 @@ impl RewriteSubstitution for SliceSubstitution<'_> {
 /// Wraps a substitution so it reports every variable in `shadowed` as outside
 /// its domain, regardless of what `inner` says.
 ///
-/// # Exampl
+/// # Example
 ///
 /// Used when descending into a binder's body: `inner`'s domain may contain a
 /// name that coincides with one of the binder's own bound variables, and that
