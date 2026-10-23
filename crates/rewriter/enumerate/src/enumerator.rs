@@ -520,7 +520,9 @@ fn materialize_finite_elements<R: RewriteEngine>(
 
     for constructor in plans.plan(sort_id).constructors() {
         if constructor.arity() == 0 {
-            result.push(constructor.symbol().clone().into());
+            // A constant is not automatically a normal form either.
+            let value: DataExpression = constructor.symbol().clone().into();
+            result.push(rewriter.rewrite(&value));
             continue;
         }
 
