@@ -32,6 +32,7 @@ pub(crate) use aterm_string::is_aterm_string;
 
 pub(crate) use busy_forbidden::BfTermPool;
 pub(crate) use busy_forbidden::BfTermPoolThreadWrite;
+pub(crate) use busy_forbidden::ExclusiveSection;
 
 pub use convert::mcrl2_aterm_to_merc;
 pub use convert::merc_aterm_to_mcrl2;

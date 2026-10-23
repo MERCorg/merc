@@ -19,6 +19,7 @@ use mcrl2_sys::atermpp::ffi::mcrl2_aterm_pool_size;
 use merc_unsafety::ProtectionSet;
 
 use crate::atermpp::BfTermPool;
+use crate::atermpp::ExclusiveSection;
 
 use super::Markable;
 
@@ -283,6 +284,8 @@ pub(crate) static GLOBAL_TERM_POOL: LazyLock<Mutex<GlobalTermPool>> =
 
 /// Marks the terms in all protection sets using the global aterm pool.
 pub(crate) fn mark_protection_sets(todo: Pin<&mut ffi::term_mark_stack>) {
+    // Garbage collection calls this while it holds the exclusive lock.
+    let _exclusive = ExclusiveSection::enter();
     GLOBAL_TERM_POOL.lock().mark_protection_sets(todo);
 }
 
