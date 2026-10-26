@@ -108,15 +108,14 @@ impl<'a, 'b> Term<'a, 'b> for ATermRef<'a> {
     }
 
     fn arg(&self, index: usize) -> ATermRef<'a> {
-        debug_assert!(
+        assert!(
             index < self.get_head_symbol().arity(),
             "arg({index}) is not defined for term {self:?}"
         );
 
         // Safety: self is ATermRef<'a>, so the GC keeps all its arguments
-        // protected for 'a. We copy the stable pointer rather than borrowing
-        // through the short-lived slice reference.
-        unsafe { ATermRef::from_index(self.shared().deref().arguments()[index].shared()) }
+        // protected for 'a, and `index` is within the arity checked above.
+        unsafe { ATermRef::from_index(SharedTerm::argument_of(self.shared.erased(), index).shared()) }
     }
 
     fn arguments(&self) -> ATermArgs<'a> {
@@ -128,7 +127,8 @@ impl<'a, 'b> Term<'a, 'b> for ATermRef<'a> {
     }
 
     fn get_head_symbol(&'b self) -> SymbolRef<'a> {
-        unsafe { std::mem::transmute::<SymbolRef<'b>, SymbolRef<'a>>(self.shared().deref().symbol().copy()) }
+        // SAFETY: `self` is an `ATermRef<'a>`, so the GC keeps the term, and thereby its symbol, alive for `'a`.
+        unsafe { SharedTerm::symbol_of(self.shared.erased()) }
     }
 
     fn iter(&self) -> TermIterator<'a> {
@@ -136,9 +136,7 @@ impl<'a, 'b> Term<'a, 'b> for ATermRef<'a> {
     }
 
     fn index(&self) -> usize {
-        // SAFETY: `self` is an `ATermRef<'a>`, so the GC keeps the term alive
-        // for `'a` and the pointee is valid to read.
-        unsafe { self.shared.deref() }.index()
+        self.shared.erased().as_ptr() as usize
     }
 
     fn shared(&self) -> &ATermIndex {
@@ -726,6 +724,18 @@ mod tests {
     use crate::Symbol;
     use crate::Term;
     use crate::storage::THREAD_TERM_POOL;
+
+    #[test]
+    #[should_panic(expected = "arg(1) is not defined")]
+    fn test_arg_out_of_bounds_panics() {
+        // `arg` is safe, so an out-of-bounds index must panic in every build
+        // profile instead of reading past the term's arguments.
+        let f = Symbol::new("f_arg_oob_test", 1);
+        let a = ATerm::constant(&Symbol::new("a_arg_oob_test", 0));
+        let t = ATerm::with_args(&f, &[a.copy()]).protect();
+
+        let _ = t.arg(1);
+    }
 
     #[test]
     fn test_debug_multi_arg_term_argument_order() {
