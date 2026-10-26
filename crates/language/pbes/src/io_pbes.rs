@@ -70,7 +70,7 @@ impl ATermStreamable for Pbes {
         if !is_int_term(&count) {
             return Err(format!("Expected the number of equations, found {count}").into());
         }
-        
+
         let count = ATermInt::from(count).value();
         let mut equations = Vec::with_capacity(count);
         for _ in 0..count {

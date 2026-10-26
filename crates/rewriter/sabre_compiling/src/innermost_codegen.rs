@@ -387,12 +387,11 @@ fn generate_rewrite_term_stack_impl(
                 let len = virtual_stack.len();
                 let arg_indices: Vec<usize> = virtual_stack.drain(len - arity..).collect();
 
-                // SAFETY: per this function's own "Safety contract of the emitted code" doc
-                // comment above, `symbol` is reachable from the `RewriteSpecification` this
-                // rewriter keeps alive for as long as the generated code can run, so its
-                // `SharedSymbol` pointee stays live for this read (and, being `Sized`, `ptr()`
-                // does not read it at all).
-                let symbol_addr = unsafe { symbol.shared().ptr() }.as_ptr() as *mut () as usize;
+                // Per this function's own "Safety contract of the emitted code" doc comment
+                // above, `symbol` is reachable from the `RewriteSpecification` this rewriter
+                // keeps alive for as long as the generated code can run. Taking the address
+                // does not read the symbol.
+                let symbol_addr = symbol.shared().erased().as_ptr() as usize;
 
                 if *arity > 0 {
                     writeln!(
