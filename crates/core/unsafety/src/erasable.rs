@@ -32,6 +32,19 @@ impl<T: ?Sized + Erasable> Thin<T> {
             marker: PhantomData,
         }
     }
+
+    /// Wraps an already erased pointer without reading the pointee.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must have been produced by `T::erase`, or be an address from which
+    /// `T::unerase` reconstructs a valid pointer to a `T`.
+    pub unsafe fn from_erased(ptr: ErasedPtr) -> Self {
+        Self {
+            ptr,
+            marker: PhantomData,
+        }
+    }
 }
 
 impl<T: ?Sized + Erasable> Thin<T> {
