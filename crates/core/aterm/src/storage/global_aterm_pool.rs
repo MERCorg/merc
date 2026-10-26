@@ -204,10 +204,9 @@ impl GlobalTermPool {
     /// Panics if `name`/`arity` collide with one of the pool's own reserved
     /// marker symbols (e.g. `<aterm_int>`) — this should never happen for a
     /// legitimate caller, since those names are internal implementation details.
-    pub(crate) fn create_symbol<P, N>(&self, name: N, arity: usize, protect: P) -> Symbol
+    pub(crate) fn create_symbol<P>(&self, name: &str, arity: usize, protect: P) -> Symbol
     where
         P: FnOnce(SymbolIndex) -> Symbol,
-        N: Into<String> + AsRef<str>,
     {
         protect(self.symbol_pool.create(name, arity))
     }
