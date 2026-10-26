@@ -1,6 +1,8 @@
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::cell::UnsafeCell;
+use std::fmt;
+use std::fmt::Write;
 use std::iter;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
@@ -70,6 +72,9 @@ pub struct ThreadTermPool {
     /// A vector of terms that are used to store the arguments of a term for lookup.
     tmp_arguments: RefCell<Vec<ATermRef<'static>>>,
 
+    /// A buffer that is used to format symbol names without allocating, see [Symbol::new_fmt].
+    tmp_symbol_name: Cell<String>,
+
     /// A local view for the global term pool.
     term_pool: RecursiveLock<GlobalTermPool>,
 
@@ -102,6 +107,7 @@ impl ThreadTermPool {
             // Start without a reservation so the first created term claims (and charges) one.
             garbage_collection_counter: Cell::new(0),
             tmp_arguments: RefCell::new(Vec::new()),
+            tmp_symbol_name: Cell::new(String::new()),
             int_symbol,
             empty_list_symbol,
             list_symbol,
@@ -314,13 +320,32 @@ impl ThreadTermPool {
     }
 
     /// Create a function symbol
-    pub fn create_symbol<N: Into<String> + AsRef<str>>(&self, name: N, arity: usize) -> Symbol {
+    pub fn create_symbol<N: AsRef<str>>(&self, name: N, arity: usize) -> Symbol {
         self.term_pool
             .read_recursive()
             .expect("Lock poisoned!")
-            .create_symbol(name, arity, |index| unsafe {
+            .create_symbol(name.as_ref(), arity, |index| unsafe {
                 self.protect_symbol(&SymbolRef::from_index(&index))
             })
+    }
+
+    /// Create a function symbol whose name is given by the format arguments, see [Symbol::new_fmt].
+    pub fn create_symbol_fmt(&self, args: fmt::Arguments<'_>, arity: usize) -> Symbol {
+        if let Some(name) = args.as_str() {
+            return self.create_symbol(name, arity);
+        }
+
+        // Take the buffer out while formatting, so that a `Display` implementation that creates
+        // symbols itself gets a fresh buffer instead of observing this one. Formatting happens
+        // before the term pool lock is taken, so user code never runs while it is held.
+        let mut buffer = self.tmp_symbol_name.take();
+        buffer.clear();
+        buffer
+            .write_fmt(args)
+            .expect("a formatting trait implementation returned an error");
+        let symbol = self.create_symbol(&buffer, arity);
+        self.tmp_symbol_name.set(buffer);
+        symbol
     }
 
     /// Protect the term by adding its index to the protection set
