@@ -19,6 +19,7 @@ use equivalent::Equivalent;
 
 use crate::AllocatorDst;
 use crate::Erasable;
+use crate::ErasedPtr;
 use crate::SliceDst;
 use crate::Thin;
 
@@ -100,6 +101,46 @@ impl<T: ?Sized + Erasable> StablePointer<T> {
             #[cfg(debug_assertions)]
             reference_counter: source.reference_counter.clone(),
         }
+    }
+
+    /// Creates a new StablePointer from an erased pointer, without reading the pointee.
+    ///
+    /// # Safety
+    ///
+    /// Same contract as [`StablePointer::from_ptr`], and `ptr` must satisfy [`Thin::from_erased`].
+    pub unsafe fn from_erased(ptr: ErasedPtr) -> Self {
+        Self {
+            // SAFETY: forwarded from this function's own contract.
+            ptr: unsafe { Thin::from_erased(ptr) },
+            #[cfg(debug_assertions)]
+            reference_counter: Arc::new(()),
+        }
+    }
+
+    /// Creates a new StablePointer from an erased pointer while preserving the
+    /// debug reference counter from another StablePointer, see [`StablePointer::from_related_ptr`].
+    ///
+    /// # Safety
+    ///
+    /// Same contract as [`StablePointer::from_related_ptr`], and `ptr` must satisfy [`Thin::from_erased`].
+    pub unsafe fn from_related_erased<U: ?Sized + Erasable>(
+        ptr: ErasedPtr,
+        #[allow(unused)] source: &Self,
+    ) -> StablePointer<U> {
+        StablePointer {
+            // SAFETY: forwarded from this function's own contract.
+            ptr: unsafe { Thin::from_erased(ptr) },
+            #[cfg(debug_assertions)]
+            reference_counter: source.reference_counter.clone(),
+        }
+    }
+
+    /// Returns the erased address of the element without reading the pointee.
+    ///
+    /// This is always safe, since the address itself is inert; it is the
+    /// counterpart of [`StablePointer::ptr`] for identity and header reads.
+    pub fn erased(&self) -> ErasedPtr {
+        self.ptr.as_erased()
     }
 
     /// Returns public access to the underlying pointer.
