@@ -1,14 +1,20 @@
+use std::alloc::Layout;
+use std::alloc::LayoutError;
+use std::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::ptr::NonNull;
+use std::ptr::slice_from_raw_parts_mut;
 
 use equivalent::Equivalent;
-use log::debug;
 use rustc_hash::FxBuildHasher;
 
-use merc_unsafety::AllocBlock;
-use merc_unsafety::BlockAllocatorSafe;
+use merc_unsafety::Erasable;
+use merc_unsafety::ErasedPtr;
+use merc_unsafety::SliceDst;
 use merc_unsafety::StablePointer;
 use merc_unsafety::StablePointerSet;
+use merc_unsafety::repr_c;
 
 use crate::Symb;
 use crate::SymbolIndex;
@@ -20,7 +26,7 @@ use crate::SymbolRef;
 /// garbage collection of the underlying shared symbol.
 pub(crate) struct SymbolPool {
     /// Unique table of all function symbols
-    symbols: StablePointerSet<SharedSymbol, FxBuildHasher, AllocBlock<SharedSymbol, 1024>>,
+    symbols: StablePointerSet<SharedSymbol, FxBuildHasher>,
 
     /// The pool's own reserved marker symbols, which are created by
     /// create_reserved and cannot be created by the public Symbol::new.
@@ -31,7 +37,7 @@ impl SymbolPool {
     /// Creates a new empty symbol pool.
     pub(crate) fn new() -> Self {
         Self {
-            symbols: StablePointerSet::with_hasher_in(FxBuildHasher, AllocBlock::new()),
+            symbols: StablePointerSet::with_hasher(FxBuildHasher),
             reserved: Vec::new(),
         }
     }
@@ -45,11 +51,8 @@ impl SymbolPool {
     ///
     /// The returned pointer is unprotected, so the caller must protect it
     /// before the lock it was created under is released.
-    pub(crate) fn create<N>(&self, name: N, arity: usize) -> StablePointer<SharedSymbol>
-    where
-        N: Into<String> + AsRef<str>,
-    {
-        self.create_impl::<false, N>(name, arity)
+    pub(crate) fn create(&self, name: &str, arity: usize) -> StablePointer<SharedSymbol> {
+        self.create_impl::<false>(name, arity)
     }
 
     /// Creates one of the pool's own reserved marker symbols (e.g.
@@ -57,11 +60,8 @@ impl SymbolPool {
     ///
     /// The returned pointer is unprotected, so the caller must protect it
     /// before the lock it was created under is released.
-    pub(crate) fn create_reserved<N>(&mut self, name: N, arity: usize) -> StablePointer<SharedSymbol>
-    where
-        N: Into<String> + AsRef<str>,
-    {
-        let result = self.create_impl::<true, N>(name, arity);
+    pub(crate) fn create_reserved(&mut self, name: &str, arity: usize) -> StablePointer<SharedSymbol> {
+        let result = self.create_impl::<true>(name, arity);
         // SAFETY: `result` points into `self.symbols`, whose entries are never removed
         // for reserved symbols.
         self.reserved.push(unsafe { result.copy() });
@@ -72,14 +72,18 @@ impl SymbolPool {
     /// collision check below (and the field it would otherwise need on every
     /// [`SharedSymbol`]) is compiled away entirely for `create_reserved`'s call,
     /// and costs only a handful of pointer comparisons for `create`'s call.
-    fn create_impl<const RESERVED: bool, N>(&self, name: N, arity: usize) -> StablePointer<SharedSymbol>
-    where
-        N: Into<String> + AsRef<str>,
-    {
+    fn create_impl<const RESERVED: bool>(&self, name: &str, arity: usize) -> StablePointer<SharedSymbol> {
         // Get or create symbol index. A colliding name/arity resolves to the
         // existing reserved entry rather than inserting a new one, since both
-        // paths key on the same `(name, arity)`.
-        let (shared_symbol, _inserted) = self.symbols.insert_equiv(&SharedSymbolLookup { name, arity });
+        // paths key on the same `(name, arity)`. The name is only copied into
+        // the symbol's own allocation when it is inserted.
+        // SAFETY: `construct` fully initialises the symbol allocated for `name.len()` bytes.
+        let (shared_symbol, _inserted) = unsafe {
+            self.symbols
+                .insert_equiv_dst(&SharedSymbolLookup { name, arity }, name.len(), |ptr, key| {
+                    SharedSymbol::construct(ptr, key.name, key.arity)
+                })
+        };
 
         if !RESERVED && self.reserved.contains(&shared_symbol) {
             // SAFETY: `shared_symbol` was just returned by `insert_equiv` above, so it
@@ -142,94 +146,160 @@ impl SymbolPool {
         unsafe {
             self.symbols.retain(|element| f(element));
         }
-
-        let removed_blocks = self.symbols.allocator_mut().remove_free_blocks();
-        debug!("Removed {} blocks from the symbol pool", removed_blocks);
     }
+}
+
+/// The fixed-size header of a [SharedSymbol], which precedes its inline name.
+///
+/// Terms point to this header directly (see `TermSymbol`), so that reading the
+/// arity on the term hot path does not need to reconstruct the wide pointer.
+#[repr(C)]
+pub(crate) struct SymbolHeader {
+    /// Number of arguments
+    arity: usize,
+    /// Length of the name in bytes
+    len: usize,
 }
 
 /// Represents a function symbol with a name and arity.
 ///
-/// `#[repr(C)]` guarantees `name` occupies the struct's first bytes, which the
-/// `BlockAllocatorSafe` impl below depends on.
-#[derive(Debug, Clone, Eq, PartialEq)]
+/// Uses a C representation and is a dynamically sized type that stores its
+/// name inline after the [SymbolHeader], implementing [SliceDst] and
+/// [Erasable]. This way a symbol is a single allocation, and is referred to by
+/// a thin pointer.
 #[repr(C)]
 pub struct SharedSymbol {
-    /// Name of the function
-    name: String,
-    /// Number of arguments
-    arity: usize,
+    header: SymbolHeader,
+    /// The UTF-8 encoded name of the function
+    name: [u8],
 }
 
-// SAFETY: the first `size_of::<*mut _>()` bytes are `name`'s internal heap
-// pointer, always initialized, and never equal to the `usize::MAX` sentinel
-// since no allocator on a supported target hands out that address.
-unsafe impl BlockAllocatorSafe for SharedSymbol {}
-
 impl SharedSymbol {
-    /// Creates a new function symbol.
-    pub fn new<N: Into<String>>(name: N, arity: usize) -> Self {
-        Self {
-            name: name.into(),
-            arity,
-        }
-    }
-
     /// Returns the name of the function symbol
     pub fn name(&self) -> &str {
-        &self.name
+        // SAFETY: `construct` only ever copies the bytes of a `str` into `name`.
+        unsafe { std::str::from_utf8_unchecked(&self.name) }
     }
 
     /// Returns the arity of the function symbol
     pub fn arity(&self) -> usize {
-        self.arity
+        self.header.arity
     }
 
     /// Returns a unique index for this shared symbol
     pub fn index(&self) -> usize {
         self as *const Self as *const u8 as usize
     }
-}
 
-/// A cheap way to look up SharedSymbol
-struct SharedSymbolLookup<T: Into<String> + AsRef<str>> {
-    name: T,
-    arity: usize,
-}
+    /// Returns the arity of the symbol at `ptr` by reading its header, without
+    /// reconstructing the wide pointer.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must point to a live [SharedSymbol].
+    pub(crate) unsafe fn arity_of(ptr: ErasedPtr) -> usize {
+        // SAFETY: the caller guarantees that `ptr` points to a live symbol, which starts with its header.
+        unsafe { ptr.cast::<SymbolHeader>().as_ref().arity }
+    }
 
-impl<T: Into<String> + AsRef<str>> From<&SharedSymbolLookup<T>> for SharedSymbol {
-    fn from(lookup: &SharedSymbolLookup<T>) -> Self {
-        // TODO: Not optimal
-        let string = lookup.name.as_ref().to_string();
-        Self::new(string, lookup.arity)
+    /// Constructs a symbol in the uninitialised memory at `ptr`, which must be
+    /// allocated for a name of `name.len()` bytes.
+    unsafe fn construct(ptr: *mut SharedSymbol, name: &str, arity: usize) {
+        // SAFETY: the caller guarantees `ptr` is allocated with the layout for `name.len()` bytes.
+        unsafe {
+            ptr.cast::<SymbolHeader>()
+                .write(SymbolHeader { arity, len: name.len() });
+            std::ptr::copy_nonoverlapping(name.as_ptr(), (&raw mut (*ptr).name).cast::<u8>(), name.len());
+        }
     }
 }
 
-impl<T: Into<String> + AsRef<str>> Equivalent<SharedSymbol> for SharedSymbolLookup<T> {
+// SAFETY: `layout_for` computes the `#[repr(C)]` layout of the header followed
+// by `len` bytes, and `length` returns the name length stored in the header,
+// which `construct` sets to the length the symbol was allocated for.
+unsafe impl SliceDst for SharedSymbol {
+    fn layout_for(len: usize) -> Result<Layout, LayoutError> {
+        repr_c(&[Layout::new::<SymbolHeader>(), Layout::array::<u8>(len)?])
+    }
+
+    fn retype(ptr: NonNull<[()]>) -> NonNull<Self> {
+        // SAFETY: casting a pointer preserves non-nullity and the slice length.
+        unsafe { NonNull::new_unchecked(ptr.as_ptr() as *mut Self) }
+    }
+
+    fn length(&self) -> usize {
+        self.header.len
+    }
+}
+
+// SAFETY: `unerase` reconstructs the slice length from the header that every
+// symbol starts with, so `unerase(erase(p)) == p`.
+unsafe impl Erasable for SharedSymbol {
+    fn erase(this: NonNull<Self>) -> ErasedPtr {
+        this.cast()
+    }
+
+    unsafe fn unerase(this: ErasedPtr) -> NonNull<Self> {
+        // SAFETY: the caller guarantees that `this` was produced by `erase`, so it points to a symbol header.
+        unsafe {
+            let len = this.cast::<SymbolHeader>().as_ref().len;
+            Self::retype(NonNull::new_unchecked(slice_from_raw_parts_mut(
+                this.as_ptr().cast(),
+                len,
+            )))
+        }
+    }
+}
+
+impl PartialEq for SharedSymbol {
+    fn eq(&self, other: &Self) -> bool {
+        self.arity() == other.arity() && self.name == other.name
+    }
+}
+
+impl Eq for SharedSymbol {}
+
+impl fmt::Debug for SharedSymbol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SharedSymbol")
+            .field("name", &self.name())
+            .field("arity", &self.arity())
+            .finish()
+    }
+}
+
+/// A cheap way to look up SharedSymbol
+struct SharedSymbolLookup<'a> {
+    name: &'a str,
+    arity: usize,
+}
+
+impl Equivalent<SharedSymbol> for SharedSymbolLookup<'_> {
     fn equivalent(&self, other: &SharedSymbol) -> bool {
-        self.name.as_ref() == other.name && self.arity == other.arity
+        self.arity == other.arity() && self.name == other.name()
     }
 }
 
 /// These hash implementations should be the same as `SharedSymbol`.
-impl<T: Into<String> + AsRef<str>> Hash for SharedSymbolLookup<T> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.name.as_ref().hash(state);
-        self.arity.hash(state);
-    }
-}
-
-impl Hash for SharedSymbol {
+impl Hash for SharedSymbolLookup<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.name.hash(state);
         self.arity.hash(state);
     }
 }
 
+impl Hash for SharedSymbol {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name().hash(state);
+        self.arity().hash(state);
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::mem::offset_of;
+    use merc_unsafety::SliceDst;
 
+    use crate::Symb;
     use crate::Symbol;
 
     use super::SharedSymbol;
@@ -245,6 +315,37 @@ mod tests {
         assert_eq!(f1, f2);
     }
 
-    // Pins the field layout the `BlockAllocatorSafe` impl depends on.
-    const _: () = assert!(offset_of!(SharedSymbol, name) == 0);
+    #[test]
+    fn test_symbol_name_and_arity() {
+        let empty = Symbol::new("", 0);
+        assert_eq!(empty.name(), "");
+        assert_eq!(empty.arity(), 0);
+
+        let unicode = Symbol::new("λx.→", 3);
+        assert_eq!(unicode.name(), "λx.→");
+        assert_eq!(unicode.arity(), 3);
+
+        // Same name with a different arity is a different symbol.
+        assert_ne!(Symbol::new("g", 1), Symbol::new("g", 2));
+    }
+
+    #[test]
+    fn test_symbol_fmt() {
+        let n = 42;
+        let s1 = Symbol::new_fmt(format_args!("x{n}"), 1);
+        let s2 = Symbol::new("x42", 1);
+        assert_eq!(s1, s2);
+        assert_eq!(s1.name(), "x42");
+
+        // A plain literal takes the `as_str` path.
+        assert_eq!(Symbol::new_fmt(format_args!("lit"), 0), Symbol::new("lit", 0));
+    }
+
+    #[test]
+    fn test_shared_symbol_size() {
+        // The header holds the arity and the name length, followed by the name itself.
+        let word = std::mem::size_of::<usize>();
+        assert_eq!(SharedSymbol::layout_for(0).unwrap().size(), 2 * word);
+        assert_eq!(SharedSymbol::layout_for(1).unwrap().size(), 3 * word);
+    }
 }
