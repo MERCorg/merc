@@ -19,7 +19,7 @@ use crate::Symb;
 use crate::SymbolRef;
 use crate::Term;
 use crate::Transmutable;
-use crate::storage::SharedSymbol;
+use crate::storage::SymbolHeader;
 
 /// The underlying type of terms that are maximally shared.
 ///
@@ -42,7 +42,9 @@ pub struct SharedTerm {
 /// threads may read the symbol meanwhile, which is why it is atomic and reads ignore the mark.
 #[repr(C)]
 pub(crate) struct TermSymbol {
-    ptr: AtomicTaggedPtr<SharedSymbol>,
+    /// Points to the header of the symbol rather than the symbol itself, since the symbol is a
+    /// dynamically sized type whose wide pointer cannot be stored atomically.
+    ptr: AtomicTaggedPtr<SymbolHeader>,
 
     /// Holds the symbol's debug reference counter, see [`StablePointer`].
     #[cfg(debug_assertions)]
@@ -53,8 +55,7 @@ impl TermSymbol {
     /// Stores the given symbol, which the term keeps alive because marking a term marks its symbol.
     pub(crate) fn new(symbol: &SymbolRef<'_>) -> Self {
         Self {
-            // SAFETY: a symbol is a sized element of the symbol pool, so `ptr` does not read it.
-            ptr: AtomicTaggedPtr::new(unsafe { symbol.shared().ptr() }),
+            ptr: AtomicTaggedPtr::new(symbol.shared().erased().cast()),
             // SAFETY: the symbol lives as long as the term, see above.
             #[cfg(debug_assertions)]
             reference: unsafe { SymbolRef::from_index(symbol.shared()) },
@@ -64,14 +65,14 @@ impl TermSymbol {
     /// Returns the symbol.
     pub(crate) fn get(&self) -> SymbolRef<'_> {
         // SAFETY: the stored pointer was not null, and masking the mark keeps it so.
-        let ptr = unsafe { NonNull::new_unchecked(self.ptr.load()) };
+        let ptr: ErasedPtr = unsafe { NonNull::new_unchecked(self.ptr.load()) }.cast();
 
-        // SAFETY: `ptr` points to the symbol that this term keeps alive, see `new`, which is also
-        // the symbol of `reference`.
+        // SAFETY: `ptr` is the erased pointer of the symbol that this term keeps alive, see `new`,
+        // which is also the symbol of `reference`.
         #[cfg(debug_assertions)]
-        let index = unsafe { StablePointer::from_related_ptr(ptr, self.reference.shared()) };
+        let index = unsafe { StablePointer::from_related_erased(ptr, self.reference.shared()) };
         #[cfg(not(debug_assertions))]
-        let index = unsafe { StablePointer::from_ptr(ptr) };
+        let index = unsafe { StablePointer::from_erased(ptr) };
 
         // SAFETY: the returned reference borrows `self`, which keeps the symbol alive.
         unsafe { SymbolRef::from_index(&index) }
@@ -167,7 +168,39 @@ impl fmt::Debug for SharedTerm {
     }
 }
 
+/// Offset of the arguments, which follow the [TermSymbol] header in the `#[repr(C)]` layout.
+const ARGUMENTS_OFFSET: usize = size_of::<TermSymbol>().next_multiple_of(align_of::<ATermRef<'static>>());
+
 impl SharedTerm {
+    /// Returns the symbol of the term at `ptr` by reading its header, without
+    /// reconstructing the wide pointer.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must point to a live [SharedTerm] that outlives `'a`.
+    pub(crate) unsafe fn symbol_of<'a>(ptr: ErasedPtr) -> SymbolRef<'a> {
+        // SAFETY: the caller guarantees that `ptr` points to a live term, which starts with its symbol.
+        unsafe { ptr.cast::<TermSymbol>().as_ref() }.get()
+    }
+
+    /// Returns the argument at `index` of the term at `ptr`, without
+    /// reconstructing the wide pointer.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must point to a live [SharedTerm] that outlives `'a`, and `index`
+    /// must be less than its arity.
+    pub(crate) unsafe fn argument_of<'a>(ptr: ErasedPtr, index: usize) -> &'a ATermRef<'static> {
+        // SAFETY: the caller guarantees that `index` is in bounds of the arguments of a live term,
+        // which start at `ARGUMENTS_OFFSET`.
+        unsafe {
+            ptr.byte_add(ARGUMENTS_OFFSET)
+                .cast::<ATermRef<'static>>()
+                .add(index)
+                .as_ref()
+        }
+    }
+
     /// Returns the symbol of the term.
     pub fn symbol(&self) -> SymbolRef<'_> {
         self.symbol.get()
@@ -206,18 +239,11 @@ impl SharedTerm {
 
     /// Constructs an uninitialised ptr from a [SharedTermLookup]
     pub(crate) unsafe fn construct(ptr: *mut SharedTerm, object: &SharedTermLookup) {
-        let header_layout = Layout::new::<TermSymbol>();
-        let slice_layout =
-            Layout::array::<ATermRef<'static>>(object.arguments.len()).expect("Layout should not exceed isize");
-
-        let (_, slice_offset) = header_layout
-            .extend(slice_layout)
-            .expect("Layout should not exceed isize");
         unsafe {
             ptr.cast::<TermSymbol>().write(TermSymbol::new(&object.symbol));
 
             for (index, argument) in object.arguments.iter().enumerate() {
-                ptr.byte_offset(slice_offset as isize)
+                ptr.byte_add(ARGUMENTS_OFFSET)
                     .cast::<ATermRef<'static>>()
                     .add(index)
                     .write(ATermRef::from_index(argument.shared()));
@@ -327,5 +353,24 @@ mod tests {
         }
 
         Global.deallocate_slice_dst(ptr, 2);
+    }
+
+    #[test]
+    fn test_shared_term_header_access() {
+        let a = ATerm::constant(&Symbol::new("a", 0));
+        let b = ATerm::constant(&Symbol::new("b", 0));
+        let term = ATerm::with_args(&Symbol::new("f", 2), &[a.copy(), b.copy()]).protect();
+
+        let ptr = term.shared().erased();
+        let shared = unsafe { term.shared().deref() };
+        unsafe {
+            assert_eq!(SharedTerm::symbol_of(ptr), shared.symbol());
+            for (index, argument) in shared.arguments().iter().enumerate() {
+                assert!(
+                    std::ptr::eq(SharedTerm::argument_of(ptr, index), argument),
+                    "The argument offset should match the layout of the term"
+                );
+            }
+        }
     }
 }
