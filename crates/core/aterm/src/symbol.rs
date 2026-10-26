@@ -94,7 +94,7 @@ impl<'a> Symb<'a, '_> for SymbolRef<'a> {
     fn arity(&self) -> usize {
         // SAFETY: `self` is a `SymbolRef<'a>`, so the symbol is kept alive for
         // `'a` and the pointee is valid to read.
-        unsafe { self.shared.deref() }.arity()
+        unsafe { SharedSymbol::arity_of(self.shared.erased()) }
     }
 
     fn copy(&self) -> SymbolRef<'a> {
@@ -102,8 +102,7 @@ impl<'a> Symb<'a, '_> for SymbolRef<'a> {
     }
 
     fn index(&self) -> usize {
-        // SAFETY: see `arity`; the symbol is alive for `'a`.
-        unsafe { self.shared.deref() }.index()
+        self.shared.erased().as_ptr() as usize
     }
 
     fn shared(&self) -> &SymbolIndex {
@@ -151,9 +150,19 @@ impl Symbol {
     /// Create a new symbol with the given name and arity.
     pub fn new<N>(name: N, arity: usize) -> Symbol
     where
-        N: Into<String> + AsRef<str>,
+        N: AsRef<str>,
     {
         THREAD_TERM_POOL.with(|tp| tp.create_symbol(name, arity))
+    }
+
+    /// Create a new symbol whose name is given by the format arguments, e.g.,
+    /// `Symbol::new_fmt(format_args!("x{n}"), 0)`.
+    ///
+    /// Formats into a reusable per-thread buffer, so unlike
+    /// `Symbol::new(format!(..), arity)` this does not allocate a temporary
+    /// string; the name is only copied when the symbol does not exist yet.
+    pub fn new_fmt(args: fmt::Arguments<'_>, arity: usize) -> Symbol {
+        THREAD_TERM_POOL.with(|tp| tp.create_symbol_fmt(args, arity))
     }
 }
 
