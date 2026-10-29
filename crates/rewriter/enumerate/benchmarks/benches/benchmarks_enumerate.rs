@@ -17,6 +17,7 @@ use merc_data::SortArrow;
 use merc_data::SortExpression;
 use merc_enumerate::EnumerationPlans;
 use merc_enumerate::Enumerator;
+use merc_enumerate::EnumeratorFrame;
 use merc_enumerate::FreshVariableGenerator;
 use merc_sabre::InnermostRewriter;
 use merc_sabre::RewriteSpecification;
@@ -67,10 +68,6 @@ fn lt_goal(bound: u32) -> (Vec<DataVariable>, DataExpression) {
     (vec![n], body)
 }
 
-fn generator_for(vars: &[DataVariable]) -> FreshVariableGenerator {
-    FreshVariableGenerator::new("v", vars.iter().map(|v| v.name().to_string()))
-}
-
 /// Constructor-expansion throughput for `sum n:D . n < bound`, across a range
 /// of bounds, with one rewriter and enumerator shared across all iterations as
 /// a state space exploration would.
@@ -79,7 +76,8 @@ fn criterion_benchmark_bounded_enumeration(c: &mut Criterion) {
     let rewrite_spec = RewriteSpecification::from_data_specification(&spec);
     let plans = Rc::new(EnumerationPlans::build(&spec));
     let mut rewriter = InnermostRewriter::new(&rewrite_spec);
-    let mut enumerator = Enumerator::new(plans);
+    let enumerator = Enumerator::new(plans, FreshVariableGenerator::new("v", std::iter::empty()));
+    let mut frame = EnumeratorFrame::default();
 
     let mut group = c.benchmark_group("bounded sum enumeration");
     for bound in [10, 50, 200] {
@@ -88,8 +86,8 @@ fn criterion_benchmark_bounded_enumeration(c: &mut Criterion) {
             bencher.iter(|| {
                 let mut count = 0usize;
                 enumerator.enumerate(
+                    &mut frame,
                     &mut rewriter,
-                    &mut generator_for(&vars),
                     &vars,
                     &body,
                     |_rewriter, _solution| -> ControlFlow<()> {

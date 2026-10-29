@@ -18,6 +18,7 @@ use merc_data::make_and;
 use merc_data::make_equal;
 use merc_enumerate::EnumerationPlans;
 use merc_enumerate::Enumerator;
+use merc_enumerate::EnumeratorFrame;
 use merc_enumerate::FreshVariableGenerator;
 use merc_enumerate::NaiveEnumerator;
 use merc_enumerate::Outcome;
@@ -190,11 +191,14 @@ fn check_one_random_goal(
     }
     let body = conjunction(&terms);
 
-    let mut enumerator = Enumerator::new(plans.clone());
+    let enumerator = Enumerator::new(
+        plans.clone(),
+        FreshVariableGenerator::new("v", vars.iter().map(|v| v.name().to_string())),
+    );
     let mut enumerator_results: AHashSet<Vec<DataExpression>> = AHashSet::new();
     let outcome = enumerator.enumerate(
+        &mut EnumeratorFrame::default(),
         enumerator_rewriter,
-        &mut FreshVariableGenerator::new("v", vars.iter().map(|v| v.name().to_string())),
         &vars,
         &body,
         |_rewriter, solution| -> ControlFlow<()> {
@@ -275,11 +279,14 @@ fn test_enumerator_agrees_with_naive_enumerator_on_an_unsatisfiable_goal() {
     ]);
 
     let mut enumerator_rewriter = InnermostRewriter::new(&rewrite_spec);
-    let mut enumerator = Enumerator::new(plans.clone());
+    let enumerator = Enumerator::new(
+        plans.clone(),
+        FreshVariableGenerator::new("v", vars.iter().map(|v| v.name().to_string())),
+    );
     let mut enumerator_results: AHashSet<Vec<DataExpression>> = AHashSet::new();
     let outcome = enumerator.enumerate(
+        &mut EnumeratorFrame::default(),
         &mut enumerator_rewriter,
-        &mut FreshVariableGenerator::new("v", vars.iter().map(|v| v.name().to_string())),
         &vars,
         &body,
         |_rewriter, solution| -> ControlFlow<()> {

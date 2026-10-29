@@ -5,29 +5,20 @@ use merc_sabre::Enumerator as SabreEnumerator;
 use merc_sabre::RewriteEngine;
 
 use crate::Enumerator;
+use crate::EnumeratorFrame;
 use crate::QuantifierKind;
 use crate::WitnessOutcome;
-use crate::fresh::FreshVariableGenerator;
 
-/// Implements [`merc_sabre::Enumerator`] on top of
-/// [`Enumerator::find_witness`].
+/// Decides quantifiers through [`Enumerator::find_witness`].
 ///
-/// Keeps the fresh variable generator around for each call. This does mean that
-/// every rewrite must be in the same context.
-pub struct QuantifierEnumerator {
-    enumerator: Enumerator,
-    generator: FreshVariableGenerator,
-}
+/// Every rewrite fed to this enumerator must be in the same context, since
+/// the fresh variable generator is shared by all of them.
+impl SabreEnumerator for Enumerator {
+    type Frame = EnumeratorFrame;
 
-impl QuantifierEnumerator {
-    pub fn new(enumerator: Enumerator, generator: FreshVariableGenerator) -> Self {
-        QuantifierEnumerator { enumerator, generator }
-    }
-}
-
-impl SabreEnumerator for QuantifierEnumerator {
     fn decide<R: RewriteEngine>(
-        &mut self,
+        &self,
+        frame: &mut EnumeratorFrame,
         rewriter: &mut R,
         binder: BinderType,
         vars: &[DataVariable],
@@ -39,10 +30,7 @@ impl SabreEnumerator for QuantifierEnumerator {
             _ => unreachable!("Enumerator::decide is only ever called for Exists/Forall"),
         };
 
-        match self
-            .enumerator
-            .find_witness(rewriter, &mut self.generator, vars, body, kind)
-        {
+        match self.find_witness(frame, rewriter, vars, body, kind) {
             WitnessOutcome::Found(_) => Some(matches!(kind, QuantifierKind::Exists)),
             WitnessOutcome::NoneExists => Some(matches!(kind, QuantifierKind::Forall)),
             WitnessOutcome::LimitReached => None,

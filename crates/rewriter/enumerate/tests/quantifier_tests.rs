@@ -6,7 +6,6 @@ use merc_data::bool_literal;
 use merc_enumerate::EnumerationPlans;
 use merc_enumerate::Enumerator;
 use merc_enumerate::FreshVariableGenerator;
-use merc_enumerate::QuantifierEnumerator;
 use merc_sabre::InnermostRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
@@ -31,14 +30,13 @@ fn goal_body(spec: &Mcrl2DataSpecification) -> DataExpression {
         .protect()
 }
 
-/// Builds an [InnermostRewriter] with a fresh [QuantifierEnumerator] wired in, so it decides
+/// Builds an [InnermostRewriter] with a fresh [Enumerator] wired in, so it decides
 /// `exists`/`forall` quantifiers over `data_spec`'s sorts.
-fn rewriter_with_enumerator(data_spec: &Mcrl2DataSpecification) -> InnermostRewriter<QuantifierEnumerator> {
+fn rewriter_with_enumerator(data_spec: &Mcrl2DataSpecification) -> InnermostRewriter<Enumerator> {
     let spec = RewriteSpecification::from_data_specification(data_spec);
     let plans = Rc::new(EnumerationPlans::build(data_spec));
-    let enumerator = Enumerator::new(plans);
     let generator = FreshVariableGenerator::new("v", std::iter::empty());
-    InnermostRewriter::with_enumerator(&spec, QuantifierEnumerator::new(enumerator, generator))
+    InnermostRewriter::with_enumerator(&spec, Enumerator::new(plans, generator))
 }
 
 #[test]
@@ -72,10 +70,28 @@ fn test_a_directly_nested_quantifier_is_also_decided() {
     assert_eq!(result, bool_literal(true));
 }
 
+/// A nested quantifier over the outer quantifier's variable, which can only be
+/// decided once the outer enumeration has substituted a value for it.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn test_a_dependent_nested_quantifier_is_decided() {
+    for (goal, expected) in [
+        ("forall x: Bool . exists y: Bool . x != y", true),
+        ("exists x: Bool . forall y: Bool . x == y", false),
+        ("exists n: Nat . forall b: Bool . b || n == 3", true),
+    ] {
+        let data_spec = lower(goal);
+        let body = goal_body(&data_spec);
+
+        let result = rewriter_with_enumerator(&data_spec).rewrite(&body);
+        assert_eq!(result, bool_literal(expected), "{goal}");
+    }
+}
+
 // The tests below are ported from mCRL2's `libraries/data/test/quantifier_test.cpp`.
 
 /// Lowers `spec` extended with `b = <expr>` and `e = <expected>`, and checks
-/// that rewriting `b` with a [QuantifierEnumerator] yields `e`'s normal form.
+/// that rewriting `b` with an [Enumerator] yields `e`'s normal form.
 fn assert_rewrites_to(spec: &str, expr: &str, expected: &str) {
     let source = format!("{spec}\nmap b, e: Bool;\neqn b = {expr};\n    e = {expected};");
     let untyped = UntypedDataSpecification::parse(&source).unwrap();
@@ -116,7 +132,7 @@ fn test_quantifiers_over_bool() {
 }
 
 #[test]
-#[ignore = "ported from mCRL2"]
+#[cfg_attr(miri, ignore)]
 fn test_quantifiers_over_nat_and_pos() {
     assert_rewrites_to("", "exists x: Nat. x in {1, 2, 25, 600} && 25 == x", "true");
 

@@ -5,7 +5,9 @@ use merc_data::DataApplication;
 use merc_data::DataExpression;
 use merc_enumerate::EnumerationPlans;
 use merc_enumerate::Enumerator;
+use merc_enumerate::EnumeratorFrame;
 use merc_enumerate::FreshVariableGenerator;
+use merc_enumerate::NaiveEnumerator;
 use merc_sabre::InnermostRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
@@ -52,12 +54,12 @@ fn enumerate_finds_every_solution_for_real_machine_word_nat() {
         &[DataExpression::from(m_var.clone())],
     ));
 
-    let mut generator = FreshVariableGenerator::new("v", std::iter::once(m_var.name().to_string()));
-    let mut enumerator = Enumerator::new(plans);
+    let generator = FreshVariableGenerator::new("v", std::iter::once(m_var.name().to_string()));
+    let enumerator = Enumerator::new(plans, generator);
     let mut solutions = Vec::new();
     let outcome = enumerator.enumerate(
+        &mut EnumeratorFrame::default(),
         &mut rewriter,
-        &mut generator,
         &[m_var],
         &body,
         |_rewriter, sol| -> ControlFlow<()> {
@@ -80,4 +82,34 @@ fn enumerate_finds_every_solution_for_real_machine_word_nat() {
             );
         }
     }
+}
+
+/// The reference enumerator must also normalise `@c0` before substituting it,
+/// or `m = 0` is missed under the machine-word `Nat` encoding.
+#[test]
+fn naive_enumerator_finds_every_solution_for_real_machine_word_nat() {
+    let untyped = UntypedDataSpecification::parse(
+        "map goal: Nat -> Bool;
+         var m: Nat;
+         eqn goal(m) = m < 3;",
+    )
+    .unwrap();
+    let typed =
+        DataSpecification::from_untyped_with(untyped, NumberEncoding::MachineWord, &mut SourceMap::new()).unwrap();
+    let spec = typed.lower_data_specification();
+
+    let rewrite_spec = RewriteSpecification::from_data_specification(&spec);
+    let mut rewriter = InnermostRewriter::new(&rewrite_spec);
+    let plans = EnumerationPlans::build(&spec);
+
+    let equation = spec
+        .equations()
+        .iter()
+        .find(|e| e.lhs().to_string().starts_with("goal"))
+        .unwrap();
+    let vars = equation.variables().to_vec();
+    let body = equation.rhs().protect();
+
+    let solutions = NaiveEnumerator::new(&mut rewriter, &plans, 4).enumerate_all(&vars, &body);
+    assert_eq!(solutions.len(), 3, "expected m = 0, 1, 2, got {solutions:?}");
 }

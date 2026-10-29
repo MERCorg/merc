@@ -13,6 +13,7 @@ use merc_data::visit_data_expr;
 use merc_enumerate::EnumerationLimits;
 use merc_enumerate::EnumerationPlans;
 use merc_enumerate::Enumerator;
+use merc_enumerate::EnumeratorFrame;
 use merc_enumerate::FreshVariableGenerator;
 use merc_enumerate::Outcome;
 use merc_enumerate::QuantifierKind;
@@ -113,11 +114,11 @@ fn test_enumerate_finds_every_bounded_solution() {
 
     let (vars, body) = goal(&spec, "goal");
 
-    let mut enumerator = Enumerator::new(plans);
+    let enumerator = Enumerator::new(plans, generator_for(&vars));
     let mut results: Vec<DataExpression> = Vec::new();
     let outcome = enumerator.enumerate(
+        &mut EnumeratorFrame::default(),
         &mut rewriter,
-        &mut generator_for(&vars),
         &vars,
         &body,
         |_rewriter, solution| -> ControlFlow<()> {
@@ -157,11 +158,11 @@ fn test_enumerate_never_truncates_past_the_default_limits() {
 
     let (vars, body) = goal(&spec, "goal");
 
-    let mut enumerator = Enumerator::new(plans).with_limits(tiny_limits);
+    let enumerator = Enumerator::new(plans, generator_for(&vars)).with_limits(tiny_limits);
     let mut count = 0usize;
     let outcome = enumerator.enumerate(
+        &mut EnumeratorFrame::default(),
         &mut rewriter,
-        &mut generator_for(&vars),
         &vars,
         &body,
         |_rewriter, _solution| -> ControlFlow<()> {
@@ -207,11 +208,11 @@ fn test_enumerate_is_fair_across_two_infinite_variables() {
 
     let (vars, body) = goal(&spec, "goal");
 
-    let mut enumerator = Enumerator::new(plans);
+    let enumerator = Enumerator::new(plans, generator_for(&vars));
     let mut results: AHashSet<(DataExpression, DataExpression)> = AHashSet::new();
     let outcome = enumerator.enumerate(
+        &mut EnumeratorFrame::default(),
         &mut rewriter,
-        &mut generator_for(&vars),
         &vars,
         &body,
         |_rewriter, solution| -> ControlFlow<()> {
@@ -271,11 +272,11 @@ fn test_compile_one_point_then_enumerate_normalized_matches_direct_enumeration()
         "only `n` should still be free in the residual condition once `b` is compiled away"
     );
 
-    let mut enumerator = Enumerator::new(plans);
+    let enumerator = Enumerator::new(plans, generator_for(&vars));
     let mut results: Vec<DataExpression> = Vec::new();
     let outcome = enumerator.enumerate_normalized(
+        &mut EnumeratorFrame::default(),
         &mut rewriter,
-        &mut generator_for(&vars),
         &remaining_vars,
         condition,
         |_rewriter, solution| -> ControlFlow<()> {
@@ -307,10 +308,10 @@ fn test_find_witness_exists_finds_a_small_witness() {
 
     let (vars, body) = goal(&spec, "goal");
 
-    let mut enumerator = Enumerator::new(plans);
+    let enumerator = Enumerator::new(plans, generator_for(&vars));
     match enumerator.find_witness(
+        &mut EnumeratorFrame::default(),
         &mut rewriter,
-        &mut generator_for(&vars),
         &vars,
         &body,
         QuantifierKind::Exists,
@@ -344,10 +345,10 @@ fn test_find_witness_gives_up_past_the_bound() {
 
     let (vars, body) = goal(&spec, "goal");
 
-    let mut enumerator = Enumerator::new(plans).with_limits(tiny_limits);
+    let enumerator = Enumerator::new(plans, generator_for(&vars)).with_limits(tiny_limits);
     match enumerator.find_witness(
+        &mut EnumeratorFrame::default(),
         &mut rewriter,
-        &mut generator_for(&vars),
         &vars,
         &body,
         QuantifierKind::Exists,
@@ -374,10 +375,10 @@ fn test_find_witness_forall_holds_over_a_finite_sort() {
 
     let (vars, body) = goal(&spec, "goal");
 
-    let mut enumerator = Enumerator::new(plans);
+    let enumerator = Enumerator::new(plans, generator_for(&vars));
     match enumerator.find_witness(
+        &mut EnumeratorFrame::default(),
         &mut rewriter,
-        &mut generator_for(&vars),
         &vars,
         &body,
         QuantifierKind::Forall,
@@ -410,10 +411,10 @@ fn test_find_witness_forall_is_not_broken_by_the_one_point_rule() {
 
     let (vars, body) = goal(&spec, "goal");
 
-    let mut enumerator = Enumerator::new(plans);
+    let enumerator = Enumerator::new(plans, generator_for(&vars));
     match enumerator.find_witness(
+        &mut EnumeratorFrame::default(),
         &mut rewriter,
-        &mut generator_for(&vars),
         &vars,
         &body,
         QuantifierKind::Forall,
@@ -445,10 +446,10 @@ fn test_find_witness_forall_does_not_claim_an_undecided_body_holds() {
 
     let (vars, body) = goal(&spec, "goal");
 
-    let mut enumerator = Enumerator::new(plans);
+    let enumerator = Enumerator::new(plans, generator_for(&vars));
     match enumerator.find_witness(
+        &mut EnumeratorFrame::default(),
         &mut rewriter,
-        &mut generator_for(&vars),
         &vars,
         &body,
         QuantifierKind::Forall,
@@ -486,11 +487,11 @@ fn solutions(spec: &Mcrl2DataSpecification, name: &str, max: usize) -> (Outcome,
     let mut rewriter = InnermostRewriter::new(&rewrite_spec);
     let (vars, body) = goal_on_lhs(spec, name);
 
-    let mut enumerator = Enumerator::new(Rc::new(EnumerationPlans::build(spec)));
+    let enumerator = Enumerator::new(Rc::new(EnumerationPlans::build(spec)), generator_for(&vars));
     let mut results = Vec::new();
     let outcome = enumerator.enumerate(
+        &mut EnumeratorFrame::default(),
         &mut rewriter,
-        &mut generator_for(&vars),
         &vars,
         &body,
         |_rewriter, solution| {
@@ -511,8 +512,8 @@ fn witness(spec: &Mcrl2DataSpecification, name: &str, kind: QuantifierKind) -> W
     let mut rewriter = InnermostRewriter::new(&rewrite_spec);
     let (vars, body) = goal_on_lhs(spec, name);
 
-    let mut enumerator = Enumerator::new(Rc::new(EnumerationPlans::build(spec)));
-    enumerator.find_witness(&mut rewriter, &mut generator_for(&vars), &vars, &body, kind)
+    let enumerator = Enumerator::new(Rc::new(EnumerationPlans::build(spec)), generator_for(&vars));
+    enumerator.find_witness(&mut EnumeratorFrame::default(), &mut rewriter, &vars, &body, kind)
 }
 
 /// Returns the normal form of nullary mapping `name`'s right-hand side.
