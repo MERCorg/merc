@@ -11,6 +11,7 @@ mod markable;
 mod parse_term;
 mod protected;
 mod random_term;
+mod structural_ord;
 mod symbol;
 mod transmutable;
 
@@ -56,6 +57,8 @@ pub use protected::Protected;
 pub use protected::ProtectedReadGuard;
 pub use protected::ProtectedSend;
 pub use protected::ProtectedWriteGuard;
+pub use structural_ord::StructuralOrd;
+pub use structural_ord::structural_cmp;
 pub use symbol::Symb;
 pub use symbol::Symbol;
 pub use symbol::SymbolIndex;

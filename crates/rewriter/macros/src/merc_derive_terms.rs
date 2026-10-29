@@ -173,6 +173,7 @@ pub(crate) fn merc_derive_terms_impl(_attributes: TokenStream, input: TokenStrea
                                         fn arg(&'b self, index: usize) -> ATermRef<'a>;
                                         fn arguments(&'b self) -> ATermArgs<'a>;
                                         fn copy(&'b self) -> ATermRef<'a>;
+                                        fn borrow(&self) -> ATermRef<'_>;
                                         fn get_head_symbol(&'b self) -> SymbolRef<'a>;
                                         fn iter(&'b self) -> TermIterator<'a>;
                                         fn index(&self) -> usize;
@@ -228,6 +229,7 @@ pub(crate) fn merc_derive_terms_impl(_attributes: TokenStream, input: TokenStrea
                                         fn arg(&self, index: usize) -> ATermRef<'a>;
                                         fn arguments(&self) -> ATermArgs<'a>;
                                         fn copy(&self) -> ATermRef<'a>;
+                                        fn borrow(&self) -> ATermRef<'_>;
                                         fn get_head_symbol(&self) -> SymbolRef<'a>;
                                         fn iter(&self) -> TermIterator<'a>;
                                         fn index(&self) -> usize;
