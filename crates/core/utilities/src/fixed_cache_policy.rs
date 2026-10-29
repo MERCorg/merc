@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::hash::Hash;
 
+use crate::SlotList;
+
 /// A trait for implementing cache replacement policies.
 ///
 /// Cache policies determine which elements to remove when the cache is full.
@@ -76,44 +78,56 @@ impl<K: Clone + Eq + Hash> CachePolicy<K> for FifoPolicy<K> {
 
 /// A Least-Recently-Used (LRU) replacement policy.
 ///
-/// `touch` is linear in the number of resident keys, so this policy is only
-/// suitable for small caches.
+/// Keeps the recency order in a [SlotList], indexed by key, so that `touch`
+/// runs in constant time on every cache hit.
 #[derive(Debug)]
 pub struct LruPolicy<K> {
-    queue: VecDeque<K>,
+    /// The slot of every tracked key.
+    index: HashMap<K, usize>,
+    /// Tracked keys, from least to most recently used.
+    order: SlotList<K>,
 }
 
 impl<K> LruPolicy<K> {
     pub fn new() -> Self {
-        Self { queue: VecDeque::new() }
+        Self {
+            index: HashMap::new(),
+            order: SlotList::new(),
+        }
     }
 }
 
 impl<K> Default for LruPolicy<K> {
     fn default() -> Self {
-        Self { queue: VecDeque::new() }
+        Self::new()
     }
 }
 
 impl<K: Clone + Eq + Hash> CachePolicy<K> for LruPolicy<K> {
     fn clear(&mut self) {
-        self.queue.clear();
+        self.index.clear();
+        self.order.clear();
     }
 
     fn inserted(&mut self, key: K) {
-        self.queue.push_back(key);
+        if self.index.contains_key(&key) {
+            self.touch(&key);
+            return;
+        }
+
+        let slot = self.order.push_back(key.clone());
+        self.index.insert(key, slot);
     }
 
     fn touch(&mut self, key: &K) {
-        if let Some(pos) = self.queue.iter().position(|k| k == key)
-            && let Some(k) = self.queue.remove(pos)
-        {
-            self.queue.push_back(k);
+        if let Some(&slot) = self.index.get(key) {
+            self.order.move_to_back(slot);
         }
     }
 
     fn replacement_candidate<V>(&mut self, cache: &HashMap<K, V>) -> Option<K> {
-        while let Some(key) = self.queue.pop_front() {
+        while let Some(key) = self.order.pop_front() {
+            self.index.remove(&key);
             if cache.contains_key(&key) {
                 return Some(key);
             }
@@ -172,5 +186,30 @@ mod tests {
 
         // Least recently used should be 2
         assert_eq!(policy.replacement_candidate(&cache), Some(2));
+    }
+
+    #[test]
+    fn test_lru_policy_reuses_evicted_slots() {
+        let mut policy = LruPolicy::default();
+        let mut cache = HashMap::new();
+        for key in 1..=3 {
+            cache.insert(key, ());
+            policy.inserted(key);
+        }
+
+        policy.touch(&1);
+        assert_eq!(policy.replacement_candidate(&cache), Some(2));
+        cache.remove(&2);
+
+        cache.insert(4, ());
+        policy.inserted(4);
+        policy.touch(&3);
+
+        // Recency order is now 1, 4, 3.
+        for expected in [1, 4, 3] {
+            assert_eq!(policy.replacement_candidate(&cache), Some(expected));
+            cache.remove(&expected);
+        }
+        assert_eq!(policy.replacement_candidate(&cache), None);
     }
 }
