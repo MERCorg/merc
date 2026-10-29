@@ -125,6 +125,7 @@ where
             fn arg(&'b self, index: usize) -> ATermRef<'a>;
             fn arguments(&'b self) -> ATermArgs<'a>;
             fn copy(&'b self) -> ATermRef<'a>;
+            fn borrow(&self) -> ATermRef<'_>;
             fn get_head_symbol(&'b self) -> SymbolRef<'a>;
             fn iter(&'b self) -> TermIterator<'a>;
             fn index(&self) -> usize;

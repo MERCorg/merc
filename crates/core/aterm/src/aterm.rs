@@ -49,6 +49,13 @@ pub trait Term<'a, 'b> {
     /// Makes a copy of the term, returning an [ATermRef] with the same lifetime as itself.
     fn copy(&'b self) -> ATermRef<'a>;
 
+    /// Returns an [ATermRef] that lives as long as this borrow.
+    ///
+    /// Unlike [Term::copy] this works for any borrow, so generic code that
+    /// only has `&self` with an unrelated lifetime, such as a trait method,
+    /// can inspect both owned terms and references.
+    fn borrow(&self) -> ATermRef<'_>;
+
     /// Returns the head symbol of the term as a [SymbolRef].
     fn get_head_symbol(&'b self) -> SymbolRef<'a>;
 
@@ -124,6 +131,10 @@ impl<'a, 'b> Term<'a, 'b> for ATermRef<'a> {
 
     fn copy(&self) -> ATermRef<'a> {
         unsafe { ATermRef::from_index(self.shared()) }
+    }
+
+    fn borrow(&self) -> ATermRef<'_> {
+        self.copy()
     }
 
     fn get_head_symbol(&'b self) -> SymbolRef<'a> {
@@ -345,6 +356,7 @@ where
             fn arg(&self, index: usize) -> ATermRef<'a>;
             fn arguments(&self) -> ATermArgs<'a>;
             fn copy(&self) -> ATermRef<'a>;
+            fn borrow(&self) -> ATermRef<'_>;
             fn get_head_symbol(&self) -> SymbolRef<'a>;
             fn iter(&self) -> TermIterator<'a>;
             fn index(&self) -> usize;
@@ -485,6 +497,7 @@ where
             fn arg(&self, index: usize) -> ATermRef<'a>;
             fn arguments(&self) -> ATermArgs<'a>;
             fn copy(&self) -> ATermRef<'a>;
+            fn borrow(&self) -> ATermRef<'_>;
             fn get_head_symbol(&self) -> SymbolRef<'a>;
             fn iter(&self) -> TermIterator<'a>;
             fn index(&self) -> usize;
@@ -566,6 +579,7 @@ where
             fn arg(&'b self, index: usize) -> ATermRef<'a>;
             fn arguments(&'b self) -> ATermArgs<'a>;
             fn copy(&'b self) -> ATermRef<'a>;
+            fn borrow(&self) -> ATermRef<'_>;
             fn get_head_symbol(&'b self) -> SymbolRef<'a>;
             fn iter(&'b self) -> TermIterator<'a>;
             fn index(&self) -> usize;
@@ -694,6 +708,10 @@ impl<'a, 'b, T: Term<'a, 'b>> Term<'a, 'b> for &'b T {
 
     fn copy(&self) -> ATermRef<'a> {
         (*self).copy()
+    }
+
+    fn borrow(&self) -> ATermRef<'_> {
+        (*self).borrow()
     }
 
     fn get_head_symbol(&self) -> SymbolRef<'a> {
