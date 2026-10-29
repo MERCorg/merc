@@ -16,6 +16,7 @@ mod optimized_boolean;
 mod permutation;
 mod pest_display_pair;
 mod random_test;
+mod recycle_vec;
 mod sharded_counter;
 mod slot_list;
 mod snapshot;

@@ -1,3 +1,7 @@
+use std::iter::FusedIterator;
+
+use crate::recycle_vec::recycle_vec;
+
 /// A handle to a tree node that may be an application of a binary connective, so that nested
 /// applications of the same connective form a chain `a op b op c ...` that [ChainIter] flattens.
 ///
@@ -16,8 +20,8 @@ pub trait BinaryChain: Copy {
 ///
 /// The storage is empty between traversals, so `U` need not be the handle type of any particular
 /// traversal: a long-lived context can keep, for example, a `ChainStack<TermRef<'static>>` and
-/// lend it to traversals of shorter-lived terms. The allocation is only reused when `U` has the
-/// same size and alignment as the handle type.
+/// lend it to traversals of shorter-lived terms. `U` must have the same size and alignment as the
+/// handle type, so that the allocation can be reused; [ChainIter::new] checks this at compile time.
 pub struct ChainStack<U> {
     stack: Vec<U>,
 }
@@ -50,7 +54,14 @@ pub struct ChainIter<'s, T: BinaryChain, U> {
 impl<'s, T: BinaryChain, U> ChainIter<'s, T, U> {
     /// Starts a traversal of the `op` chain rooted at `root`, using the allocation of `storage`.
     pub fn new(root: T, op: T::Op, storage: &'s mut ChainStack<U>) -> Self {
-        let mut stack = recycle(std::mem::take(&mut storage.stack));
+        const {
+            assert!(
+                size_of::<T>() == size_of::<U>() && align_of::<T>() == align_of::<U>(),
+                "the storage element type must have the layout of the handle type"
+            );
+        }
+
+        let mut stack = recycle_vec(std::mem::take(&mut storage.stack));
         stack.push(root);
 
         ChainIter { stack, op, storage }
@@ -74,20 +85,19 @@ impl<T: BinaryChain, U> Iterator for ChainIter<'_, T, U> {
 
         None
     }
-}
 
-impl<T: BinaryChain, U> Drop for ChainIter<'_, T, U> {
-    fn drop(&mut self) {
-        self.storage.stack = recycle(std::mem::take(&mut self.stack));
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        // Every node on the stack yields at least one operand.
+        (self.stack.len(), None)
     }
 }
 
-/// Converts an emptied vector to one of another element type. The standard library collects
-/// `into_iter().map(..)` in place when both element types have the same layout, which keeps the
-/// allocation; otherwise this merely frees it.
-fn recycle<T, U>(mut vec: Vec<T>) -> Vec<U> {
-    vec.clear();
-    vec.into_iter().map(|_| unreachable!("the vector is empty")).collect()
+impl<T: BinaryChain, U> FusedIterator for ChainIter<'_, T, U> {}
+
+impl<T: BinaryChain, U> Drop for ChainIter<'_, T, U> {
+    fn drop(&mut self) {
+        self.storage.stack = recycle_vec(std::mem::take(&mut self.stack));
+    }
 }
 
 #[cfg(test)]
@@ -168,5 +178,21 @@ mod tests {
         let other = binary(Op::And, Expr::Var("D"), Expr::Var("E"));
         assert_eq!(names(ChainIter::new(&other, Op::And, &mut storage)), ["D", "E"]);
         assert_eq!(storage.stack.capacity(), capacity);
+    }
+
+    #[test]
+    fn test_chain_iter_size_hint_is_a_lower_bound() {
+        let expr = binary(Op::And, Expr::Var("A"), binary(Op::And, Expr::Var("B"), Expr::Var("C")));
+
+        let mut storage = ChainStack::<&Expr>::new();
+        let mut iter = ChainIter::new(&expr, Op::And, &mut storage);
+        assert_eq!(iter.size_hint(), (1, None));
+
+        iter.next();
+        assert_eq!(iter.size_hint(), (1, None));
+        iter.next();
+        iter.next();
+        assert_eq!(iter.size_hint(), (0, None));
+        assert!(iter.next().is_none());
     }
 }
