@@ -4,24 +4,29 @@ use merc_data::DataVariable;
 
 use crate::RewriteEngine;
 
-/// Fed to a rewriter to decide `exists`/`forall` quantifiers it cannot reduce
+/// Fed to a rewriter to decide `exists`/`forall` quantifiers it cannot decide
 /// on its own.
 ///
-/// Defined here rather than in `merc_enumerate`, and the rewriter
-/// parameterised over it rather than depending on `merc_enumerate`
-/// concretely, because `merc_enumerate` already depends on `merc_sabre`
-/// (an enumerator closes candidate substitutions through a [RewriteEngine]):
-/// `merc_sabre` cannot depend back on it without a cycle. `merc_enumerate`
-/// implements this trait instead.
+/// Split into the shared `&self` context and a per-search [Enumerator::Frame],
+/// so that a quantifier reached while another one is being decided can be
+/// decided by the same enumerator: the outer search's frame is still live,
+/// so the nested search gets a frame of its own.
 pub trait Enumerator {
+    /// The scratch state of a single search. The rewriter keeps one per
+    /// nesting depth and reuses them between searches.
+    type Frame: Default;
+
     /// Attempts to decide `binder vars . body`, where `body` is the
     /// quantifier's body, already rewritten with `vars` held as free normal
     /// forms.
     ///
     /// Returns `Some(true)`/`Some(false)` once the search settles the
-    /// quantifier, or `None` when it can't.
+    /// quantifier, or `None` when it can't. `rewriter` decides nested
+    /// quantifiers through this enumerator again, so no borrow of `self` may
+    /// be held across a rewrite.
     fn decide<R: RewriteEngine>(
-        &mut self,
+        &self,
+        frame: &mut Self::Frame,
         rewriter: &mut R,
         binder: BinderType,
         vars: &[DataVariable],
@@ -31,17 +36,15 @@ pub trait Enumerator {
 
 /// The default [`Enumerator`]: never decides, so every quantifier it reaches
 /// is left in place, over its rewritten body.
-///
-/// Used by [`InnermostRewriter::new`](crate::InnermostRewriter::new) so that
-/// building a rewriter without an enumerator no longer panics on a
-/// quantifier (as it used to, since binders had no accessors at all), it
-/// simply leaves it undecided.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoQuantifierEnumerator;
 
 impl Enumerator for NoQuantifierEnumerator {
+    type Frame = ();
+
     fn decide<R: RewriteEngine>(
-        &mut self,
+        &self,
+        _frame: &mut Self::Frame,
         _rewriter: &mut R,
         _binder: BinderType,
         _vars: &[DataVariable],

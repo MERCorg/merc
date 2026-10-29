@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::ops::ControlFlow;
 use std::rc::Rc;
@@ -112,11 +113,11 @@ impl Solution<'_> {
 /// One unfinished branch of the search.
 struct WorkItem {
     /// The variables still to be instantiated, in enumeration order, as a
-    /// [`RemainingList`] of indices into [`Enumerator::var_pool`].
+    /// [`RemainingList`] of indices into [`EnumeratorFrame::var_pool`].
     remaining: RemainingList,
     /// the goal body already rewritten under the current bindings
     body: DataExpression,
-    /// a `Copy` handle into the enumerator's `BindingArena`
+    /// a `Copy` handle into the frame's `BindingArena`
     bindings: BindingChain,
     /// the search depth at which this work item was created
     depth: u32,
@@ -130,14 +131,23 @@ pub struct Enumerator {
     limits: EnumerationLimits,
     /// Finite sorts' materialised element list. Tied to the rewriter that
     /// produced them, so it must not outlive a change of `RewriteEngine`.
-    finite_elements: HashMap<EnumerationPlanId, Vec<DataExpression>>,
+    finite_elements: RefCell<HashMap<EnumerationPlanId, Rc<[DataExpression]>>>,
+    /// Shared by all nested frames.
+    generator: RefCell<FreshVariableGenerator>,
     /// The `Bool` literals
     true_literal: DataExpression,
     false_literal: DataExpression,
+}
+
+/// The scratch state of a single [`Enumerator`] search, reused across
+/// searches rather than reallocated per search.
+///
+/// A search must not reuse the frame of a search that is still running, such
+/// as the outer one of a nested quantifier.
+pub struct EnumeratorFrame {
     /// Backing store `WorkItem.remaining`'s indices point into for the
     /// current `drive` call.
     var_pool: Protected<Vec<DataVariableRef<'static>>>,
-    /// Scratch buffers, reused across calls rather than reallocated per search.
     solution_buf: Vec<DataExpression>,
     bindings_arena: BindingArena,
     remaining_arena: RemainingArena,
@@ -150,19 +160,9 @@ pub struct Enumerator {
     fresh_indices_buf: Vec<u32>,
 }
 
-impl Enumerator {
-    /// Builds an enumerator with the default [`EnumerationLimits`].
-    ///
-    /// The `Rc` keeps `Enumerator` free of a lifetime parameter, so it can be
-    /// stored as a plain field. The rewriter and [`FreshVariableGenerator`]
-    /// are borrowed per call instead, since they may differ between searches.
-    pub fn new(plans: Rc<EnumerationPlans>) -> Self {
-        Enumerator {
-            plans,
-            limits: EnumerationLimits::default(),
-            finite_elements: HashMap::new(),
-            true_literal: bool_literal(true),
-            false_literal: bool_literal(false),
+impl Default for EnumeratorFrame {
+    fn default() -> Self {
+        EnumeratorFrame {
             var_pool: Protected::new(Vec::new()),
             solution_buf: Vec::new(),
             bindings_arena: BindingArena::default(),
@@ -170,6 +170,25 @@ impl Enumerator {
             queue: VecDeque::new(),
             constructor_args_buf: Vec::new(),
             fresh_indices_buf: Vec::new(),
+        }
+    }
+}
+
+impl Enumerator {
+    /// Builds an enumerator with the default [`EnumerationLimits`], whose
+    /// fresh variables are named by `generator`.
+    ///
+    /// The `Rc` keeps `Enumerator` free of a lifetime parameter, so it can be
+    /// stored as a plain field. The rewriter is borrowed per call instead,
+    /// since it may differ between searches.
+    pub fn new(plans: Rc<EnumerationPlans>, generator: FreshVariableGenerator) -> Self {
+        Enumerator {
+            plans,
+            limits: EnumerationLimits::default(),
+            finite_elements: RefCell::new(HashMap::new()),
+            generator: RefCell::new(generator),
+            true_literal: bool_literal(true),
+            false_literal: bool_literal(false),
         }
     }
 
@@ -191,9 +210,9 @@ impl Enumerator {
     /// where every solution is wanted and a truncated result would be an
     /// unsound state space.
     pub fn enumerate<R: RewriteEngine, F, B>(
-        &mut self,
+        &self,
+        frame: &mut EnumeratorFrame,
         rewriter: &mut R,
-        generator: &mut FreshVariableGenerator,
         vars: &[DataVariable],
         body: &DataExpression,
         consume: F,
@@ -202,15 +221,15 @@ impl Enumerator {
         F: FnMut(&mut R, &Solution<'_>) -> ControlFlow<B>,
     {
         let body = rewriter.rewrite(body);
-        self.enumerate_normalized(rewriter, generator, vars, body, consume)
+        self.enumerate_normalized(frame, rewriter, vars, body, consume)
     }
 
     /// Same as [`Self::enumerate`], but for a `body` the caller has already
     /// rewritten to normal form.
     pub fn enumerate_normalized<R: RewriteEngine, F, B>(
-        &mut self,
+        &self,
+        frame: &mut EnumeratorFrame,
         rewriter: &mut R,
-        generator: &mut FreshVariableGenerator,
         vars: &[DataVariable],
         body: DataExpression,
         consume: F,
@@ -218,10 +237,10 @@ impl Enumerator {
     where
         F: FnMut(&mut R, &Solution<'_>) -> ControlFlow<B>,
     {
-        self.bindings_arena.clear();
+        frame.bindings_arena.clear();
         self.drive(
+            frame,
             rewriter,
-            generator,
             vars,
             vars,
             body,
@@ -238,9 +257,9 @@ impl Enumerator {
     ///
     /// Bounded by [`EnumerationLimits`].
     pub fn find_witness<R: RewriteEngine>(
-        &mut self,
+        &self,
+        frame: &mut EnumeratorFrame,
         rewriter: &mut R,
-        generator: &mut FreshVariableGenerator,
         vars: &[DataVariable],
         body: &DataExpression,
         kind: QuantifierKind,
@@ -252,17 +271,17 @@ impl Enumerator {
             QuantifierKind::Forall => (true, OnePointPolarity::Universal),
         };
 
-        self.bindings_arena.clear();
+        frame.bindings_arena.clear();
         let body = rewriter.rewrite(body);
-        let (remaining, body, initial_bindings) = self
+        let (remaining, body, initial_bindings) = frame
             .bindings_arena
             .chain
             .write(|guard| apply_one_point_rule(rewriter, guard, vars.to_vec(), body, polarity));
 
         let mut found: Option<Vec<DataExpression>> = None;
         let outcome = self.drive(
+            frame,
             rewriter,
-            generator,
             vars,
             &remaining,
             body,
@@ -285,6 +304,53 @@ impl Enumerator {
                 unreachable!("Stopped only occurs when on_leaf returns Break, which only happens once `found` is set")
             }
         }
+    }
+
+    /// Returns `sort_id`'s materialised element list, computing and caching it
+    /// on first use.
+    ///
+    /// Returns an owned handle, and holds no borrow of the cache while
+    /// rewriting, since the caller rewrites under each element in turn.
+    fn finite_elements<R: RewriteEngine>(&self, rewriter: &mut R, sort_id: EnumerationPlanId) -> Rc<[DataExpression]> {
+        if let Some(elements) = self.finite_elements.borrow().get(&sort_id) {
+            return elements.clone();
+        }
+
+        let elements = self.materialize_finite_elements(rewriter, sort_id);
+        self.finite_elements
+            .borrow_mut()
+            .entry(sort_id)
+            .or_insert(elements)
+            .clone()
+    }
+
+    fn materialize_finite_elements<R: RewriteEngine>(
+        &self,
+        rewriter: &mut R,
+        sort_id: EnumerationPlanId,
+    ) -> Rc<[DataExpression]> {
+        let mut result = Vec::new();
+
+        for constructor in self.plans.plan(sort_id).constructors() {
+            if constructor.arity() == 0 {
+                // A constant is not automatically a normal form either.
+                let value: DataExpression = constructor.symbol().clone().into();
+                result.push(rewriter.rewrite(&value));
+                continue;
+            }
+
+            let mut per_argument: Vec<Vec<DataExpression>> = Vec::with_capacity(constructor.arity());
+            for &argument_sort in constructor.arguments() {
+                per_argument.push(self.finite_elements(rewriter, argument_sort).to_vec());
+            }
+
+            for combination in cartesian_product(&per_argument) {
+                let value: DataExpression = DataApplication::with_args(constructor.symbol(), &combination).into();
+                result.push(rewriter.rewrite(&value));
+            }
+        }
+
+        result.into()
     }
 
     /// Expands `remaining_vars` breadth-first, pruning any branch whose body
@@ -312,9 +378,9 @@ impl Enumerator {
     /// literals is the rejecting one.
     #[allow(clippy::too_many_arguments)]
     fn drive<R: RewriteEngine, B>(
-        &mut self,
+        &self,
+        frame: &mut EnumeratorFrame,
         rewriter: &mut R,
-        generator: &mut FreshVariableGenerator,
         all_vars: &[DataVariable],
         remaining_vars: &[DataVariable],
         body: DataExpression,
@@ -333,13 +399,13 @@ impl Enumerator {
             (&self.false_literal, &self.true_literal)
         };
 
-        self.queue.clear();
-        self.remaining_arena.clear();
+        frame.queue.clear();
+        frame.remaining_arena.clear();
         // Both guards are held for the whole call rather than re-acquired per
         // access.
-        self.var_pool.write(|var_pool| {
+        frame.var_pool.write(|var_pool| {
             var_pool.clear();
-            self.bindings_arena.chain.write(|bindings| {
+            frame.bindings_arena.chain.write(|bindings| {
                 for variable in remaining_vars {
                     // SAFETY: the resulting ref is pushed into `var_pool` immediately below.
                     let var_ref = unsafe { var_pool.protect(variable) };
@@ -348,14 +414,14 @@ impl Enumerator {
                 // `var_pool` was cleared above, so the original variables occupy its first indices.
                 let initial_indices = 0..u32::try_from(var_pool.len()).expect("more variables than fit in a u32");
 
-                self.queue.push_back(WorkItem {
-                    remaining: RemainingList::new(&mut self.remaining_arena, initial_indices),
+                frame.queue.push_back(WorkItem {
+                    remaining: RemainingList::new(&mut frame.remaining_arena, initial_indices),
                     body,
                     bindings: initial_bindings,
                     depth: 0,
                 });
 
-                while let Some(item) = self.queue.pop_front() {
+                while let Some(item) = frame.queue.pop_front() {
                     if item.body == *reject {
                         continue;
                     }
@@ -379,13 +445,13 @@ impl Enumerator {
                         BindingArena::resolve(
                             bindings,
                             rewriter,
-                            &mut self.bindings_arena.scratch,
+                            &mut frame.bindings_arena.scratch,
                             item.bindings,
                             all_vars,
-                            &mut self.solution_buf,
+                            &mut frame.solution_buf,
                         );
                         let solution = Solution {
-                            values: &self.solution_buf,
+                            values: &frame.solution_buf,
                         };
 
                         match on_leaf(rewriter, &solution) {
@@ -403,7 +469,7 @@ impl Enumerator {
                     // Not protected: `variable_ref` borrows straight from `var_pool`.
                     let (variable_index, rest) = item
                         .remaining
-                        .pop_front(&mut self.remaining_arena)
+                        .pop_front(&mut frame.remaining_arena)
                         .expect("checked non-empty above");
                     let variable_ref = &var_pool[variable_index as usize];
 
@@ -416,18 +482,15 @@ impl Enumerator {
                             return Outcome::NotEnumerable(variable_ref.protect(), reason);
                         }
                         SortEnumerability::Finite => {
-                            // A free function over the single field, so the elements
-                            // stay borrowed while the other fields are mutated below.
                             // No mutation of `var_pool` happens in this arm, so
                             // `variable_ref` stays valid for the whole loop as-is.
-                            let elements =
-                                cached_finite_elements(&mut self.finite_elements, rewriter, &self.plans, sort_id);
-                            for element in elements {
+                            let elements = self.finite_elements(rewriter, sort_id);
+                            for element in elements.iter() {
                                 let element_ref = element.copy();
                                 let new_bindings =
                                     BindingArena::extend(bindings, item.bindings, variable_ref, &element_ref);
                                 let new_body = rewrite_bound(rewriter, &item.body, variable_ref, &element_ref);
-                                self.queue.push_back(WorkItem {
+                                frame.queue.push_back(WorkItem {
                                     remaining: rest,
                                     body: new_body,
                                     bindings: new_bindings,
@@ -436,26 +499,27 @@ impl Enumerator {
                             }
                         }
                         SortEnumerability::InfiniteEnumerable => {
-                            // Iterate the constructors through an owned handle, so the
-                            // other fields of `self` stay mutable in the loop body.
-                            let plans = self.plans.clone();
-                            for constructor in plans.plan(sort_id).constructors() {
-                                self.fresh_indices_buf.clear();
-                                self.constructor_args_buf.clear();
+                            for constructor in self.plans.plan(sort_id).constructors() {
+                                frame.fresh_indices_buf.clear();
+                                frame.constructor_args_buf.clear();
                                 for &argument_sort in constructor.arguments() {
-                                    let fresh = generator.generate(plans.plan(argument_sort).sort().copy());
-                                    self.constructor_args_buf.push(DataExpression::from(fresh.clone()));
+                                    let fresh = self
+                                        .generator
+                                        .borrow_mut()
+                                        .generate(self.plans.plan(argument_sort).sort().copy());
+                                    frame.constructor_args_buf.push(DataExpression::from(fresh.clone()));
                                     // SAFETY: the resulting ref is pushed into `var_pool` immediately below.
                                     let fresh_ref = unsafe { var_pool.protect(&fresh) };
-                                    self.fresh_indices_buf
+                                    frame
+                                        .fresh_indices_buf
                                         .push(u32::try_from(var_pool.len()).expect("more variables than fit in a u32"));
                                     var_pool.push(fresh_ref.into());
                                 }
 
-                                let value: DataExpression = if self.constructor_args_buf.is_empty() {
+                                let value: DataExpression = if frame.constructor_args_buf.is_empty() {
                                     constructor.symbol().clone().into()
                                 } else {
-                                    DataApplication::with_args(constructor.symbol(), &self.constructor_args_buf).into()
+                                    DataApplication::with_args(constructor.symbol(), &frame.constructor_args_buf).into()
                                 };
                                 // `rewrite_with` splices substitution images in without rewriting them,
                                 // so they must already be normal forms — a constructor application is
@@ -471,9 +535,9 @@ impl Enumerator {
                                     BindingArena::extend(bindings, item.bindings, &variable_ref.copy(), &value_ref);
                                 let new_body = rewrite_bound(rewriter, &item.body, &variable_ref.copy(), &value_ref);
 
-                                self.queue.push_back(WorkItem {
+                                frame.queue.push_back(WorkItem {
                                     remaining: rest
-                                        .with_appended(&mut self.remaining_arena, self.fresh_indices_buf.drain(..)),
+                                        .with_appended(&mut frame.remaining_arena, frame.fresh_indices_buf.drain(..)),
                                     body: new_body,
                                     bindings: new_bindings,
                                     depth: item.depth + 1,
@@ -493,51 +557,6 @@ impl Enumerator {
             })
         })
     }
-}
-
-/// Returns `sort_id`'s materialised element list, computing and caching it on
-/// first use.
-fn cached_finite_elements<'e, R: RewriteEngine>(
-    finite_elements: &'e mut HashMap<EnumerationPlanId, Vec<DataExpression>>,
-    rewriter: &mut R,
-    plans: &EnumerationPlans,
-    sort_id: EnumerationPlanId,
-) -> &'e [DataExpression] {
-    if !finite_elements.contains_key(&sort_id) {
-        let elements = materialize_finite_elements(finite_elements, rewriter, plans, sort_id);
-        finite_elements.insert(sort_id, elements);
-    }
-    finite_elements.get(&sort_id).expect("just inserted above")
-}
-
-fn materialize_finite_elements<R: RewriteEngine>(
-    finite_elements: &mut HashMap<EnumerationPlanId, Vec<DataExpression>>,
-    rewriter: &mut R,
-    plans: &EnumerationPlans,
-    sort_id: EnumerationPlanId,
-) -> Vec<DataExpression> {
-    let mut result = Vec::new();
-
-    for constructor in plans.plan(sort_id).constructors() {
-        if constructor.arity() == 0 {
-            // A constant is not automatically a normal form either.
-            let value: DataExpression = constructor.symbol().clone().into();
-            result.push(rewriter.rewrite(&value));
-            continue;
-        }
-
-        let mut per_argument: Vec<Vec<DataExpression>> = Vec::with_capacity(constructor.arity());
-        for &argument_sort in constructor.arguments() {
-            per_argument.push(cached_finite_elements(finite_elements, rewriter, plans, argument_sort).to_vec());
-        }
-
-        for combination in cartesian_product(&per_argument) {
-            let value: DataExpression = DataApplication::with_args(constructor.symbol(), &combination).into();
-            result.push(rewriter.rewrite(&value));
-        }
-    }
-
-    result
 }
 
 /// Rewrites `body` under `variable ↦ value`.

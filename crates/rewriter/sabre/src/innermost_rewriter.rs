@@ -88,6 +88,7 @@ impl<E: Enumerator> InnermostRewriter<E> {
             builder: TermStackBuilder::new(),
             condition_cache: ConditionCache::new(max_entries),
             enumerator,
+            frames: Vec::new(),
         }
     }
 
@@ -143,7 +144,8 @@ impl<E: Enumerator> InnermostRewriter<E> {
                 &mut self.condition_cache,
                 t,
                 sigma,
-                &mut self.enumerator,
+                &self.enumerator,
+                &mut self.frames,
             )
         });
 
@@ -158,8 +160,7 @@ impl<E: Enumerator> InnermostRewriter<E> {
 /// behind `&mut self`, so the borrow checker allows each to be borrowed independently. In
 /// particular, so a nested rewrite (a condition, or a quantifier's candidate body) can reuse
 /// the same stack and automaton without holding a borrow of the whole [InnermostRewriter],
-/// which is what lets `enumerator` be threaded through independently of `Self`'s own
-/// enumerator type (see [evaluate_binder]).
+/// which is what lets a quantifier's search call back into it (see [evaluate_binder]).
 ///
 /// Uses a stack of terms and configurations to avoid recursion and to keep track of terms in
 /// normal form without explicit tagging. Each configuration is one of:
@@ -183,7 +184,8 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
     condition_cache: &mut ConditionCache,
     input_term: &DataExpression,
     sigma: &S,
-    enumerator: &mut E,
+    enumerator: &E,
+    frames: &mut Vec<E::Frame>,
 ) -> DataExpression {
     stats.recursions += 1;
     stack.terms.write(|write_terms| {
@@ -295,6 +297,7 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
                     &abstraction,
                     sigma,
                     enumerator,
+                    frames,
                 );
 
                 stack.terms.write(|write_terms| {
@@ -312,6 +315,7 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
                     condition_cache,
                     &term.copy(),
                     enumerator,
+                    frames,
                 ) {
                     Some(MatchResult::Native(result)) => {
                         debug_trace!("native rewrite {} => {}", term, result);
@@ -379,20 +383,17 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
 
 /// Decides, or reconstructs unevaluated, the binder term `abstraction`.
 ///
-/// Follows `enumeration-crate-plan.md` §5.1's steps 2 and 6-7 (steps 1, 3-5
-/// are out of scope — see the doc comment on [Enumerator]): the body is
-/// rewritten with the bound variables held as free normal forms (shadowed
-/// against `sigma`, so an enclosing substitution cannot reach into the
-/// binder's own scope), and — for `Exists`/`Forall` — `enumerator` is asked to
-/// decide it.
+/// The body is rewritten first, with the bound variables held as free normal
+/// forms (shadowed against `sigma`, so an enclosing substitution cannot reach
+/// into the binder's own scope), and — for `Exists`/`Forall` — `enumerator`
+/// is then asked to decide it.
 ///
-/// `enumerator` is not threaded into that `decide` call's own rewriting (see
-/// [NestedRewriteView]): it is already mutably borrowed by the call in
-/// progress, so a quantifier reachable only through one of `enumerator`'s own
-/// candidate substitutions is left undecided rather than attempting a
-/// second, aliasing borrow. This is sound — it just degrades to the same
-/// "can't decide" outcome a search bound already produces — and it keeps
-/// the recursion through `decide` exactly one level deep.
+/// As in mCRL2's `Rewriter::quantifier_enumeration`, a nested quantifier is
+/// therefore first tried while rewriting the outer body, with the outer
+/// variables still free. If that does not settle it, it remains in the outer
+/// body, and is tried again each time the outer search rewrites that body
+/// under a candidate value: [NestedRewriteView] decides quantifiers through
+/// the same `enumerator`, on a frame of its own.
 #[allow(clippy::too_many_arguments)]
 fn evaluate_binder<S: RewriteSubstitution, E: Enumerator>(
     tp: &ThreadTermPool,
@@ -403,7 +404,8 @@ fn evaluate_binder<S: RewriteSubstitution, E: Enumerator>(
     condition_cache: &mut ConditionCache,
     abstraction: &DataAbstraction,
     sigma: &S,
-    enumerator: &mut E,
+    enumerator: &E,
+    frames: &mut Vec<E::Frame>,
 ) -> DataExpression {
     let binder = abstraction.binder_type();
     let vars: Vec<DataVariable> = abstraction.variables().into_iter().collect();
@@ -420,6 +422,7 @@ fn evaluate_binder<S: RewriteSubstitution, E: Enumerator>(
         &body,
         &shadowed,
         enumerator,
+        frames,
     );
 
     if !matches!(binder, BinderType::Exists | BinderType::Forall) {
@@ -427,6 +430,9 @@ fn evaluate_binder<S: RewriteSubstitution, E: Enumerator>(
         return DataAbstraction::new(binder, &vars, rewritten_body).into();
     }
 
+    // The frames of the enclosing searches are taken off `frames` while they
+    // run, so the one on top is free to reuse.
+    let mut frame = frames.pop().unwrap_or_default();
     let mut view = NestedRewriteView {
         tp,
         stack,
@@ -434,9 +440,14 @@ fn evaluate_binder<S: RewriteSubstitution, E: Enumerator>(
         stats,
         automaton,
         condition_cache,
+        enumerator,
+        frames,
     };
 
-    match enumerator.decide(&mut view, binder, &vars, &rewritten_body) {
+    let decision = enumerator.decide(&mut frame, &mut view, binder, &vars, &rewritten_body);
+    frames.push(frame);
+
+    match decision {
         Some(value) => bool_literal(value),
         // No decision could be made, yield the reconstructed binder.
         None => DataAbstraction::new(binder, &vars, rewritten_body).into(),
@@ -445,18 +456,20 @@ fn evaluate_binder<S: RewriteSubstitution, E: Enumerator>(
 
 /// A [RewriteEngine] handle used only while a [Enumerator::decide] call is in
 /// progress (see [evaluate_binder]): rewrites through the same innermost
-/// stack and automaton, but without access to `enumerator`, since `enumerator` is
-/// already mutably borrowed by that call.
-struct NestedRewriteView<'a> {
+/// stack and automaton, and decides nested quantifiers through the same
+/// enumerator.
+struct NestedRewriteView<'a, E: Enumerator> {
     tp: &'a ThreadTermPool,
     stack: &'a mut InnermostStack,
     builder: &'a mut TermStackBuilder,
     stats: &'a mut RewritingStatistics,
     automaton: &'a SetAutomaton<AnnouncementInnermost>,
     condition_cache: &'a mut ConditionCache,
+    enumerator: &'a E,
+    frames: &'a mut Vec<E::Frame>,
 }
 
-impl RewriteEngine for NestedRewriteView<'_> {
+impl<E: Enumerator> RewriteEngine for NestedRewriteView<'_, E> {
     fn rewrite(&mut self, t: &DataExpression) -> DataExpression {
         self.rewrite_with(t, &EmptySubstitution)
     }
@@ -471,7 +484,8 @@ impl RewriteEngine for NestedRewriteView<'_> {
             self.condition_cache,
             t,
             sigma,
-            &mut NoQuantifierEnumerator,
+            self.enumerator,
+            self.frames,
         )
     }
 }
@@ -488,7 +502,8 @@ fn find_match<'a, E: Enumerator>(
     automaton: &'a SetAutomaton<AnnouncementInnermost>,
     condition_cache: &mut ConditionCache,
     t: &DataExpressionRef<'_>,
-    enumerator: &mut E,
+    enumerator: &E,
+    frames: &mut Vec<E::Frame>,
 ) -> Option<MatchResult<'a, AnnouncementInnermost>> {
     // Start at the initial state
     let mut state_index = 0;
@@ -534,6 +549,7 @@ fn find_match<'a, E: Enumerator>(
                         annotation,
                         t,
                         enumerator,
+                        frames,
                     )
                 {
                     // We found a matching pattern
@@ -566,16 +582,35 @@ fn check_conditions<E: Enumerator>(
     condition_cache: &mut ConditionCache,
     announcement: &AnnouncementInnermost,
     t: &DataExpressionRef<'_>,
-    enumerator: &mut E,
+    enumerator: &E,
+    frames: &mut Vec<E::Frame>,
 ) -> bool {
     for c in &announcement.conditions {
         let rhs: DataExpression = c.rhs_term_stack.evaluate_with(t, builder);
         let lhs: DataExpression = c.lhs_term_stack.evaluate_with(t, builder);
 
-        let rhs_normal =
-            normalise_condition_side(tp, stack, builder, stats, automaton, condition_cache, &rhs, enumerator);
-        let lhs_normal =
-            normalise_condition_side(tp, stack, builder, stats, automaton, condition_cache, &lhs, enumerator);
+        let rhs_normal = normalise_condition_side(
+            tp,
+            stack,
+            builder,
+            stats,
+            automaton,
+            condition_cache,
+            &rhs,
+            enumerator,
+            frames,
+        );
+        let lhs_normal = normalise_condition_side(
+            tp,
+            stack,
+            builder,
+            stats,
+            automaton,
+            condition_cache,
+            &lhs,
+            enumerator,
+            frames,
+        );
 
         if (lhs_normal != rhs_normal && c.equality) || (lhs_normal == rhs_normal && !c.equality) {
             return false;
@@ -597,7 +632,8 @@ fn normalise_condition_side<E: Enumerator>(
     automaton: &SetAutomaton<AnnouncementInnermost>,
     condition_cache: &mut ConditionCache,
     term: &DataExpression,
-    enumerator: &mut E,
+    enumerator: &E,
+    frames: &mut Vec<E::Frame>,
 ) -> DataExpression {
     if let Some(normal_form) = condition_cache.get(term) {
         stats.condition_cache_hits += 1;
@@ -614,6 +650,7 @@ fn normalise_condition_side<E: Enumerator>(
         term,
         &EmptySubstitution,
         enumerator,
+        frames,
     );
     condition_cache.insert(term.clone(), normal_form.clone());
     normal_form
@@ -629,6 +666,8 @@ pub struct InnermostRewriter<E: Enumerator = NoQuantifierEnumerator> {
     /// Decides `exists`/`forall` quantifiers the rewriter reaches; see
     /// [Enumerator].
     enumerator: E,
+    /// One search frame per quantifier nesting depth, reused between searches.
+    frames: Vec<E::Frame>,
 }
 
 pub struct AnnouncementInnermost {
