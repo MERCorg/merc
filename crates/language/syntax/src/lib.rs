@@ -89,6 +89,7 @@ pub use syntax_tree::PRES_EXPR_KEYWORDS;
 pub use syntax_tree::PROC_EXPR_KEYWORDS;
 pub use syntax_tree::PbesEquation;
 pub use syntax_tree::PbesExpr;
+pub use syntax_tree::PbesExprBinaryOp;
 pub use syntax_tree::PbesExprKind;
 pub use syntax_tree::PresEquation;
 pub use syntax_tree::PresExpr;

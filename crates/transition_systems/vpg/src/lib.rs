@@ -54,6 +54,7 @@ pub use project_vpg::project_variability_parity_games_iter;
 pub use reachability::compute_reachable;
 pub use solver::Solver;
 pub use solver::VpgSolver;
+pub use strategy::Strategy;
 pub use symbolic::AttractorProgress;
 pub use symbolic::ExtendedParityGame;
 pub use symbolic::RecursionProgress;
