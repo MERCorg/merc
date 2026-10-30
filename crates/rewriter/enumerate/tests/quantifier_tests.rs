@@ -88,6 +88,19 @@ fn test_a_dependent_nested_quantifier_is_decided() {
     }
 }
 
+/// A quantifier in a rule's right-hand side is instantiated with the matched
+/// argument and then decided.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn test_a_quantifier_in_a_right_hand_side_is_decided() {
+    let spec = "map g: Bool -> Bool;
+                var x: Bool;
+                eqn g(x) = exists y: Bool. x && y;";
+
+    assert_rewrites_to(spec, "g(true)", "true");
+    assert_rewrites_to(spec, "g(false)", "false");
+}
+
 // The tests below are ported from mCRL2's `libraries/data/test/quantifier_test.cpp`.
 
 /// Lowers `spec` extended with `b = <expr>` and `e = <expected>`, and checks

@@ -44,7 +44,10 @@ impl<T> ArenaList<T> {
 
     /// [`ArenaList::push`]es every item of `values`, in order, in front of
     /// `parent`.
-    pub(crate) fn push_all(&mut self, parent: ArenaListHandle, values: impl IntoIterator<Item = T>) -> ArenaListHandle {
+    pub(crate) fn push_all<I>(&mut self, parent: ArenaListHandle, values: I) -> ArenaListHandle
+    where
+        I: IntoIterator<Item = T>,
+    {
         let mut current = parent;
         for value in values {
             current = self.push(current, value);

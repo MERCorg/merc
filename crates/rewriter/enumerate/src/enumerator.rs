@@ -379,7 +379,7 @@ impl Enumerator {
     /// `reject_is_true` selects which of the enumerator's cached `Bool`
     /// literals is the rejecting one.
     #[allow(clippy::too_many_arguments)]
-    fn drive<R: RewriteEngine, B>(
+    fn drive<R: RewriteEngine, F, B>(
         &self,
         frame: &mut EnumeratorFrame,
         rewriter: &mut R,
@@ -389,8 +389,11 @@ impl Enumerator {
         initial_bindings: BindingChain,
         reject_is_true: bool,
         bounded: bool,
-        mut on_leaf: impl FnMut(&mut R, &Solution<'_>) -> ControlFlow<B>,
-    ) -> Outcome<B> {
+        mut on_leaf: F,
+    ) -> Outcome<B>
+    where
+        F: FnMut(&mut R, &Solution<'_>) -> ControlFlow<B>,
+    {
         let limits = self.limits;
         let mut processed: usize = 0;
         let mut truncated = false;

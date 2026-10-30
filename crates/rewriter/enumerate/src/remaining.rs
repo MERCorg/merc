@@ -30,10 +30,10 @@ pub(crate) struct RemainingList {
 impl RemainingList {
     /// The initial list for a whole search: every original variable, in the
     /// order the caller wants them expanded in, none consumed yet.
-    pub(crate) fn new(
-        arena: &mut RemainingArena,
-        original: impl IntoIterator<Item = u32, IntoIter: DoubleEndedIterator>,
-    ) -> RemainingList {
+    pub(crate) fn new<I>(arena: &mut RemainingArena, original: I) -> RemainingList
+    where
+        I: IntoIterator<Item = u32, IntoIter: DoubleEndedIterator>,
+    {
         let front = arena.push_all(ArenaListHandle::default(), original.into_iter().rev());
         RemainingList {
             front,
@@ -83,11 +83,10 @@ impl RemainingList {
     }
 
     /// Returns a copy of this list with `fresh` appended at the tail.
-    pub(crate) fn with_appended(
-        &self,
-        arena: &mut RemainingArena,
-        fresh: impl IntoIterator<Item = u32>,
-    ) -> RemainingList {
+    pub(crate) fn with_appended<I>(&self, arena: &mut RemainingArena, fresh: I) -> RemainingList
+    where
+        I: IntoIterator<Item = u32>,
+    {
         RemainingList {
             front: self.front,
             back: arena.push_all(self.back, fresh),
