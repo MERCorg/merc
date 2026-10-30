@@ -109,23 +109,21 @@ impl TypeVarDecl {
     }
 }
 
-/// An mCRL2 parameterised boolean equation system (PBES).
+/// An mCRL2 equation system over propositional variables whose right-hand sides are formulas of
+/// type `E`, such as a [UntypedPbes] or an [UntypedPres].
 #[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
-pub struct UntypedPbes {
+pub struct UntypedEquationSystem<E> {
     pub data_specification: UntypedDataSpecification,
     pub global_variables: Vec<IdDecl>,
-    pub equations: Vec<PbesEquation>,
+    pub equations: Vec<FixpointEquation<E>>,
     pub init: PropVarInst,
 }
 
+/// An mCRL2 parameterised boolean equation system (PBES).
+pub type UntypedPbes = UntypedEquationSystem<PbesExpr>;
+
 /// An mCRL2 parameterised real equation system (PRES).
-#[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
-pub struct UntypedPres {
-    pub data_specification: UntypedDataSpecification,
-    pub global_variables: Vec<IdDecl>,
-    pub equations: Vec<PresEquation>,
-    pub init: PropVarInst,
-}
+pub type UntypedPres = UntypedEquationSystem<PresExpr>;
 
 /// A `pbes`/`pres` equation's own declaration.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -350,18 +348,19 @@ impl Hash for MultiAction {
     }
 }
 
+/// An equation `σ X(d: D) = φ` of an [UntypedEquationSystem], with a formula `φ` of type `E`.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct PbesEquation {
+pub struct FixpointEquation<E> {
     pub operator: FixedPointOperator,
     pub variable: PropVarDecl,
-    pub formula: PbesExpr,
+    pub formula: E,
     pub span: Span,
 }
 
-impl PbesEquation {
-    /// Creates a new PBES equation with the given operator, variable and formula.
-    pub fn new(operator: FixedPointOperator, variable: PropVarDecl, formula: PbesExpr) -> Self {
-        PbesEquation {
+impl<E> FixpointEquation<E> {
+    /// Creates a new equation with the given operator, variable and formula.
+    pub fn new(operator: FixedPointOperator, variable: PropVarDecl, formula: E) -> Self {
+        FixpointEquation {
             operator,
             variable,
             formula,
@@ -370,13 +369,11 @@ impl PbesEquation {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct PresEquation {
-    pub operator: FixedPointOperator,
-    pub variable: PropVarDecl,
-    pub formula: PresExpr,
-    pub span: Span,
-}
+/// An equation of an [UntypedPbes].
+pub type PbesEquation = FixpointEquation<PbesExpr>;
+
+/// An equation of an [UntypedPres].
+pub type PresEquation = FixpointEquation<PresExpr>;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Rename {
