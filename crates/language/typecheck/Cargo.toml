@@ -11,7 +11,7 @@ version.workspace = true
 
 [features]
 # Exposes the building blocks used by specification checkers in other crates, such as
-# `merc_pbes`, as `merc_typecheck::internal`. These are not a stable interface.
+# `merc_pbes` and `merc_pres`, as `merc_typecheck::internal`. These are not a stable interface.
 internal = []
 
 [dependencies]

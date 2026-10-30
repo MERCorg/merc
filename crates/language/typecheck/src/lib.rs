@@ -6,7 +6,6 @@ mod ir;
 mod lowering;
 mod modal;
 mod number_encoding;
-mod pres;
 mod process;
 mod resolution;
 mod signature;
@@ -35,8 +34,6 @@ pub use modal::ModalEquationSystem;
 pub use modal::ModalError;
 pub use modal::ModalSpecification;
 pub use number_encoding::NumberEncoding;
-pub use pres::PresError;
-pub use pres::PresSpecification;
 pub use process::ProcessError;
 pub use process::ProcessSpecification;
 pub use process::disambiguate_process_specification;
@@ -47,7 +44,7 @@ pub use typing_info::TypingInfo;
 pub(crate) use typing_info::declared_span;
 
 /// The building blocks for type checking a specification defined in another crate, such as the
-/// PBES specifications of `merc_pbes`: variable resolution, scoped expression checking, and
+/// PBES and PRES specifications of `merc_pbes` and `merc_pres`: variable resolution, scoped expression checking, and
 /// recording typing information. These are implementation details of the type checker and not a
 /// stable interface, hence only available with the `internal` feature.
 #[cfg(feature = "internal")]
@@ -73,6 +70,11 @@ pub mod internal {
     /// The resolved `Bool` sort of `data`.
     pub fn bool_sort(data: &DataSpecification) -> ResolvedSortId {
         data.context().sorts.bool_sort()
+    }
+
+    /// The resolved `Real` sort of `data`.
+    pub fn real_sort(data: &DataSpecification) -> ResolvedSortId {
+        data.context().sorts.real_sort()
     }
 
     /// Records that the occurrence at `span` resolves to `name`.

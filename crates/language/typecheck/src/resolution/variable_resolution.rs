@@ -6,8 +6,6 @@ use merc_syntax::ActFrmKind;
 use merc_syntax::DataExpr;
 use merc_syntax::DataExprKind;
 use merc_syntax::IdDecl;
-use merc_syntax::PresExpr;
-use merc_syntax::PresExprKind;
 use merc_syntax::ProcessExpr;
 use merc_syntax::ProcessExprKind;
 use merc_syntax::PropVarInst;
@@ -19,7 +17,6 @@ use merc_syntax::StateVarId;
 use merc_syntax::StateVarIdAllocator;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedDataSpecification;
-use merc_syntax::UntypedPres;
 use merc_syntax::UntypedProcessSpecification;
 use merc_syntax::VarId;
 use merc_syntax::VarIdAllocator;
@@ -72,22 +69,6 @@ pub(crate) fn resolve_process_variables(spec: &mut UntypedProcessSpecification) 
         let mut scope = globals.clone();
         resolve_in_process_expr(init, &mut scope, &mut ids);
     }
-}
-
-/// Resolves every free variable reference in `pres`'s equation bodies and `init`.
-pub(crate) fn resolve_pres_variables(pres: &mut UntypedPres) {
-    let mut ids = VarIdAllocator::default();
-    let globals = Scope::from_declarations(&mut pres.global_variables, &mut ids);
-
-    for equation in &mut pres.equations {
-        let mut scope = globals.clone();
-        scope.push_declarations(&mut equation.variable.parameters, &mut ids);
-        resolve_in_pres_expr(&mut equation.formula, &mut scope, &mut ids);
-    }
-
-    // `init` sits outside every equation's own parameter scope — only globals apply.
-    let mut scope = globals.clone();
-    resolve_in_prop_var_inst(&mut pres.init, &mut scope, &mut ids);
 }
 
 /// Resolves every free variable reference in `formula`, and returns the [`StateVarIdAllocator`]
@@ -430,35 +411,6 @@ fn resolve_in_process_expr(expr: &mut ProcessExpr, scope: &mut Scope, ids: &mut 
     }
 }
 
-fn resolve_in_pres_expr(expr: &mut PresExpr, scope: &mut Scope, ids: &mut VarIdAllocator) {
-    match &mut expr.node {
-        PresExprKind::True | PresExprKind::False => {}
-        PresExprKind::DataValExpr(data_expr) => resolve_in_data_expr(data_expr, scope, ids),
-        PresExprKind::PropVarInst(inst) => resolve_in_prop_var_inst(inst, scope, ids),
-        PresExprKind::Negation(inner) => resolve_in_pres_expr(inner, scope, ids),
-        PresExprKind::Binary { lhs, rhs, .. } => {
-            resolve_in_pres_expr(lhs, scope, ids);
-            resolve_in_pres_expr(rhs, scope, ids);
-        }
-        PresExprKind::Equal { body, .. } => resolve_in_pres_expr(body, scope, ids),
-        PresExprKind::Condition { lhs, then, else_, .. } => {
-            resolve_in_pres_expr(lhs, scope, ids);
-            resolve_in_pres_expr(then, scope, ids);
-            resolve_in_pres_expr(else_, scope, ids);
-        }
-        PresExprKind::RightConstantMultiply { expr, constant }
-        | PresExprKind::LeftConstantMultiply { expr, constant } => {
-            resolve_in_data_expr(constant, scope, ids);
-            resolve_in_pres_expr(expr, scope, ids);
-        }
-        PresExprKind::Bound { variables, expr, .. } => {
-            let pushed = scope.push_declarations(variables, ids);
-            resolve_in_pres_expr(expr, scope, ids);
-            scope.pop(pushed);
-        }
-    }
-}
-
 pub fn resolve_in_prop_var_inst(inst: &mut PropVarInst, scope: &mut Scope, ids: &mut VarIdAllocator) {
     for argument in &mut inst.arguments {
         resolve_in_data_expr(argument, scope, ids);
@@ -543,18 +495,15 @@ mod tests {
     use merc_syntax::ActFrmKind;
     use merc_syntax::DataExprKind;
     use merc_syntax::OffsetSpans;
-    use merc_syntax::PresExprKind;
     use merc_syntax::ProcessExprKind;
     use merc_syntax::RegFrmKind;
     use merc_syntax::StateFrmKind;
     use merc_syntax::UntypedDataSpecification;
-    use merc_syntax::UntypedPres;
     use merc_syntax::UntypedProcessSpecification;
     use merc_syntax::UntypedStateFrmSpec;
 
     use super::resolve_data_specification_variables;
     use super::resolve_modal_variables;
-    use super::resolve_pres_variables;
     use super::resolve_process_variables;
 
     #[test]
@@ -715,79 +664,6 @@ mod tests {
         // `m` isn't declared anywhere; this pass leaves it as a plain `Id` for the existing
         // `UndeclaredName` inference error to reject later.
         assert!(matches!(&args[0].node, DataExprKind::Id(name) if name == "m"));
-    }
-
-    #[test]
-    fn test_pres_prop_var_inst_argument_resolves_to_equation_parameter() {
-        let text = "pres mu X(n: Nat) = val(n) || X(n); init X(0);";
-        let mut pres = UntypedPres::parse(text).unwrap();
-        resolve_pres_variables(&mut pres);
-
-        let declared = pres.equations[0].variable.parameters[0]
-            .var_id
-            .expect("the parameter was assigned a VarId");
-        let PresExprKind::Binary { rhs, .. } = &pres.equations[0].formula.node else {
-            panic!("expected a Binary (||) formula");
-        };
-        let PresExprKind::PropVarInst(inst) = &rhs.node else {
-            panic!("expected a PropVarInst");
-        };
-        assert!(matches!(
-            &inst.arguments[0].node,
-            DataExprKind::Resolved(name, var_id) if name == "n" && **var_id == declared
-        ));
-    }
-
-    #[test]
-    fn test_pres_bound_variable_resolves_to_its_own_binder() {
-        let text = "pres mu X = sum n: Nat . val(n); init X;";
-        let mut pres = UntypedPres::parse(text).unwrap();
-        resolve_pres_variables(&mut pres);
-
-        let PresExprKind::Bound { variables, expr, .. } = &pres.equations[0].formula.node else {
-            panic!("expected a Bound formula");
-        };
-        let declared = variables[0].var_id.expect("the binder was assigned a VarId");
-        let PresExprKind::DataValExpr(data_expr) = &expr.node else {
-            panic!("expected a DataValExpr body");
-        };
-        assert!(matches!(
-            &data_expr.node,
-            DataExprKind::Resolved(name, var_id) if name == "n" && **var_id == declared
-        ));
-    }
-
-    #[test]
-    fn test_pres_constant_multiply_resolves_its_constant() {
-        let text = "pres mu X(n: Nat) = val(n) * X; init X;";
-        let mut pres = UntypedPres::parse(text).unwrap();
-        resolve_pres_variables(&mut pres);
-
-        let declared = pres.equations[0].variable.parameters[0]
-            .var_id
-            .expect("the parameter was assigned a VarId");
-        let PresExprKind::LeftConstantMultiply { constant, .. } = &pres.equations[0].formula.node else {
-            panic!("expected a LeftConstantMultiply formula");
-        };
-        assert!(matches!(
-            &constant.node,
-            DataExprKind::Resolved(name, var_id) if name == "n" && **var_id == declared
-        ));
-    }
-
-    #[test]
-    fn test_pres_init_only_sees_globals_not_any_equations_own_parameters() {
-        let text = "glob g: Nat; pres nu X(n: Nat) = val(n); init X(g);";
-        let mut pres = UntypedPres::parse(text).unwrap();
-        resolve_pres_variables(&mut pres);
-
-        let declared = pres.global_variables[0]
-            .var_id
-            .expect("the global was assigned a VarId");
-        assert!(matches!(
-            &pres.init.arguments[0].node,
-            DataExprKind::Resolved(name, var_id) if name == "g" && **var_id == declared
-        ));
     }
 
     #[test]
