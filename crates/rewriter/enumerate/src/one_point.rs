@@ -22,6 +22,7 @@ use merc_data::is_not_equal;
 use merc_data::is_or;
 use merc_data::visit_data_expr;
 use merc_sabre::RewriteEngine;
+use merc_sabre::utilities::SliceSubstitution;
 use merc_utilities::Step;
 
 use crate::binding::BindingArena;
@@ -52,7 +53,7 @@ pub fn simplify_one_point<R: RewriteEngine>(
 ) {
     let mut arena = BindingArena::default();
     arena.chain.write(|guard| {
-        let (_remaining_vars, residual, bindings) = apply_one_point_rule(
+        let (remaining_vars, residual, bindings) = apply_one_point_rule(
             rewriter,
             guard,
             vars.to_vec(),
@@ -61,8 +62,18 @@ pub fn simplify_one_point<R: RewriteEngine>(
         );
         *condition = residual;
 
-        // Every binding's value mentions only variables outside `vars`.
-        let substitution = BindingArena::substitution(guard, bindings);
+        // Every binding's value mentions only variables outside `vars`, so
+        // the chain needs no resolving and applies as a plain substitution.
+        let eliminated: Vec<DataVariable> = vars.iter().filter(|v| !remaining_vars.contains(v)).cloned().collect();
+        let values: Vec<DataExpression> = eliminated
+            .iter()
+            .map(|v| {
+                BindingArena::lookup(guard, bindings, &v.copy())
+                    .expect("an eliminated variable is bound")
+                    .protect()
+            })
+            .collect();
+        let substitution = SliceSubstitution::new(&eliminated, &values);
         for term in rest {
             *term = rewriter.rewrite_with(term, &substitution);
         }
@@ -253,7 +264,14 @@ mod tests {
         assert!(vars.is_empty(), "the universal rule must bind `n`");
         let mut resolved = Vec::new();
         arena.chain.write(|guard| {
-            BindingArena::resolve(guard, &mut rewriter, &mut arena.scratch, bindings, &[n], &mut resolved)
+            BindingArena::resolve(
+                guard,
+                &mut rewriter,
+                &mut arena.arguments,
+                bindings,
+                &[n],
+                &mut resolved,
+            )
         });
         assert_eq!(resolved, vec![constant("five")]);
     }
@@ -276,7 +294,14 @@ mod tests {
         assert!(vars.is_empty(), "the universal rule must bind `n`");
         let mut resolved = Vec::new();
         arena.chain.write(|guard| {
-            BindingArena::resolve(guard, &mut rewriter, &mut arena.scratch, bindings, &[n], &mut resolved)
+            BindingArena::resolve(
+                guard,
+                &mut rewriter,
+                &mut arena.arguments,
+                bindings,
+                &[n],
+                &mut resolved,
+            )
         });
         assert_eq!(resolved, vec![constant("five")]);
     }
@@ -356,7 +381,14 @@ mod tests {
         assert_eq!(residual, bool_literal(true));
         let mut resolved = Vec::new();
         arena.chain.write(|guard| {
-            BindingArena::resolve(guard, &mut rewriter, &mut arena.scratch, bindings, &[n], &mut resolved)
+            BindingArena::resolve(
+                guard,
+                &mut rewriter,
+                &mut arena.arguments,
+                bindings,
+                &[n],
+                &mut resolved,
+            )
         });
         assert_eq!(resolved, vec![constant("five")]);
     }
@@ -392,7 +424,7 @@ mod tests {
             BindingArena::resolve(
                 guard,
                 &mut rewriter,
-                &mut arena.scratch,
+                &mut arena.arguments,
                 bindings,
                 &[n, m],
                 &mut resolved,

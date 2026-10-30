@@ -1,4 +1,6 @@
-use ahash::AHashSet;
+use std::collections::HashSet;
+
+use ahash::RandomState;
 
 use merc_aterm::ATermRef;
 use merc_aterm::Markable;
@@ -35,8 +37,19 @@ pub(crate) struct Binding<'a> {
     value: DataExpressionRef<'a>,
 }
 
-/// A write guard onto a [`BindingArena`]'s chain, obtained once per search.
-pub(crate) type BindingGuard<'g, 'env> = ProtectedWriteGuard<'g, 'env, ArenaList<Binding<'g>>>;
+/// A write guard onto a [`BindingArena`]'s store, obtained once per search.
+pub(crate) type BindingGuard<'g, 'env> = ProtectedWriteGuard<'g, 'env, BindingStore<'g>>;
+
+/// The protected part of a [`BindingArena`].
+///
+/// `closed` lives next to the chain so that its entries are marked during
+/// garbage collection and cleared together with the chain, and therefore
+/// remain valid across [`BindingArena::resolve`] calls.
+pub(crate) struct BindingStore<'a> {
+    list: ArenaList<Binding<'a>>,
+    /// Subterms of bound values known to contain no variable.
+    closed: HashSet<ATermRef<'a>, RandomState>,
+}
 
 /// Backing store for every [`BindingChain`] produced during one search.
 ///
@@ -47,17 +60,9 @@ pub(crate) type BindingGuard<'g, 'env> = ProtectedWriteGuard<'g, 'env, ArenaList
 /// where `y1`/`y2` are fresh variables introduced to expand `v`). Use
 /// [`BindingArena::resolve`] to substitute those away.
 pub(crate) struct BindingArena {
-    pub(crate) chain: Protected<ArenaList<Binding<'static>>>,
-    pub(crate) scratch: ResolveScratch,
-}
-
-/// Buffers reused by [`BindingArena::resolve`].
-#[derive(Default)]
-pub(crate) struct ResolveScratch {
-    /// Arguments of the application being rebuilt.
-    arguments: Vec<DataExpression>,
-    /// Term indices of subterms of bound values known to contain no variable.
-    closed: AHashSet<usize>,
+    pub(crate) chain: Protected<BindingStore<'static>>,
+    /// Arguments of the application being rebuilt by [`BindingArena::resolve`].
+    pub(crate) arguments: Vec<DataExpression>,
 }
 
 impl Default for BindingArena {
@@ -69,8 +74,11 @@ impl Default for BindingArena {
 impl BindingArena {
     pub(crate) fn new() -> Self {
         BindingArena {
-            chain: Protected::new(ArenaList::default()),
-            scratch: ResolveScratch::default(),
+            chain: Protected::new(BindingStore {
+                list: ArenaList::default(),
+                closed: HashSet::default(),
+            }),
+            arguments: Vec::new(),
         }
     }
 
@@ -79,8 +87,10 @@ impl BindingArena {
     /// before a `clear` indexes into the discarded nodes and must not be used
     /// afterwards.
     pub(crate) fn clear(&mut self) {
-        self.chain.write(|chain| chain.clear());
-        self.scratch.closed.clear();
+        self.chain.write(|store| {
+            store.list.clear();
+            store.closed.clear();
+        });
     }
 
     /// Returns a new chain with `variable ↦ value` recorded in front of
@@ -95,17 +105,29 @@ impl BindingArena {
         // immediately below via `push`.
         let variable_ref = unsafe { guard.protect(variable) };
         let value_ref = unsafe { guard.protect(value) };
-        BindingChain(guard.push(parent.0, Binding::new(variable_ref.into(), value_ref.into())))
+        BindingChain(
+            guard
+                .list
+                .push(parent.0, Binding::new(variable_ref.into(), value_ref.into())),
+        )
     }
 
     /// Returns the immediate image bound to `variable` along `chain`, if any.
-    fn lookup<'g>(
-        guard: &'g BindingGuard<'_, '_>,
+    pub(crate) fn lookup<'g>(
+        guard: &BindingGuard<'g, '_>,
+        chain: BindingChain,
+        variable: &DataVariableRef<'_>,
+    ) -> Option<DataExpressionRef<'g>> {
+        Self::lookup_in(&guard.list, chain, variable)
+    }
+
+    fn lookup_in<'g>(
+        list: &ArenaList<Binding<'g>>,
         chain: BindingChain,
         variable: &DataVariableRef<'_>,
     ) -> Option<DataExpressionRef<'g>> {
         let mut current = chain.0;
-        while let Some((binding, parent)) = guard.pop(current) {
+        while let Some((binding, parent)) = list.pop(current) {
             if binding.variable.copy() == *variable {
                 return Some(binding.value.copy());
             }
@@ -129,18 +151,19 @@ impl BindingArena {
     /// Panics if a variable in `vars`, or one they transitively depend on, is
     /// not bound along `chain`.
     pub(crate) fn resolve<R: RewriteEngine>(
-        guard: &BindingGuard<'_, '_>,
+        guard: &mut BindingGuard<'_, '_>,
         rewriter: &mut R,
-        scratch: &mut ResolveScratch,
+        arguments: &mut Vec<DataExpression>,
         chain: BindingChain,
         vars: &[DataVariable],
         out: &mut Vec<DataExpression>,
     ) {
         out.clear();
 
+        let BindingStore { list, closed } = &mut **guard;
         for v in vars {
-            let value = Self::lookup_bound(guard, chain, &v.copy());
-            match Self::substitute(guard, scratch, chain, &value) {
+            let value = Self::lookup_bound(list, chain, &v.copy());
+            match Self::substitute(list, closed, arguments, chain, &value) {
                 // Values are stored in normal form, so an unchanged one is final.
                 None => out.push(value.protect()),
                 Some(substituted) => out.push(rewriter.rewrite(&substituted)),
@@ -148,13 +171,14 @@ impl BindingArena {
         }
     }
 
-    /// Like [`Self::lookup`], but panics when `variable` is unbound.
+    /// Like [`Self::lookup_in`], but panics when `variable` is unbound.
     fn lookup_bound<'g>(
-        guard: &'g BindingGuard<'_, '_>,
+        list: &ArenaList<Binding<'g>>,
         chain: BindingChain,
         variable: &DataVariableRef<'_>,
     ) -> DataExpressionRef<'g> {
-        Self::lookup(guard, chain, variable).unwrap_or_else(|| panic!("{variable:?} is not bound in this BindingChain"))
+        Self::lookup_in(list, chain, variable)
+            .unwrap_or_else(|| panic!("{variable:?} is not bound in this BindingChain"))
     }
 
     /// Replaces every variable in `term` by its value along `chain`,
@@ -165,16 +189,20 @@ impl BindingArena {
     /// Generic over [`Term`] so a recursive call can take the
     /// [`ATermRef`](merc_aterm::ATermRef) from `arguments()` without
     /// `protect`ing it first.
-    fn substitute<'a, 'b, T: Term<'a, 'b>>(
-        guard: &BindingGuard<'_, '_>,
-        scratch: &mut ResolveScratch,
+    ///
+    /// Only subterms of bound values are inserted into `closed`, which the
+    /// protected store keeps alive until [`BindingArena::clear`].
+    fn substitute<'g, 'b, T: Term<'g, 'b>>(
+        list: &ArenaList<Binding<'g>>,
+        closed: &mut HashSet<ATermRef<'g>, RandomState>,
+        arguments: &mut Vec<DataExpression>,
         chain: BindingChain,
         term: &'b T,
     ) -> Option<DataExpression> {
         if is_data_variable(term) {
             let variable: DataVariableRef<'_> = term.copy().into();
-            let value = Self::lookup_bound(guard, chain, &variable);
-            return Some(Self::substitute(guard, scratch, chain, &value).unwrap_or_else(|| value.protect()));
+            let value = Self::lookup_bound(list, chain, &variable);
+            return Some(Self::substitute(list, closed, arguments, chain, &value).unwrap_or_else(|| value.protect()));
         }
 
         // Binders never occur here: the enumerator only ever builds
@@ -183,49 +211,38 @@ impl BindingArena {
             return None;
         }
 
-        if scratch.closed.contains(&term.index()) {
+        if closed.contains(&term.copy()) {
             return None;
         }
 
         // At the raw term level `arg(0)` is the head symbol and the rest are
         // the actual arguments. The unchanged arguments before the first
         // substituted one are only protected once a rebuild is certain.
-        let start = scratch.arguments.len();
+        let start = arguments.len();
         let mut changed = false;
         for (index, argument) in term.arguments().skip(1).enumerate() {
-            match Self::substitute(guard, scratch, chain, &argument) {
+            match Self::substitute(list, closed, arguments, chain, &argument) {
                 Some(substituted) => {
                     if !changed {
                         changed = true;
-                        scratch
-                            .arguments
-                            .extend(term.arguments().skip(1).take(index).map(|a| a.protect().into()));
+                        arguments.extend(term.arguments().skip(1).take(index).map(|a| a.protect().into()));
                     }
-                    scratch.arguments.push(substituted);
+                    arguments.push(substituted);
                 }
-                None if changed => scratch.arguments.push(argument.protect().into()),
+                None if changed => arguments.push(argument.protect().into()),
                 None => {}
             }
         }
 
         if !changed {
-            scratch.closed.insert(term.index());
+            closed.insert(term.copy());
             return None;
         }
 
         let head: DataFunctionSymbolRef<'_> = term.arg(0).into();
-        let application = DataApplication::with_args(&head, &scratch.arguments[start..]).into();
-        scratch.arguments.truncate(start);
+        let application = DataApplication::with_args(&head, &arguments[start..]).into();
+        arguments.truncate(start);
         Some(application)
-    }
-
-    /// Returns a [`RewriteSubstitution`] view of `chain`, with no intervening
-    /// collection to build.
-    pub(crate) fn substitution<'s, 'g, 'env>(
-        guard: &'s BindingGuard<'g, 'env>,
-        chain: BindingChain,
-    ) -> ArenaSubstitution<'s, 'g, 'env> {
-        ArenaSubstitution::new(guard, chain)
     }
 }
 
@@ -255,9 +272,7 @@ impl Markable for Binding<'_> {
 }
 
 // SAFETY: `Binding<'a>` is a `#[repr(Rust)]` struct of two lifetime-erasable
-// ref handles; this mirrors `merc_derive_terms`'s own
-// `unsafe impl Transmutable for #name_ref<'static>` (one field), just over
-// two fields instead of one.
+// ref handles.
 unsafe impl Transmutable for Binding<'static> {
     type Target<'a> = Binding<'a>;
 
@@ -272,27 +287,46 @@ unsafe impl Transmutable for Binding<'static> {
     }
 }
 
-/// A [`RewriteSubstitution`] backed directly by a [`BindingArena`] chain.
-pub(crate) struct ArenaSubstitution<'s, 'g, 'env> {
-    guard: &'s BindingGuard<'g, 'env>,
-    chain: BindingChain,
-}
+impl Markable for BindingStore<'_> {
+    fn mark(&self, marker: &mut Marker) {
+        self.list.mark(marker);
+        for term in &self.closed {
+            term.mark(marker);
+        }
+    }
 
-impl<'s, 'g, 'env> ArenaSubstitution<'s, 'g, 'env> {
-    fn new(guard: &'s BindingGuard<'g, 'env>, chain: BindingChain) -> Self {
-        ArenaSubstitution { guard, chain }
+    fn contains_term(&self, term: &ATermRef<'_>) -> bool {
+        self.list.contains_term(term) || self.closed.iter().any(|closed| closed.contains_term(term))
+    }
+
+    fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
+        self.list.contains_symbol(symbol) || self.closed.iter().any(|closed| closed.contains_symbol(symbol))
+    }
+
+    fn len(&self) -> usize {
+        self.list.len() + self.closed.len()
     }
 }
 
-impl RewriteSubstitution for ArenaSubstitution<'_, '_, '_> {
-    fn get<'a>(&'a self, variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>> {
-        BindingArena::lookup(self.guard, self.chain, variable)
+// SAFETY: `BindingStore<'a>` only holds lifetime-erasable term handles, so
+// its layout does not depend on `'a`; see the `Binding` impl above.
+unsafe impl Transmutable for BindingStore<'static> {
+    type Target<'a> = BindingStore<'a>;
+
+    unsafe fn transmute_lifetime<'a>(&self) -> &'a Self::Target<'a> {
+        // SAFETY: see the impl comment above.
+        unsafe { std::mem::transmute::<&Self, &'a BindingStore<'a>>(self) }
+    }
+
+    unsafe fn transmute_lifetime_mut<'a>(&mut self) -> &'a mut Self::Target<'a> {
+        // SAFETY: see the impl comment above.
+        unsafe { std::mem::transmute::<&mut Self, &'a mut BindingStore<'a>>(self) }
     }
 }
 
 /// The substitution `variable ↦ value`, for rewriting a body whose earlier
-/// bindings were already substituted away: unlike [`ArenaSubstitution`], a
-/// miss costs one comparison instead of a walk over the whole chain.
+/// bindings were already substituted away, so that a miss costs one
+/// comparison instead of a walk over the whole chain.
 pub(crate) struct SingleSubstitution<'a> {
     variable: DataVariableRef<'a>,
     value: DataExpressionRef<'a>,
@@ -357,7 +391,7 @@ mod tests {
             BindingArena::resolve(
                 guard,
                 &mut rewriter,
-                &mut arena.scratch,
+                &mut arena.arguments,
                 chain,
                 std::slice::from_ref(&v),
                 &mut resolved,
@@ -394,7 +428,8 @@ mod tests {
             let chain = BindingArena::extend(guard, chain, &v.copy(), &v_value.copy());
             let chain = BindingArena::extend(guard, chain, &y.copy(), &a.copy());
 
-            BindingArena::substitute(guard, &mut arena.scratch, chain, &v_value)
+            let super::BindingStore { list, closed } = &mut **guard;
+            BindingArena::substitute(list, closed, &mut arena.arguments, chain, &v_value)
         });
         let expected: DataExpression = DataApplication::with_args(&c, &[a, shared]).into();
         assert_eq!(substituted, Some(expected));
@@ -410,7 +445,7 @@ mod tests {
             BindingArena::resolve(
                 guard,
                 &mut InnermostRewriter::new(&RewriteSpecification::new(vec![])),
-                &mut arena.scratch,
+                &mut arena.arguments,
                 BindingChain::default(),
                 &[v],
                 &mut resolved,

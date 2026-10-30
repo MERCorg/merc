@@ -178,6 +178,8 @@ impl Enumerator {
     /// Builds an enumerator with the default [`EnumerationLimits`], whose
     /// fresh variables are named by `generator`.
     ///
+    /// # Details
+    /// 
     /// The `Rc` keeps `Enumerator` free of a lifetime parameter, so it can be
     /// stored as a plain field. The rewriter is borrowed per call instead,
     /// since it may differ between searches.
@@ -445,7 +447,7 @@ impl Enumerator {
                         BindingArena::resolve(
                             bindings,
                             rewriter,
-                            &mut frame.bindings_arena.scratch,
+                            &mut frame.bindings_arena.arguments,
                             item.bindings,
                             all_vars,
                             &mut frame.solution_buf,
