@@ -145,9 +145,7 @@ pub(super) enum ActionChecking {
 /// The resolved `act` declaration table, plus the formula's own flattened fixpoint-equation view
 /// and each equation's resolved parameter sorts — built once by [`Self::build`] and used by
 /// [`super::check`]'s per-equation walk to resolve every action instance and fixpoint-variable
-/// reference it reaches. Mirrors `crate::pbes::pbes_specification::DeclarationTables`, with a
-/// [`StateVarId`]-keyed lookup in place of PBES's name-keyed one: a modal fixpoint variable's own
-/// name can be shadowed (`mu X. (nu X. ...)`, legal mCRL2 syntax), unlike a PBES equation's.
+/// reference it reaches.
 pub(super) struct DeclarationTables {
     pub(super) actions: ActionChecking,
     /// The formula's own equations, in the shape [`super::check`]'s per-equation loop walks.
