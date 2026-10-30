@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::fmt;
 use std::mem::ManuallyDrop;
+use std::ops::ControlFlow;
 
 use delegate::delegate;
 use merc_aterm::ATerm;
@@ -31,6 +32,9 @@ use merc_data::is_data_variable;
 use merc_data::is_data_where_clause;
 use merc_macros::merc_derive_terms;
 use merc_macros::merc_term;
+use merc_utilities::Step;
+
+use crate::visit_pbes_expr;
 
 thread_local! {
     static PBES_SYMBOLS: PbesSymbols = PbesSymbols::new();
@@ -360,27 +364,26 @@ impl<'a> PbesExpressionRef<'a> {
     }
 
     /// Returns true iff `predicate` holds for some subexpression of `self`, including itself.
-    pub fn any(&self, mut predicate: impl FnMut(&PbesExpressionRef<'a>) -> bool) -> bool {
-        let mut stack = vec![PbesExpressionRef::from(self.term.copy())];
-        while let Some(expr) = stack.pop() {
-            if predicate(&expr) {
-                return true;
+    pub fn any<F>(&self, mut predicate: F) -> bool
+    where
+        F: FnMut(&PbesExpressionRef<'a>) -> bool,
+    {
+        visit_pbes_expr(self, (), |expr, ()| {
+            if predicate(expr) {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(Step::Into(()))
             }
-            match expr.kind() {
-                PbesKind::True | PbesKind::False | PbesKind::Data(_) | PbesKind::Instantiation(_) => {}
-                PbesKind::Not(body) | PbesKind::Forall(_, body) | PbesKind::Exists(_, body) => stack.push(body),
-                PbesKind::And(lhs, rhs) | PbesKind::Or(lhs, rhs) | PbesKind::Imp(lhs, rhs) => {
-                    stack.push(rhs);
-                    stack.push(lhs);
-                }
-            }
-        }
-        false
+        })
+        .is_some()
     }
 }
 
 /// The conjunction of `exprs`, or `true` if there are none.
-pub fn join_and(exprs: impl IntoIterator<Item = PbesExpression>) -> PbesExpression {
+pub fn join_and<I>(exprs: I) -> PbesExpression
+where
+    I: IntoIterator<Item = PbesExpression>,
+{
     exprs
         .into_iter()
         .reduce(|lhs, rhs| PbesExpression::and(&lhs, &rhs))
@@ -388,7 +391,10 @@ pub fn join_and(exprs: impl IntoIterator<Item = PbesExpression>) -> PbesExpressi
 }
 
 /// The disjunction of `exprs`, or `false` if there are none.
-pub fn join_or(exprs: impl IntoIterator<Item = PbesExpression>) -> PbesExpression {
+pub fn join_or<I>(exprs: I) -> PbesExpression
+where
+    I: IntoIterator<Item = PbesExpression>,
+{
     exprs
         .into_iter()
         .reduce(|lhs, rhs| PbesExpression::or(&lhs, &rhs))
@@ -437,10 +443,10 @@ pub fn distribute_not_over_and(expr: &PbesExpressionRef<'_>) -> PbesExpression {
 }
 
 /// Writes `x₁: D₁, …, xₙ: Dₙ`.
-pub(crate) fn fmt_variables<'a>(
-    f: &mut fmt::Formatter<'_>,
-    variables: impl IntoIterator<Item = &'a DataVariable>,
-) -> fmt::Result {
+pub(crate) fn fmt_variables<'a, I>(f: &mut fmt::Formatter<'_>, variables: I) -> fmt::Result
+where
+    I: IntoIterator<Item = &'a DataVariable>,
+{
     for (index, variable) in variables.into_iter().enumerate() {
         if index > 0 {
             write!(f, ", ")?;

@@ -1,44 +1,55 @@
+//! The PBES syntax as an [EquationSystem], whose embedded data expressions are Boolean.
+
 use merc_syntax::PbesExpr;
 use merc_syntax::PbesExprKind;
-use merc_syntax::UntypedPbes;
-use merc_syntax::VarIdAllocator;
-use merc_typecheck::internal::VariableScope as Scope;
-use merc_typecheck::internal::resolve_in_data_expr;
-use merc_typecheck::internal::resolve_in_prop_var_inst;
+use merc_typecheck::DataSpecification;
+use merc_typecheck::internal::ResolvedSortId;
+use merc_typecheck::internal::bool_sort;
 
-/// Resolves every free variable reference in `pbes`'s equation bodies and `init`.
-pub(crate) fn resolve_pbes_variables(pbes: &mut UntypedPbes) {
-    let mut ids = VarIdAllocator::default();
-    let globals = Scope::from_declarations(&mut pbes.global_variables, &mut ids);
+use crate::EquationSystem;
+use crate::EquationSystemError;
+use crate::ExprNode;
+use crate::ExprNodeMut;
+use crate::Specification;
 
-    for equation in &mut pbes.equations {
-        let mut scope = globals.clone();
-        scope.push_declarations(&mut equation.variable.parameters, &mut ids);
-        resolve_in_pbes_expr(&mut equation.formula, &mut scope, &mut ids);
+/// The [EquationSystem] of a PBES.
+pub enum PbesSystem {}
+
+impl EquationSystem for PbesSystem {
+    type Expr = PbesExpr;
+
+    fn value_sort(data: &DataSpecification) -> ResolvedSortId {
+        bool_sort(data)
     }
 
-    // `init` sits outside every equation's own parameter scope — only globals apply.
-    let mut scope = globals.clone();
-    resolve_in_prop_var_inst(&mut pbes.init, &mut scope, &mut ids);
-}
-
-fn resolve_in_pbes_expr(expr: &mut PbesExpr, scope: &mut Scope, ids: &mut VarIdAllocator) {
-    match &mut expr.node {
-        PbesExprKind::True | PbesExprKind::False => {}
-        PbesExprKind::DataValExpr(data_expr) => resolve_in_data_expr(data_expr, scope, ids),
-        PbesExprKind::PropVarInst(inst) => resolve_in_prop_var_inst(inst, scope, ids),
-        PbesExprKind::Negation(inner) => resolve_in_pbes_expr(inner, scope, ids),
-        PbesExprKind::Binary { lhs, rhs, .. } => {
-            resolve_in_pbes_expr(lhs, scope, ids);
-            resolve_in_pbes_expr(rhs, scope, ids);
+    fn node(expr: &PbesExpr) -> ExprNode<'_> {
+        match &expr.node {
+            PbesExprKind::DataValExpr(data_expr) => ExprNode::Data(data_expr),
+            PbesExprKind::PropVarInst(inst) => ExprNode::Instantiation(inst),
+            PbesExprKind::Quantifier { variables, .. } => ExprNode::Binder(variables),
+            PbesExprKind::True | PbesExprKind::False | PbesExprKind::Negation(_) | PbesExprKind::Binary { .. } => {
+                ExprNode::Other
+            }
         }
-        PbesExprKind::Quantifier { variables, body, .. } => {
-            let pushed = scope.push_declarations(variables, ids);
-            resolve_in_pbes_expr(body, scope, ids);
-            scope.pop(pushed);
+    }
+
+    fn node_mut(expr: &mut PbesExpr) -> ExprNodeMut<'_> {
+        match &mut expr.node {
+            PbesExprKind::DataValExpr(data_expr) => ExprNodeMut::Data(data_expr),
+            PbesExprKind::PropVarInst(inst) => ExprNodeMut::Instantiation(inst),
+            PbesExprKind::Quantifier { variables, .. } => ExprNodeMut::Binder(variables),
+            PbesExprKind::True | PbesExprKind::False | PbesExprKind::Negation(_) | PbesExprKind::Binary { .. } => {
+                ExprNodeMut::Other
+            }
         }
     }
 }
+
+/// A type-checked mCRL2 PBES, see [Specification].
+pub type PbesSpecification = Specification<PbesSystem>;
+
+/// An error type checking a PBES, see [EquationSystemError].
+pub type PbesError = EquationSystemError;
 
 #[cfg(test)]
 mod tests {
@@ -46,13 +57,14 @@ mod tests {
     use merc_syntax::PbesExprKind;
     use merc_syntax::UntypedPbes;
 
-    use super::resolve_pbes_variables;
+    use crate::PbesSystem;
+    use crate::resolve_variables;
 
     #[test]
     fn test_prop_var_inst_argument_resolves_to_equation_parameter() {
         let text = "pbes nu X(n: Nat) = val(n == 0) || X(n); init X(0);";
         let mut pbes = UntypedPbes::parse(text).unwrap();
-        resolve_pbes_variables(&mut pbes);
+        resolve_variables::<PbesSystem>(&mut pbes);
 
         let declared = pbes.equations[0].variable.parameters[0]
             .var_id
@@ -73,7 +85,7 @@ mod tests {
     fn test_quantifier_bound_variable_resolves_to_its_own_binder() {
         let text = "pbes mu X = forall n: Nat . val(n == n); init X;";
         let mut pbes = UntypedPbes::parse(text).unwrap();
-        resolve_pbes_variables(&mut pbes);
+        resolve_variables::<PbesSystem>(&mut pbes);
 
         let PbesExprKind::Quantifier { variables, body, .. } = &pbes.equations[0].formula.node else {
             panic!("expected a Quantifier formula");
@@ -95,7 +107,7 @@ mod tests {
     fn test_pbes_init_only_sees_globals_not_any_equations_own_parameters() {
         let text = "glob g: Nat; pbes nu X(n: Nat) = val(n == n); init X(g);";
         let mut pbes = UntypedPbes::parse(text).unwrap();
-        resolve_pbes_variables(&mut pbes);
+        resolve_variables::<PbesSystem>(&mut pbes);
 
         let declared = pbes.global_variables[0]
             .var_id
