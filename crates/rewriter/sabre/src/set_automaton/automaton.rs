@@ -11,7 +11,6 @@ use log::info;
 use log::log_enabled;
 use log::trace;
 use log::warn;
-use merc_aterm::ATermRef;
 use merc_aterm::Term;
 use merc_data::DataApplicationRef;
 use merc_data::DataExpression;
@@ -19,11 +18,14 @@ use merc_data::DataExpressionRef;
 use merc_data::DataExpressionVisitor;
 use merc_data::DataFunctionSymbol;
 use merc_data::DataFunctionSymbolRef;
+use merc_data::DataVariable;
 use merc_data::MachineNumberRef;
 use merc_data::MachineWordOp;
 use merc_data::is_data_application;
+use merc_data::is_data_binder;
 use merc_data::is_data_function_symbol;
 use merc_data::is_data_variable;
+use merc_data::is_data_where_clause;
 use merc_utilities::Step;
 use merc_utilities::Visit;
 use rustc_hash::FxHashMap;
@@ -32,6 +34,7 @@ use smallvec::smallvec;
 
 use crate::rewrite_specification::RewriteSpecification;
 use crate::rewrite_specification::Rule;
+use crate::set_automaton::free_variables;
 use crate::utilities::DataPosition;
 
 use super::DotFormatter;
@@ -722,11 +725,18 @@ fn add_symbol(function_symbol: DataFunctionSymbol, arity: usize, symbols: &mut H
     }
 }
 
-/// Returns false iff this is a higher order term, of the shape t(t_0, ..., t_n), or an unknown term.
+/// Returns false iff this is a higher order term, of the shape t(t_0, ..., t_n), contains a binder
+/// or where clause, or is an unknown term.
 fn is_supported_term(t: &DataExpression) -> bool {
     for subterm in t.iter() {
         if is_data_application(&subterm) && !is_data_function_symbol(&subterm.arg(0)) {
             warn!("{} is higher order", subterm);
+            return false;
+        }
+
+        // `TermStack` cannot instantiate a binder or where clause in a right-hand side yet.
+        if is_data_binder(&subterm) || is_data_where_clause(&subterm) {
+            warn!("{} contains a binder or where clause", subterm);
             return false;
         }
     }
@@ -748,26 +758,16 @@ pub fn is_supported_rule(rule: &Rule) -> bool {
         }
     }
 
-    variables_occur_in_lhs(rule)
+    free_variables_occur_in_rhs(rule)
 }
 
-/// Every `DataVariable` reachable in `expr`.
-fn collect_variables<'a>(expr: &'a DataExpression) -> HashSet<ATermRef<'a>> {
-    let mut variables = HashSet::default();
-    for subterm in expr.iter() {
-        if is_data_variable(&subterm) {
-            variables.insert(subterm);
-        }
-    }
-    variables
-}
-
-/// Returns false iff `expr` uses a variable outside `bound`, warning about `rule` when it does.
-fn all_variables_occur_in<'a>(expr: &'a DataExpression, bound: &HashSet<ATermRef<'a>>, rule: &Rule) -> bool {
-    for subterm in expr.iter() {
-        if is_data_variable(&subterm) && !bound.contains(&subterm) {
+/// Returns false iff `expr` has a free variable outside `lhs_variables`, warning about `rule`
+/// when it does.
+fn free_variables_occur_in(expr: &DataExpression, lhs_variables: &HashSet<DataVariable>, rule: &Rule) -> bool {
+    for variable in free_variables(expr) {
+        if !lhs_variables.contains(&variable) {
             warn!(
-                "the equation '{rule}' uses the variable '{subterm}' in its condition or right-hand side, \
+                "the equation '{rule}' uses the variable '{variable}' in its condition or right-hand side, \
                  but it does not occur in the left-hand side; dropping the equation"
             );
             return false;
@@ -776,18 +776,19 @@ fn all_variables_occur_in<'a>(expr: &'a DataExpression, bound: &HashSet<ATermRef
     true
 }
 
-/// Returns true iff every variable occurring in the right-hand side and
-/// conditions of the rule also occurs in its left-hand side.
-fn variables_occur_in_lhs(rule: &Rule) -> bool {
-    let lhs_variables = collect_variables(&rule.lhs);
+/// Returns true iff every free variable of the rule's right-hand side and conditions also occurs
+/// in its left-hand side, since a match only assigns values to the left-hand side's variables.
+/// Variables bound by a binder or where clause get their value when that is evaluated instead.
+fn free_variables_occur_in_rhs(rule: &Rule) -> bool {
+    let lhs_variables: HashSet<DataVariable> = free_variables(&rule.lhs).collect();
 
-    if !all_variables_occur_in(&rule.rhs, &lhs_variables, rule) {
+    if !free_variables_occur_in(&rule.rhs, &lhs_variables, rule) {
         return false;
     }
 
     for cond in &rule.conditions {
-        if !all_variables_occur_in(&cond.lhs, &lhs_variables, rule)
-            || !all_variables_occur_in(&cond.rhs, &lhs_variables, rule)
+        if !free_variables_occur_in(&cond.lhs, &lhs_variables, rule)
+            || !free_variables_occur_in(&cond.rhs, &lhs_variables, rule)
         {
             return false;
         }
@@ -855,7 +856,11 @@ fn find_symbols(t: &DataExpressionRef<'_>, symbols: &mut HashMap<DataFunctionSym
 #[cfg(test)]
 mod tests {
     use ahash::AHashSet;
+    use merc_data::BinderType;
+    use merc_data::DataAbstraction;
     use merc_data::DataExpression;
+    use merc_data::DataWhereClause;
+    use merc_data::DataWhrDecl;
 
     use super::*;
     use crate::rewrite_specification::Condition;
@@ -871,13 +876,29 @@ mod tests {
     #[test]
     fn test_unbound_right_hand_side_variable_is_unsupported() {
         // `y` is well-typed (it would just be an equation `f(x) = y`), but has no value to draw
-        // from when `f(x)` matches — see `variables_occur_in_lhs`'s doc comment.
+        // from when `f(x)` matches — see `free_variables_occur_in_rhs`'s doc comment.
         assert!(!is_supported_rule(&rule("f(x)", "y", &["x", "y"])));
     }
 
     #[test]
     fn test_bound_right_hand_side_variable_is_supported() {
         assert!(is_supported_rule(&rule("f(x)", "x", &["x"])));
+    }
+
+    #[test]
+    fn test_binder_bound_right_hand_side_variable_is_not_free() {
+        let variables: AHashSet<String> = ["x", "y"].iter().map(|v| v.to_string()).collect();
+        let y = DataVariable::from(DataExpression::from_string_untyped("y", &variables).unwrap());
+        let body = DataExpression::from_string_untyped("f(x, y)", &variables).unwrap();
+
+        let mut supported = rule("g(x)", "x", &["x"]);
+        supported.rhs = DataAbstraction::new(BinderType::Exists, std::slice::from_ref(&y), body.clone()).into();
+        assert!(free_variables_occur_in_rhs(&supported));
+
+        // A where clause's declared value is outside its scope, so `y` is free there.
+        let mut unsupported = rule("g(x)", "x", &["x"]);
+        unsupported.rhs = DataWhereClause::new(body, &[DataWhrDecl::new(y.clone(), y.into())]).into();
+        assert!(!free_variables_occur_in_rhs(&unsupported));
     }
 
     #[test]

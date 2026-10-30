@@ -325,7 +325,7 @@ mod tests {
     // `test_system_shaped_duplicate_equation_variable_is_rejected` for the
     // shared `check_equation_well_formedness`. Unbound right-hand-side/
     // condition variables are not a type-checking concern at all — see
-    // `merc_sabre::set_automaton::automaton::variables_occur_in_lhs`.
+    // `merc_sabre::set_automaton::automaton::free_variables_occur_in_rhs`.
 
     #[test]
     #[cfg_attr(miri, ignore)] // Test is too slow under miri

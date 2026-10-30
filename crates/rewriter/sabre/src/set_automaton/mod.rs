@@ -4,9 +4,11 @@
 
 mod automaton;
 mod display;
+mod free_variables;
 mod match_goal;
 
 pub use automaton::*;
+pub(crate) use free_variables::*;
 pub(crate) use match_goal::*;
 
 #[allow(unused)]
