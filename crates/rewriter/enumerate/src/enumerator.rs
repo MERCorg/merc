@@ -179,7 +179,7 @@ impl Enumerator {
     /// fresh variables are named by `generator`.
     ///
     /// # Details
-    /// 
+    ///
     /// The `Rc` keeps `Enumerator` free of a lifetime parameter, so it can be
     /// stored as a plain field. The rewriter is borrowed per call instead,
     /// since it may differ between searches.

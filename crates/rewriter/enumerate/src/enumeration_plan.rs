@@ -132,142 +132,11 @@ pub struct EnumerationPlans {
 impl EnumerationPlans {
     /// Builds the enumeration plans for every sort reachable from `spec`.
     pub fn build(spec: &Mcrl2DataSpecification) -> EnumerationPlans {
-        // Phase 1: collect the sort universe in first-seen order, and group the
-        // specification's constructors by target sort.
-        let mut sorts: Vec<SortExpression> = Vec::new();
-        let mut index: HashMap<SortExpression, EnumerationPlanId> = HashMap::new();
-
-        let intern =
-            |sort: SortExpression, sorts: &mut Vec<SortExpression>, index: &mut HashMap<_, _>| -> EnumerationPlanId {
-                if let Some(id) = index.get(&sort) {
-                    return *id;
-                }
-                let id = EnumerationPlanId::new(sorts.len());
-                sorts.push(sort.clone());
-                index.insert(sort, id);
-                id
-            };
-
-        for basic in spec.sorts() {
-            intern(SortExpression::from(basic.clone()), &mut sorts, &mut index);
-        }
-        for symbol in spec.constructors() {
-            let (domain, target) = constructor_signature(symbol);
-            intern(target, &mut sorts, &mut index);
-            for argument in domain {
-                intern(argument, &mut sorts, &mut index);
-            }
-        }
-
-        let mut grouped: Vec<Vec<ConstructorPlan>> = sorts.iter().map(|_| Vec::new()).collect();
-        for symbol in spec.constructors() {
-            let (domain, target) = constructor_signature(symbol);
-            let arguments = domain.into_iter().map(|sort| index[&sort]).collect();
-            let target_id = index[&target];
-            grouped[target_id.value()].push(ConstructorPlan {
-                symbol: symbol.clone(),
-                arguments,
-            });
-        }
-
-        // Classify sorts that are trivially not enumerable, before the
-        // fixpoints below ever look at their constructors.
-        let mut base_reason: Vec<Option<NotEnumerableReason>> = sorts
-            .iter()
-            .map(|sort| {
-                if is_function_sort(sort) {
-                    Some(NotEnumerableReason::FunctionSort)
-                } else {
-                    None
-                }
-            })
-            .collect();
-        for (id, reason) in base_reason.iter_mut().enumerate() {
-            if reason.is_none() && grouped[id].is_empty() {
-                *reason = Some(NotEnumerableReason::NoConstructors);
-            }
-        }
-
-        // Least fixpoint of the minimal closed term size.
-        let mut min_size: Vec<u32> = sorts.iter().map(|_| u32::MAX).collect();
-        let mut constructor_size: Vec<Vec<u32>> =
-            grouped.iter().map(|cs| cs.iter().map(|_| u32::MAX).collect()).collect();
-
-        let not_enumerable_from_start: Vec<bool> = base_reason.iter().map(Option::is_some).collect();
-        loop {
-            let mut changed = false;
-            for (sort_id, constructors) in grouped.iter().enumerate() {
-                if not_enumerable_from_start[sort_id] {
-                    continue;
-                }
-
-                for (constructor_id, constructor) in constructors.iter().enumerate() {
-                    let mut size: Option<u32> = Some(1);
-                    for &argument in &constructor.arguments {
-                        match min_size[argument.value()] {
-                            u32::MAX => {
-                                size = None;
-                                break;
-                            }
-                            argument_size => size = size.map(|s| s.saturating_add(argument_size)),
-                        }
-                    }
-
-                    if let Some(size) = size
-                        && size < constructor_size[sort_id][constructor_id]
-                    {
-                        constructor_size[sort_id][constructor_id] = size;
-                        changed = true;
-                    }
-                }
-
-                if let Some(&best) = constructor_size[sort_id].iter().min()
-                    && best < min_size[sort_id]
-                {
-                    min_size[sort_id] = best;
-                    changed = true;
-                }
-            }
-
-            if !changed {
-                break;
-            }
-        }
-
-        // A sort is recursive if it is reachable from itself through
-        // constructor argument sorts.
-        let recursive = detect_recursive_sorts(&grouped);
-
-        // Least fixpoint of finiteness. A sort starts finite unless it is not
-        // enumerable or recursive, and is knocked down to infinite as soon as
-        // any of its constructors uses a non-finite argument sort. This only
-        // ever flips `true` to `false`, so it converges monotonically.
-        let mut is_finite: Vec<bool> = sorts
-            .iter()
-            .enumerate()
-            .map(|(id, _)| !not_enumerable_from_start[id] && !recursive[id])
-            .collect();
-        loop {
-            let mut changed = false;
-
-            for (sort_id, constructors) in grouped.iter().enumerate() {
-                if !is_finite[sort_id] {
-                    continue;
-                }
-
-                if constructors
-                    .iter()
-                    .any(|c| c.arguments.iter().any(|&argument| !is_finite[argument.value()]))
-                {
-                    is_finite[sort_id] = false;
-                    changed = true;
-                }
-            }
-
-            if !changed {
-                break;
-            }
-        }
+        let (sorts, index) = collect_sorts(spec);
+        let mut grouped = group_constructors(spec, &index, sorts.len());
+        let base_reason = trivial_not_enumerable_reasons(&sorts, &grouped);
+        let (min_size, constructor_size) = compute_min_sizes(&grouped, &base_reason);
+        let is_finite = compute_finiteness(&grouped, &base_reason);
 
         // Assemble the plans, ordering each sort's constructors by ascending
         // minimal term size.
@@ -323,6 +192,153 @@ impl EnumerationPlans {
     /// Returns `true` iff the plan is empty.
     pub fn is_empty(&self) -> bool {
         self.plans.is_empty()
+    }
+}
+
+/// Collects the sort universe in first-seen order: the specification's
+/// declared sorts, then every constructor's target and argument sorts.
+fn collect_sorts(spec: &Mcrl2DataSpecification) -> (Vec<SortExpression>, HashMap<SortExpression, EnumerationPlanId>) {
+    let mut sorts: Vec<SortExpression> = Vec::new();
+    let mut index: HashMap<SortExpression, EnumerationPlanId> = HashMap::new();
+
+    let mut intern = |sort: SortExpression| {
+        if !index.contains_key(&sort) {
+            index.insert(sort.clone(), EnumerationPlanId::new(sorts.len()));
+            sorts.push(sort);
+        }
+    };
+
+    for basic in spec.sorts() {
+        intern(SortExpression::from(basic.clone()));
+    }
+    for symbol in spec.constructors() {
+        let (domain, target) = constructor_signature(symbol);
+        intern(target);
+        for argument in domain {
+            intern(argument);
+        }
+    }
+
+    (sorts, index)
+}
+
+/// Groups the specification's constructors by target sort, indexed by sort id.
+fn group_constructors(
+    spec: &Mcrl2DataSpecification,
+    index: &HashMap<SortExpression, EnumerationPlanId>,
+    num_sorts: usize,
+) -> Vec<Vec<ConstructorPlan>> {
+    let mut grouped: Vec<Vec<ConstructorPlan>> = (0..num_sorts).map(|_| Vec::new()).collect();
+    for symbol in spec.constructors() {
+        let (domain, target) = constructor_signature(symbol);
+        let arguments = domain.into_iter().map(|sort| index[&sort]).collect();
+        grouped[index[&target].value()].push(ConstructorPlan {
+            symbol: symbol.clone(),
+            arguments,
+        });
+    }
+    grouped
+}
+
+/// Classifies the sorts that are trivially not enumerable, so that the
+/// fixpoints never look at their constructors.
+fn trivial_not_enumerable_reasons(
+    sorts: &[SortExpression],
+    grouped: &[Vec<ConstructorPlan>],
+) -> Vec<Option<NotEnumerableReason>> {
+    sorts
+        .iter()
+        .zip(grouped)
+        .map(|(sort, constructors)| {
+            if is_function_sort(sort) {
+                Some(NotEnumerableReason::FunctionSort)
+            } else if constructors.is_empty() {
+                Some(NotEnumerableReason::NoConstructors)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Computes the least fixpoint of the minimal closed term size, per sort and
+/// per constructor; `u32::MAX` means no closed term exists.
+fn compute_min_sizes(
+    grouped: &[Vec<ConstructorPlan>],
+    base_reason: &[Option<NotEnumerableReason>],
+) -> (Vec<u32>, Vec<Vec<u32>>) {
+    let mut min_size: Vec<u32> = vec![u32::MAX; grouped.len()];
+    let mut constructor_size: Vec<Vec<u32>> = grouped.iter().map(|cs| vec![u32::MAX; cs.len()]).collect();
+
+    loop {
+        let mut changed = false;
+        for (sort_id, constructors) in grouped.iter().enumerate() {
+            if base_reason[sort_id].is_some() {
+                continue;
+            }
+
+            for (constructor_id, constructor) in constructors.iter().enumerate() {
+                let mut size: Option<u32> = Some(1);
+                for &argument in &constructor.arguments {
+                    match min_size[argument.value()] {
+                        u32::MAX => {
+                            size = None;
+                            break;
+                        }
+                        argument_size => size = size.map(|s| s.saturating_add(argument_size)),
+                    }
+                }
+
+                if let Some(size) = size
+                    && size < constructor_size[sort_id][constructor_id]
+                {
+                    constructor_size[sort_id][constructor_id] = size;
+                    changed = true;
+                }
+            }
+
+            if let Some(&best) = constructor_size[sort_id].iter().min()
+                && best < min_size[sort_id]
+            {
+                min_size[sort_id] = best;
+                changed = true;
+            }
+        }
+
+        if !changed {
+            return (min_size, constructor_size);
+        }
+    }
+}
+
+/// Computes the least fixpoint of finiteness. A sort starts finite unless it
+/// is not enumerable or recursive, and is knocked down to infinite as soon as
+/// any of its constructors uses a non-finite argument sort. This only ever
+/// flips `true` to `false`, so it converges monotonically.
+fn compute_finiteness(grouped: &[Vec<ConstructorPlan>], base_reason: &[Option<NotEnumerableReason>]) -> Vec<bool> {
+    let recursive = detect_recursive_sorts(grouped);
+    let mut is_finite: Vec<bool> = base_reason
+        .iter()
+        .zip(&recursive)
+        .map(|(reason, &recursive)| reason.is_none() && !recursive)
+        .collect();
+
+    loop {
+        let mut changed = false;
+        for (sort_id, constructors) in grouped.iter().enumerate() {
+            if is_finite[sort_id]
+                && constructors
+                    .iter()
+                    .any(|c| c.arguments.iter().any(|&argument| !is_finite[argument.value()]))
+            {
+                is_finite[sort_id] = false;
+                changed = true;
+            }
+        }
+
+        if !changed {
+            return is_finite;
+        }
     }
 }
 
