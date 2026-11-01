@@ -80,7 +80,7 @@ ena = "0.14"
 env_logger = { version = "0.11", features = ["kv"] }
 equivalent = "1.0"
 hashbrown = "0.17"
-html-escape = "0.2"
+html-escape = "0.3"
 itertools = "0.15"
 log = { version = "0.4", features = ["kv"] }
 num = "0.4"
