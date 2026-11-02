@@ -228,7 +228,7 @@ fn test_enumerate_is_fair_across_two_infinite_variables() {
 
 #[test]
 #[cfg_attr(miri, ignore)]
-fn test_compile_one_point_then_enumerate_normalized_matches_direct_enumeration() {
+fn test_simplify_one_point_then_enumerate_normalized_matches_direct_enumeration() {
     // `b == true` narrows `b` to a single substitution instead of a search
     // over `Bool`, leaving only the (still genuinely searched) `n < 3` over
     // `D`.
@@ -248,7 +248,7 @@ fn test_compile_one_point_then_enumerate_normalized_matches_direct_enumeration()
 
     let mut condition = normalized_body;
     let mut rest = [DataExpression::from(b.clone())];
-    simplify_one_point(&mut rewriter, &vars, &mut condition, &mut rest);
+    let remaining_vars = simplify_one_point(&mut rewriter, QuantifierKind::Exists, &vars, &mut condition, &mut rest);
     let other = rest[0].clone();
 
     let true_literal: DataExpression = merc_data::DataFunctionSymbol::with_sort(
@@ -261,15 +261,10 @@ fn test_compile_one_point_then_enumerate_normalized_matches_direct_enumeration()
         "`b`'s eliminated binding must be substituted into every other term, not just `terms[0]`"
     );
 
-    // `compile_one_point` doesn't report which of `vars` it eliminated, so a
-    // caller re-derives it by re-scanning the rewritten terms — here, just
-    // `condition`, since `other` is not itself an enumeration goal.
-    let free = free_variables(&condition);
-    let remaining_vars: Vec<DataVariable> = vars.iter().filter(|v| free.contains(*v)).cloned().collect();
     assert_eq!(
         remaining_vars.iter().map(|v| v.name().to_string()).collect::<Vec<_>>(),
         vec!["n"],
-        "only `n` should still be free in the residual condition once `b` is compiled away"
+        "only `n` should remain once `b` is eliminated"
     );
 
     let enumerator = Enumerator::new(plans, generator_for(&vars));
@@ -390,11 +385,10 @@ fn test_find_witness_forall_holds_over_a_finite_sort() {
 
 #[test]
 #[cfg_attr(miri, ignore)]
-fn test_find_witness_forall_is_not_broken_by_the_one_point_rule() {
+fn test_find_witness_forall_finds_a_counterexample_to_an_equation() {
     // `∀ n:D . n == dzero` is false — `dsucc(dzero)` is a counterexample.
     // `==` on `D` is otherwise uninterpreted, so the equations below are what
-    // let the ground instances decide; `n == dzero` itself still survives
-    // normalisation, which is what offers the one-point rule its bait.
+    // let the ground instances decide.
     let spec = lower(
         "map goal: D -> Bool;
          var n: D;
@@ -524,7 +518,7 @@ fn value(spec: &Mcrl2DataSpecification, name: &str) -> DataExpression {
 }
 
 #[test]
-#[ignore = "ported from mCRL2"]
+#[cfg_attr(miri, ignore)]
 fn test_enumerate_without_variables() {
     let spec = lower_without_prelude(
         "map yes, no: Bool;
@@ -549,7 +543,7 @@ fn test_enumerate_without_variables() {
 }
 
 #[test]
-#[ignore = "ported from mCRL2"]
+#[cfg_attr(miri, ignore)]
 fn test_find_witness_in_a_user_defined_list() {
     let spec = lower_without_prelude(
         "sort list_of_booleans;
@@ -573,7 +567,7 @@ fn test_find_witness_in_a_user_defined_list() {
 }
 
 #[test]
-#[ignore = "ported from mCRL2"]
+#[cfg_attr(miri, ignore)]
 fn test_enumerate_structured_sort() {
     let spec = lower_without_prelude(
         "sort D = struct d1(E) | d2(E);
@@ -598,7 +592,7 @@ fn test_enumerate_structured_sort() {
 }
 
 #[test]
-#[ignore = "ported from mCRL2"]
+#[cfg_attr(miri, ignore)]
 fn test_find_witness_with_equality_substitution() {
     let spec = lower_without_prelude(
         "map contradiction, double: Pos -> Bool;
@@ -623,7 +617,7 @@ fn test_find_witness_with_equality_substitution() {
 /// mCRL2 ticket #1486: the solution must be found regardless of which side of
 /// the equality the variable occurs on, and for both `Nat` and `Pos`.
 #[test]
-#[ignore = "ported from mCRL2"]
+#[cfg_attr(miri, ignore)]
 fn test_find_witness_ticket_1486() {
     let spec = lower_without_prelude(
         "map left, right: Nat -> Bool;
@@ -648,7 +642,7 @@ fn test_find_witness_ticket_1486() {
 }
 
 #[test]
-#[ignore = "ported from mCRL2"]
+#[cfg_attr(miri, ignore)]
 fn test_enumerate_tree_yields_distinct_values() {
     let spec = lower_without_prelude(
         "sort tree_with_booleans;
@@ -667,7 +661,7 @@ fn test_enumerate_tree_yields_distinct_values() {
 }
 
 #[test]
-#[ignore = "ported from mCRL2"]
+#[cfg_attr(miri, ignore)]
 fn test_enumerate_mutually_recursive_sorts() {
     let spec = lower_without_prelude(
         "sort this;
@@ -694,7 +688,7 @@ fn test_enumerate_mutually_recursive_sorts() {
 }
 
 #[test]
-#[ignore = "ported from mCRL2"]
+#[cfg_attr(miri, ignore)]
 fn test_enumerate_finite_structured_sorts_without_duplicates() {
     let sorts = [
         (
@@ -737,7 +731,7 @@ fn test_enumerate_finite_structured_sorts_without_duplicates() {
 
 /// `F2` is a constructor, but an equation rewrites it to `fSucc(F1)`.
 #[test]
-#[ignore = "ported from mCRL2"]
+#[cfg_attr(miri, ignore)]
 fn test_enumerate_constructors_that_are_not_a_normal_form() {
     let spec = lower_without_prelude(
         "sort FloorID = struct F1 | F2;
@@ -760,7 +754,7 @@ fn test_enumerate_constructors_that_are_not_a_normal_form() {
 }
 
 #[test]
-#[ignore = "ported from mCRL2"]
+#[ignore = "Set(Bool) applies function values such as `@false_`, which needs higher-order matching"]
 fn test_enumerate_set_of_bool() {
     let spec = lower_without_prelude(
         "map goal: Set(Bool) -> Bool;
@@ -774,7 +768,7 @@ fn test_enumerate_set_of_bool() {
 }
 
 #[test]
-#[ignore = "ported from mCRL2"]
+#[cfg_attr(miri, ignore)]
 fn test_cannot_enumerate_real() {
     let spec = lower_without_prelude(
         "map goal: Real -> Bool;
@@ -793,7 +787,7 @@ fn test_cannot_enumerate_real() {
 }
 
 #[test]
-#[ignore = "ported from mCRL2"]
+#[cfg_attr(miri, ignore)]
 fn test_find_witness_over_nat_with_a_bounded_guard() {
     let spec = lower_without_prelude(
         "map goal: Nat -> Bool;

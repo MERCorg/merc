@@ -14,8 +14,6 @@ use merc_data::Mcrl2DataSpecification;
 use merc_data::SortArrow;
 use merc_data::SortExpression;
 use merc_data::bool_literal;
-use merc_data::make_and;
-use merc_data::make_equal;
 use merc_enumerate::EnumerationPlans;
 use merc_enumerate::Enumerator;
 use merc_enumerate::EnumeratorFrame;
@@ -105,7 +103,7 @@ impl Predicate {
     fn apply(self, lhs: DataExpression, rhs: DataExpression) -> DataExpression {
         match self.symbol() {
             Some(symbol) => DataApplication::with_args(&symbol, &[lhs, rhs]).into(),
-            None => make_equal(d_sort(), lhs, rhs),
+            None => DataExpression::equal(d_sort(), lhs, rhs),
         }
     }
 }
@@ -157,7 +155,11 @@ fn random_cross_clause(rng: &mut StdRng, left: &DataVariable, right: &DataVariab
 /// Conjoins `terms` with `&&`, left to right. Panics on an empty slice (every
 /// goal here has at least one variable).
 fn conjunction(terms: &[DataExpression]) -> DataExpression {
-    terms.iter().cloned().reduce(make_and).expect("at least one clause")
+    terms
+        .iter()
+        .cloned()
+        .reduce(DataExpression::and)
+        .expect("at least one clause")
 }
 
 /// Generates a random 1- or 2-variable goal, runs both an [`Enumerator`] and

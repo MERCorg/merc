@@ -3,63 +3,48 @@
 use std::ops::ControlFlow;
 
 use merc_aterm::Term;
-use merc_data::AndExpressionRef;
+use merc_data::BoolKind;
 use merc_data::DataExpression;
 use merc_data::DataExpressionRef;
 use merc_data::DataVariable;
 use merc_data::DataVariableRef;
-use merc_data::EqualExpressionRef;
-use merc_data::ImpliesExpressionRef;
-use merc_data::NotEqualExpressionRef;
-use merc_data::NotExpressionRef;
-use merc_data::OrExpressionRef;
-use merc_data::is_and;
 use merc_data::is_data_variable;
-use merc_data::is_equal;
-use merc_data::is_implies;
-use merc_data::is_not;
-use merc_data::is_not_equal;
-use merc_data::is_or;
 use merc_data::visit_data_expr;
 use merc_sabre::RewriteEngine;
 use merc_sabre::utilities::SliceSubstitution;
 use merc_utilities::Step;
 
+use crate::QuantifierKind;
 use crate::binding::BindingArena;
 use crate::binding::BindingChain;
 use crate::binding::BindingGuard;
 use crate::binding::SingleSubstitution;
 
-/// Which quantifier's one-point identity [`apply_one_point_rule`] may use.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum OnePointPolarity {
-    Existential,
-    Universal,
-}
-
-/// Runs [`apply_one_point_rule`] to a fixpoint under sum/existential polarity.
+/// Applies [the one-point rule](https://mercorg.github.io/merc-website/developer/rewriting/enumeration/#the-one-point-rule) to a fixpoint,
+/// for a quantifier of `kind` over `vars`, or a `sum` as [`QuantifierKind::Exists`].
+///
+/// The [`Enumerator`](crate::Enumerator) never applies the rule itself, so this is a
+/// preprocessing step for the caller.
 ///
 /// `condition` is the goal body to search for one-point (dis)equations over
 /// `vars`, rewritten to its residual form in place. `rest` is *not* searched
 /// but still has each eliminated variable's binding substituted in. This is
-/// useful for summands for example.
+/// useful for summands for example. Returns the variables that were not
+/// eliminated, in `vars` order.
 ///
-/// `condition` must already be in normal form; see [`apply_one_point_rule`].
+/// `condition` must already be in normal form, so that the `e` of a matched
+/// equation can be substituted without rewriting it again.
 pub fn simplify_one_point<R: RewriteEngine>(
     rewriter: &mut R,
+    kind: QuantifierKind,
     vars: &[DataVariable],
     condition: &mut DataExpression,
     rest: &mut [DataExpression],
-) {
+) -> Vec<DataVariable> {
     let mut arena = BindingArena::default();
     arena.chain.write(|guard| {
-        let (remaining_vars, residual, bindings) = apply_one_point_rule(
-            rewriter,
-            guard,
-            vars.to_vec(),
-            condition.clone(),
-            OnePointPolarity::Existential,
-        );
+        let (remaining_vars, residual, bindings) =
+            apply_one_point_rule(rewriter, guard, vars.to_vec(), condition.clone(), kind);
         *condition = residual;
 
         // Every binding's value mentions only variables outside `vars`, so
@@ -77,10 +62,12 @@ pub fn simplify_one_point<R: RewriteEngine>(
         for term in rest {
             *term = rewriter.rewrite_with(term, &substitution);
         }
-    });
+
+        remaining_vars
+    })
 }
 
-/// Applies the one-point rule for `polarity` to `(vars, body)` to a fixpoint:
+/// Applies the one-point rule for `kind` to `(vars, body)` to a fixpoint:
 /// repeatedly finds a top-level (dis)equation `x == e` / `e == x` fixing one of
 /// the still-unbound variables to a term mentioning none of them, binds
 /// `x := e` directly instead of enumerating its sort, and rewrites the residual
@@ -92,16 +79,18 @@ pub fn simplify_one_point<R: RewriteEngine>(
 /// `body` must already be in normal form: every subterm of a normal form is
 /// itself one, which is what makes the `e` side of a matched (dis)equation
 /// usable directly as a substitution image without re-rewriting it.
-pub(crate) fn apply_one_point_rule<R: RewriteEngine>(
+///
+/// See [the one-point rule](https://mercorg.github.io/merc-website/developer/rewriting/enumeration/#the-one-point-rule).
+fn apply_one_point_rule<R: RewriteEngine>(
     rewriter: &mut R,
     guard: &mut BindingGuard<'_, '_>,
     mut vars: Vec<DataVariable>,
     mut body: DataExpression,
-    polarity: OnePointPolarity,
+    kind: QuantifierKind,
 ) -> (Vec<DataVariable>, DataExpression, BindingChain) {
     let mut bindings = BindingChain::default();
 
-    while let Some((variable, value)) = find_one_point_equation(&vars, &body, polarity) {
+    while let Some((variable, value)) = find_one_point_equation(&vars, &body, kind) {
         let position = vars
             .iter()
             .position(|v| *v == variable)
@@ -118,48 +107,31 @@ pub(crate) fn apply_one_point_rule<R: RewriteEngine>(
 /// Finds the first top-level (dis)equation of `body` fixing some `x ∈ vars` to
 /// a term `e` mentioning none of `vars` (including `x` itself), and returns
 /// `(x, e)`. Which connective is split on, and which shape counts, is decided
-/// by `polarity`.
+/// by `kind`.
 fn find_one_point_equation<'a>(
     vars: &[DataVariable],
     body: &'a DataExpression,
-    polarity: OnePointPolarity,
+    kind: QuantifierKind,
 ) -> Option<(DataVariable, DataExpression)> {
-    let equation = |term: DataExpressionRef<'a>| {
-        is_equal(&term).then(|| {
-            let equal = EqualExpressionRef::from(Term::copy(&term));
-            (equal.lhs(), equal.rhs())
-        })
+    let equation = |term: DataExpressionRef<'a>| match term.bool_kind() {
+        BoolKind::Equal(lhs, rhs) => Some((lhs, rhs)),
+        _ => None,
     };
 
     // Iterative rather than recursive: a chain of connectives can be arbitrarily deep.
     let mut stack = vec![body.copy()];
     while let Some(term) = stack.pop() {
-        let sides = match polarity {
-            OnePointPolarity::Existential if is_and(&term) => {
-                let and = AndExpressionRef::from(Term::copy(&term));
-                stack.push(and.rhs());
-                stack.push(and.lhs());
+        let sides = match (kind, term.bool_kind()) {
+            (QuantifierKind::Exists, BoolKind::And(lhs, rhs)) | (QuantifierKind::Forall, BoolKind::Or(lhs, rhs)) => {
+                stack.push(rhs);
+                stack.push(lhs);
                 continue;
             }
-            OnePointPolarity::Universal if is_or(&term) => {
-                let or = OrExpressionRef::from(Term::copy(&term));
-                stack.push(or.rhs());
-                stack.push(or.lhs());
-                continue;
-            }
-            OnePointPolarity::Existential => equation(term),
+            (QuantifierKind::Exists, _) => equation(term),
             // The shapes that deny an equality: `e1 != e2`, `e1 == e2 => φ` and `!(e1 == e2)`.
-            OnePointPolarity::Universal if is_not_equal(&term) => {
-                let not_equal = NotEqualExpressionRef::from(Term::copy(&term));
-                Some((not_equal.lhs(), not_equal.rhs()))
-            }
-            OnePointPolarity::Universal if is_implies(&term) => {
-                equation(ImpliesExpressionRef::from(Term::copy(&term)).lhs())
-            }
-            OnePointPolarity::Universal if is_not(&term) => {
-                equation(NotExpressionRef::from(Term::copy(&term)).operand())
-            }
-            OnePointPolarity::Universal => None,
+            (QuantifierKind::Forall, BoolKind::NotEqual(lhs, rhs)) => Some((lhs, rhs)),
+            (QuantifierKind::Forall, BoolKind::Implies(operand, _) | BoolKind::Not(operand)) => equation(operand),
+            (QuantifierKind::Forall, _) => None,
         };
 
         let Some((lhs, rhs)) = sides else {
@@ -204,19 +176,14 @@ mod tests {
     use merc_data::SortArrow;
     use merc_data::SortExpression;
     use merc_data::bool_literal;
-    use merc_data::make_and;
-    use merc_data::make_equal;
-    use merc_data::make_implies;
-    use merc_data::make_not;
-    use merc_data::make_or;
     use merc_sabre::RewriteSpecification;
     use merc_sabre::Rule;
     use merc_sabre::SabreRewriter;
 
     use crate::binding::BindingArena;
 
-    use super::OnePointPolarity;
     use super::apply_one_point_rule;
+    use crate::QuantifierKind;
 
     fn d_sort() -> SortExpression {
         SortExpression::from(BasicSort::new("D"))
@@ -239,9 +206,9 @@ mod tests {
         let y: DataExpression = DataVariable::with_sort("y", bool_sort.copy()).into();
 
         let spec = RewriteSpecification::new(vec![
-            Rule::new(make_equal(d_sort(), x.clone(), x), bool_literal(true)),
-            Rule::new(make_and(bool_literal(true), y.clone()), y.clone()),
-            Rule::new(make_and(bool_literal(false), y), bool_literal(false)),
+            Rule::new(DataExpression::equal(d_sort(), x.clone(), x), bool_literal(true)),
+            Rule::new(DataExpression::and(bool_literal(true), y.clone()), y.clone()),
+            Rule::new(DataExpression::and(bool_literal(false), y), bool_literal(false)),
         ]);
         SabreRewriter::new(&spec)
     }
@@ -251,15 +218,15 @@ mod tests {
         // `∀n. (!(n == five) || φ(n))` ≡ `φ(five)`.
         let mut rewriter = rewriter();
         let n = variable("n");
-        let body = make_or(
-            make_not(make_equal(d_sort(), n.clone().into(), constant("five"))),
+        let body = DataExpression::or(
+            DataExpression::negation(DataExpression::equal(d_sort(), n.clone().into(), constant("five"))),
             bool_literal(true),
         );
 
         let mut arena = BindingArena::default();
-        let (vars, _residual, bindings) = arena.chain.write(|guard| {
-            apply_one_point_rule(&mut rewriter, guard, vec![n.clone()], body, OnePointPolarity::Universal)
-        });
+        let (vars, _residual, bindings) = arena
+            .chain
+            .write(|guard| apply_one_point_rule(&mut rewriter, guard, vec![n.clone()], body, QuantifierKind::Forall));
 
         assert!(vars.is_empty(), "the universal rule must bind `n`");
         let mut resolved = Vec::new();
@@ -281,15 +248,15 @@ mod tests {
         // `∀n. (n == five => φ(n))` ≡ `φ(five)`.
         let mut rewriter = rewriter();
         let n = variable("n");
-        let body = make_implies(
-            make_equal(d_sort(), n.clone().into(), constant("five")),
+        let body = DataExpression::implies(
+            DataExpression::equal(d_sort(), n.clone().into(), constant("five")),
             bool_literal(true),
         );
 
         let mut arena = BindingArena::default();
-        let (vars, _residual, bindings) = arena.chain.write(|guard| {
-            apply_one_point_rule(&mut rewriter, guard, vec![n.clone()], body, OnePointPolarity::Universal)
-        });
+        let (vars, _residual, bindings) = arena
+            .chain
+            .write(|guard| apply_one_point_rule(&mut rewriter, guard, vec![n.clone()], body, QuantifierKind::Forall));
 
         assert!(vars.is_empty(), "the universal rule must bind `n`");
         let mut resolved = Vec::new();
@@ -312,8 +279,8 @@ mod tests {
         // to the one point that satisfies it, turning a false quantifier true.
         let mut rewriter = rewriter();
         let n = variable("n");
-        let body = make_and(
-            make_equal(d_sort(), n.clone().into(), constant("five")),
+        let body = DataExpression::and(
+            DataExpression::equal(d_sort(), n.clone().into(), constant("five")),
             bool_literal(true),
         );
 
@@ -324,7 +291,7 @@ mod tests {
                 guard,
                 vec![n.clone()],
                 body.clone(),
-                OnePointPolarity::Universal,
+                QuantifierKind::Forall,
             )
         });
 
@@ -337,8 +304,8 @@ mod tests {
         // The dual of the test above: `∃n. (!(n == five) || φ)` is not `φ(five)`.
         let mut rewriter = rewriter();
         let n = variable("n");
-        let body = make_or(
-            make_not(make_equal(d_sort(), n.clone().into(), constant("five"))),
+        let body = DataExpression::or(
+            DataExpression::negation(DataExpression::equal(d_sort(), n.clone().into(), constant("five"))),
             bool_literal(true),
         );
 
@@ -349,7 +316,7 @@ mod tests {
                 guard,
                 vec![n.clone()],
                 body.clone(),
-                OnePointPolarity::Existential,
+                QuantifierKind::Exists,
             )
         });
 
@@ -361,21 +328,15 @@ mod tests {
     fn test_single_conjunct_binds_directly() {
         let mut rewriter = rewriter();
         let n = variable("n");
-        let body = make_and(
-            make_equal(d_sort(), n.clone().into(), constant("five")),
+        let body = DataExpression::and(
+            DataExpression::equal(d_sort(), n.clone().into(), constant("five")),
             bool_literal(true),
         );
 
         let mut arena = BindingArena::default();
-        let (vars, residual, bindings) = arena.chain.write(|guard| {
-            apply_one_point_rule(
-                &mut rewriter,
-                guard,
-                vec![n.clone()],
-                body,
-                OnePointPolarity::Existential,
-            )
-        });
+        let (vars, residual, bindings) = arena
+            .chain
+            .write(|guard| apply_one_point_rule(&mut rewriter, guard, vec![n.clone()], body, QuantifierKind::Exists));
 
         assert!(vars.is_empty());
         assert_eq!(residual, bool_literal(true));
@@ -401,9 +362,9 @@ mod tests {
         let mut rewriter = rewriter();
         let n = variable("n");
         let m = variable("m");
-        let body = make_and(
-            make_equal(d_sort(), n.clone().into(), constant("five")),
-            make_equal(d_sort(), m.clone().into(), n.clone().into()),
+        let body = DataExpression::and(
+            DataExpression::equal(d_sort(), n.clone().into(), constant("five")),
+            DataExpression::equal(d_sort(), m.clone().into(), n.clone().into()),
         );
 
         let mut arena = BindingArena::default();
@@ -413,7 +374,7 @@ mod tests {
                 guard,
                 vec![n.clone(), m.clone()],
                 body,
-                OnePointPolarity::Existential,
+                QuantifierKind::Exists,
             )
         });
 
@@ -448,7 +409,7 @@ mod tests {
                 guard,
                 vec![n.clone()],
                 body.clone(),
-                OnePointPolarity::Existential,
+                QuantifierKind::Exists,
             )
         });
 
@@ -464,7 +425,7 @@ mod tests {
         let f_sort: SortExpression = SortArrow::new(&[d_sort()], d_sort()).into();
         let f = DataFunctionSymbol::with_sort("f", f_sort.copy());
         let f_n: DataExpression = DataApplication::with_args(&f, &[DataExpression::from(n.clone())]).into();
-        let body = make_equal(d_sort(), n.clone().into(), f_n);
+        let body = DataExpression::equal(d_sort(), n.clone().into(), f_n);
 
         let mut arena = BindingArena::default();
         let (vars, residual, _bindings) = arena.chain.write(|guard| {
@@ -473,7 +434,7 @@ mod tests {
                 guard,
                 vec![n.clone()],
                 body.clone(),
-                OnePointPolarity::Existential,
+                QuantifierKind::Exists,
             )
         });
 
