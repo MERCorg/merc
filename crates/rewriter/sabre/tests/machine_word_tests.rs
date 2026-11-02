@@ -21,16 +21,6 @@ use merc_syntax::UntypedDataSpecification;
 use merc_typecheck::DataSpecification;
 use merc_typecheck::NumberEncoding;
 
-/// A machine-number data expression.
-fn word(value: u64) -> DataExpression {
-    MachineNumber::new(value).into()
-}
-
-/// A `Bool` literal, built exactly as the IR lowering does.
-fn boolean(value: bool) -> DataExpression {
-    DataExpression::bool_literal(value)
-}
-
 /// The rewrite specification for the `MachineWord`-encoded system spec, with
 /// no user-declared equations. It still carries every native `@word`
 /// operation with its real, declared sort, via
@@ -59,30 +49,59 @@ fn test_word_valued_operations() {
     let mut rewriter = InnermostRewriter::new(&rules);
 
     assert_eq!(
-        rewriter.rewrite(&apply(&rules, MachineWordOp::AddWord, &[word(3), word(5)])),
-        word(8)
+        rewriter.rewrite(&apply(
+            &rules,
+            MachineWordOp::AddWord,
+            &[
+                DataExpression::from(MachineNumber::new(3)),
+                DataExpression::from(MachineNumber::new(5))
+            ]
+        )),
+        DataExpression::from(MachineNumber::new(8))
     );
     assert_eq!(
-        rewriter.rewrite(&apply(&rules, MachineWordOp::SuccWord, &[word(41)])),
-        word(42)
+        rewriter.rewrite(&apply(
+            &rules,
+            MachineWordOp::SuccWord,
+            &[DataExpression::from(MachineNumber::new(41))]
+        )),
+        DataExpression::from(MachineNumber::new(42))
     );
     assert_eq!(
-        rewriter.rewrite(&apply(&rules, MachineWordOp::DivWord, &[word(17), word(5)])),
-        word(3)
+        rewriter.rewrite(&apply(
+            &rules,
+            MachineWordOp::DivWord,
+            &[
+                DataExpression::from(MachineNumber::new(17)),
+                DataExpression::from(MachineNumber::new(5))
+            ]
+        )),
+        DataExpression::from(MachineNumber::new(3))
     );
     // Wrapping semantics.
     assert_eq!(
-        rewriter.rewrite(&apply(&rules, MachineWordOp::AddWord, &[word(u64::MAX), word(1)])),
-        word(0)
+        rewriter.rewrite(&apply(
+            &rules,
+            MachineWordOp::AddWord,
+            &[
+                DataExpression::from(MachineNumber::new(u64::MAX)),
+                DataExpression::from(MachineNumber::new(1))
+            ]
+        )),
+        DataExpression::from(MachineNumber::new(0))
     );
     // (2^64 * 1 + 0) div 2 == 2^63.
     assert_eq!(
         rewriter.rewrite(&apply(
             &rules,
             MachineWordOp::DivDoubleword,
-            &[word(1), word(0), word(2)]
+            &[
+                DataExpression::from(MachineNumber::new(1)),
+                DataExpression::from(MachineNumber::new(0)),
+                DataExpression::from(MachineNumber::new(2))
+            ]
         )),
-        word(1u64 << 63)
+        DataExpression::from(MachineNumber::new(1u64 << 63))
     );
 }
 
@@ -98,11 +117,25 @@ fn test_nested_operations_reduce_innermost_first() {
         &rules,
         MachineWordOp::AddWord,
         &[
-            apply(&rules, MachineWordOp::AddWord, &[word(1), word(2)]),
-            apply(&rules, MachineWordOp::ModWord, &[word(17), word(5)]),
+            apply(
+                &rules,
+                MachineWordOp::AddWord,
+                &[
+                    DataExpression::from(MachineNumber::new(1)),
+                    DataExpression::from(MachineNumber::new(2)),
+                ],
+            ),
+            apply(
+                &rules,
+                MachineWordOp::ModWord,
+                &[
+                    DataExpression::from(MachineNumber::new(17)),
+                    DataExpression::from(MachineNumber::new(5)),
+                ],
+            ),
         ],
     );
-    assert_eq!(rewriter.rewrite(&nested), word(5));
+    assert_eq!(rewriter.rewrite(&nested), DataExpression::from(MachineNumber::new(5)));
 }
 
 #[test]
@@ -116,14 +149,24 @@ fn test_shift_right_with_bool_argument() {
         rewriter.rewrite(&apply(
             &rules,
             MachineWordOp::ShiftRight,
-            &[boolean(false), word(0b100)]
+            &[
+                DataExpression::bool_literal(false),
+                DataExpression::from(MachineNumber::new(0b100))
+            ]
         )),
-        word(0b10)
+        DataExpression::from(MachineNumber::new(0b10))
     );
     // @shift_right(true, 0) inserts a new most-significant bit.
     assert_eq!(
-        rewriter.rewrite(&apply(&rules, MachineWordOp::ShiftRight, &[boolean(true), word(0)])),
-        word(1u64 << 63)
+        rewriter.rewrite(&apply(
+            &rules,
+            MachineWordOp::ShiftRight,
+            &[
+                DataExpression::bool_literal(true),
+                DataExpression::from(MachineNumber::new(0))
+            ]
+        )),
+        DataExpression::from(MachineNumber::new(1u64 << 63))
     );
 }
 
@@ -134,20 +177,45 @@ fn test_bool_valued_operations() {
     let mut rewriter = InnermostRewriter::new(&rules);
 
     assert_eq!(
-        rewriter.rewrite(&apply(&rules, MachineWordOp::Less, &[word(2), word(5)])),
-        boolean(true)
+        rewriter.rewrite(&apply(
+            &rules,
+            MachineWordOp::Less,
+            &[
+                DataExpression::from(MachineNumber::new(2)),
+                DataExpression::from(MachineNumber::new(5))
+            ]
+        )),
+        DataExpression::bool_literal(true)
     );
     assert_eq!(
-        rewriter.rewrite(&apply(&rules, MachineWordOp::Less, &[word(5), word(2)])),
-        boolean(false)
+        rewriter.rewrite(&apply(
+            &rules,
+            MachineWordOp::Less,
+            &[
+                DataExpression::from(MachineNumber::new(5)),
+                DataExpression::from(MachineNumber::new(2))
+            ]
+        )),
+        DataExpression::bool_literal(false)
     );
     assert_eq!(
-        rewriter.rewrite(&apply(&rules, MachineWordOp::Equal, &[word(7), word(7)])),
-        boolean(true)
+        rewriter.rewrite(&apply(
+            &rules,
+            MachineWordOp::Equal,
+            &[
+                DataExpression::from(MachineNumber::new(7)),
+                DataExpression::from(MachineNumber::new(7))
+            ]
+        )),
+        DataExpression::bool_literal(true)
     );
     assert_eq!(
-        rewriter.rewrite(&apply(&rules, MachineWordOp::EqualsZeroWord, &[word(0)])),
-        boolean(true)
+        rewriter.rewrite(&apply(
+            &rules,
+            MachineWordOp::EqualsZeroWord,
+            &[DataExpression::from(MachineNumber::new(0))]
+        )),
+        DataExpression::bool_literal(true)
     );
 }
 
@@ -157,5 +225,8 @@ fn test_bool_valued_operations() {
 fn test_machine_number_is_normal_form() {
     let rules = rules();
     let mut rewriter = InnermostRewriter::new(&rules);
-    assert_eq!(rewriter.rewrite(&word(42)), word(42));
+    assert_eq!(
+        rewriter.rewrite(&DataExpression::from(MachineNumber::new(42))),
+        DataExpression::from(MachineNumber::new(42))
+    );
 }

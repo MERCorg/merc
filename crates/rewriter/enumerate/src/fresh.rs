@@ -86,15 +86,10 @@ fn split_index(name: &str, prefix: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use merc_data::BasicSort;
     use merc_data::SortExpression;
 
     use super::FreshVariableGenerator;
     use super::split_index;
-
-    fn nat() -> SortExpression {
-        SortExpression::from(BasicSort::new("Nat"))
-    }
 
     #[test]
     fn test_generate_avoids_seeded_names() {

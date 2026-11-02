@@ -187,7 +187,7 @@ pub fn reachability_with_callback<L: SymbolicLPS, F: FnMut(usize, &LDDFunction) 
 
             trace!("todo1 = {}", LddDisplay::new(&todo1));
 
-            todo = todo1.minus(&states)?;
+            todo = todo1.diff(&states)?;
             states = states.union(&todo)?;
 
             if let Some(accumulated) = &mut deadlocks {
@@ -550,10 +550,11 @@ mod test {
     use merc_lts::TransitionLabel;
     use merc_utilities::Timing;
     use merc_utilities::random_test;
+    use oxidd::LevelNo;
     use oxidd::ManagerRef;
     use oxidd::ldd::LDDFunction;
     use oxidd::ldd::LDDManagerRef;
-    use oxidd::ldd::RelationProductMeta;
+    use oxidd::ldd::RelationMeta;
     use oxidd::ldd::Value;
     use rand::RngExt;
 
@@ -762,7 +763,7 @@ mod test {
             assert_eq!(calls, 1, "{strategy:?}");
             assert_eq!(count(&partial.states), seen[0].1, "{strategy:?}");
             assert!(
-                partial.states.minus(&full.states).expect("minus works").is_empty(),
+                partial.states.diff(&full.states).expect("diff works").is_empty(),
                 "{strategy:?}: the states found so far are not reachable"
             );
             // Saturation only knows that it is done after another round that learns nothing new, the
@@ -846,6 +847,7 @@ mod test {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(1 << 20, 1 << 18, 1);
             let num_state_variables = rng.random_range(2..=8);
+            manager.reserve_levels(2 * num_state_variables as LevelNo + 1);
             let mut lts = random_symbolic_lts(rng, &manager, num_state_variables, 3).unwrap();
 
             assert_strategies_correct(&format!("{num_state_variables} variables"), &manager, &mut lts);
@@ -879,18 +881,18 @@ mod test {
 
     fn line_lts(manager: &oxidd::ldd::LDDManagerRef) -> LineLts {
         // One read+write of parameter 0; relation short vectors place the read/write values at the
-        // positions reported by `relation_product_meta`.
-        let RelationProductMeta {
+        // positions reported by `relation_meta`.
+        let RelationMeta {
             meta,
             read_positions,
             write_positions,
         } = manager
-            .with_manager_shared(|m| LDDFunction::relation_product_meta(m, &[0], &[0]))
+            .with_manager_shared(|m| LDDFunction::relation_meta(m, &[0], &[0]))
             .expect("meta");
         let transition = |from: Value, to: Value| {
             let mut vector: Vec<Value> = vec![0; read_positions.len() + write_positions.len()];
-            vector[read_positions[0]] = from;
-            vector[write_positions[0]] = to;
+            vector[read_positions[0] as usize] = from;
+            vector[write_positions[0] as usize] = to;
             vector
         };
 
@@ -961,7 +963,7 @@ mod test {
         if let Some(deadlocks) = deadlocks {
             assert_eq!(num_deadlocks, count(deadlocks), "{name}: deadlocks");
             assert!(
-                deadlocks.minus(lts.states()).unwrap().is_empty(),
+                deadlocks.diff(lts.states()).unwrap().is_empty(),
                 "{name}: deadlocks outside of the reachable states"
             );
         }
@@ -1036,12 +1038,12 @@ mod test {
         let groups = groups
             .iter()
             .map(|group| {
-                let RelationProductMeta {
+                let RelationMeta {
                     read_positions,
                     write_positions,
                     ..
                 } = manager
-                    .with_manager_shared(|m| LDDFunction::relation_product_meta(m, &group.read, &group.write))
+                    .with_manager_shared(|m| LDDFunction::relation_meta(m, &group.read, &group.write))
                     .expect("meta");
 
                 let vectors: Vec<Vec<Value>> = group
@@ -1050,10 +1052,10 @@ mod test {
                     .map(|t| {
                         let mut vector = vec![0; read_positions.len() + write_positions.len() + 1];
                         for (&position, &value) in read_positions.iter().zip(&t.read) {
-                            vector[position] = value;
+                            vector[position as usize] = value;
                         }
                         for (&position, &value) in write_positions.iter().zip(&t.write) {
-                            vector[position] = value;
+                            vector[position as usize] = value;
                         }
                         *vector.last_mut().unwrap() = t.label;
                         vector
@@ -1095,6 +1097,7 @@ mod test {
     /// Runs [assert_is_reachable_set] on the line `0 -> 1 -> 2` with the given state set.
     fn check_line_states(states: &[Vec<Value>]) {
         let manager = oxidd::ldd::new_manager(SMALL_NODE_CAPACITY, SMALL_CACHE_CAPACITY, 1);
+        manager.reserve_levels(3);
         let group = GroupSpec {
             read: vec![0],
             write: vec![0],
@@ -1181,6 +1184,7 @@ mod test {
         // The models are tiny, so a small manager is enough.
         let check = |name: &str, groups: &[GroupSpec]| {
             let manager = oxidd::ldd::new_manager(SMALL_NODE_CAPACITY, SMALL_CACHE_CAPACITY, 1);
+            manager.reserve_levels(2 * 3 + 1);
             let mut lts = summand_lts(&manager, 3, &[0, 0, 0], groups);
             assert_strategies_correct(name, &manager, &mut lts);
         };
@@ -1223,6 +1227,7 @@ mod test {
             ExplorationStrategy::Saturation,
         ] {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+            manager.reserve_levels(2);
             let mut lts = line_lts(&manager);
 
             let options = ReachabilityOptions {

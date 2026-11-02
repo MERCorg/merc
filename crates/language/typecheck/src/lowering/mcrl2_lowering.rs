@@ -73,17 +73,30 @@ fn widen_one_step(term: DataExpression, from: Sort, encoding: NumberEncoding) ->
             // so it uses the `Pos2Nat` mapping, whose equations in
             // `nat64.mcrl2` rewrite it onto the corresponding digit chain.
             let convert = match encoding {
-                NumberEncoding::Binary => function_symbol("@cNat", &[pos_sort()], nat_sort()),
-                NumberEncoding::MachineWord => function_symbol("Pos2Nat", &[pos_sort()], nat_sort()),
+                NumberEncoding::Binary => DataFunctionSymbol::with_signature(
+                    "@cNat",
+                    &[DataSortExpression::pos()],
+                    &DataSortExpression::nat(),
+                ),
+                NumberEncoding::MachineWord => DataFunctionSymbol::with_signature(
+                    "Pos2Nat",
+                    &[DataSortExpression::pos()],
+                    &DataSortExpression::nat(),
+                ),
             };
             (DataApplication::with_args(&convert, &[term]).into(), Sort::Nat)
         }
         Sort::Nat => {
-            let cint = function_symbol("@cInt", &[nat_sort()], int_sort());
+            let cint =
+                DataFunctionSymbol::with_signature("@cInt", &[DataSortExpression::nat()], &DataSortExpression::int());
             (DataApplication::with_args(&cint, &[term]).into(), Sort::Int)
         }
         Sort::Int => {
-            let creal = function_symbol("@cReal", &[int_sort(), pos_sort()], real_sort());
+            let creal = DataFunctionSymbol::with_signature(
+                "@cReal",
+                &[DataSortExpression::int(), DataSortExpression::pos()],
+                &DataSortExpression::real(),
+            );
             (
                 DataApplication::with_args(&creal, &[term, pos_literal("1", encoding)]).into(),
                 Sort::Real,
@@ -111,19 +124,29 @@ fn numeric_coerce(mut term: DataExpression, from: Sort, to: Sort, encoding: Numb
 fn container_coerce(term: DataExpression, op: ComplexSort, element: DataSortExpression) -> DataExpression {
     match op {
         ComplexSort::FSet => {
-            let false_fn = function_symbol("@false_", std::slice::from_ref(&element), bool_sort());
+            let false_fn = DataFunctionSymbol::with_signature(
+                "@false_",
+                std::slice::from_ref(&element),
+                &DataSortExpression::bool(),
+            );
             let set_sort = SortCons::new(ContainerSortKind::Set, element.clone());
             let fset_sort = SortCons::new(ContainerSortKind::FSet, element.clone());
-            let predicate_sort: DataSortExpression = SortArrow::new(&[element], bool_sort()).into();
-            let set_cons = function_symbol("@set", &[predicate_sort, fset_sort.into()], set_sort.into());
+            let predicate_sort: DataSortExpression = SortArrow::new(&[element], &DataSortExpression::bool()).into();
+            let set_cons =
+                DataFunctionSymbol::with_signature("@set", &[predicate_sort, fset_sort.into()], &set_sort.into());
             DataApplication::with_args(&set_cons, &[false_fn.into(), term]).into()
         }
         ComplexSort::FBag => {
-            let zero_fn = function_symbol("@zero_", std::slice::from_ref(&element), nat_sort());
+            let zero_fn = DataFunctionSymbol::with_signature(
+                "@zero_",
+                std::slice::from_ref(&element),
+                &DataSortExpression::nat(),
+            );
             let bag_sort = SortCons::new(ContainerSortKind::Bag, element.clone());
             let fbag_sort = SortCons::new(ContainerSortKind::FBag, element.clone());
-            let multiplicity_sort: DataSortExpression = SortArrow::new(&[element], nat_sort()).into();
-            let bag_cons = function_symbol("@bag", &[multiplicity_sort, fbag_sort.into()], bag_sort.into());
+            let multiplicity_sort: DataSortExpression = SortArrow::new(&[element], &DataSortExpression::nat()).into();
+            let bag_cons =
+                DataFunctionSymbol::with_signature("@bag", &[multiplicity_sort, fbag_sort.into()], &bag_sort.into());
             DataApplication::with_args(&bag_cons, &[zero_fn.into(), term]).into()
         }
         ComplexSort::List | ComplexSort::Set | ComplexSort::Bag => {
@@ -153,37 +176,11 @@ pub(crate) fn lower_sort(
         }
         ResolvedSort::Function { domain, range } => {
             let domain: Vec<DataSortExpression> = domain.iter().map(|&sort| lower_sort(ctx, spec, sort)).collect();
-            SortArrow::new(&domain, lower_sort(ctx, spec, *range)).into()
+            SortArrow::new(&domain, &lower_sort(ctx, spec, *range)).into()
         }
         ResolvedSort::Def(def) => BasicSort::new(ctx.sort_display_name(spec, *def).as_ref()).into(),
         ResolvedSort::TypeVar(_) => unreachable_not_a_value_sort("Var"),
     }
-}
-
-fn pos_sort() -> DataSortExpression {
-    BasicSort::new("Pos").into()
-}
-
-fn nat_sort() -> DataSortExpression {
-    BasicSort::new("Nat").into()
-}
-
-fn int_sort() -> DataSortExpression {
-    BasicSort::new("Int").into()
-}
-
-fn real_sort() -> DataSortExpression {
-    BasicSort::new("Real").into()
-}
-
-fn bool_sort() -> DataSortExpression {
-    BasicSort::new("Bool").into()
-}
-
-/// The sort of a machine word, the digit sort of [`NumberEncoding::MachineWord`]
-/// (declared by `crates/syntax/spec/machine_word.mcrl2`).
-fn word_sort() -> DataSortExpression {
-    BasicSort::new("@word").into()
 }
 
 /// Number of bits in one machine-word digit; the digit base is `2^WORD_BITS`.
@@ -217,21 +214,6 @@ fn decimal_bits_lsb_first(decimal: &str) -> Vec<bool> {
     bits
 }
 
-fn bool_literal(value: bool) -> DataExpression {
-    constant(if value { "true" } else { "false" }, bool_sort()).into()
-}
-
-/// Builds a nullary function symbol (constructor/constant) of `sort`.
-fn constant(name: &str, sort: DataSortExpression) -> DataFunctionSymbol {
-    DataFunctionSymbol::with_sort(name, sort.copy())
-}
-
-/// Builds a function symbol of `domain -> range`.
-fn function_symbol(name: &str, domain: &[DataSortExpression], range: DataSortExpression) -> DataFunctionSymbol {
-    let sort: DataSortExpression = SortArrow::new(domain, range).into();
-    DataFunctionSymbol::with_sort(name, sort.copy())
-}
-
 /// Builds the `Pos` term for a positive decimal literal (`"0"` is not valid
 /// input; `Pos` has no zero) as the binary `@c1`/`@cDub` chain
 /// `crates/syntax/spec/pos.mcrl2` declares: `@cDub(b, p)` denotes `2*p + b`,
@@ -244,10 +226,14 @@ fn pos_literal_binary(decimal: &str) -> DataExpression {
         "the leading bit of a Pos literal is always set"
     );
 
-    let cdub = function_symbol("@cDub", &[bool_sort(), pos_sort()], pos_sort());
-    let mut term: DataExpression = constant("@c1", pos_sort()).into();
+    let cdub = DataFunctionSymbol::with_signature(
+        "@cDub",
+        &[DataSortExpression::bool(), DataSortExpression::pos()],
+        &DataSortExpression::pos(),
+    );
+    let mut term: DataExpression = DataFunctionSymbol::with_sort("@c1", DataSortExpression::pos().copy()).into();
     for &bit in bits[..bits.len() - 1].iter().rev() {
-        term = DataApplication::with_args(&cdub, &[bool_literal(bit), term]).into();
+        term = DataApplication::with_args(&cdub, &[DataExpression::bool_literal(bit), term]).into();
     }
     term
 }
@@ -286,8 +272,12 @@ fn decimal_words_lsb_first(decimal: &str) -> Vec<u64> {
 fn digit_chain_literal(decimal: &str, most_significant: &str, sort: DataSortExpression) -> DataExpression {
     let words = decimal_words_lsb_first(decimal);
 
-    let leading = function_symbol(most_significant, &[word_sort()], sort.clone());
-    let concat = function_symbol("@concat_digit", &[sort.clone(), word_sort()], sort);
+    let leading = DataFunctionSymbol::with_signature(most_significant, &[DataSortExpression::machine_word()], &sort);
+    let concat = DataFunctionSymbol::with_signature(
+        "@concat_digit",
+        &[sort.clone(), DataSortExpression::machine_word()],
+        &sort,
+    );
 
     let mut digits = words.iter().rev();
     let most = *digits.next().expect("there is always at least one digit");
@@ -303,7 +293,9 @@ fn digit_chain_literal(decimal: &str, most_significant: &str, sort: DataSortExpr
 fn pos_literal(decimal: &str, encoding: NumberEncoding) -> DataExpression {
     match encoding {
         NumberEncoding::Binary => pos_literal_binary(decimal),
-        NumberEncoding::MachineWord => digit_chain_literal(decimal, "@most_significant_digit", pos_sort()),
+        NumberEncoding::MachineWord => {
+            digit_chain_literal(decimal, "@most_significant_digit", DataSortExpression::pos())
+        }
     }
 }
 
@@ -315,13 +307,19 @@ fn nat_literal(decimal: &str, encoding: NumberEncoding) -> DataExpression {
     match encoding {
         NumberEncoding::Binary => {
             if decimal == "0" {
-                constant("@c0", nat_sort()).into()
+                DataFunctionSymbol::with_sort("@c0", DataSortExpression::nat().copy()).into()
             } else {
-                let cnat = function_symbol("@cNat", &[pos_sort()], nat_sort());
+                let cnat = DataFunctionSymbol::with_signature(
+                    "@cNat",
+                    &[DataSortExpression::pos()],
+                    &DataSortExpression::nat(),
+                );
                 DataApplication::with_args(&cnat, &[pos_literal_binary(decimal)]).into()
             }
         }
-        NumberEncoding::MachineWord => digit_chain_literal(decimal, "@most_significant_digitNat", nat_sort()),
+        NumberEncoding::MachineWord => {
+            digit_chain_literal(decimal, "@most_significant_digitNat", DataSortExpression::nat())
+        }
     }
 }
 
@@ -330,7 +328,7 @@ fn nat_literal(decimal: &str, encoding: NumberEncoding) -> DataExpression {
 /// negation is the unary `-` operator applied afterwards), so this is always
 /// `@cInt`, never `@cNeg`. Both encodings share the `@cInt` constructor.
 fn int_literal(decimal: &str, encoding: NumberEncoding) -> DataExpression {
-    let cint = function_symbol("@cInt", &[nat_sort()], int_sort());
+    let cint = DataFunctionSymbol::with_signature("@cInt", &[DataSortExpression::nat()], &DataSortExpression::int());
     DataApplication::with_args(&cint, &[nat_literal(decimal, encoding)]).into()
 }
 
@@ -338,7 +336,11 @@ fn int_literal(decimal: &str, encoding: NumberEncoding) -> DataExpression {
 /// `Int2Real`'s equation in `crates/syntax/spec/real.mcrl2` (and `real64.mcrl2`,
 /// which declares `@cReal` identically).
 fn real_literal(decimal: &str, encoding: NumberEncoding) -> DataExpression {
-    let creal = function_symbol("@cReal", &[int_sort(), pos_sort()], real_sort());
+    let creal = DataFunctionSymbol::with_signature(
+        "@cReal",
+        &[DataSortExpression::int(), DataSortExpression::pos()],
+        &DataSortExpression::real(),
+    );
     DataApplication::with_args(&creal, &[int_literal(decimal, encoding), pos_literal("1", encoding)]).into()
 }
 
@@ -360,7 +362,7 @@ pub(crate) fn lower_number_literal(decimal: &str, sort: Sort, encoding: NumberEn
 /// Builds the aterm literal for a `DataExpr::Bool` node.
 #[allow(dead_code)]
 pub(crate) fn lower_bool_literal(value: bool) -> DataExpression {
-    bool_literal(value)
+    DataExpression::bool_literal(value)
 }
 
 /// The result of lowering one equation.
@@ -695,7 +697,7 @@ impl Lowering<'_> {
         let element_id = *element_id;
         let element = lower_sort(self.ctx, self.spec, element_id);
         let fset: DataSortExpression = SortCons::new(ContainerSortKind::FSet, element.clone()).into();
-        let fset_insert = function_symbol("@fset_insert", &[element.clone(), fset.clone()], fset.clone());
+        let fset_insert = DataFunctionSymbol::with_signature("@fset_insert", &[element.clone(), fset.clone()], &fset);
 
         let empty: DataExpression = DataFunctionSymbol::with_sort("{}", fset.copy()).into();
         let mut lowered = Vec::with_capacity(members.len());
@@ -726,10 +728,10 @@ impl Lowering<'_> {
         let nat_id = self.ctx.sorts.nat_sort();
         let element = lower_sort(self.ctx, self.spec, element_id);
         let fbag: DataSortExpression = SortCons::new(ContainerSortKind::FBag, element.clone()).into();
-        let fbag_cinsert = function_symbol(
+        let fbag_cinsert = DataFunctionSymbol::with_signature(
             "@fbag_cinsert",
-            &[element.clone(), nat_sort(), fbag.clone()],
-            fbag.clone(),
+            &[element.clone(), DataSortExpression::nat(), fbag.clone()],
+            &fbag,
         );
 
         let empty: DataExpression = DataFunctionSymbol::with_sort("{:}", fbag.copy()).into();
@@ -829,10 +831,10 @@ impl Lowering<'_> {
         let body = self.lower(predicate)?;
 
         let (body, range) = match op {
-            ComplexSort::Set => (body, bool_sort()),
+            ComplexSort::Set => (body, DataSortExpression::bool()),
             ComplexSort::Bag => (
                 self.coerce(body_id, body, body_sort, self.ctx.sorts.nat_sort())?,
-                nat_sort(),
+                DataSortExpression::nat(),
             ),
             _ => unreachable!("SetBagComp infers only to Set or Bag"),
         };
@@ -854,14 +856,14 @@ impl Lowering<'_> {
         )
         .into();
 
-        let function_sort: DataSortExpression = SortArrow::new(&[element], range).into();
-        let constructor = function_symbol(
+        let function_sort: DataSortExpression = SortArrow::new(&[element], &range).into();
+        let constructor = DataFunctionSymbol::with_signature(
             match op {
                 ComplexSort::Set => "@set",
                 _ => "@bag",
             },
             &[function_sort, finite],
-            container,
+            &container,
         );
 
         Some(DataApplication::with_args(&constructor, &[characteristic, empty]).into())
@@ -897,13 +899,13 @@ pub(crate) fn lower_syntax_sort(sort: &SortExpression) -> DataSortExpression {
         SortExpressionKind::Complex(op, sub) => SortCons::new(container_kind(*op), lower_syntax_sort(sub)).into(),
         SortExpressionKind::FlattenedFunction { domain, range } => {
             let domain: Vec<DataSortExpression> = domain.iter().map(lower_syntax_sort).collect();
-            SortArrow::new(&domain, lower_syntax_sort(range)).into()
+            SortArrow::new(&domain, &lower_syntax_sort(range)).into()
         }
         SortExpressionKind::Function { domain, range } => {
             // The system spec is not flattened; flatten the Product spine here.
             let mut flat = Vec::new();
             flatten_product_domain(domain, &mut flat);
-            SortArrow::new(&flat, lower_syntax_sort(range)).into()
+            SortArrow::new(&flat, &lower_syntax_sort(range)).into()
         }
         // A user-declared or struct-representative sort after name resolution,
         // or an unresolved template reference in the system spec (e.g. "S", "T").

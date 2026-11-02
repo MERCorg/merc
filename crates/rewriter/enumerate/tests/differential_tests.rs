@@ -13,7 +13,6 @@ use merc_data::DataVariable;
 use merc_data::Mcrl2DataSpecification;
 use merc_data::SortArrow;
 use merc_data::SortExpression;
-use merc_data::bool_literal;
 use merc_enumerate::EnumerationPlans;
 use merc_enumerate::Enumerator;
 use merc_enumerate::EnumeratorFrame;
@@ -59,15 +58,11 @@ fn d_sort() -> SortExpression {
     SortExpression::from(BasicSort::new("D"))
 }
 
-fn bool_sort() -> SortExpression {
-    SortExpression::from(BasicSort::new("Bool"))
-}
-
 /// Builds the numeral `D` term for `value` (`dsucc(dsucc(...dzero...))`),
 /// via the API rather than parsing — see the module doc comment.
 fn numeral(value: u32) -> DataExpression {
     let dzero = DataFunctionSymbol::with_sort("dzero", d_sort().copy());
-    let succ_sort: SortExpression = SortArrow::new(&[d_sort()], d_sort()).into();
+    let succ_sort: SortExpression = SortArrow::new(&[d_sort()], &d_sort()).into();
     let dsucc = DataFunctionSymbol::with_sort("dsucc", succ_sort.copy());
     let mut term: DataExpression = dzero.into();
     for _ in 0..value {
@@ -96,14 +91,14 @@ impl Predicate {
             Predicate::Eq => "eq",
             Predicate::Equality => return None,
         };
-        let sort: SortExpression = SortArrow::new(&[d_sort(), d_sort()], bool_sort()).into();
+        let sort: SortExpression = SortArrow::new(&[d_sort(), d_sort()], &SortExpression::bool()).into();
         Some(DataFunctionSymbol::with_sort(name, sort.copy()))
     }
 
     fn apply(self, lhs: DataExpression, rhs: DataExpression) -> DataExpression {
         match self.symbol() {
             Some(symbol) => DataApplication::with_args(&symbol, &[lhs, rhs]).into(),
-            None => DataExpression::equal(d_sort(), lhs, rhs),
+            None => DataExpression::equal(&d_sort(), &lhs, &rhs),
         }
     }
 }
@@ -158,7 +153,7 @@ fn conjunction(terms: &[DataExpression]) -> DataExpression {
     terms
         .iter()
         .cloned()
-        .reduce(DataExpression::and)
+        .reduce(|lhs, rhs| DataExpression::and(&lhs, &rhs))
         .expect("at least one clause")
 }
 
@@ -232,7 +227,7 @@ fn check_one_random_goal(
         }
         assert_eq!(
             checker.rewrite_with(&body, &sigma),
-            bool_literal(true),
+            DataExpression::bool_literal(true),
             "reported solution {solution:?} does not satisfy `{body}`"
         );
     }
