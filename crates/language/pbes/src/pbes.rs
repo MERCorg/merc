@@ -28,6 +28,32 @@ pub struct Pbes {
     pub initial_state: PropositionalVariableInstantiation,
 }
 
+impl PbesEquation {
+    pub fn new(symbol: FixpointSymbol, variable: PropositionalVariable, formula: PbesExpression) -> Self {
+        PbesEquation {
+            symbol,
+            variable,
+            formula,
+        }
+    }
+}
+
+impl Pbes {
+    pub fn new(
+        data_specification: Mcrl2DataSpecification,
+        global_variables: Vec<DataVariable>,
+        equations: Vec<PbesEquation>,
+        initial_state: PropositionalVariableInstantiation,
+    ) -> Self {
+        Pbes {
+            data_specification,
+            global_variables,
+            equations,
+            initial_state,
+        }
+    }
+}
+
 impl fmt::Display for PbesEquation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{} {} = {};", self.symbol, self.variable, self.formula)

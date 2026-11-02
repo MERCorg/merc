@@ -4,11 +4,12 @@ mod error;
 mod io_pbes;
 mod pbes;
 mod pbes_expression;
+mod simple_expression;
 mod srf;
 mod srf_pbes;
-mod symbols;
 mod system;
 mod visitor;
+mod well_typed;
 
 pub(crate) use pbes_expression::fmt_variables;
 
@@ -57,3 +58,5 @@ pub use visitor::PbesFold;
 pub use visitor::fold_pbes_expr;
 pub use visitor::try_visit_pbes_expr;
 pub use visitor::visit_pbes_expr;
+pub use well_typed::PbesLocation;
+pub use well_typed::PbesWellTypedError;

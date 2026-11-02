@@ -87,6 +87,20 @@ pub struct SrfEquation {
 }
 
 impl SrfEquation {
+    pub(crate) fn new(
+        symbol: FixpointSymbol,
+        variable: PropositionalVariable,
+        summands: Vec<SrfSummand>,
+        conjunctive: bool,
+    ) -> Self {
+        SrfEquation {
+            symbol,
+            variable,
+            summands,
+            conjunctive,
+        }
+    }
+
     pub fn symbol(&self) -> FixpointSymbol {
         self.symbol
     }
@@ -109,15 +123,12 @@ impl SrfEquation {
             .summands
             .iter()
             .map(|summand| summand.to_pbes_expression(self.conjunctive));
-        PbesEquation {
-            symbol: self.symbol,
-            variable: self.variable.clone(),
-            formula: if self.conjunctive {
-                optimized_conjunction(summands)
-            } else {
-                optimized_disjunction(summands)
-            },
-        }
+        let formula = if self.conjunctive {
+            optimized_conjunction(summands)
+        } else {
+            optimized_disjunction(summands)
+        };
+        PbesEquation::new(self.symbol, self.variable.clone(), formula)
     }
 
     /// Adds the summand that lets this equation escape to `true`/`false`, so that every parameter
@@ -147,6 +158,24 @@ pub struct SrfPbes {
 }
 
 impl SrfPbes {
+    pub(crate) fn new(
+        data_specification: Mcrl2DataSpecification,
+        global_variables: Vec<DataVariable>,
+        equations: Vec<SrfEquation>,
+        false_equation: SrfEquation,
+        true_equation: SrfEquation,
+        initial_state: PropositionalVariableInstantiation,
+    ) -> Self {
+        SrfPbes {
+            data_specification,
+            global_variables,
+            equations,
+            false_equation,
+            true_equation,
+            initial_state,
+        }
+    }
+
     pub fn data_specification(&self) -> &Mcrl2DataSpecification {
         &self.data_specification
     }
@@ -174,12 +203,12 @@ impl SrfPbes {
 
     /// Joins every equation's summands back into a plain PBES.
     pub fn to_pbes(&self) -> Pbes {
-        Pbes {
-            data_specification: self.data_specification.clone(),
-            global_variables: self.global_variables.clone(),
-            equations: self.equations().map(SrfEquation::to_pbes_equation).collect(),
-            initial_state: self.initial_state.clone(),
-        }
+        Pbes::new(
+            self.data_specification.clone(),
+            self.global_variables.clone(),
+            self.equations().map(SrfEquation::to_pbes_equation).collect(),
+            self.initial_state.clone(),
+        )
     }
 
     /// Adds the escape summands of `SrfEquation::make_total` to every equation but the
