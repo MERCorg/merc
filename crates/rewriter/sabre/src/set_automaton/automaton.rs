@@ -12,6 +12,8 @@ use log::log_enabled;
 use log::trace;
 use log::warn;
 use merc_aterm::Term;
+use merc_data::BinderType;
+use merc_data::DataAbstractionRef;
 use merc_data::DataApplicationRef;
 use merc_data::DataExpression;
 use merc_data::DataExpressionRef;
@@ -117,6 +119,23 @@ impl<M> SetAutomaton<M> {
     where
         F: Fn(&Rule) -> M,
     {
+        Self::build(spec, annotate, apma, false)
+    }
+
+    /// Like [SetAutomaton::new] for an APMA, but also keeps the rules with `exists`/`forall`
+    /// binders in their right-hand side, for a rewriter that evaluates
+    /// [Config::Binder](crate::utilities::Config::Binder).
+    pub fn with_binders<F>(spec: &RewriteSpecification, annotate: F) -> SetAutomaton<M>
+    where
+        F: Fn(&Rule) -> M,
+    {
+        Self::build(spec, annotate, true, true)
+    }
+
+    fn build<F>(spec: &RewriteSpecification, annotate: F, apma: bool, binders: bool) -> SetAutomaton<M>
+    where
+        F: Fn(&Rule) -> M,
+    {
         let start = Instant::now();
 
         // States are labelled s0, s1, s2, etcetera. state_counter keeps track of count.
@@ -126,7 +145,7 @@ impl<M> SetAutomaton<M> {
         let supported_rules: Vec<Rule> = spec
             .rewrite_rules()
             .iter()
-            .filter(|rule| is_supported_rule(rule))
+            .filter(|rule| is_supported_rule_with(rule, binders))
             .map(Rule::clone)
             .collect();
 
@@ -249,6 +268,14 @@ impl<M> SetAutomaton<M> {
                     }
                 }
 
+                // A transition that announces nothing and leads nowhere matches no pattern, as a
+                // missing one does. Most pairs of a state and a symbol are such a dead end, so
+                // storing them would dominate the automaton's size.
+                let native = native_ops.get(&symbol.operation_id()).copied();
+                if announcements.is_empty() && destinations.is_empty() && native.is_none() {
+                    continue;
+                }
+
                 // Add the annotation for every match announcement.
                 let announcements = announcements
                     .into_iter()
@@ -269,7 +296,7 @@ impl<M> SetAutomaton<M> {
                         symbol: symbol.clone(),
                         announcements,
                         destinations,
-                        native: native_ops.get(&symbol.operation_id()).copied(),
+                        native,
                     },
                 );
             }
@@ -725,18 +752,30 @@ fn add_symbol(function_symbol: DataFunctionSymbol, arity: usize, symbols: &mut H
     }
 }
 
-/// Returns false iff this is a higher order term, of the shape t(t_0, ..., t_n), contains a binder
-/// or where clause, or is an unknown term.
-fn is_supported_term(t: &DataExpression) -> bool {
+/// Returns false iff this is a higher order term, of the shape t(t_0, ..., t_n), contains a
+/// where clause, a binder (unless `binders` allows an `exists`/`forall`), or is an unknown term.
+fn is_supported_term(t: &DataExpression, binders: bool) -> bool {
     for subterm in t.iter() {
         if is_data_application(&subterm) && !is_data_function_symbol(&subterm.arg(0)) {
             warn!("{} is higher order", subterm);
             return false;
         }
 
-        // `TermStack` cannot instantiate a binder or where clause in a right-hand side yet.
-        if is_data_binder(&subterm) || is_data_where_clause(&subterm) {
-            warn!("{} contains a binder or where clause", subterm);
+        // A lambda or comprehension could only be rebuilt, since their reduction is not
+        // implemented, so only the binders that the rewriter can decide are kept.
+        if is_data_binder(&subterm)
+            && !(binders
+                && matches!(
+                    DataAbstractionRef::from(subterm.copy()).binder_type(),
+                    BinderType::Exists | BinderType::Forall
+                ))
+        {
+            warn!("{} contains an unsupported binder", subterm);
+            return false;
+        }
+
+        if is_data_where_clause(&subterm) {
+            warn!("{} contains a where clause", subterm);
             return false;
         }
     }
@@ -747,13 +786,19 @@ fn is_supported_term(t: &DataExpression) -> bool {
 /// Checks whether the set automaton can use this rule: no higher order rules or binders, and
 /// every variable of its condition or right-hand side occurs in its left-hand side.
 pub fn is_supported_rule(rule: &Rule) -> bool {
+    is_supported_rule_with(rule, false)
+}
+
+/// Like [is_supported_rule], but `binders` allows `exists`/`forall` binders in the right-hand
+/// side; see [SetAutomaton::with_binders].
+fn is_supported_rule_with(rule: &Rule, binders: bool) -> bool {
     // There should be no terms of the shape t(t0,...,t_n)
-    if !is_supported_term(&rule.rhs) || !is_supported_term(&rule.lhs) {
+    if !is_supported_term(&rule.rhs, binders) || !is_supported_term(&rule.lhs, false) {
         return false;
     }
 
     for cond in &rule.conditions {
-        if !is_supported_term(&cond.rhs) || !is_supported_term(&cond.lhs) {
+        if !is_supported_term(&cond.rhs, false) || !is_supported_term(&cond.lhs, false) {
             return false;
         }
     }
@@ -899,6 +944,22 @@ mod tests {
         let mut unsupported = rule("g(x)", "x", &["x"]);
         unsupported.rhs = DataWhereClause::new(body, &[DataWhrDecl::new(y.clone(), y.into())]).into();
         assert!(!free_variables_occur_in_rhs(&unsupported));
+    }
+
+    #[test]
+    fn test_quantifier_in_right_hand_side_needs_binder_support() {
+        let variables: AHashSet<String> = ["x", "y"].iter().map(|v| v.to_string()).collect();
+        let y = DataVariable::from(DataExpression::from_string_untyped("y", &variables).unwrap());
+        let body = DataExpression::from_string_untyped("f(x, y)", &variables).unwrap();
+
+        let mut quantifier = rule("g(x)", "x", &["x"]);
+        quantifier.rhs = DataAbstraction::new(BinderType::Exists, std::slice::from_ref(&y), body.clone()).into();
+        assert!(!is_supported_rule(&quantifier));
+        assert!(is_supported_rule_with(&quantifier, true));
+
+        let mut lambda = rule("g(x)", "x", &["x"]);
+        lambda.rhs = DataAbstraction::new(BinderType::Lambda, std::slice::from_ref(&y), body).into();
+        assert!(!is_supported_rule_with(&lambda, true));
     }
 
     #[test]

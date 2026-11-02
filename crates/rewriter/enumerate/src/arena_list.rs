@@ -58,7 +58,7 @@ impl<T> ArenaList<T> {
     /// Splits `handle` into its value and the rest of the list, or `None` if
     /// `handle` is empty.
     pub(crate) fn pop(&self, handle: ArenaListHandle) -> Option<(&T, ArenaListHandle)> {
-        let node = &self.nodes[handle.0? as usize];
+        let node = &self.nodes[handle.0?];
         Some((&node.value, node.parent))
     }
 }

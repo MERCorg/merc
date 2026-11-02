@@ -517,7 +517,7 @@ impl Lowering<'_> {
             DataExprKind::Bag(members) => self.lower_bag(sort, members),
             DataExprKind::SetBagComp { variable, predicate } => self.lower_setbagcomp(sort, variable, predicate),
             DataExprKind::Lambda { variables, body } => self.lower_lambda(sort, variables, body),
-            DataExprKind::Quantifier { op, variables, body } => self.lower_quantifier(op.clone(), variables, body),
+            DataExprKind::Quantifier { op, variables, body } => self.lower_quantifier(*op, variables, body),
             DataExprKind::Whr { expr, assignments } => self.lower_whr(expr, assignments),
             DataExprKind::List(_)
             | DataExprKind::Unary { .. }

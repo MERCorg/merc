@@ -597,7 +597,10 @@ pub trait Traverse: Sized {
         Self: Default,
         F: FnMut(&mut Self),
     {
-        match self.try_transform::<Infallible, _>(&mut |node| Ok(function(node))) {
+        match self.try_transform::<Infallible, _>(&mut |node| {
+            function(node);
+            Ok(())
+        }) {
             Ok(()) => {}
             Err(error) => match error {},
         }

@@ -63,6 +63,12 @@ impl InnermostStack {
                         write_configs.push(Config::Term(term.into(), top_of_stack + offset - 1));
                     }
                 }
+                Config::Binder(binder, arity, offset) => {
+                    // Safety: binder is pushed into the container on the next line.
+                    let binder = unsafe { write_configs.protect(binder) };
+                    let index = if first { result_index } else { top_of_stack + offset - 1 };
+                    write_configs.push(Config::Binder(binder.into(), *arity, index));
+                }
                 Config::Rewrite(_) => {
                     unreachable!("This case should not happen");
                 }

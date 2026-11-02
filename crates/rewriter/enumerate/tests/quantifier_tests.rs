@@ -85,6 +85,33 @@ fn test_a_dependent_nested_quantifier_is_decided() {
     }
 }
 
+/// While the outer body is rewritten with `x` free, the inner quantifier cannot be decided
+/// and stays a binder in an argument position that the rules for `=>` inspect.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn test_an_undecided_quantifier_under_an_operator_is_matched_as_a_normal_form() {
+    let data_spec = lower("forall x: Nat . x < 3 => exists y: Nat . y < 3 && x + y == 2");
+    let body = goal_body(&data_spec);
+
+    let result = rewriter_with_enumerator(&data_spec).rewrite(&body);
+    assert_eq!(result, bool_literal(true));
+}
+
+/// A quantifier in a rule's right-hand side is instantiated with the matched
+/// argument and then decided.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn test_a_quantifier_in_a_right_hand_side_is_decided() {
+    let spec = "map g: Bool -> Bool;
+                var x: Bool;
+                eqn g(x) = exists y: Bool. x && y;";
+
+    assert_rewrites_to(spec, "g(true)", "true");
+    assert_rewrites_to(spec, "g(false)", "false");
+}
+
+// The tests below are ported from mCRL2's `libraries/data/test/quantifier_test.cpp`.
+
 /// Lowers `spec` extended with `b = <expr>` and `e = <expected>`, and checks
 /// that rewriting `b` with an [Enumerator] yields `e`'s normal form.
 fn assert_rewrites_to(spec: &str, expr: &str, expected: &str) {
@@ -112,6 +139,22 @@ fn assert_rewrites_to(spec: &str, expr: &str, expected: &str) {
 
 #[test]
 #[cfg_attr(miri, ignore)]
+fn test_quantifiers_over_bool() {
+    assert_rewrites_to("", "exists x: Bool. x == false", "true");
+    assert_rewrites_to("", "forall x: Bool. x == false", "false");
+    assert_rewrites_to("", "exists x: Bool. x == true", "true");
+    assert_rewrites_to("", "forall x: Bool. x == true", "false");
+    assert_rewrites_to("", "forall x: Bool. x == true && x == false", "false");
+    assert_rewrites_to("", "exists x: Bool. x == true && x == false", "false");
+    assert_rewrites_to("", "forall x: Bool. x == true || x == false", "true");
+    assert_rewrites_to("", "exists x: Bool. x == true || x == false", "true");
+    assert_rewrites_to("", "forall x: Bool. exists y: Bool. x == y", "true");
+    assert_rewrites_to("", "exists x: Bool. forall y: Bool. x == y", "false");
+    assert_rewrites_to("", "forall b: Bool. b", "false");
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
 fn test_quantifiers_over_nat_and_pos() {
     assert_rewrites_to("", "exists x: Nat. x in {1, 2, 25, 600} && 25 == x", "true");
 
@@ -126,4 +169,104 @@ fn test_quantifiers_over_nat_and_pos() {
 
     assert_rewrites_to("", "forall n: Nat. n < 2", "false");
     assert_rewrites_to("", "exists n: Nat. n < 2", "true");
+}
+
+/// Quantifiers occurring as subterms are eliminated as well.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn test_quantifiers_inside_a_term() {
+    assert_rewrites_to("", "(exists x_0: Bool. false) && (forall x_0: Nat. true)", "false");
+    assert_rewrites_to("", "(forall x_0: Pos. true) || (exists x_0: Bool. false)", "true");
+}
+
+/// `Real` is not enumerable, so these must be left in place rather than decided.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn test_quantifiers_over_real_are_left_undecided() {
+    assert_rewrites_to("", "forall r: Real. r < 5", "forall r: Real. r < 5");
+    assert_rewrites_to("", "exists r: Real. r >= 10", "exists r: Real. r >= 10");
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn test_quantifiers_over_structs_and_lists() {
+    let spec = "sort S = struct s1?is_s1 | s2?is_s2;
+                sort T = struct t;
+                sort L = List(T);";
+
+    assert_rewrites_to(spec, "exists s: S. is_s1(s) && is_s2(s)", "false");
+    assert_rewrites_to(spec, "exists s: S. s == s2 && is_s2(s)", "true");
+    assert_rewrites_to(spec, "forall y: T. y in [t]", "true");
+}
+
+/// A trivial predicate over a non-enumerable sort is decided by the rewriter
+/// alone, without enumerating the bound variable.
+#[test]
+#[ignore = "Set(Bool) applies function values such as `@false_`, which needs higher-order matching"]
+fn test_trivial_quantifiers_over_set() {
+    let spec = "sort A = Set(Bool);";
+
+    assert_rewrites_to(spec, "exists x: Set(Bool). x == x", "true");
+    assert_rewrites_to(spec, "forall x: Set(Bool). x == x", "true");
+    assert_rewrites_to(spec, "exists x: Set(Bool). x != x", "false");
+    assert_rewrites_to(spec, "forall x: Set(Bool). x != x", "false");
+}
+
+/// Substituting `y` for `x` in `g`'s body must not capture `g`'s own bound
+/// `y`, which would turn `x != y` into `y != y` and make `f` false.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn test_quantifier_in_rewrite_rules_avoids_capture() {
+    let spec = "map f: Bool;
+                    g: Bool -> Bool;
+                var x: Bool;
+                eqn f = forall y: Bool. g(y);
+                    g(x) = exists y: Bool. x != y;";
+
+    assert_rewrites_to(spec, "f", "true");
+}
+
+#[test]
+#[cfg_attr(miri, ignore)]
+fn test_mixed_enumerable_and_non_enumerable_variables() {
+    assert_rewrites_to("", "exists x: Real, p: Pos. p == 1 && x > 4", "exists x: Real. x > 4");
+    assert_rewrites_to("", "exists x: Real, p: Pos. p == 1", "true");
+    assert_rewrites_to("", "exists x: Real, p: Pos. x > 4", "exists x: Real. x > 4");
+    assert_rewrites_to("", "forall x: Real, p: Pos. p != 1 || x > 4", "forall x: Real. x > 4");
+}
+
+/// A search over finite sorts is not bounded by the enumeration limits: deciding xor
+/// associativity over 12 Bools takes more steps than the default limit allows.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn test_a_quantifier_over_finite_sorts_is_decided_beyond_the_limits() {
+    let variables: Vec<String> = (1..=12).map(|i| format!("b{i}")).collect();
+    let left = variables[1..]
+        .iter()
+        .fold(variables[0].clone(), |acc, v| format!("({acc} != {v})"));
+    let right = variables[..11]
+        .iter()
+        .rev()
+        .fold(variables[11].clone(), |acc, v| format!("({v} != {acc})"));
+    let goal = format!("{left} == {right}");
+
+    assert_rewrites_to("", &format!("forall {}: Bool . {goal}", variables.join(", ")), "true");
+    assert_rewrites_to(
+        "",
+        &format!("exists {}: Bool . !({goal})", variables.join(", ")),
+        "false",
+    );
+}
+
+/// When every leaf is decided or undecided, the quantifier is replaced by the disjunction (or
+/// conjunction) of the undecided leaves, as in mCRL2, instead of being kept.
+#[test]
+#[cfg_attr(miri, ignore)]
+fn test_an_exhausted_search_with_undecided_leaves_eliminates_the_quantifier() {
+    let spec = "map c, d: Bool;";
+    assert_rewrites_to(spec, "exists y: Bool . y && c", "c");
+    assert_rewrites_to(spec, "forall y: Bool . y || c", "c");
+    assert_rewrites_to(spec, "exists y: Bool . (y && c) || (!y && d)", "c || d");
+    assert_rewrites_to(spec, "forall y: Bool . (y => c) && (!y => d)", "c && d");
+    assert_rewrites_to(spec, "exists n: Nat . n < 2 && c", "c");
 }

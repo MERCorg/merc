@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::fmt;
 
 use ahash::HashMap;
@@ -9,17 +10,23 @@ use merc_aterm::SymbolRef;
 use merc_aterm::Term;
 use merc_aterm::Transmutable;
 use merc_aterm::storage::Marker;
+use merc_data::BinderType;
+use merc_data::DataAbstraction;
 use merc_data::DataApplication;
 use merc_data::DataExpression;
 use merc_data::DataExpressionRef;
 use merc_data::DataFunctionSymbolRef;
 use merc_data::DataVariable;
 use merc_data::DataVariableRef;
+use merc_data::DataWhereClause;
+use merc_data::DataWhrDecl;
+use merc_data::is_data_binder;
 use merc_data::is_data_machine_number;
 use merc_data::is_data_variable;
 use merc_utilities::debug_trace;
 
 use crate::Rule;
+use crate::set_automaton::free_variables;
 use crate::utilities::InnermostStack;
 
 use super::DataPosition;
@@ -51,6 +58,10 @@ pub enum Config<'a> {
     Construct(DataFunctionSymbolRef<'a>, usize, usize),
     /// A concrete term to be placed at the current position in the stack.
     Term(DataExpressionRef<'a>, usize),
+    /// Instantiates the binder `b`, given as `lambda x0, .., xn . b` over its free variables
+    /// `x0, .., xn`, with the given number of values for them on top of the stack, and places
+    /// the result at the given index.
+    Binder(DataExpressionRef<'a>, usize, usize),
     /// Yields the given index as returned term.
     Return(),
 }
@@ -59,7 +70,7 @@ impl Markable for Config<'_> {
     fn mark(&self, marker: &mut Marker<'_>) {
         match self {
             Config::Construct(t, _, _) => t.mark(marker),
-            Config::Term(t, _) => t.mark(marker),
+            Config::Term(t, _) | Config::Binder(t, _, _) => t.mark(marker),
             Config::Rewrite(_) | Config::Return() => {}
         }
     }
@@ -67,7 +78,7 @@ impl Markable for Config<'_> {
     fn contains_term(&self, term: &ATermRef<'_>) -> bool {
         match self {
             Config::Construct(t, _, _) => t.contains_term(term),
-            Config::Term(t, _) => t.contains_term(term),
+            Config::Term(t, _) | Config::Binder(t, _, _) => t.contains_term(term),
             Config::Rewrite(_) | Config::Return() => false,
         }
     }
@@ -75,14 +86,14 @@ impl Markable for Config<'_> {
     fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
         match self {
             Config::Construct(t, _, _) => t.contains_symbol(symbol),
-            Config::Term(t, _) => t.contains_symbol(symbol),
+            Config::Term(t, _) | Config::Binder(t, _, _) => t.contains_symbol(symbol),
             Config::Rewrite(_) | Config::Return() => false,
         }
     }
 
     fn len(&self) -> usize {
         match self {
-            Config::Construct(_, _, _) | Config::Term(_, _) => 1,
+            Config::Construct(_, _, _) | Config::Term(_, _) | Config::Binder(_, _, _) => 1,
             Config::Rewrite(_) | Config::Return() => 0,
         }
     }
@@ -118,6 +129,9 @@ impl fmt::Display for Config<'_> {
             Config::Term(term, result) => {
                 write!(f, "Term({term}, {result})")
             }
+            Config::Binder(binder, arity, result) => {
+                write!(f, "Binder({binder}, {arity}, {result})")
+            }
             Config::Return() => write!(f, "Return()"),
         }
     }
@@ -130,15 +144,21 @@ impl TermStack {
     }
 
     /// Construct a term stack from a data expression where variables are taken from a specific position of the left hand side.
+    ///
+    /// The slots are allocated in breadth-first order, so that the arguments of a
+    /// [Config::Construct] are the last ones on the stack when it is evaluated. A binder is opaque
+    /// to the stack: its children are its free variables, which are filled in from the left-hand
+    /// side like any other variable.
     pub fn from_term(term: &DataExpressionRef, var_map: &HashMap<DataVariable, DataPosition>) -> TermStack {
         // Compute the extra information for the InnermostRewriter.
         let mut innermost_stack: Protected<Vec<Config>> = Protected::new(vec![]);
         let mut variables = vec![];
         let mut stack_size = 0;
 
-        for (term, _position) in DataPositionIterator::new(term.copy()) {
+        let mut queue: VecDeque<DataExpression> = VecDeque::from([term.protect()]);
+        while let Some(term) = queue.pop_front() {
             if is_data_variable(&term) {
-                let variable: DataVariableRef<'_> = term.into();
+                let variable: DataVariableRef<'_> = term.copy().into();
                 variables.push((
                     var_map
                         .get(&variable.protect())
@@ -159,11 +179,27 @@ impl TermStack {
                     write.push(Config::Term(t.into(), stack_size));
                 });
                 stack_size += 1;
+            } else if is_data_binder(&term) {
+                // Closing the binder over its free variables records which variables the values
+                // are for, so they need not be computed again for every instance.
+                let free: Vec<DataVariable> = free_variables(&term).collect();
+                let template: DataExpression = DataAbstraction::new(BinderType::Lambda, &free, term.clone()).into();
+                innermost_stack.write(|write| {
+                    // Safety: template is pushed into the container on the next line.
+                    let t = unsafe { write.protect(&template) };
+                    write.push(Config::Binder(t.into(), free.len(), stack_size));
+                });
+                stack_size += 1;
+                queue.extend(free.into_iter().map(DataExpression::from));
             } else {
                 let arity = term.data_arguments().len();
-                innermost_stack
-                    .write(|write| write.push(Config::Construct(term.data_function_symbol(), arity, stack_size)));
+                innermost_stack.write(|write| {
+                    // Safety: symbol is pushed into the container on the next line.
+                    let symbol = unsafe { write.protect(&term.data_function_symbol()) };
+                    write.push(Config::Construct(symbol.into(), arity, stack_size));
+                });
                 stack_size += 1;
+                queue.extend(term.data_arguments().map(|argument| argument.protect()));
             }
         }
 
@@ -245,6 +281,29 @@ impl TermStack {
                         let t = unsafe { write_terms.protect(&term) };
                         write_terms[index] = Some(t.into());
                     }
+                    Config::Binder(template, arity, index) => {
+                        // Substituting the values into the binder could capture them, so they
+                        // are bound by a where clause around it instead.
+                        let length = write_terms.len();
+                        let template: DataAbstraction = template.protect().into();
+                        let binder = template.body().protect();
+                        let term: DataExpression = if arity == 0 {
+                            binder
+                        } else {
+                            let declarations: Vec<DataWhrDecl> = template
+                                .variables()
+                                .into_iter()
+                                .zip(write_terms[length - arity..].iter().flatten())
+                                .map(|(variable, value)| DataWhrDecl::new(variable, value.protect()))
+                                .collect();
+                            DataWhereClause::new(binder, &declarations).into()
+                        };
+
+                        write_terms.drain(length - arity..);
+                        // Safety: t is stored in the container on the next line.
+                        let t = unsafe { write_terms.protect(&term) };
+                        write_terms[index] = Some(t.into());
+                    }
                     Config::Rewrite(_) => {
                         unreachable!("This case should not happen");
                     }
@@ -304,6 +363,9 @@ impl Clone for TermStack {
                     Config::Term(t, y) => {
                         write.push(Config::Term(t.copy(), *y));
                     }
+                    Config::Binder(t, x, y) => {
+                        write.push(Config::Binder(t.copy(), *x, *y));
+                    }
                     Config::Return() => write.push(Config::Return()),
                 }
             }
@@ -354,11 +416,17 @@ mod tests {
     use ahash::HashMap;
     use ahash::HashMapExt;
     use merc_aterm::Protected;
+    use merc_data::BinderType;
+    use merc_data::DataAbstraction;
+    use merc_data::DataApplication;
     use merc_data::DataExpression;
     use merc_data::DataFunctionSymbol;
     use merc_data::DataVariable;
+    use merc_data::DataWhereClause;
+    use merc_data::DataWhrDecl;
     use merc_utilities::test_logger;
 
+    use crate::Rule;
     use crate::test_utility::create_rewrite_rule;
     use crate::utilities::Config;
     use crate::utilities::DataPosition;
@@ -399,6 +467,39 @@ mod tests {
             rhs,
             "The rhs stack does not evaluate to the expected term"
         );
+    }
+
+    #[test]
+    fn test_rhs_stack_binder() {
+        let variables = AHashSet::from([String::from("x"), String::from("y")]);
+        let lhs = DataExpression::from_string_untyped("g(x)", &variables).unwrap();
+        let x = DataVariable::from(DataExpression::from_string_untyped("x", &variables).unwrap());
+        let y = DataVariable::from(DataExpression::from_string_untyped("y", &variables).unwrap());
+        let body = DataExpression::from_string_untyped("f(x, y)", &variables).unwrap();
+        let binder: DataExpression = DataAbstraction::new(BinderType::Exists, std::slice::from_ref(&y), body).into();
+
+        // h(exists y. f(x, y)): the binder's only child is its free variable `x`, taken from g(x).
+        let h = DataFunctionSymbol::new("h");
+        let rhs: DataExpression = DataApplication::with_args(&h, std::slice::from_ref(&binder)).into();
+        let rhs_stack = TermStack::new(&Rule::new(lhs, rhs));
+
+        // The binder is stored closed over its free variable, as `lambda x . exists y. f(x, y)`.
+        let template: DataExpression =
+            DataAbstraction::new(BinderType::Lambda, std::slice::from_ref(&x), binder.clone()).into();
+        let mut expected: Protected<Vec<Config<'static>>> = Protected::new(vec![]);
+        expected.write(|write| {
+            write.push(Config::Construct(h.copy(), 1, 0));
+            write.push(Config::Binder(template.copy(), 1, 1));
+        });
+        assert_eq!(rhs_stack.innermost_stack, expected);
+        assert_eq!(rhs_stack.stack_size, 3);
+        assert_eq!(rhs_stack.variables, [(DataPosition::new(&[1]), 2)]);
+
+        // Substituting `y` for `x` would be captured, so the value is bound by a where clause.
+        let instance = rhs_stack.evaluate(&DataExpression::from_string_untyped("g(y)", &variables).unwrap());
+        let where_clause: DataExpression = DataWhereClause::new(binder, &[DataWhrDecl::new(x, y.into())]).into();
+        let expected: DataExpression = DataApplication::with_args(&h, &[where_clause]).into();
+        assert_eq!(instance, expected);
     }
 
     #[test]

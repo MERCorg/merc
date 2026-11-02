@@ -103,11 +103,10 @@ pub fn random_value_expression<R: Rng>(
     freevars: &[IdDecl],
     depth: usize,
 ) -> DataExpr {
-    if depth == 0 || rng.random_bool(0.3) {
-        if let Some(v) = freevars.iter().find(|v| &v.sort == sort) {
+    if (depth == 0 || rng.random_bool(0.3))
+        && let Some(v) = freevars.iter().find(|v| &v.sort == sort) {
             return id(v.identifier.node.clone());
         }
-    }
 
     match &sort.node {
         SortExpressionKind::Simple(Sort::Bool) => random_boolean_data_expression(rng, freevars),

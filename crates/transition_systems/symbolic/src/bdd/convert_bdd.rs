@@ -217,7 +217,7 @@ where
                         cube, target, label
                     );
 
-                    output.add_transition(StateIndex::new(*state_index), &label, StateIndex::new(*target_index))?;
+                    output.add_transition(StateIndex::new(*state_index), label, StateIndex::new(*target_index))?;
                 }
             }
         }

@@ -162,6 +162,11 @@ fn test_sabre_matches_jitty_step_count_on_if_heavy() {
 /// rewrites branches that contribute to the normal form. This does not hold for
 /// heavily duplicating specifications, where rewriting a duplicating rule early
 /// copies unfinished work that innermost would have normalised once.
+///
+/// The steps are counted without the condition cache: innermost builds its
+/// condition sides from normal forms, so they coincide, and hit the cache, more
+/// often than those of the set-automaton rewriter, which would make the
+/// comparison measure the cache rather than the strategy.
 fn rec_test(rec_files: Vec<&str>, expected_result: &str, check_steps: bool) {
     test_logger();
 

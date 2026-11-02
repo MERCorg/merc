@@ -108,8 +108,7 @@ pub fn criterion_benchmark_sabre_rewriter(c: &mut Criterion) {
 /// matching rules themselves don't structurally guarantee are related —
 /// oddeven's mutually-recursive `odd`/`even` conditions, evalexpr's shared
 /// `eval` subexpressions, tak18's shared recursive calls — so a full-size
-/// [ConditionCache] takes markedly fewer steps than a 1-entry one that is
-/// evicted before a subterm's second use arrives.
+/// [ConditionCache] takes markedly fewer steps than a disabled one.
 const CONDITION_CACHE_CASES: &[(&str, &[&str])] = &[
     (
         "oddeven",
@@ -137,7 +136,7 @@ pub fn criterion_benchmark_condition_cache(c: &mut Criterion) {
             .map(|term| to_untyped_data_expression(term.clone(), None))
             .collect();
 
-        c.bench_function(&format!("condition cache innermost 1-entry {name}"), |bencher| {
+        c.bench_function(&format!("condition cache innermost uncached {name}"), |bencher| {
             bencher.iter(|| {
                 let mut inner = InnermostRewriter::with_condition_cache_capacity(&spec, None);
                 for term in &terms {
@@ -155,7 +154,7 @@ pub fn criterion_benchmark_condition_cache(c: &mut Criterion) {
             });
         });
 
-        c.bench_function(&format!("condition cache sabre 1-entry {name}"), |bencher| {
+        c.bench_function(&format!("condition cache sabre uncached {name}"), |bencher| {
             bencher.iter(|| {
                 let mut sabre = SabreRewriter::with_condition_cache_capacity(&spec, None);
                 for term in &terms {

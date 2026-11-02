@@ -15,6 +15,7 @@ use merc_sabre::InnermostRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
 use merc_sabre::test_utility::create_rewrite_rule;
+use merc_sabre::utilities::apply_substitution;
 
 /// Parses `input` treating every name in `variables` as a variable.
 fn term(input: &str, variables: &[&str]) -> DataExpression {
@@ -76,4 +77,64 @@ fn test_bound_variable_shadows_an_enclosing_substitution_of_the_same_name() {
         result, expected,
         "the bound `n` must shadow the substitution, not be replaced by `g`"
     );
+}
+
+/// Returns the single bound variable and the body of `binder`.
+fn single_bound_variable(binder: &DataExpression) -> (DataVariable, DataExpression) {
+    assert!(is_data_binder(binder), "expected a binder, got {binder}");
+    let abstraction = DataAbstraction::from(binder.clone());
+    let variables: Vec<DataVariable> = abstraction.variables().into_iter().collect();
+    assert_eq!(variables.len(), 1, "expected one bound variable in {binder}");
+    (variables[0].clone(), abstraction.body().protect())
+}
+
+/// Returns `g(y, renamed)`; the name of `renamed` cannot be parsed.
+fn renamed_body(renamed: &DataVariable) -> DataExpression {
+    let mut sigma = HashMap::new();
+    sigma.insert(DataVariable::new("z"), DataExpression::from(renamed.clone()));
+    apply_substitution(&term("g(y, z)", &["y", "z"]), &sigma)
+}
+
+/// Rewriting `exists y. g(x, y)` under `{x := y}` must rename the bound `y` apart, since the
+/// substituted `y` would otherwise be captured.
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_bound_variable_is_renamed_apart_from_a_substituted_image() {
+    let spec = identity_spec();
+    let y = DataVariable::new("y");
+    let input: DataExpression = DataAbstraction::new(
+        BinderType::Exists,
+        std::slice::from_ref(&y),
+        term("g(x, y)", &["x", "y"]),
+    )
+    .into();
+
+    let mut sigma = HashMap::new();
+    sigma.insert(DataVariable::new("x"), DataExpression::from(y.clone()));
+
+    let result = InnermostRewriter::new(&spec).rewrite_with(&input, &sigma);
+    let (renamed, body) = single_bound_variable(&result);
+    assert_ne!(renamed, y, "the bound `y` must be renamed in {result}");
+    assert_eq!(body, renamed_body(&renamed));
+}
+
+/// The same for a binder in a right-hand side: instantiating `h(x) = exists y. g(x, y)` for
+/// `h(y)` must not capture the matched `y`.
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_right_hand_side_binder_is_renamed_apart_from_a_matched_value() {
+    let y = DataVariable::new("y");
+    let mut rule = create_rewrite_rule("h(x)", "x", &["x"]).unwrap();
+    rule.rhs = DataAbstraction::new(
+        BinderType::Exists,
+        std::slice::from_ref(&y),
+        term("g(x, y)", &["x", "y"]),
+    )
+    .into();
+    let spec = RewriteSpecification::new(vec![rule]);
+
+    let result = InnermostRewriter::new(&spec).rewrite(&term("h(y)", &["y"]));
+    let (renamed, body) = single_bound_variable(&result);
+    assert_ne!(renamed, y, "the bound `y` must be renamed in {result}");
+    assert_eq!(body, renamed_body(&renamed));
 }

@@ -423,6 +423,9 @@ fn generate_rewrite_term_stack_impl(
                     term_addr,
                 )?;
             }
+            Config::Binder(..) => {
+                unreachable!("SetAutomaton::new keeps no rule with a binder in its right-hand side")
+            }
             Config::Rewrite(_) | Config::Return() => {
                 unreachable!("The term stack never contains these configurations")
             }

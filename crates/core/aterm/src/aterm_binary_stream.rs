@@ -193,7 +193,7 @@ impl<W: Write> BinaryATermWriter<W> {
 
         let mut function_symbols: ProtectedSend<IndexedSet<SymbolRef<'static>>> = ProtectedSend::new(IndexedSet::new());
         // The term with function symbol index 0 indicates the end of the stream
-        let end_of_stream_symbol = Symbol::new("end_of_stream".to_string(), 0);
+        let end_of_stream_symbol = Symbol::new("end_of_stream", 0);
         function_symbols.write(|write| write.insert(end_of_stream_symbol.copy()));
 
         Ok(Self {
@@ -456,7 +456,7 @@ impl<R: Read> BinaryATermReader<R> {
 
         // The term with function symbol index 0 indicates the end of the stream
         let mut function_symbols: Protected<Vec<SymbolRef<'static>>> = Protected::new(Vec::new());
-        let end_of_stream_symbol = Symbol::new("end_of_stream".to_string(), 0);
+        let end_of_stream_symbol = Symbol::new("end_of_stream", 0);
         function_symbols.write(|write| write.push(end_of_stream_symbol.copy()));
 
         Ok(Self {
