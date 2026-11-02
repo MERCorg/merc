@@ -192,8 +192,8 @@ mod tests {
     impl<'a> BinaryChain for &'a Expr {
         type Op = Op;
 
-        fn binary_operands(self, op: Op) -> Option<(&'a Expr, &'a Expr)> {
-            match self {
+        fn binary_operands(&self, op: Op) -> Option<(&'a Expr, &'a Expr)> {
+            match *self {
                 Expr::Binary(node_op, lhs, rhs) if *node_op == op => Some((lhs, rhs)),
                 _ => None,
             }

@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+use std::hash::Hash;
 use std::iter::FusedIterator;
 
 use crate::recycle_vec::recycle_vec;
@@ -7,12 +9,12 @@ use crate::recycle_vec::recycle_vec;
 ///
 /// Implemented on cheap handles, such as `&T` or term references, rather than on the nodes
 /// themselves, so that operands can be handed out with the lifetime of the whole tree.
-pub trait BinaryChain: Copy {
+pub trait BinaryChain: Clone {
     /// The connective.
     type Op: Copy;
 
     /// Returns the operands of this node if it is an application of `op`.
-    fn binary_operands(self, op: Self::Op) -> Option<(Self, Self)>;
+    fn binary_operands(&self, op: Self::Op) -> Option<(Self, Self)>;
 }
 
 /// Reusable storage for the worklist of a [ChainIter], so that repeated traversals do not
@@ -100,18 +102,46 @@ impl<T: BinaryChain, U> Drop for ChainIter<'_, T, U> {
     }
 }
 
+/// The operands of the `op` chain rooted at `root`, like [ChainIter], but each one only once, in
+/// the order of its first occurrence.
+///
+/// Every node is visited at most once, including the inner nodes of the chain: on maximally
+/// shared terms the operands of a shared subchain are then expanded once rather than at every
+/// occurrence, which would be exponential for nested sharing.
+pub fn unique_chain_operands<T: BinaryChain + Hash + Eq>(root: T, op: T::Op) -> Vec<T> {
+    let mut stack = vec![root];
+    let mut seen = HashSet::new();
+    let mut result = Vec::new();
+    while let Some(node) = stack.pop() {
+        if !seen.insert(node.clone()) {
+            continue;
+        }
+
+        match node.binary_operands(op) {
+            Some((lhs, rhs)) => {
+                stack.push(rhs);
+                stack.push(lhs);
+            }
+            None => result.push(node),
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::BinaryChain;
     use super::ChainIter;
     use super::ChainStack;
+    use super::unique_chain_operands;
 
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Hash)]
     enum Op {
         And,
         Or,
     }
 
+    #[derive(PartialEq, Eq, Hash)]
     enum Expr {
         Var(&'static str),
         Binary(Op, Box<Expr>, Box<Expr>),
@@ -120,8 +150,8 @@ mod tests {
     impl<'a> BinaryChain for &'a Expr {
         type Op = Op;
 
-        fn binary_operands(self, op: Op) -> Option<(&'a Expr, &'a Expr)> {
-            match self {
+        fn binary_operands(&self, op: Op) -> Option<(&'a Expr, &'a Expr)> {
+            match *self {
                 Expr::Binary(node_op, lhs, rhs) if *node_op == op => Some((lhs, rhs)),
                 _ => None,
             }
@@ -194,5 +224,19 @@ mod tests {
         iter.next();
         assert_eq!(iter.size_hint(), (0, None));
         assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_unique_chain_operands_skips_duplicates() {
+        let expr = binary(
+            Op::And,
+            binary(Op::And, Expr::Var("A"), Expr::Var("B")),
+            binary(Op::And, Expr::Var("A"), binary(Op::Or, Expr::Var("B"), Expr::Var("C"))),
+        );
+
+        assert_eq!(
+            names(unique_chain_operands(&expr, Op::And).into_iter()),
+            ["A", "B", "<binary>"]
+        );
     }
 }
