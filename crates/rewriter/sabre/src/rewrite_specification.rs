@@ -3,12 +3,10 @@
 use std::fmt;
 
 use itertools::Itertools;
-use merc_data::BasicSort;
 use merc_data::DataExpression;
 use merc_data::DataFunctionSymbol;
 use merc_data::MachineWordOp;
 use merc_data::Mcrl2DataSpecification;
-use merc_data::SortExpression;
 
 /// A rewrite specification is a set of rewrite rules, given by [Rule], plus
 /// the machine-word (`@word`) operations available natively.
@@ -43,8 +41,7 @@ impl RewriteSpecification {
     /// their own (they are `defined_by_code`), so they would otherwise be
     /// invisible to a rewrite engine built from this specification.
     pub fn from_data_specification(spec: &Mcrl2DataSpecification) -> RewriteSpecification {
-        let true_literal: DataExpression =
-            DataFunctionSymbol::with_sort("true", SortExpression::from(BasicSort::new("Bool")).copy()).into();
+        let true_literal = DataExpression::bool_literal(true);
 
         let rewrite_rules = spec
             .equations()

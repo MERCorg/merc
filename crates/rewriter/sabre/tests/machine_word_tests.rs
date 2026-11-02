@@ -9,13 +9,10 @@
 //! identity, which depends on its sort, so a mismatched sort would silently
 //! miss the table.
 
-use merc_data::BasicSort;
 use merc_data::DataApplication;
 use merc_data::DataExpression;
-use merc_data::DataFunctionSymbol;
 use merc_data::MachineNumber;
 use merc_data::MachineWordOp;
-use merc_data::SortExpression;
 use merc_sabre::InnermostRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
@@ -31,11 +28,7 @@ fn word(value: u64) -> DataExpression {
 
 /// A `Bool` literal, built exactly as the IR lowering does.
 fn boolean(value: bool) -> DataExpression {
-    DataFunctionSymbol::with_sort(
-        if value { "true" } else { "false" },
-        SortExpression::from(BasicSort::new("Bool")).copy(),
-    )
-    .into()
+    DataExpression::bool_literal(value)
 }
 
 /// The rewrite specification for the `MachineWord`-encoded system spec, with

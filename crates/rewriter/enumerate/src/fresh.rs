@@ -99,36 +99,36 @@ mod tests {
     #[test]
     fn test_generate_avoids_seeded_names() {
         let mut generator = FreshVariableGenerator::new("v", ["v0".to_string(), "v1".to_string()]);
-        let fresh = generator.generate(nat().copy());
+        let fresh = generator.generate(SortExpression::nat().copy());
         assert_eq!(fresh.name(), "v2");
     }
 
     #[test]
     fn test_reset_undoes_generated_names_but_keeps_the_seed() {
         let mut generator = FreshVariableGenerator::new("v", ["v0".to_string()]);
-        let first = generator.generate(nat().copy());
+        let first = generator.generate(SortExpression::nat().copy());
         assert_eq!(first.name(), "v1");
 
         generator.reset();
 
         // The seed name is still avoided, but the generated one is forgotten,
         // so the same fresh name is produced again.
-        let second = generator.generate(nat().copy());
+        let second = generator.generate(SortExpression::nat().copy());
         assert_eq!(second.name(), "v1");
     }
 
     #[test]
     fn test_generate_avoids_its_own_earlier_output() {
         let mut generator = FreshVariableGenerator::new("v", std::iter::empty());
-        let first = generator.generate(nat().copy());
-        let second = generator.generate(nat().copy());
+        let first = generator.generate(SortExpression::nat().copy());
+        let second = generator.generate(SortExpression::nat().copy());
         assert_ne!(first.name(), second.name());
     }
 
     #[test]
     fn test_generate_ignores_names_with_a_different_prefix() {
         let mut generator = FreshVariableGenerator::new("v", ["w5".to_string()]);
-        assert_eq!(generator.generate(nat().copy()).name(), "v0");
+        assert_eq!(generator.generate(SortExpression::nat().copy()).name(), "v0");
     }
 
     #[test]

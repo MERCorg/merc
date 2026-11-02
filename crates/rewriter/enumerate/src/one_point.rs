@@ -3,6 +3,7 @@
 use std::ops::ControlFlow;
 
 use merc_aterm::Term;
+use merc_data::BoolConnective;
 use merc_data::BoolKind;
 use merc_data::DataExpression;
 use merc_data::DataExpressionRef;
@@ -12,6 +13,8 @@ use merc_data::is_data_variable;
 use merc_data::visit_data_expr;
 use merc_sabre::RewriteEngine;
 use merc_sabre::utilities::SliceSubstitution;
+use merc_utilities::ChainIter;
+use merc_utilities::ChainStack;
 use merc_utilities::Step;
 
 use crate::QuantifierKind;
@@ -118,15 +121,16 @@ fn find_one_point_equation<'a>(
         _ => None,
     };
 
-    // Iterative rather than recursive: a chain of connectives can be arbitrarily deep.
-    let mut stack = vec![body.copy()];
-    while let Some(term) = stack.pop() {
+    // The connective whose operands are searched: a conjunct of an existential, or a disjunct of a
+    // universal, quantifier.
+    let connective = match kind {
+        QuantifierKind::Exists => BoolConnective::And,
+        QuantifierKind::Forall => BoolConnective::Or,
+    };
+
+    let mut storage = ChainStack::<DataExpressionRef<'a>>::new();
+    for term in ChainIter::new(body.copy(), connective, &mut storage) {
         let sides = match (kind, term.bool_kind()) {
-            (QuantifierKind::Exists, BoolKind::And(lhs, rhs)) | (QuantifierKind::Forall, BoolKind::Or(lhs, rhs)) => {
-                stack.push(rhs);
-                stack.push(lhs);
-                continue;
-            }
             (QuantifierKind::Exists, _) => equation(term),
             // The shapes that deny an equality: `e1 != e2`, `e1 == e2 => φ` and `!(e1 == e2)`.
             (QuantifierKind::Forall, BoolKind::NotEqual(lhs, rhs)) => Some((lhs, rhs)),
@@ -175,7 +179,6 @@ mod tests {
     use merc_data::DataVariable;
     use merc_data::SortArrow;
     use merc_data::SortExpression;
-    use merc_data::bool_literal;
     use merc_sabre::RewriteSpecification;
     use merc_sabre::Rule;
     use merc_sabre::SabreRewriter;
@@ -202,13 +205,19 @@ mod tests {
     /// `and(false, y) = false`.
     fn rewriter() -> SabreRewriter {
         let x: DataExpression = variable("x").into();
-        let bool_sort = SortExpression::from(BasicSort::new("Bool"));
+        let bool_sort = SortExpression::bool();
         let y: DataExpression = DataVariable::with_sort("y", bool_sort.copy()).into();
 
         let spec = RewriteSpecification::new(vec![
-            Rule::new(DataExpression::equal(d_sort(), x.clone(), x), bool_literal(true)),
-            Rule::new(DataExpression::and(bool_literal(true), y.clone()), y.clone()),
-            Rule::new(DataExpression::and(bool_literal(false), y), bool_literal(false)),
+            Rule::new(
+                DataExpression::equal(&d_sort(), &x, &x),
+                DataExpression::bool_literal(true),
+            ),
+            Rule::new(DataExpression::and(&DataExpression::bool_literal(true), &y), y.clone()),
+            Rule::new(
+                DataExpression::and(&DataExpression::bool_literal(false), &y),
+                DataExpression::bool_literal(false),
+            ),
         ]);
         SabreRewriter::new(&spec)
     }
@@ -219,8 +228,8 @@ mod tests {
         let mut rewriter = rewriter();
         let n = variable("n");
         let body = DataExpression::or(
-            DataExpression::negation(DataExpression::equal(d_sort(), n.clone().into(), constant("five"))),
-            bool_literal(true),
+            &DataExpression::negation(&DataExpression::equal(&d_sort(), &n.clone().into(), &constant("five"))),
+            &DataExpression::bool_literal(true),
         );
 
         let mut arena = BindingArena::default();
@@ -249,8 +258,8 @@ mod tests {
         let mut rewriter = rewriter();
         let n = variable("n");
         let body = DataExpression::implies(
-            DataExpression::equal(d_sort(), n.clone().into(), constant("five")),
-            bool_literal(true),
+            &DataExpression::equal(&d_sort(), &n.clone().into(), &constant("five")),
+            &DataExpression::bool_literal(true),
         );
 
         let mut arena = BindingArena::default();
@@ -280,8 +289,8 @@ mod tests {
         let mut rewriter = rewriter();
         let n = variable("n");
         let body = DataExpression::and(
-            DataExpression::equal(d_sort(), n.clone().into(), constant("five")),
-            bool_literal(true),
+            &DataExpression::equal(&d_sort(), &n.clone().into(), &constant("five")),
+            &DataExpression::bool_literal(true),
         );
 
         let mut arena = BindingArena::default();
@@ -305,8 +314,8 @@ mod tests {
         let mut rewriter = rewriter();
         let n = variable("n");
         let body = DataExpression::or(
-            DataExpression::negation(DataExpression::equal(d_sort(), n.clone().into(), constant("five"))),
-            bool_literal(true),
+            &DataExpression::negation(&DataExpression::equal(&d_sort(), &n.clone().into(), &constant("five"))),
+            &DataExpression::bool_literal(true),
         );
 
         let mut arena = BindingArena::default();
@@ -329,8 +338,8 @@ mod tests {
         let mut rewriter = rewriter();
         let n = variable("n");
         let body = DataExpression::and(
-            DataExpression::equal(d_sort(), n.clone().into(), constant("five")),
-            bool_literal(true),
+            &DataExpression::equal(&d_sort(), &n.clone().into(), &constant("five")),
+            &DataExpression::bool_literal(true),
         );
 
         let mut arena = BindingArena::default();
@@ -339,7 +348,7 @@ mod tests {
             .write(|guard| apply_one_point_rule(&mut rewriter, guard, vec![n.clone()], body, QuantifierKind::Exists));
 
         assert!(vars.is_empty());
-        assert_eq!(residual, bool_literal(true));
+        assert_eq!(residual, DataExpression::bool_literal(true));
         let mut resolved = Vec::new();
         arena.chain.write(|guard| {
             BindingArena::resolve(
@@ -363,8 +372,8 @@ mod tests {
         let n = variable("n");
         let m = variable("m");
         let body = DataExpression::and(
-            DataExpression::equal(d_sort(), n.clone().into(), constant("five")),
-            DataExpression::equal(d_sort(), m.clone().into(), n.clone().into()),
+            &DataExpression::equal(&d_sort(), &n.clone().into(), &constant("five")),
+            &DataExpression::equal(&d_sort(), &m.clone().into(), &n.clone().into()),
         );
 
         let mut arena = BindingArena::default();
@@ -379,7 +388,7 @@ mod tests {
         });
 
         assert!(vars.is_empty());
-        assert_eq!(residual, bool_literal(true));
+        assert_eq!(residual, DataExpression::bool_literal(true));
         let mut resolved = Vec::new();
         arena.chain.write(|guard| {
             BindingArena::resolve(
@@ -398,7 +407,7 @@ mod tests {
     fn test_no_conjunct_leaves_variable_untouched() {
         let mut rewriter = rewriter();
         let n = variable("n");
-        let f_sort: SortExpression = SortArrow::new(&[d_sort()], d_sort()).into();
+        let f_sort: SortExpression = SortArrow::new(&[d_sort()], &d_sort()).into();
         let f = DataFunctionSymbol::with_sort("f", f_sort.copy());
         let body: DataExpression = DataApplication::with_args(&f, &[DataExpression::from(n.clone())]).into();
 
@@ -422,10 +431,10 @@ mod tests {
         // `n == f(n)` mentions `n` on both sides; binding it would be circular.
         let mut rewriter = rewriter();
         let n = variable("n");
-        let f_sort: SortExpression = SortArrow::new(&[d_sort()], d_sort()).into();
+        let f_sort: SortExpression = SortArrow::new(&[d_sort()], &d_sort()).into();
         let f = DataFunctionSymbol::with_sort("f", f_sort.copy());
         let f_n: DataExpression = DataApplication::with_args(&f, &[DataExpression::from(n.clone())]).into();
-        let body = DataExpression::equal(d_sort(), n.clone().into(), f_n);
+        let body = DataExpression::equal(&d_sort(), &n.clone().into(), &f_n);
 
         let mut arena = BindingArena::default();
         let (vars, residual, _bindings) = arena.chain.write(|guard| {

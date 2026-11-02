@@ -62,7 +62,7 @@ const PRELUDE: &str = "
 /// asserting on solutions found by an [`Enumerator`] built over [`PRELUDE`].
 fn numeral(value: usize) -> DataExpression {
     let dzero = merc_data::DataFunctionSymbol::with_sort("dzero", d_sort().copy());
-    let succ_sort: merc_data::SortExpression = merc_data::SortArrow::new(&[d_sort()], d_sort()).into();
+    let succ_sort: merc_data::SortExpression = merc_data::SortArrow::new(&[d_sort()], &d_sort()).into();
     let dsucc = merc_data::DataFunctionSymbol::with_sort("dsucc", succ_sort.copy());
     let mut term: DataExpression = dzero.into();
     for _ in 0..value {
@@ -251,11 +251,7 @@ fn test_simplify_one_point_then_enumerate_normalized_matches_direct_enumeration(
     let remaining_vars = simplify_one_point(&mut rewriter, QuantifierKind::Exists, &vars, &mut condition, &mut rest);
     let other = rest[0].clone();
 
-    let true_literal: DataExpression = merc_data::DataFunctionSymbol::with_sort(
-        "true",
-        merc_data::SortExpression::from(merc_data::BasicSort::new("Bool")).copy(),
-    )
-    .into();
+    let true_literal = merc_data::DataExpression::bool_literal(true);
     assert_eq!(
         other, true_literal,
         "`b`'s eliminated binding must be substituted into every other term, not just `terms[0]`"

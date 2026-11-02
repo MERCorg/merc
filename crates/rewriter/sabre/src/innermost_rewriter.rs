@@ -7,7 +7,6 @@ use merc_data::DataExpression;
 use merc_data::DataExpressionRef;
 use merc_data::DataVariable;
 use merc_data::DataVariableRef;
-use merc_data::bool_literal;
 use merc_data::is_data_binder;
 use merc_data::is_data_machine_number;
 
@@ -448,7 +447,7 @@ fn evaluate_binder<S: RewriteSubstitution, E: Enumerator>(
     frames.push(frame);
 
     match decision {
-        Some(value) => bool_literal(value),
+        Some(value) => DataExpression::bool_literal(value),
         // No decision could be made, yield the reconstructed binder.
         None => DataAbstraction::new(binder, &vars, rewritten_body).into(),
     }

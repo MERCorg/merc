@@ -5,7 +5,6 @@ use ahash::HashMap;
 use merc_data::DataApplication;
 use merc_data::DataExpression;
 use merc_data::DataVariable;
-use merc_data::bool_literal;
 use merc_sabre::RewriteEngine;
 
 use crate::enumeration_plan::EnumerationPlanId;
@@ -45,7 +44,7 @@ impl<'a, R: RewriteEngine> NaiveEnumerator<'a, R> {
             })
             .collect();
 
-        let true_literal = bool_literal(true);
+        let true_literal = DataExpression::bool_literal(true);
         let mut results = AHashSet::new();
         for combination in cartesian_product(&per_variable) {
             let sigma: HashMap<DataVariable, DataExpression> =

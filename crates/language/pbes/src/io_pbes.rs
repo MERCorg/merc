@@ -23,10 +23,13 @@ use crate::is_pbes_expression;
 use crate::is_propositional_variable;
 use crate::is_propositional_variable_instantiation;
 
-/// Reads a PBES in the binary `.pbes` format of the mCRL2 toolset.
+/// Reads a PBES in the binary `.pbes` format of the mCRL2 toolset, and checks that it is well
+/// typed; see [Pbes::check_well_typed].
 pub fn read_pbes<R: Read>(reader: R) -> Result<Pbes, MercError> {
     let mut reader = BinaryATermReader::new(BufReader::new(reader))?;
-    Pbes::read(&mut reader)
+    let pbes = Pbes::read(&mut reader)?;
+    pbes.check_well_typed()?;
+    Ok(pbes)
 }
 
 /// Writes a PBES in the binary `.pbes` format of the mCRL2 toolset.
@@ -94,12 +97,12 @@ impl ATermStreamable for Pbes {
             "propositional variable instantiation",
         )?;
 
-        Ok(Pbes {
+        Ok(Pbes::new(
             data_specification,
             global_variables,
             equations,
             initial_state,
-        })
+        ))
     }
 }
 

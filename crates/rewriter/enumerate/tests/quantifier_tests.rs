@@ -2,7 +2,6 @@ use std::rc::Rc;
 
 use merc_data::DataExpression;
 use merc_data::Mcrl2DataSpecification;
-use merc_data::bool_literal;
 use merc_enumerate::EnumerationPlans;
 use merc_enumerate::Enumerator;
 use merc_enumerate::FreshVariableGenerator;
@@ -44,7 +43,7 @@ fn test_exists_over_nat_is_decided_true() {
     let body = goal_body(&data_spec);
 
     let result = rewriter_with_enumerator(&data_spec).rewrite(&body);
-    assert_eq!(result, bool_literal(true));
+    assert_eq!(result, DataExpression::bool_literal(true));
 }
 
 #[test]
@@ -54,7 +53,7 @@ fn test_forall_over_nat_is_decided_false() {
     let body = goal_body(&data_spec);
 
     let result = rewriter_with_enumerator(&data_spec).rewrite(&body);
-    assert_eq!(result, bool_literal(false));
+    assert_eq!(result, DataExpression::bool_literal(false));
 }
 
 /// A quantifier nested directly in another's body.
@@ -65,7 +64,7 @@ fn test_a_directly_nested_quantifier_is_also_decided() {
     let body = goal_body(&data_spec);
 
     let result = rewriter_with_enumerator(&data_spec).rewrite(&body);
-    assert_eq!(result, bool_literal(true));
+    assert_eq!(result, DataExpression::bool_literal(true));
 }
 
 /// A nested quantifier over the outer quantifier's variable, which can only be
@@ -82,7 +81,7 @@ fn test_a_dependent_nested_quantifier_is_decided() {
         let body = goal_body(&data_spec);
 
         let result = rewriter_with_enumerator(&data_spec).rewrite(&body);
-        assert_eq!(result, bool_literal(expected), "{goal}");
+        assert_eq!(result, DataExpression::bool_literal(expected), "{goal}");
     }
 }
 
