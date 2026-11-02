@@ -1083,6 +1083,7 @@ dependencies = [
  "merc_aterm",
  "merc_data",
  "merc_pbes",
+ "merc_pres",
  "merc_rec-tests",
  "merc_sabre",
  "merc_sabre-compiling",
@@ -1320,6 +1321,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "merc_pres"
+version = "2.0.0"
+dependencies = [
+ "merc_pbes",
+ "merc_syntax",
+ "merc_typecheck",
+ "merc_utilities",
+ "rand",
 ]
 
 [[package]]
