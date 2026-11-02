@@ -22,8 +22,6 @@ use crate::enumeration_plan::EnumerationPlans;
 use crate::enumeration_plan::NotEnumerableReason;
 use crate::enumeration_plan::SortEnumerability;
 use crate::fresh::FreshVariableGenerator;
-use crate::one_point::OnePointPolarity;
-use crate::one_point::apply_one_point_rule;
 use crate::remaining::RemainingArena;
 use crate::remaining::RemainingList;
 
@@ -241,13 +239,7 @@ impl Enumerator {
     {
         frame.bindings_arena.clear();
         self.drive(
-            frame,
-            rewriter,
-            vars,
-            vars,
-            body,
-            BindingChain::default(),
-            false, // reject on `false`, accept on `true`
+            frame, rewriter, vars, body, false, // reject on `false`, accept on `true`
             false, // unbounded
             consume,
         )
@@ -257,7 +249,8 @@ impl Enumerator {
     /// for [`QuantifierKind::Exists`], one making `rewrite(body, σ)` `true`;
     /// for [`QuantifierKind::Forall`], a counterexample making it `false`.
     ///
-    /// Bounded by [`EnumerationLimits`].
+    /// Bounded by [`EnumerationLimits`]. The one-point rule is not applied;
+    /// callers that want it run [`crate::simplify_one_point`] first.
     pub fn find_witness<R: RewriteEngine>(
         &self,
         frame: &mut EnumeratorFrame,
@@ -268,26 +261,20 @@ impl Enumerator {
     ) -> WitnessOutcome {
         // `reject_is_true` says which literal settles the quantifier for a
         // branch without deciding it; the other produces the witness.
-        let (reject_is_true, polarity) = match kind {
-            QuantifierKind::Exists => (false, OnePointPolarity::Existential),
-            QuantifierKind::Forall => (true, OnePointPolarity::Universal),
+        let reject_is_true = match kind {
+            QuantifierKind::Exists => false,
+            QuantifierKind::Forall => true,
         };
 
         frame.bindings_arena.clear();
         let body = rewriter.rewrite(body);
-        let (remaining, body, initial_bindings) = frame
-            .bindings_arena
-            .chain
-            .write(|guard| apply_one_point_rule(rewriter, guard, vars.to_vec(), body, polarity));
 
         let mut found: Option<Vec<DataExpression>> = None;
         let outcome = self.drive(
             frame,
             rewriter,
             vars,
-            &remaining,
             body,
-            initial_bindings,
             reject_is_true,
             true,
             |_rewriter, solution| {
@@ -355,7 +342,7 @@ impl Enumerator {
         result.into()
     }
 
-    /// Expands `remaining_vars` breadth-first, pruning any branch whose body
+    /// Expands `vars` breadth-first, pruning any branch whose body
     /// has already rewritten to `reject` regardless of its still-free
     /// variables, and reports every leaf (fully ground) branch whose body is
     /// `accept` to `on_leaf`.
@@ -366,15 +353,9 @@ impl Enumerator {
     /// search, and only the caller knows whether an under-approximated result
     /// set is acceptable.
     ///
-    /// `remaining_vars` is expanded in the given order; fresh variables
-    /// introduced while expanding a constructor are appended at the tail of
-    /// each work item's own remaining list (§4.1/§4.5).
-    ///
-    /// `all_vars` is the *original* variable list (before the one-point rule
-    /// may have removed some of them) — every one of them is resolved into the
-    /// [`Solution`] handed to `on_leaf`, since one-point-eliminated variables
-    /// are bound in `initial_bindings` just as surely as the ones the search
-    /// itself binds.
+    /// `vars` is expanded in the given order; fresh variables introduced while
+    /// expanding a constructor are appended at the tail of each work item's
+    /// own remaining list (§4.1/§4.5).
     ///
     /// `reject_is_true` selects which of the enumerator's cached `Bool`
     /// literals is the rejecting one.
@@ -383,10 +364,8 @@ impl Enumerator {
         &self,
         frame: &mut EnumeratorFrame,
         rewriter: &mut R,
-        all_vars: &[DataVariable],
-        remaining_vars: &[DataVariable],
+        vars: &[DataVariable],
         body: DataExpression,
-        initial_bindings: BindingChain,
         reject_is_true: bool,
         bounded: bool,
         mut on_leaf: F,
@@ -411,7 +390,7 @@ impl Enumerator {
         frame.var_pool.write(|var_pool| {
             var_pool.clear();
             frame.bindings_arena.chain.write(|bindings| {
-                for variable in remaining_vars {
+                for variable in vars {
                     // SAFETY: the resulting ref is pushed into `var_pool` immediately below.
                     let var_ref = unsafe { var_pool.protect(variable) };
                     var_pool.push(var_ref.into());
@@ -422,7 +401,7 @@ impl Enumerator {
                 frame.queue.push_back(WorkItem {
                     remaining: RemainingList::new(&mut frame.remaining_arena, initial_indices),
                     body,
-                    bindings: initial_bindings,
+                    bindings: BindingChain::default(),
                     depth: 0,
                 });
 
@@ -452,7 +431,7 @@ impl Enumerator {
                             rewriter,
                             &mut frame.bindings_arena.arguments,
                             item.bindings,
-                            all_vars,
+                            vars,
                             &mut frame.solution_buf,
                         );
                         let solution = Solution {
