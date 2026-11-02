@@ -507,7 +507,7 @@ fn element_of_edge<'id>(
         Node::Terminal(LDDTerminal::True) => vector.is_empty(),
         Node::Terminal(LDDTerminal::Empty) => false,
         Node::Inner(node) => {
-            let value = *node.get_value();
+            let value = *node.value();
             let (down, right) = collect_children(node);
             match vector.first() {
                 None => false,

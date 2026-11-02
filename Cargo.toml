@@ -92,7 +92,7 @@ oxidd-dump = "0.8"
 oxidd-core = "0.13"
 oxidd-reorder = "0.8"
 oxidd-rules-bdd = "0.13"
-oxidd-rules-ldd = "0.11"
+oxidd-rules-ldd = "0.8"
 parking_lot = "0.12"
 pest = "2.9"
 pest_derive  = "2.9"
@@ -178,9 +178,9 @@ merc_pest_consume = { version = "2.1", git = "https://github.com/MERCorg/pest_co
 
 # Use a local checkout of the oxidd fork until the LDD branch is integrated.
 [patch.crates-io]
-oxidd = { git = "https://github.com/mlaveaux/oxidd", rev = "bb07c8cbabd2a35a6fd94a8764c503a50dd22f03" }
-oxidd-core = { git = "https://github.com/mlaveaux/oxidd", rev = "bb07c8cbabd2a35a6fd94a8764c503a50dd22f03" }
-oxidd-dump =  { git = "https://github.com/mlaveaux/oxidd", rev = "bb07c8cbabd2a35a6fd94a8764c503a50dd22f03" }
-oxidd-reorder = { git = "https://github.com/mlaveaux/oxidd", rev = "bb07c8cbabd2a35a6fd94a8764c503a50dd22f03" }
-oxidd-rules-bdd = { git = "https://github.com/mlaveaux/oxidd", rev = "bb07c8cbabd2a35a6fd94a8764c503a50dd22f03" }
-oxidd-rules-ldd = { git = "https://github.com/mlaveaux/oxidd", rev = "bb07c8cbabd2a35a6fd94a8764c503a50dd22f03" }
+oxidd = { git = "https://github.com/mlaveaux/oxidd", rev = "786897a1259129f3a13b378bfc16cc0363027d32" }
+oxidd-core = { git = "https://github.com/mlaveaux/oxidd", rev = "786897a1259129f3a13b378bfc16cc0363027d32" }
+oxidd-dump =  { git = "https://github.com/mlaveaux/oxidd", rev = "786897a1259129f3a13b378bfc16cc0363027d32" }
+oxidd-reorder = { git = "https://github.com/mlaveaux/oxidd", rev = "786897a1259129f3a13b378bfc16cc0363027d32" }
+oxidd-rules-bdd = { git = "https://github.com/mlaveaux/oxidd", rev = "786897a1259129f3a13b378bfc16cc0363027d32" }
+oxidd-rules-ldd = { git = "https://github.com/mlaveaux/oxidd", rev = "786897a1259129f3a13b378bfc16cc0363027d32" }

@@ -629,7 +629,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 [[package]]
 name = "hugealloc"
 version = "0.1.1"
-source = "git+https://github.com/mlaveaux/oxidd?rev=bb07c8cbabd2a35a6fd94a8764c503a50dd22f03#bb07c8cbabd2a35a6fd94a8764c503a50dd22f03"
+source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
 dependencies = [
  "allocator-api2 0.2.21",
  "libc",
@@ -750,7 +750,7 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 [[package]]
 name = "linear-hashtbl"
 version = "0.1.4"
-source = "git+https://github.com/mlaveaux/oxidd?rev=bb07c8cbabd2a35a6fd94a8764c503a50dd22f03#bb07c8cbabd2a35a6fd94a8764c503a50dd22f03"
+source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
 dependencies = [
  "allocator-api2 0.2.21",
 ]
@@ -1133,6 +1133,7 @@ dependencies = [
  "merc_lts",
  "merc_number",
  "merc_tools",
+ "merc_unsafety",
  "merc_utilities",
  "oxidd",
  "oxidd-core",
@@ -1141,6 +1142,7 @@ dependencies = [
  "oxidd-rules-bdd",
  "oxidd-rules-ldd",
  "rand",
+ "rayon",
  "rustc-hash 2.1.3",
  "streaming-iterator",
 ]
@@ -1200,6 +1202,7 @@ dependencies = [
  "merc_utilities",
  "parking_lot",
  "rand",
+ "rayon",
  "rustc-hash 2.1.3",
  "thread_local",
 ]
@@ -1360,7 +1363,7 @@ dependencies = [
 [[package]]
 name = "oxidd"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=bb07c8cbabd2a35a6fd94a8764c503a50dd22f03#bb07c8cbabd2a35a6fd94a8764c503a50dd22f03"
+source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
 dependencies = [
  "cfg-if",
  "derive-where",
@@ -1381,7 +1384,7 @@ dependencies = [
 [[package]]
 name = "oxidd-cache"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=bb07c8cbabd2a35a6fd94a8764c503a50dd22f03#bb07c8cbabd2a35a6fd94a8764c503a50dd22f03"
+source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
 dependencies = [
  "allocator-api2 0.2.21",
  "document-features",
@@ -1393,16 +1396,17 @@ dependencies = [
 [[package]]
 name = "oxidd-core"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=bb07c8cbabd2a35a6fd94a8764c503a50dd22f03#bb07c8cbabd2a35a6fd94a8764c503a50dd22f03"
+source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
 dependencies = [
  "dashu-int",
+ "derive-where",
  "nanorand",
 ]
 
 [[package]]
 name = "oxidd-derive"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=bb07c8cbabd2a35a6fd94a8764c503a50dd22f03#bb07c8cbabd2a35a6fd94a8764c503a50dd22f03"
+source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -1413,7 +1417,7 @@ dependencies = [
 [[package]]
 name = "oxidd-dump"
 version = "0.8.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=bb07c8cbabd2a35a6fd94a8764c503a50dd22f03#bb07c8cbabd2a35a6fd94a8764c503a50dd22f03"
+source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
 dependencies = [
  "document-features",
  "fixedbitset",
@@ -1426,7 +1430,7 @@ dependencies = [
 [[package]]
 name = "oxidd-manager-index"
 version = "0.13.1"
-source = "git+https://github.com/mlaveaux/oxidd?rev=bb07c8cbabd2a35a6fd94a8764c503a50dd22f03#bb07c8cbabd2a35a6fd94a8764c503a50dd22f03"
+source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
 dependencies = [
  "allocator-api2 0.2.21",
  "crossbeam-utils",
@@ -1444,19 +1448,18 @@ dependencies = [
 [[package]]
 name = "oxidd-reorder"
 version = "0.8.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=bb07c8cbabd2a35a6fd94a8764c503a50dd22f03#bb07c8cbabd2a35a6fd94a8764c503a50dd22f03"
+source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
 dependencies = [
  "fixedbitset",
  "oxidd-core",
  "parking_lot",
  "scopeguard",
- "smallvec",
 ]
 
 [[package]]
 name = "oxidd-rules-bdd"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=bb07c8cbabd2a35a6fd94a8764c503a50dd22f03#bb07c8cbabd2a35a6fd94a8764c503a50dd22f03"
+source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
 dependencies = [
  "document-features",
  "fixedbitset",
@@ -1467,8 +1470,8 @@ dependencies = [
 
 [[package]]
 name = "oxidd-rules-ldd"
-version = "0.11.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=bb07c8cbabd2a35a6fd94a8764c503a50dd22f03#bb07c8cbabd2a35a6fd94a8764c503a50dd22f03"
+version = "0.8.0"
+source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
 dependencies = [
  "oxidd-core",
  "oxidd-derive",
@@ -1477,7 +1480,7 @@ dependencies = [
 [[package]]
 name = "oxidd-rules-mtbdd"
 version = "0.8.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=bb07c8cbabd2a35a6fd94a8764c503a50dd22f03#bb07c8cbabd2a35a6fd94a8764c503a50dd22f03"
+source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
 dependencies = [
  "document-features",
  "fixedbitset",
@@ -1489,7 +1492,7 @@ dependencies = [
 [[package]]
 name = "oxidd-rules-tdd"
 version = "0.8.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=bb07c8cbabd2a35a6fd94a8764c503a50dd22f03#bb07c8cbabd2a35a6fd94a8764c503a50dd22f03"
+source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
 dependencies = [
  "document-features",
  "oxidd-core",
@@ -1500,7 +1503,7 @@ dependencies = [
 [[package]]
 name = "oxidd-rules-zbdd"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=bb07c8cbabd2a35a6fd94a8764c503a50dd22f03#bb07c8cbabd2a35a6fd94a8764c503a50dd22f03"
+source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
 dependencies = [
  "document-features",
  "fixedbitset",

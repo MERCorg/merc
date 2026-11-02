@@ -1,5 +1,6 @@
 use oxidd::BooleanFunction;
 use oxidd::Function;
+use oxidd::LevelNo;
 use oxidd::Manager;
 use oxidd::ManagerRef;
 use oxidd::VarNo;
@@ -141,6 +142,7 @@ pub fn bdd_to_ldd(
                 ldd_manager,
                 manager,
                 &mut cache,
+                0,
                 edge,
                 variables,
                 bits_per_layer,
@@ -151,13 +153,14 @@ pub fn bdd_to_ldd(
     })
 }
 
-/// Recursive implementation of [bdd_to_ldd].
+/// Recursive implementation of [bdd_to_ldd], producing an LDD that resides at `level`.
 #[allow(clippy::mutable_key_type)]
 #[allow(clippy::too_many_arguments)]
 pub fn bdd_to_ldd_edge<'id, 'ldd>(
     ldd_manager: &<LDDFunction as Function>::Manager<'ldd>,
     manager: &<BDDFunction as Function>::Manager<'id>,
     cache: &mut FxHashMap<(BDDFunction, usize, Value, Value), LDDFunction>,
+    level: LevelNo,
     bdd: Ref<EdgeOfFunc<'id, BDDFunction>>,
     variables: &[VarNo],
     bits_per_layer: &[Value],
@@ -176,7 +179,9 @@ pub fn bdd_to_ldd_edge<'id, 'ldd>(
             matches!(manager.get_node(bdd), oxidd::Node::Terminal(BDDTerminal::True)),
             "Expected the True terminal after consuming all variables"
         );
-        return LDDFunction::singleton(ldd_manager, &[current_value]);
+        let empty_vector = LDDFunction::empty_vector(ldd_manager)?;
+        let empty = LDDFunction::empty_set(ldd_manager)?;
+        return LDDFunction::make_node(ldd_manager, level, current_value, &empty_vector, &empty);
     }
 
     // Cache lookup: shared BDD subgraphs (including the True terminal reached while variables
@@ -201,9 +206,19 @@ pub fn bdd_to_ldd_edge<'id, 'ldd>(
     let result = if num_bits == current_bit {
         // We reached the last bit for this layer, so emit an LDD node holding the decoded value and
         // continue decoding the next layer.
-        let down = bdd_to_ldd_edge(ldd_manager, manager, cache, bdd, variables, &bits_per_layer[1..], 0, 0)?;
+        let down = bdd_to_ldd_edge(
+            ldd_manager,
+            manager,
+            cache,
+            level + 1,
+            bdd,
+            variables,
+            &bits_per_layer[1..],
+            0,
+            0,
+        )?;
         let right = LDDFunction::empty_set(ldd_manager)?;
-        LDDFunction::make_node(ldd_manager, current_value, &down, &right)?
+        LDDFunction::make_node(ldd_manager, level, current_value, &down, &right)?
     } else {
         debug_assert!(current_bit < num_bits, "Current bit exceeds number of bits for layer");
 
@@ -227,6 +242,7 @@ pub fn bdd_to_ldd_edge<'id, 'ldd>(
             ldd_manager,
             manager,
             cache,
+            level,
             high_edge.borrowed(),
             &variables[1..],
             bits_per_layer,
@@ -237,13 +253,14 @@ pub fn bdd_to_ldd_edge<'id, 'ldd>(
             ldd_manager,
             manager,
             cache,
+            level,
             low_edge.borrowed(),
             &variables[1..],
             bits_per_layer,
             current_bit + 1,
             current_value,
         )?;
-        LDDFunction::union_edge(ldd_manager, &high, &low)?
+        LDDFunction::union_edge(ldd_manager, level, &high, &low)?
     };
 
     cache.insert(cache_key, result.clone());
@@ -379,6 +396,7 @@ mod tests {
     fn test_random_compute_highest() {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+            manager.reserve_levels(3);
             let set = random_vector_set(rng, 4, 3, 5);
             let ldd = from_iter(&manager, set.iter());
             println!("LDD: {}", LddDisplay::new(&ldd));
@@ -417,6 +435,7 @@ mod tests {
     fn test_random_ldd_to_bdd() {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+            manager.reserve_levels(3);
             let set = random_vector_set(rng, 50, 3, 5);
 
             let ldd = from_iter(&manager, set.iter());

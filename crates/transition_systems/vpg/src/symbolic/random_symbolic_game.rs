@@ -3,10 +3,11 @@ use std::collections::BTreeMap;
 use rand::Rng;
 use rand::RngExt;
 
+use oxidd::LevelNo;
 use oxidd::ManagerRef;
 use oxidd::ldd::LDDFunction;
 use oxidd::ldd::LDDManagerRef;
-use oxidd::ldd::RelationProductMeta;
+use oxidd::ldd::RelationMeta;
 use oxidd::ldd::Value;
 
 use merc_symbolic::SylvanTransitionGroup;
@@ -48,6 +49,9 @@ pub fn encode_parity_game<G: PG, R: Rng>(
     let num_of_vertices = game.num_of_vertices();
     let k = num_of_vertices_to_width(num_of_vertices, radix);
 
+    // The relations and their meta-LDD are the longest vectors: a read and a write value per position.
+    manager.reserve_levels(2 * k as LevelNo);
+
     let cubes: Vec<Vec<Value>> = (0..num_of_vertices).map(|v| digits(v, radix, k)).collect();
 
     let all_vertices = from_iter(manager, cubes.iter());
@@ -72,11 +76,11 @@ pub fn encode_parity_game<G: PG, R: Rng>(
 
     // Every relation reads and writes all `k` positions, so they all share the same meta.
     let read_write: Vec<Value> = (0..k as Value).collect();
-    let RelationProductMeta {
+    let RelationMeta {
         meta,
         read_positions,
         write_positions,
-    } = manager.with_manager_shared(|m| LDDFunction::relation_product_meta(m, &read_write, &read_write))?;
+    } = manager.with_manager_shared(|m| LDDFunction::relation_meta(m, &read_write, &read_write))?;
 
     // Bucket `owner.to_index() * num_groups + random` keeps every owner's edges in their own
     // range of buckets, so no bucket ever mixes source vertices of different owners.
@@ -86,10 +90,10 @@ pub fn encode_parity_game<G: PG, R: Rng>(
         for edge in game.outgoing_edges(VertexIndex::new(v)) {
             let mut vector = vec![0; read_positions.len() + write_positions.len()];
             for (i, &pos) in read_positions.iter().enumerate() {
-                vector[pos] = cubes[v][i];
+                vector[pos as usize] = cubes[v][i];
             }
             for (i, &pos) in write_positions.iter().enumerate() {
-                vector[pos] = cubes[*edge.to()][i];
+                vector[pos as usize] = cubes[*edge.to()][i];
             }
 
             let bucket = owner_offset + rng.random_range(0..num_groups);
@@ -106,7 +110,7 @@ pub fn encode_parity_game<G: PG, R: Rng>(
         })
         .collect();
 
-    let odd_vertices = all_vertices.minus(&even_vertices)?;
+    let odd_vertices = all_vertices.diff(&even_vertices)?;
     let symbolic_game = SymbolicParityGame::new(
         manager,
         &groups,

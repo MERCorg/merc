@@ -1073,6 +1073,7 @@ mod tests {
     fn test_random_sigref_split_signature() {
         random_test(100, |rng| {
             let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+            ldd_manager.reserve_levels(2 * 10 + 1);
 
             let lts = random_symbolic_lts(rng, &ldd_manager, 10, 5).unwrap();
 
@@ -1176,6 +1177,7 @@ mod tests {
     fn test_random_sigref() {
         random_test(100, |rng| {
             let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+            ldd_manager.reserve_levels(2 * 10 + 1);
 
             let lts = random_symbolic_lts(rng, &ldd_manager, 10, 5).unwrap();
 

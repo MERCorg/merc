@@ -21,6 +21,7 @@ use merc_io::BitStreamWrite;
 use merc_lts::LtsAction;
 use merc_lts::LtsMultiAction;
 use merc_utilities::MercError;
+use oxidd::LevelNo;
 use oxidd::ldd::LDDManagerRef;
 
 use crate::BinaryLddReader;
@@ -80,6 +81,10 @@ pub fn read_symbolic_lts<R: Read>(
     let data_spec = Mcrl2DataSpecification::read(&mut stream)?;
     let process_parameters: ATermList<DataVariable> = stream.read_aterm()?.ok_or("Expected process parameters")?.into();
     let process_parameters: Vec<DataVariable> = process_parameters.to_vec();
+
+    // The relations are the longest vectors: a read and a write value per parameter, followed by the
+    // action label.
+    manager.reserve_levels(2 * process_parameters.len() as LevelNo + 1);
 
     let initial_state = stream.read_ldd(manager)?;
     let states = stream.read_ldd(manager)?;
@@ -255,6 +260,7 @@ mod tests {
     fn test_random_symbolic_lts_io() {
         random_test(20, |rng| {
             let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+            ldd_manager.reserve_levels(2 * 5 + 1);
             let lts = random_symbolic_lts(rng, &ldd_manager, 5, 3).unwrap();
 
             let mut buffer: Vec<u8> = Vec::new();

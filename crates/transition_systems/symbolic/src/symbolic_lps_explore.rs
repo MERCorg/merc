@@ -107,6 +107,8 @@ pub struct SymbolicLpsOptions {
 impl<L: LPS> SymbolicLps<PermutedLps<L>> {
     /// Wraps `lps` into a symbolic LDD view, encoding its initial state, with one transition group
     /// per summand.
+    ///
+    /// See [SymbolicLps::with_options] for the levels that `manager` must have reserved.
     pub fn new(manager: &LDDManagerRef, lps: L) -> Result<Self, MercError> {
         SymbolicLps::with_options(manager, lps, &SymbolicLpsOptions::default())
     }
@@ -116,6 +118,8 @@ impl<L: LPS> SymbolicLps<PermutedLps<L>> {
     ///
     /// Joining summands into a single group trades the number of relational products per exploration
     /// step against the size of each transition relation; it does not change the reachable set.
+    ///
+    /// See [SymbolicLps::with_options] for the levels that `manager` must have reserved.
     pub fn with_grouping(manager: &LDDManagerRef, lps: L, grouping: &SummandGrouping) -> Result<Self, MercError> {
         let options = SymbolicLpsOptions {
             grouping: grouping.clone(),
@@ -129,6 +133,10 @@ impl<L: LPS> SymbolicLps<PermutedLps<L>> {
     ///
     /// The order is applied by permuting the state vector of `lps` itself, so that position `i` of
     /// the LPS that is encoded below is stored at level `i` of the diagrams.
+    ///
+    /// The `manager` must have at least `2 * n + 1` levels reserved, see
+    /// [LDDManagerRef::reserve_levels], where `n` is the length of the state vector of `lps`: the
+    /// relations interleave a read and a write value per position, followed by the action label.
     pub fn with_options(manager: &LDDManagerRef, lps: L, options: &SymbolicLpsOptions) -> Result<Self, MercError> {
         let num_positions = lps.initial_state().len();
 
@@ -183,11 +191,11 @@ impl<L: LPS> SymbolicLps<PermutedLps<L>> {
             let (project_ldd, meta, read_positions, write_positions, relation, domain) =
                 manager.with_manager_shared(|m| -> Result<_, MercError> {
                     let project_ldd = LDDFunction::projection_meta(m, &read_indices)?;
-                    let RelationProductMeta {
+                    let RelationMeta {
                         meta,
                         read_positions,
                         write_positions,
-                    } = LDDFunction::relation_product_meta(m, &read_indices, &write_indices)?;
+                    } = LDDFunction::relation_meta(m, &read_indices, &write_indices)?;
                     let relation = LDDFunction::empty_set(m)?;
                     let domain = LDDFunction::empty_set(m)?;
                     Ok((project_ldd, meta, read_positions, write_positions, relation, domain))
@@ -298,10 +306,10 @@ pub struct SymbolicLpsGroup<L: LPS> {
     write_indices: Vec<Value>,
 
     /// Interleaved short-vector positions of `read_indices`.
-    read_positions: Vec<usize>,
+    read_positions: Vec<LevelNo>,
 
     /// Interleaved short-vector positions of `write_indices`.
-    write_positions: Vec<usize>,
+    write_positions: Vec<LevelNo>,
 
     /// Projection meta selecting `read_indices` from a full state.
     project_ldd: LDDFunction,
@@ -491,6 +499,7 @@ mod tests {
     use crate::reachability_with_options;
 
     use super::*;
+    use oxidd::LevelNo;
 
     /// A grid [`LPS`]: summand `i` increments position `i` while it is below its bound, and one
     /// extra summand increments the first two positions at once. The diagonal summand couples two
@@ -590,6 +599,7 @@ mod tests {
     /// and returns the reachable state count.
     fn explored_count(bounds: &[usize], options: &SymbolicLpsOptions, strategy: ExplorationStrategy) -> usize {
         let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+        storage.reserve_levels(2 * bounds.len() as LevelNo + 1);
         let mut symbolic =
             SymbolicLps::with_options(&storage, GridLps::new(bounds), options).expect("the encoding is valid");
 

@@ -620,6 +620,7 @@ mod tests {
     fn test_random_to_symbolic_lts_conversion() {
         random_test(10, |rng| {
             let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+            ldd_manager.reserve_levels(2 * 5 + 1);
             let bdd_manager = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
 
             let mut chosen = None;

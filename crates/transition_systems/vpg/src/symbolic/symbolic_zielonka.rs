@@ -49,7 +49,7 @@ impl SymbolicSolution {
 /// Returns whether `vertex` is a subset of `winning` (mCRL2's Sylvan-native `includes`, which
 /// oxidd has no equivalent for).
 pub(crate) fn includes(winning: &LDDFunction, vertex: &LDDFunction) -> Result<bool, MercError> {
-    Ok(vertex.minus(winning)?.is_empty())
+    Ok(vertex.diff(winning)?.is_empty())
 }
 
 /// An extended parity game, which includes the initial vertex and the deadlock
@@ -249,7 +249,7 @@ fn zielonka_rec(
     let (a, a_strategy) = game.attractor(alpha, &u, v, &vplayer, None, None, attractor_progress)?;
     trace!("{indent}A (attractor of U) has {} elements", num_vertices(&a));
 
-    let v_minus_a = v.minus(&a)?;
+    let v_minus_a = v.diff(&a)?;
     let solution_v_minus_a = zielonka_rec(game, &v_minus_a, depth + 1, recursion_progress, attractor_progress)?;
 
     let solution = if solution_v_minus_a.winning[not_alpha.to_index()].is_empty() {
@@ -261,7 +261,7 @@ fn zielonka_rec(
             // `a_strategy` has no move for U itself (the attractor's target, not something pulled
             // in). Seed it with `merge(U ∩ Vplayer[alpha], v)`, later cut down to real edges by
             // `apply_strategy`.
-            let u_alpha = u.intersect(&vplayer[alpha.to_index()])?;
+            let u_alpha = u.intsec(&vplayer[alpha.to_index()])?;
             let extra = merge(game.manager(), &u_alpha, v)?;
             let combined = a_strategy
                 .expect("compute_strategy is set")
@@ -291,7 +291,7 @@ fn zielonka_rec(
             num_vertices(&b)
         );
 
-        let v_minus_b = v.minus(&b)?;
+        let v_minus_b = v.diff(&b)?;
         let mut solution = zielonka_rec(game, &v_minus_b, depth + 1, recursion_progress, attractor_progress)?;
         solution.winning[not_alpha.to_index()] = solution.winning[not_alpha.to_index()].union(&b)?;
 
