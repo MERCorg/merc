@@ -17,44 +17,49 @@ pub const DEFAULT_MAX_ENTRIES: usize = 1 << 16;
 /// cheap regardless of term size, and two condition sides that substitute to
 /// the same concrete term hit the same entry regardless of which rule or
 /// variable name produced either one.
+///
+/// A disabled cache stores nothing, so every condition side is normalised.
 pub struct ConditionCache {
-    cache: FixedSizeCache<DataExpression, DataExpression, LruPolicy<DataExpression>>,
+    cache: Option<FixedSizeCache<DataExpression, DataExpression, LruPolicy<DataExpression>>>,
 }
 
 impl ConditionCache {
-    /// Creates an empty cache holding at most `max_entries` normal forms (0
-    /// means unbounded; see [FixedSizeCache::new]).
-    pub fn new(max_entries: usize) -> Self {
+    /// Creates an empty cache holding at most `max_entries` normal forms
+    /// (`Some(0)` means unbounded; see [FixedSizeCache::new]), or a disabled
+    /// one for `None`.
+    pub fn new(max_entries: Option<usize>) -> Self {
         Self {
-            cache: FixedSizeCache::new(max_entries, LruPolicy::default()),
+            cache: max_entries.map(|max_entries| FixedSizeCache::new(max_entries, LruPolicy::default())),
         }
     }
 
     /// Returns `term`'s cached normal form, if present.
     pub fn get(&mut self, term: &DataExpression) -> Option<DataExpression> {
-        self.cache.get(term).cloned()
+        self.cache.as_mut()?.get(term).cloned()
     }
 
     /// Records `normal_form` as `term`'s normal form, evicting the least
     /// recently used entry first if the cache is full.
     pub fn insert(&mut self, term: DataExpression, normal_form: DataExpression) {
-        self.cache.insert(term, normal_form);
+        if let Some(cache) = &mut self.cache {
+            cache.insert(term, normal_form);
+        }
     }
 
     /// Returns the number of entries currently cached.
     pub fn len(&self) -> usize {
-        self.cache.len()
+        self.cache.as_ref().map_or(0, FixedSizeCache::len)
     }
 
     /// Returns true if the cache contains no entries.
     pub fn is_empty(&self) -> bool {
-        self.cache.is_empty()
+        self.len() == 0
     }
 }
 
 impl Default for ConditionCache {
     fn default() -> Self {
-        Self::new(DEFAULT_MAX_ENTRIES)
+        Self::new(Some(DEFAULT_MAX_ENTRIES))
     }
 }
 
@@ -66,7 +71,7 @@ mod tests {
 
     #[test]
     fn test_miss_then_hit() {
-        let mut cache = ConditionCache::new(0);
+        let mut cache = ConditionCache::new(Some(0));
         let key = DataExpression::from_string("even(s(s(d0)))").unwrap();
         let value = DataExpression::from_string("true").unwrap();
 
@@ -80,7 +85,7 @@ mod tests {
         // merc_aterm's maximal sharing makes two independently-parsed but
         // structurally identical terms the same interned term, so a lookup
         // built from a different (but equal) DataExpression still hits.
-        let mut cache = ConditionCache::new(0);
+        let mut cache = ConditionCache::new(Some(0));
         let key = DataExpression::from_string("even(s(s(d0)))").unwrap();
         let value = DataExpression::from_string("true").unwrap();
         cache.insert(key, value.clone());
@@ -90,8 +95,18 @@ mod tests {
     }
 
     #[test]
+    fn test_disabled_cache_stores_nothing() {
+        let mut cache = ConditionCache::new(None);
+        let key = DataExpression::from_string("even(s(s(d0)))").unwrap();
+        cache.insert(key.clone(), DataExpression::from_string("true").unwrap());
+
+        assert!(cache.get(&key).is_none());
+        assert!(cache.is_empty());
+    }
+
+    #[test]
     fn test_eviction_bounds_the_cache_size() {
-        let mut cache = ConditionCache::new(2);
+        let mut cache = ConditionCache::new(Some(2));
         let a = DataExpression::from_string("a").unwrap();
         let b = DataExpression::from_string("b").unwrap();
         let c = DataExpression::from_string("c").unwrap();

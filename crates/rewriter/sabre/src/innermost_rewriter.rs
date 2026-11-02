@@ -67,19 +67,19 @@ impl InnermostRewriter<NoQuantifierEnumerator> {
     /// rewriter reaches is left undecided, over its rewritten body. Use
     /// [InnermostRewriter::with_enumerator] to have quantifiers decided.
     pub fn new(spec: &RewriteSpecification) -> Self {
-        Self::with_condition_cache_capacity(spec, crate::matching::condition_cache::DEFAULT_MAX_ENTRIES)
+        Self::with_condition_cache_capacity(spec, Some(crate::matching::condition_cache::DEFAULT_MAX_ENTRIES))
     }
 
     /// Like [InnermostRewriter::new], but `max_entries` sets the condition
     /// cache's capacity (0 means unbounded; see `ConditionCache::new`)
     /// instead of the default.
-    pub fn with_condition_cache_capacity(spec: &RewriteSpecification, max_entries: usize) -> Self {
+    pub fn with_condition_cache_capacity(spec: &RewriteSpecification, max_entries: Option<usize>) -> Self {
         Self::build(spec, max_entries, NoQuantifierEnumerator)
     }
 }
 
 impl<E: Enumerator> InnermostRewriter<E> {
-    fn build(spec: &RewriteSpecification, max_entries: usize, enumerator: E) -> Self {
+    fn build(spec: &RewriteSpecification, max_entries: Option<usize>, enumerator: E) -> Self {
         let apma = SetAutomaton::new(spec, AnnouncementInnermost::new, true);
 
         InnermostRewriter {
@@ -98,7 +98,7 @@ impl<E: Enumerator> InnermostRewriter<E> {
         Self::with_enumerator_and_condition_cache_capacity(
             spec,
             enumerator,
-            crate::matching::condition_cache::DEFAULT_MAX_ENTRIES,
+            Some(crate::matching::condition_cache::DEFAULT_MAX_ENTRIES),
         )
     }
 
@@ -108,7 +108,7 @@ impl<E: Enumerator> InnermostRewriter<E> {
     pub fn with_enumerator_and_condition_cache_capacity(
         spec: &RewriteSpecification,
         enumerator: E,
-        max_entries: usize,
+        max_entries: Option<usize>,
     ) -> Self {
         Self::build(spec, max_entries, enumerator)
     }

@@ -225,11 +225,10 @@ impl SharedSymbol {
     unsafe fn construct(ptr: *mut SharedSymbol, name: &str, arity: usize) {
         // SAFETY: the caller guarantees `ptr` is allocated with the layout for `name.len()` bytes.
         unsafe {
-            ptr.cast::<SymbolHeader>()
-                .write(SymbolHeader {
-                    arity: AtomicTaggedUsize::new(arity),
-                    len: name.len(),
-                });
+            ptr.cast::<SymbolHeader>().write(SymbolHeader {
+                arity: AtomicTaggedUsize::new(arity),
+                len: name.len(),
+            });
             std::ptr::copy_nonoverlapping(name.as_ptr(), (&raw mut (*ptr).name).cast::<u8>(), name.len());
         }
     }

@@ -62,11 +62,9 @@ fn test_condition_cache_reduces_steps_across_unrelated_rules() {
     let input = term(&format!("check({})", nat_literal(N)), &[]);
     let expected = term("ok", &[]);
 
-    // A 1-entry cache is evicted before slow(x)'s second use (by whichever of
-    // p/q is checked second) arrives, so it behaves like no cache at all.
-    let mut uncached = InnermostRewriter::with_condition_cache_capacity(&spec, 1);
+    let mut uncached = InnermostRewriter::with_condition_cache_capacity(&spec, None);
     let (result, uncached_stats) = uncached.rewrite_with_statistics(&input);
-    assert_eq!(result, expected, "InnermostRewriter: 1-entry cache result mismatch");
+    assert_eq!(result, expected, "InnermostRewriter: uncached result mismatch");
 
     let mut cached = InnermostRewriter::new(&spec);
     let (result, cached_stats) = cached.rewrite_with_statistics(&input);
@@ -88,9 +86,9 @@ fn test_condition_cache_reduces_steps_across_unrelated_rules() {
         cached_stats.condition_cache_hits
     );
 
-    let mut uncached_sabre = SabreRewriter::with_condition_cache_capacity(&spec, 1);
+    let mut uncached_sabre = SabreRewriter::with_condition_cache_capacity(&spec, None);
     let (result, uncached_stats) = uncached_sabre.rewrite_with_statistics(&input);
-    assert_eq!(result, expected, "SabreRewriter: 1-entry cache result mismatch");
+    assert_eq!(result, expected, "SabreRewriter: uncached result mismatch");
 
     let mut cached_sabre = SabreRewriter::new(&spec);
     let (result, cached_stats) = cached_sabre.rewrite_with_statistics(&input);
@@ -113,14 +111,14 @@ fn test_condition_cache_correct_under_heavy_eviction() {
     let input = term(&format!("check({})", nat_literal(N)), &[]);
     let expected = term("ok", &[]);
 
-    let mut inner = InnermostRewriter::with_condition_cache_capacity(&spec, 1);
+    let mut inner = InnermostRewriter::with_condition_cache_capacity(&spec, Some(1));
     let (result, _) = inner.rewrite_with_statistics(&input);
     assert_eq!(
         result, expected,
         "a 1-entry cache must still be correct, just ineffective"
     );
 
-    let mut sabre = SabreRewriter::with_condition_cache_capacity(&spec, 1);
+    let mut sabre = SabreRewriter::with_condition_cache_capacity(&spec, Some(1));
     let (result, _) = sabre.rewrite_with_statistics(&input);
     assert_eq!(
         result, expected,

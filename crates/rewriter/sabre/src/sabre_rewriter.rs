@@ -84,13 +84,13 @@ impl RewriteEngine for SabreRewriter {
 
 impl SabreRewriter {
     pub fn new(spec: &RewriteSpecification) -> Self {
-        Self::with_condition_cache_capacity(spec, crate::matching::condition_cache::DEFAULT_MAX_ENTRIES)
+        Self::with_condition_cache_capacity(spec, Some(crate::matching::condition_cache::DEFAULT_MAX_ENTRIES))
     }
 
     /// Like [SabreRewriter::new], but `max_entries` sets the condition
-    /// cache's capacity (0 means unbounded; see `ConditionCache::new`)
-    /// instead of the default.
-    pub fn with_condition_cache_capacity(spec: &RewriteSpecification, max_entries: usize) -> Self {
+    /// cache's capacity instead of the default, and `None` disables it (see
+    /// `ConditionCache::new`).
+    pub fn with_condition_cache_capacity(spec: &RewriteSpecification, max_entries: Option<usize>) -> Self {
         let automaton = SetAutomaton::new(spec, AnnouncementSabre::new, false);
 
         SabreRewriter {
