@@ -418,10 +418,16 @@ fn split<'a>(expr: &PbesExpressionRef<'a>, conjunction: bool) -> Vec<PbesExpress
     let mut seen = HashSet::new();
     let mut result = Vec::new();
     while let Some(expr) = stack.pop() {
+        // Compound nodes are marked too: the operands of a shared one have already been visited,
+        // so expanding it again only repeats work, exponentially so for nested sharing.
+        if !seen.insert(PbesExpressionRef::from(expr.term.copy())) {
+            continue;
+        }
+
         if let Some((lhs, rhs)) = expr.operands(conjunction) {
             stack.push(rhs);
             stack.push(lhs);
-        } else if seen.insert(PbesExpressionRef::from(expr.term.copy())) {
+        } else {
             result.push(expr);
         }
     }

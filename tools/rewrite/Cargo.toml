@@ -14,6 +14,7 @@ merc_sabre.workspace = true
 merc_syntax.workspace = true
 merc_tools.workspace = true
 merc_pbes.workspace = true
+merc_pres.workspace = true
 merc_typecheck.workspace = true
 merc_unsafety.workspace = true
 merc_utilities.workspace = true
