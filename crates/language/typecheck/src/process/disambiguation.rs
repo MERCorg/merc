@@ -40,8 +40,8 @@ impl Names {
 /// field swallowing what should have been the rest of the process expression
 /// into it.
 ///
-/// See the [Process
-/// Specification](https://MERCorg.github.io/merc-website/developer/typechecking/process-specification/)
+/// See the [Grammar
+/// Ambiguity](https://mercorg.github.io/merc-website/developer/parsing/disambiguation/)
 /// page for the exact shapes (with parse-tree diagrams) and the known
 /// limitations.
 pub fn disambiguate_process_specification(spec: &mut UntypedProcessSpecification) {

@@ -94,22 +94,23 @@ mod inner {
             }
         }
 
-        /// Same as [DataExpression::data_function_symbol], but returns `None` for a variable
-        /// instead of panicking.
+        /// Same as [DataExpression::data_function_symbol], but returns `None` for a variable or
+        /// a binder instead of panicking.
         ///
-        /// Pattern matching uses this to observe a symbol: a variable in the subject term has no
-        /// head symbol and therefore matches no pattern position. The variable is only tested
-        /// after the two cases that do have one, so the common path costs the same.
+        /// Pattern matching uses this to observe a symbol: a variable or an undecided
+        /// quantifier in the subject term has no head symbol and therefore matches no pattern
+        /// position. These are only tested after the two cases that do have one, so the
+        /// common path costs the same.
         ///
         /// # Panics
         ///
-        /// Panics for machine numbers, binders, and where clauses.
+        /// Panics for machine numbers and where clauses.
         pub fn try_data_function_symbol(&self) -> Option<DataFunctionSymbolRef<'_>> {
             if is_data_application(&self.term) {
                 Some(self.term.arg(0).into())
             } else if is_data_function_symbol(&self.term) {
                 Some(self.term.copy().into())
-            } else if is_data_variable(&self.term) {
+            } else if is_data_variable(&self.term) || is_data_binder(&self.term) {
                 None
             } else {
                 panic!("try_data_function_symbol not implemented for {self}");
