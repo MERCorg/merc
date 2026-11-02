@@ -346,7 +346,6 @@ impl RewriteSubstitution for SingleSubstitution<'_> {
 
 #[cfg(test)]
 mod tests {
-    use merc_data::BasicSort;
     use merc_data::DataApplication;
     use merc_data::DataExpression;
     use merc_data::DataFunctionSymbol;
@@ -358,20 +357,16 @@ mod tests {
     use super::BindingArena;
     use super::BindingChain;
 
-    fn nat() -> SortExpression {
-        SortExpression::from(BasicSort::new("Nat"))
-    }
-
     #[test]
     fn test_resolve_follows_chained_bindings() {
         // v -> c(y1, y2), y1 -> a, y2 -> b: resolving v must recursively
         // substitute y1 and y2, which are only bound *later* in the chain.
-        let v = DataVariable::with_sort("v", nat().copy());
-        let y1 = DataVariable::with_sort("y1", nat().copy());
-        let y2 = DataVariable::with_sort("y2", nat().copy());
-        let c = DataFunctionSymbol::with_sort("c", nat().copy());
-        let a: DataExpression = DataFunctionSymbol::with_sort("a", nat().copy()).into();
-        let b: DataExpression = DataFunctionSymbol::with_sort("b", nat().copy()).into();
+        let v = DataVariable::with_sort("v", SortExpression::nat().copy());
+        let y1 = DataVariable::with_sort("y1", SortExpression::nat().copy());
+        let y2 = DataVariable::with_sort("y2", SortExpression::nat().copy());
+        let c = DataFunctionSymbol::with_sort("c", SortExpression::nat().copy());
+        let a: DataExpression = DataFunctionSymbol::with_sort("a", SortExpression::nat().copy()).into();
+        let b: DataExpression = DataFunctionSymbol::with_sort("b", SortExpression::nat().copy()).into();
 
         let v_value: DataExpression = DataApplication::with_args(
             &c,
@@ -409,11 +404,11 @@ mod tests {
         //
         // Calls `substitute` rather than `resolve`, since the final rewrite
         // still traverses the tree.
-        let v = DataVariable::with_sort("v", nat().copy());
-        let y = DataVariable::with_sort("y", nat().copy());
-        let c = DataFunctionSymbol::with_sort("c", nat().copy());
-        let g = DataFunctionSymbol::with_sort("g", nat().copy());
-        let a: DataExpression = DataFunctionSymbol::with_sort("a", nat().copy()).into();
+        let v = DataVariable::with_sort("v", SortExpression::nat().copy());
+        let y = DataVariable::with_sort("y", SortExpression::nat().copy());
+        let c = DataFunctionSymbol::with_sort("c", SortExpression::nat().copy());
+        let g = DataFunctionSymbol::with_sort("g", SortExpression::nat().copy());
+        let a: DataExpression = DataFunctionSymbol::with_sort("a", SortExpression::nat().copy()).into();
 
         let mut shared = a.clone();
         for _ in 0..64 {
@@ -438,7 +433,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "is not bound")]
     fn test_resolve_panics_on_unbound_variable() {
-        let v = DataVariable::with_sort("v", nat().copy());
+        let v = DataVariable::with_sort("v", SortExpression::nat().copy());
         let mut resolved = Vec::new();
         let mut arena = BindingArena::default();
         arena.chain.write(|guard| {

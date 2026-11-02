@@ -6,7 +6,6 @@ use crate::DataExpressionRef;
 use crate::DataFunctionSymbolRef;
 use crate::MachineNumber;
 use crate::MachineNumberRef;
-use crate::bool_literal;
 use crate::is_data_application;
 use crate::is_data_function_symbol;
 use crate::is_data_machine_number;
@@ -252,11 +251,11 @@ impl MachineWordOp {
             (Self::SqrtWord, [n]) => Some(machine_number(mw::sqrt_word(*n))),
 
             // Unary word -> Bool.
-            (Self::EqualsZeroWord, [n]) => Some(bool_literal(mw::equals_zero_word(*n))),
-            (Self::NotEqualsZeroWord, [n]) => Some(bool_literal(mw::not_equals_zero_word(*n))),
-            (Self::EqualsOneWord, [n]) => Some(bool_literal(mw::equals_one_word(*n))),
-            (Self::EqualsMaxWord, [n]) => Some(bool_literal(mw::equals_max_word(*n))),
-            (Self::RightmostBit, [n]) => Some(bool_literal(mw::rightmost_bit(*n))),
+            (Self::EqualsZeroWord, [n]) => Some(DataExpression::bool_literal(mw::equals_zero_word(*n))),
+            (Self::NotEqualsZeroWord, [n]) => Some(DataExpression::bool_literal(mw::not_equals_zero_word(*n))),
+            (Self::EqualsOneWord, [n]) => Some(DataExpression::bool_literal(mw::equals_one_word(*n))),
+            (Self::EqualsMaxWord, [n]) => Some(DataExpression::bool_literal(mw::equals_max_word(*n))),
+            (Self::RightmostBit, [n]) => Some(DataExpression::bool_literal(mw::rightmost_bit(*n))),
 
             // Binary word # word -> word.
             (Self::AddWord, [a, b]) => Some(machine_number(mw::add_word(*a, *b))),
@@ -269,14 +268,16 @@ impl MachineWordOp {
             (Self::ModWord, [a, b]) => Some(machine_number(mw::mod_word(*a, *b))),
 
             // Binary word # word -> Bool.
-            (Self::AddOverflowWord, [a, b]) => Some(bool_literal(mw::add_overflow_word(*a, *b))),
-            (Self::AddWithCarryOverflowWord, [a, b]) => Some(bool_literal(mw::add_with_carry_overflow_word(*a, *b))),
-            (Self::Equal, [a, b]) => Some(bool_literal(mw::equal_word(*a, *b))),
-            (Self::NotEqual, [a, b]) => Some(bool_literal(mw::not_equal_word(*a, *b))),
-            (Self::Less, [a, b]) => Some(bool_literal(mw::less_word(*a, *b))),
-            (Self::LessEqual, [a, b]) => Some(bool_literal(mw::less_equal_word(*a, *b))),
-            (Self::Greater, [a, b]) => Some(bool_literal(mw::greater_word(*a, *b))),
-            (Self::GreaterEqual, [a, b]) => Some(bool_literal(mw::greater_equal_word(*a, *b))),
+            (Self::AddOverflowWord, [a, b]) => Some(DataExpression::bool_literal(mw::add_overflow_word(*a, *b))),
+            (Self::AddWithCarryOverflowWord, [a, b]) => {
+                Some(DataExpression::bool_literal(mw::add_with_carry_overflow_word(*a, *b)))
+            }
+            (Self::Equal, [a, b]) => Some(DataExpression::bool_literal(mw::equal_word(*a, *b))),
+            (Self::NotEqual, [a, b]) => Some(DataExpression::bool_literal(mw::not_equal_word(*a, *b))),
+            (Self::Less, [a, b]) => Some(DataExpression::bool_literal(mw::less_word(*a, *b))),
+            (Self::LessEqual, [a, b]) => Some(DataExpression::bool_literal(mw::less_equal_word(*a, *b))),
+            (Self::Greater, [a, b]) => Some(DataExpression::bool_literal(mw::greater_word(*a, *b))),
+            (Self::GreaterEqual, [a, b]) => Some(DataExpression::bool_literal(mw::greater_equal_word(*a, *b))),
 
             // Ternary word # word # word -> word.
             (Self::TimesWithCarryWord, [a, b, c]) => Some(machine_number(mw::times_with_carry_word(*a, *b, *c))),
@@ -362,7 +363,6 @@ fn as_bool(arg: &DataExpressionRef<'_>) -> Option<bool> {
 mod tests {
     use crate::DataApplication;
     use crate::DataFunctionSymbol;
-    use crate::bool_literal;
 
     use super::DataExpression;
     use super::MachineWordOp;
@@ -440,23 +440,23 @@ mod tests {
     fn test_bool_valued_operations() {
         assert_eq!(
             try_evaluate_machine_word(&apply(MachineWordOp::Less, &[word(1), word(2)])),
-            Some(bool_literal(true))
+            Some(DataExpression::bool_literal(true))
         );
         assert_eq!(
             try_evaluate_machine_word(&apply(MachineWordOp::Less, &[word(2), word(1)])),
-            Some(bool_literal(false))
+            Some(DataExpression::bool_literal(false))
         );
         assert_eq!(
             try_evaluate_machine_word(&apply(MachineWordOp::Equal, &[word(7), word(7)])),
-            Some(bool_literal(true))
+            Some(DataExpression::bool_literal(true))
         );
         assert_eq!(
             try_evaluate_machine_word(&apply(MachineWordOp::EqualsZeroWord, &[word(0)])),
-            Some(bool_literal(true))
+            Some(DataExpression::bool_literal(true))
         );
         assert_eq!(
             try_evaluate_machine_word(&apply(MachineWordOp::AddOverflowWord, &[word(u64::MAX), word(1)])),
-            Some(bool_literal(true))
+            Some(DataExpression::bool_literal(true))
         );
     }
 
@@ -479,7 +479,7 @@ mod tests {
         // The `true` literal produced by the dispatch must be structurally identical to the
         // one the IR lowering builds (a nullary function symbol of sort Bool), so that the
         // rewriter treats them as the same term.
-        let expected = bool_literal(true);
+        let expected = DataExpression::bool_literal(true);
         assert_eq!(
             try_evaluate_machine_word(&apply(MachineWordOp::Greater, &[word(2), word(1)])),
             Some(expected)

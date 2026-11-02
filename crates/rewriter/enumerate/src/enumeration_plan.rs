@@ -469,7 +469,7 @@ mod tests {
         // `D`'s only constructor recurses into itself, so it has no closed
         // terms at all.
         let d: merc_data::SortExpression = merc_data::BasicSort::new("D").into();
-        let arrow: merc_data::SortExpression = merc_data::SortArrow::new(std::slice::from_ref(&d), d.clone()).into();
+        let arrow: merc_data::SortExpression = merc_data::SortArrow::new(std::slice::from_ref(&d), &d).into();
         let f = merc_data::DataFunctionSymbol::with_sort("f", arrow.copy());
         let spec = merc_data::Mcrl2DataSpecification::new(
             vec![merc_data::BasicSort::new("D")],

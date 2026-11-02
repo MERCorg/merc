@@ -14,7 +14,6 @@ use crate::DataExpression;
 use crate::DataExpressionRef;
 use crate::DataFunctionSymbol;
 use crate::DataFunctionSymbolRef;
-use crate::SortArrow;
 use crate::SortExpression;
 use crate::is_data_application;
 use crate::is_data_function_symbol;
@@ -73,51 +72,46 @@ impl<'a> DataExpressionRef<'a> {
 }
 
 impl DataExpression {
+    /// The canonical `Bool` literal `true`/`false`.
+    pub fn bool_literal(value: bool) -> DataExpression {
+        if value {
+            TRUE_LITERAL.with(|term| (**term).clone().into())
+        } else {
+            FALSE_LITERAL.with(|term| (**term).clone().into())
+        }
+    }
+
     /// Builds `lhs && rhs`.
-    pub fn and(lhs: DataExpression, rhs: DataExpression) -> DataExpression {
-        BOOL_SYMBOLS.with_borrow(|bs| DataApplication::with_args(&*bs.and, &[lhs, rhs]).into())
+    pub fn and(lhs: &DataExpression, rhs: &DataExpression) -> DataExpression {
+        BOOL_SYMBOLS.with_borrow(|bs| DataApplication::with_args(&*bs.and, &[lhs.copy(), rhs.copy()]).into())
     }
 
     /// Builds `lhs || rhs`.
-    pub fn or(lhs: DataExpression, rhs: DataExpression) -> DataExpression {
-        BOOL_SYMBOLS.with_borrow(|bs| DataApplication::with_args(&*bs.or, &[lhs, rhs]).into())
+    pub fn or(lhs: &DataExpression, rhs: &DataExpression) -> DataExpression {
+        BOOL_SYMBOLS.with_borrow(|bs| DataApplication::with_args(&*bs.or, &[lhs.copy(), rhs.copy()]).into())
     }
 
     /// Builds `!operand`.
-    pub fn negation(operand: DataExpression) -> DataExpression {
-        BOOL_SYMBOLS.with_borrow(|bs| DataApplication::with_args(&*bs.not, &[operand]).into())
+    pub fn negation(operand: &DataExpression) -> DataExpression {
+        BOOL_SYMBOLS.with_borrow(|bs| DataApplication::with_args(&*bs.not, &[operand.copy()]).into())
     }
 
     /// Builds `lhs => rhs`.
-    pub fn implies(lhs: DataExpression, rhs: DataExpression) -> DataExpression {
-        BOOL_SYMBOLS.with_borrow(|bs| DataApplication::with_args(&*bs.implies, &[lhs, rhs]).into())
+    pub fn implies(lhs: &DataExpression, rhs: &DataExpression) -> DataExpression {
+        BOOL_SYMBOLS.with_borrow(|bs| DataApplication::with_args(&*bs.implies, &[lhs.copy(), rhs.copy()]).into())
     }
 
     /// Builds `lhs == rhs`, where both sides have sort `domain`.
-    pub fn equal(domain: SortExpression, lhs: DataExpression, rhs: DataExpression) -> DataExpression {
-        let symbol = function_symbol(EQ, SortArrow::new(&[domain.clone(), domain], SortExpression::bool()));
-        DataApplication::with_args(&symbol, &[lhs, rhs]).into()
+    pub fn equal(domain: &SortExpression, lhs: &DataExpression, rhs: &DataExpression) -> DataExpression {
+        let symbol = DataFunctionSymbol::with_signature(EQ, &[domain.clone(), domain.clone()], &SortExpression::bool());
+        DataApplication::with_args(&symbol, &[lhs.copy(), rhs.copy()]).into()
     }
 
     /// Builds `lhs != rhs`, where both sides have sort `domain`.
-    pub fn not_equal(domain: SortExpression, lhs: DataExpression, rhs: DataExpression) -> DataExpression {
-        let symbol = function_symbol(NEQ, SortArrow::new(&[domain.clone(), domain], SortExpression::bool()));
-        DataApplication::with_args(&symbol, &[lhs, rhs]).into()
-    }
-}
-
-/// Builds the function symbol named `name` with the function sort `arrow`.
-fn function_symbol(name: &'static str, arrow: SortArrow) -> DataFunctionSymbol {
-    let sort: SortExpression = arrow.into();
-    DataFunctionSymbol::with_sort(name, sort.copy())
-}
-
-/// Returns the canonical `Bool` literal `true`/`false`.
-pub fn bool_literal(value: bool) -> DataExpression {
-    if value {
-        TRUE_LITERAL.with(|term| (**term).clone().into())
-    } else {
-        FALSE_LITERAL.with(|term| (**term).clone().into())
+    pub fn not_equal(domain: &SortExpression, lhs: &DataExpression, rhs: &DataExpression) -> DataExpression {
+        let symbol =
+            DataFunctionSymbol::with_signature(NEQ, &[domain.clone(), domain.clone()], &SortExpression::bool());
+        DataApplication::with_args(&symbol, &[lhs.copy(), rhs.copy()]).into()
     }
 }
 
@@ -171,11 +165,11 @@ impl BooleanChain for DataExpressionRef<'_> {
 
 impl Boolean for DataExpression {
     fn true_constant() -> Self {
-        bool_literal(true)
+        DataExpression::bool_literal(true)
     }
 
     fn false_constant() -> Self {
-        bool_literal(false)
+        DataExpression::bool_literal(false)
     }
 
     fn is_true(&self) -> bool {
@@ -194,19 +188,19 @@ impl Boolean for DataExpression {
     }
 
     fn make_not(self) -> Self {
-        DataExpression::negation(self)
+        DataExpression::negation(&self)
     }
 
     fn make_and(self, rhs: Self) -> Self {
-        DataExpression::and(self, rhs)
+        DataExpression::and(&self, &rhs)
     }
 
     fn make_or(self, rhs: Self) -> Self {
-        DataExpression::or(self, rhs)
+        DataExpression::or(&self, &rhs)
     }
 
     fn make_imp(self, rhs: Self) -> Self {
-        DataExpression::implies(self, rhs)
+        DataExpression::implies(&self, &rhs)
     }
 }
 
@@ -244,32 +238,23 @@ struct BoolSymbols {
 
 impl BoolSymbols {
     fn new() -> Self {
+        let bool = SortExpression::bool();
+        let binary = |name| {
+            ManuallyDrop::new(DataFunctionSymbol::with_signature(
+                name,
+                &[bool.clone(), bool.clone()],
+                &bool,
+            ))
+        };
         Self {
-            and: ManuallyDrop::new(function_symbol(
-                AND,
-                SortArrow::new(
-                    &[SortExpression::bool(), SortExpression::bool()],
-                    SortExpression::bool(),
-                ),
-            )),
-            or: ManuallyDrop::new(function_symbol(
-                OR,
-                SortArrow::new(
-                    &[SortExpression::bool(), SortExpression::bool()],
-                    SortExpression::bool(),
-                ),
-            )),
-            not: ManuallyDrop::new(function_symbol(
+            and: binary(AND),
+            or: binary(OR),
+            not: ManuallyDrop::new(DataFunctionSymbol::with_signature(
                 NOT,
-                SortArrow::new(&[SortExpression::bool()], SortExpression::bool()),
+                std::slice::from_ref(&bool),
+                &bool,
             )),
-            implies: ManuallyDrop::new(function_symbol(
-                IMPLIES,
-                SortArrow::new(
-                    &[SortExpression::bool(), SortExpression::bool()],
-                    SortExpression::bool(),
-                ),
-            )),
+            implies: binary(IMPLIES),
             eq_name: ManuallyDrop::new(ATermString::new(EQ)),
             neq_name: ManuallyDrop::new(ATermString::new(NEQ)),
         }

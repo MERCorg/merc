@@ -345,8 +345,8 @@ impl<'a> BinaryChain for PbesExpressionRef<'a> {
 
     /// Allocates nothing and, in particular, protects nothing: both operands are subterms of
     /// `self`, which the caller already holds live.
-    fn binary_operands(self, op: PbesConnective) -> Option<(Self, Self)> {
-        let term: ATermRef<'a> = self.into();
+    fn binary_operands(&self, op: PbesConnective) -> Option<(Self, Self)> {
+        let term: ATermRef<'a> = (*self).into();
         if !op.matches(&term) {
             return None;
         }

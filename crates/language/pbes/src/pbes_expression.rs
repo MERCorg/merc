@@ -19,7 +19,6 @@ use merc_aterm::storage::Marker;
 use merc_data::DataExpression;
 use merc_data::DataExpressionRef;
 use merc_data::DataVariable;
-use merc_data::bool_literal;
 use merc_data::is_bool_literal;
 use merc_data::is_data_application;
 use merc_data::is_data_binder;
@@ -166,13 +165,13 @@ mod inner {
         /// The Boolean constant `true`.
         #[merc_ignore]
         pub fn true_constant() -> Self {
-            bool_literal(true).into()
+            DataExpression::bool_literal(true).into()
         }
 
         /// The Boolean constant `false`.
         #[merc_ignore]
         pub fn false_constant() -> Self {
-            bool_literal(false).into()
+            DataExpression::bool_literal(false).into()
         }
 
         #[merc_ignore]

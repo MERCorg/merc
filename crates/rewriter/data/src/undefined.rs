@@ -1,6 +1,5 @@
 use merc_aterm::Term;
 
-use crate::BasicSort;
 use crate::DataExpression;
 use crate::DataExpressionRef;
 use crate::DataVariable;
@@ -11,7 +10,7 @@ const UNDEFINED_REAL_NAME: &str = "@undefined_real";
 
 /// Returns the data expression that mCRL2 defines for the default undefined real.
 pub fn undefined_real() -> DataExpression {
-    let sort: SortExpression = BasicSort::new("Real").into();
+    let sort = SortExpression::real();
     DataVariable::with_sort(UNDEFINED_REAL_NAME, sort.copy()).into()
 }
 

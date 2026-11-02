@@ -172,9 +172,9 @@ fn detect_solitair_cycles_impl(
         let i = alpha.to_index();
 
         let mut u = empty_set(game)?;
-        let mut u_next = parity[i].intersect(&vplayer[i])?;
+        let mut u_next = parity[i].intsec(&vplayer[i])?;
         if let SafetyMode::Restricted(safe) = &mode {
-            u_next = u_next.intersect(&safe[i])?;
+            u_next = u_next.intsec(&safe[i])?;
         }
 
         while u != u_next {
@@ -257,17 +257,17 @@ fn detect_forced_cycles_impl(
         let mut u = empty_set(game)?;
         let mut u_next = parity[i].clone();
         if let SafetyMode::Restricted(safe) = &mode {
-            u_next = u_next.intersect(&safe[i])?;
+            u_next = u_next.intsec(&safe[i])?;
         }
 
         while u != u_next {
             u = u_next.clone();
             u_next = match &mode {
                 SafetyMode::Safe => {
-                    u.intersect(&game.control_predecessors_within(alpha, &u, &total, &vplayer, Some(incomplete))?)?
+                    u.intsec(&game.control_predecessors_within(alpha, &u, &total, &vplayer, Some(incomplete))?)?
                 }
                 SafetyMode::Restricted(safe) => {
-                    u.intersect(&game.control_predecessors_within(alpha, &u, &safe[i], &vplayer, None)?)?
+                    u.intsec(&game.control_predecessors_within(alpha, &u, &safe[i], &vplayer, None)?)?
                 }
             };
         }
@@ -390,7 +390,7 @@ fn detect_fatal_attractors_impl(
 
         // Restricting the seed to `search_space` up front saves a wasted
         // `monotone_attractor` fixpoint.
-        let mut x = block.intersect(search_space)?;
+        let mut x = block.intsec(search_space)?;
         let mut y = empty_set(game)?;
 
         while !x.is_empty() && x != y {
@@ -417,7 +417,7 @@ fn detect_fatal_attractors_impl(
                 winning[i] = winning[i].union(&attracted)?;
                 break;
             }
-            x = x.intersect(&z)?;
+            x = x.intsec(&z)?;
         }
     }
 

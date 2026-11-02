@@ -11,7 +11,6 @@ use merc_data::DataExpression;
 use merc_data::DataExpressionRef;
 use merc_data::DataVariable;
 use merc_data::DataVariableRef;
-use merc_data::bool_literal;
 use merc_sabre::RewriteEngine;
 
 use crate::binding::BindingArena;
@@ -187,8 +186,8 @@ impl Enumerator {
             limits: EnumerationLimits::default(),
             finite_elements: RefCell::new(HashMap::new()),
             generator: RefCell::new(generator),
-            true_literal: bool_literal(true),
-            false_literal: bool_literal(false),
+            true_literal: DataExpression::bool_literal(true),
+            false_literal: DataExpression::bool_literal(false),
         }
     }
 

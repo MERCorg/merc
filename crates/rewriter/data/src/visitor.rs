@@ -281,7 +281,6 @@ mod tests {
     use merc_utilities::Step;
     use merc_utilities::Visit;
 
-    use crate::BasicSort;
     use crate::BinderType;
     use crate::DataAbstraction;
     use crate::DataApplicationRef;
@@ -404,8 +403,8 @@ mod tests {
     /// binding occurrences of their variables are not.
     #[test]
     fn test_visit_binder_and_where_clause() {
-        let x = DataVariable::with_sort("x", SortExpression::from(BasicSort::new("Bool")).copy());
-        let y = DataVariable::with_sort("y", SortExpression::from(BasicSort::new("Bool")).copy());
+        let x = DataVariable::with_sort("x", SortExpression::bool().copy());
+        let y = DataVariable::with_sort("y", SortExpression::bool().copy());
         let lambda: DataExpression =
             DataAbstraction::new(BinderType::Lambda, std::slice::from_ref(&x), y.clone().into()).into();
         let clause: DataExpression =

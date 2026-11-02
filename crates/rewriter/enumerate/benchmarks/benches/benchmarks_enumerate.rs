@@ -49,7 +49,7 @@ fn d_sort() -> SortExpression {
 
 fn numeral(value: u32) -> DataExpression {
     let dzero = DataFunctionSymbol::with_sort("dzero", d_sort().copy());
-    let succ_sort: SortExpression = SortArrow::new(&[d_sort()], d_sort()).into();
+    let succ_sort: SortExpression = SortArrow::new(&[d_sort()], &d_sort()).into();
     let dsucc = DataFunctionSymbol::with_sort("dsucc", succ_sort.copy());
     let mut term: DataExpression = dzero.into();
     for _ in 0..value {
@@ -60,8 +60,7 @@ fn numeral(value: u32) -> DataExpression {
 
 fn lt_goal(bound: u32) -> (Vec<DataVariable>, DataExpression) {
     let n = DataVariable::with_sort("n", d_sort().copy());
-    let lt_sort: SortExpression =
-        SortArrow::new(&[d_sort(), d_sort()], SortExpression::from(BasicSort::new("Bool"))).into();
+    let lt_sort: SortExpression = SortArrow::new(&[d_sort(), d_sort()], &SortExpression::bool()).into();
     let lt = DataFunctionSymbol::with_sort("lt", lt_sort.copy());
     let body: DataExpression =
         DataApplication::with_args(&lt, &[DataExpression::from(n.clone()), numeral(bound)]).into();

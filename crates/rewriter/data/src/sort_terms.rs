@@ -105,10 +105,10 @@ mod inner {
         /// Builds the function sort `domain -> codomain`, `domain` a proper
         /// aterm list).
         #[merc_ignore]
-        pub fn new(domain: &[SortExpression], codomain: SortExpression) -> SortArrow {
+        pub fn new(domain: &[SortExpression], codomain: &SortExpression) -> SortArrow {
             DATA_SYMBOLS.with_borrow(|ds| {
                 let domain_list: ATermList<SortExpression> = ATermList::from_double_iter(domain.iter().cloned());
-                let args: [ATerm; 2] = [domain_list.into(), codomain.into()];
+                let args: [ATerm; 2] = [domain_list.into(), codomain.clone().into()];
                 SortArrow {
                     term: ATerm::with_args(ds.function_sort_symbol.deref(), &args).protect(),
                 }
@@ -324,7 +324,7 @@ mod tests {
     #[test]
     fn test_sort_arrow() {
         let domain = [basic("Nat"), basic("Bool")];
-        let arrow = SortArrow::new(&domain, basic("Bool"));
+        let arrow = SortArrow::new(&domain, &basic("Bool"));
 
         assert!(is_function_sort(&arrow));
         assert!(!is_basic_sort(&arrow));

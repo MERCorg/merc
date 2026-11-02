@@ -1,13 +1,14 @@
 #![doc = include_str!("../README.md")]
 #![forbid(unsafe_code)]
 
+mod booleans;
 mod closed;
 mod data_expression;
 mod data_terms;
 mod machine_word_evaluation;
 mod mcrl2_data_specification;
 mod sort_terms;
-mod booleans;
+mod standard_sorts;
 mod undefined;
 mod visitor;
 
@@ -21,6 +22,9 @@ pub(crate) use data_terms::is_sort_alias;
 pub(crate) use data_terms::is_sort_expression;
 
 // Public API
+pub use booleans::BoolConnective;
+pub use booleans::BoolKind;
+pub use booleans::is_bool_literal;
 pub use closed::is_closed;
 pub use data_expression::BinderType;
 pub use data_expression::DataAbstraction;
@@ -41,7 +45,6 @@ pub use data_expression::DataWhrDeclRef;
 pub use data_expression::MachineNumber;
 pub use data_expression::MachineNumberRef;
 pub use data_expression::to_untyped_data_expression;
-pub use data_terms::bool_literal;
 pub use data_terms::is_container_sort;
 pub use data_terms::is_data_application;
 pub use data_terms::is_data_binder;
@@ -63,7 +66,6 @@ pub use sort_terms::SortCons;
 pub use sort_terms::SortConsRef;
 pub use sort_terms::SortExpression;
 pub use sort_terms::SortExpressionRef;
-pub use booleans::BoolKind;
 pub use undefined::is_undefined_real;
 pub use undefined::is_undefined_real_ref;
 pub use undefined::undefined_real;

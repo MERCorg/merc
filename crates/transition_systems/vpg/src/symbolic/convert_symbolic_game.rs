@@ -54,7 +54,7 @@ pub fn convert_symbolic_parity_game(
         builder.add_vertex(vertex, owner, priority);
 
         let singleton = manager.with_manager_shared(|m| LDDFunction::singleton(m, cube))?;
-        let successors = game.successors(&singleton)?.intersect(vertices)?;
+        let successors = game.successors(&singleton)?.intsec(vertices)?;
 
         let mut successor_iter = iter(&successors);
         while let Some(successor) = successor_iter.next() {

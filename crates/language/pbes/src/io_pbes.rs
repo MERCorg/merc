@@ -74,19 +74,18 @@ impl ATermStreamable for Pbes {
         let count = ATermInt::from(count).value();
         let mut equations = Vec::with_capacity(count);
         for _ in 0..count {
-            equations.push(PbesEquation {
-                symbol: fixpoint(&next_term(reader, "fixpoint symbol")?)?,
-                variable: expect(
-                    next_term(reader, "propositional variable")?,
-                    |term| is_propositional_variable(term),
-                    "propositional variable",
-                )?,
-                formula: expect(
-                    next_term(reader, "equation formula")?,
-                    |term| is_pbes_expression(term),
-                    "PBES expression",
-                )?,
-            });
+            let symbol = fixpoint(&next_term(reader, "fixpoint symbol")?)?;
+            let variable = expect(
+                next_term(reader, "propositional variable")?,
+                |term| is_propositional_variable(term),
+                "propositional variable",
+            )?;
+            let formula = expect(
+                next_term(reader, "equation formula")?,
+                |term| is_pbes_expression(term),
+                "PBES expression",
+            )?;
+            equations.push(PbesEquation::new(symbol, variable, formula));
         }
 
         let initial_state = expect(

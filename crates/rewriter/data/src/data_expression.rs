@@ -26,7 +26,6 @@ use merc_macros::merc_derive_terms;
 use merc_macros::merc_ignore;
 use merc_macros::merc_term;
 
-use crate::BasicSort;
 use crate::DATA_SYMBOLS;
 use crate::SortExpression;
 use crate::SortExpressionRef;
@@ -220,6 +219,17 @@ mod inner {
                     term: ATerm::with_args(ds.data_function_symbol_no_index.deref(), args).protect(),
                 }
             })
+        }
+
+        /// Creates a function symbol with the given name and the function sort `domain -> codomain`.
+        #[merc_ignore]
+        pub fn with_signature<N: Into<ATermString>>(
+            name: N,
+            domain: &[SortExpression],
+            codomain: &SortExpression,
+        ) -> DataFunctionSymbol {
+            let sort = SortExpression::from(crate::SortArrow::new(domain, &codomain));
+            DataFunctionSymbol::with_sort(name, sort.copy())
         }
 
         /// Returns the name of the function symbol
@@ -606,7 +616,7 @@ mod inner {
     /// wire-format placeholder for an unconditional equation's condition.
     #[merc_ignore]
     fn true_literal() -> DataExpression {
-        DataFunctionSymbol::with_sort("true", SortExpression::from(BasicSort::new("Bool")).copy()).into()
+        DataExpression::bool_literal(true)
     }
 
     /// Conversions to `DataExpression`
@@ -790,13 +800,11 @@ mod tests {
     use merc_aterm::ATerm;
     use merc_aterm::ATermInt;
 
+    use crate::SortExpression;
     use crate::is_data_application;
     use crate::is_data_equation;
     use crate::is_data_machine_number;
     use crate::is_data_variable;
-
-    use crate::BasicSort;
-    use crate::SortExpression;
 
     use super::DataApplication;
     use super::DataEquation;
@@ -806,7 +814,7 @@ mod tests {
 
     #[test]
     fn test_function_symbol_with_sort() {
-        let sort: SortExpression = BasicSort::new("Nat").into();
+        let sort = SortExpression::nat();
         let f = DataFunctionSymbol::with_sort("f", sort.copy());
 
         assert_eq!(f.name(), "f");
@@ -903,7 +911,7 @@ mod tests {
 
     #[test]
     fn test_data_equation_unconditional() {
-        let sort: SortExpression = BasicSort::new("Nat").into();
+        let sort = SortExpression::nat();
         let x = DataVariable::with_sort("x", sort.copy());
         let lhs: DataExpression =
             DataApplication::with_args(&DataFunctionSymbol::new("f"), std::slice::from_ref(&x)).into();
@@ -921,7 +929,7 @@ mod tests {
 
     #[test]
     fn test_data_equation_conditional() {
-        let sort: SortExpression = BasicSort::new("Bool").into();
+        let sort = SortExpression::bool();
         let b = DataVariable::with_sort("b", sort.copy());
         let condition: DataExpression = b.clone().into();
         let lhs = DataFunctionSymbol::new("f").into();

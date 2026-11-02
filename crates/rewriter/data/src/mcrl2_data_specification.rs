@@ -186,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_mcrl2_data_specification_roundtrip() {
-        let nat: SortExpression = BasicSort::new("Nat").into();
+        let nat = SortExpression::nat();
         let x = DataVariable::with_sort("x", nat.copy());
 
         // Populate every section, including an empty one, to exercise the length-prefixed framing.
@@ -226,7 +226,7 @@ mod tests {
     fn test_mcrl2_data_specification_alias_roundtrip() {
         let spec = Mcrl2DataSpecification::new(
             Vec::new(),
-            vec![SortAlias::new(BasicSort::new("D"), BasicSort::new("Nat").into())],
+            vec![SortAlias::new(BasicSort::new("D"), SortExpression::nat())],
             Vec::new(),
             Vec::new(),
             Vec::new(),

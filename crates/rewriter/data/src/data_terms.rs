@@ -1,42 +1,18 @@
 use std::cell::RefCell;
 use std::mem::ManuallyDrop;
 
-use merc_aterm::ATerm;
 use merc_aterm::Symb;
 use merc_aterm::Symbol;
 use merc_aterm::SymbolRef;
 use merc_aterm::Term;
 use merc_aterm::is_int_term;
 
-use crate::BasicSort;
 use crate::BinderType;
-use crate::DataExpression;
-use crate::DataFunctionSymbol;
-use crate::SortExpression;
 
 thread_local! {
     /// Thread local storage that stores various default terms representing data symbols.
     pub(crate) static DATA_SYMBOLS: RefCell<DataSymbols> = RefCell::new(DataSymbols::new());
 
-    /// The canonical `Bool` literals `true`/`false`.
-    static TRUE_LITERAL: ManuallyDrop<ATerm> = ManuallyDrop::new(bool_literal_term("true"));
-    static FALSE_LITERAL: ManuallyDrop<ATerm> = ManuallyDrop::new(bool_literal_term("false"));
-}
-
-/// Builds the nullary `Bool` function symbol term named `name` (`"true"` or `"false"`).
-fn bool_literal_term(name: &str) -> ATerm {
-    let bool_sort = SortExpression::from(BasicSort::new("Bool"));
-    let literal: DataExpression = DataFunctionSymbol::with_sort(name, bool_sort.copy()).into();
-    literal.into()
-}
-
-/// Returns the canonical `Bool` literal `true`/`false`.
-pub fn bool_literal(value: bool) -> DataExpression {
-    if value {
-        TRUE_LITERAL.with(|term| (**term).clone().into())
-    } else {
-        FALSE_LITERAL.with(|term| (**term).clone().into())
-    }
 }
 
 /// Defines default symbols and terms for data elements.
