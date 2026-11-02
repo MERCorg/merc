@@ -25,64 +25,6 @@ const EQ: &str = "==";
 const NEQ: &str = "!=";
 const IMPLIES: &str = "=>";
 
-fn bool_sort() -> SortExpression {
-    SortExpression::from(BasicSort::new("Bool"))
-}
-
-/// Builds the function symbol named `name` with the function sort `arrow`.
-fn function_symbol(name: &'static str, arrow: SortArrow) -> DataFunctionSymbol {
-    let sort: SortExpression = arrow.into();
-    DataFunctionSymbol::with_sort(name, sort.copy())
-}
-
-thread_local! {
-    /// Canonical terms for mCRL2's `Bool` connectives, built once per thread so that
-    /// [DataExpressionRef::bool_kind] reduces to a term comparison instead of rebuilding a sort
-    /// and function symbol and comparing names on every call, and the connective constructors
-    /// on [DataExpression] reuse the built symbol.
-    static BOOL_SYMBOLS: RefCell<BoolSymbols> = RefCell::new(BoolSymbols::new());
-}
-
-/// `&&`, `||`, `!`, and `=>` always have the same (monomorphic) `Bool` sort, so each is built
-/// once as the exact function symbol every application and comparison uses. `==` and `!=` are
-/// polymorphic in their domain sort, so only their name is canonicalized and they are matched on
-/// the name alone, ignoring the domain.
-///
-/// All fields are wrapped in `ManuallyDrop` so that their destructors never run at thread
-/// exit: a term must never be dropped after its owning thread-local term pool has already
-/// been torn down, and thread-local destruction order is unspecified (see
-/// [`crate::data_terms::DataSymbols`]).
-struct BoolSymbols {
-    and: ManuallyDrop<DataFunctionSymbol>,
-    or: ManuallyDrop<DataFunctionSymbol>,
-    not: ManuallyDrop<DataFunctionSymbol>,
-    implies: ManuallyDrop<DataFunctionSymbol>,
-    eq_name: ManuallyDrop<ATermString>,
-    neq_name: ManuallyDrop<ATermString>,
-}
-
-impl BoolSymbols {
-    fn new() -> Self {
-        Self {
-            and: ManuallyDrop::new(function_symbol(
-                AND,
-                SortArrow::new(&[bool_sort(), bool_sort()], bool_sort()),
-            )),
-            or: ManuallyDrop::new(function_symbol(
-                OR,
-                SortArrow::new(&[bool_sort(), bool_sort()], bool_sort()),
-            )),
-            not: ManuallyDrop::new(function_symbol(NOT, SortArrow::new(&[bool_sort()], bool_sort()))),
-            implies: ManuallyDrop::new(function_symbol(
-                IMPLIES,
-                SortArrow::new(&[bool_sort(), bool_sort()], bool_sort()),
-            )),
-            eq_name: ManuallyDrop::new(ATermString::new(EQ)),
-            neq_name: ManuallyDrop::new(ATermString::new(NEQ)),
-        }
-    }
-}
-
 /// The top-level shape of a data expression as one of mCRL2's `Bool` connectives, borrowing its
 /// operands. Data expressions are open-ended, so anything else is [BoolKind::Other].
 pub enum BoolKind<'a> {
@@ -158,5 +100,60 @@ impl DataExpression {
     pub fn not_equal(domain: SortExpression, lhs: DataExpression, rhs: DataExpression) -> DataExpression {
         let symbol = function_symbol(NEQ, SortArrow::new(&[domain.clone(), domain], bool_sort()));
         DataApplication::with_args(&symbol, &[lhs, rhs]).into()
+    }
+}
+
+fn bool_sort() -> SortExpression {
+    SortExpression::from(BasicSort::new("Bool"))
+}
+
+/// Builds the function symbol named `name` with the function sort `arrow`.
+fn function_symbol(name: &'static str, arrow: SortArrow) -> DataFunctionSymbol {
+    let sort: SortExpression = arrow.into();
+    DataFunctionSymbol::with_sort(name, sort.copy())
+}
+
+thread_local! {
+    /// Canonical terms for the boolean connectives.
+    static BOOL_SYMBOLS: RefCell<BoolSymbols> = RefCell::new(BoolSymbols::new());
+}
+
+/// `&&`, `||`, `!`, and `=>` always have the same (monomorphic) `Bool` sort, so each is built
+/// once as the exact function symbol every application and comparison uses. `==` and `!=` are
+/// polymorphic in their domain sort, so only their name is canonicalized and they are matched on
+/// the name alone, ignoring the domain.
+///
+/// All fields are wrapped in `ManuallyDrop` so that their destructors never run at thread
+/// exit: a term must never be dropped after its owning thread-local term pool has already
+/// been torn down, and thread-local destruction order is unspecified (see
+/// [`crate::data_terms::DataSymbols`]).
+struct BoolSymbols {
+    and: ManuallyDrop<DataFunctionSymbol>,
+    or: ManuallyDrop<DataFunctionSymbol>,
+    not: ManuallyDrop<DataFunctionSymbol>,
+    implies: ManuallyDrop<DataFunctionSymbol>,
+    eq_name: ManuallyDrop<ATermString>,
+    neq_name: ManuallyDrop<ATermString>,
+}
+
+impl BoolSymbols {
+    fn new() -> Self {
+        Self {
+            and: ManuallyDrop::new(function_symbol(
+                AND,
+                SortArrow::new(&[bool_sort(), bool_sort()], bool_sort()),
+            )),
+            or: ManuallyDrop::new(function_symbol(
+                OR,
+                SortArrow::new(&[bool_sort(), bool_sort()], bool_sort()),
+            )),
+            not: ManuallyDrop::new(function_symbol(NOT, SortArrow::new(&[bool_sort()], bool_sort()))),
+            implies: ManuallyDrop::new(function_symbol(
+                IMPLIES,
+                SortArrow::new(&[bool_sort(), bool_sort()], bool_sort()),
+            )),
+            eq_name: ManuallyDrop::new(ATermString::new(EQ)),
+            neq_name: ManuallyDrop::new(ATermString::new(NEQ)),
+        }
     }
 }

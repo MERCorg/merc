@@ -7,7 +7,7 @@ mod data_terms;
 mod machine_word_evaluation;
 mod mcrl2_data_specification;
 mod sort_terms;
-mod terms;
+mod booleans;
 mod undefined;
 mod visitor;
 
@@ -63,7 +63,7 @@ pub use sort_terms::SortCons;
 pub use sort_terms::SortConsRef;
 pub use sort_terms::SortExpression;
 pub use sort_terms::SortExpressionRef;
-pub use terms::BoolKind;
+pub use booleans::BoolKind;
 pub use undefined::is_undefined_real;
 pub use undefined::is_undefined_real_ref;
 pub use undefined::undefined_real;
