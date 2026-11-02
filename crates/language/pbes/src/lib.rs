@@ -10,7 +10,7 @@ mod symbols;
 mod system;
 mod visitor;
 
-pub(crate) use symbols::fmt_variables;
+pub(crate) use pbes_expression::fmt_variables;
 
 pub use counter_example::counter_example_index;
 pub use counter_example::is_counter_example_name;

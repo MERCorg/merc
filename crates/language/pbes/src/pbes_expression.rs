@@ -10,7 +10,6 @@ use merc_aterm::ATermList;
 use merc_aterm::ATermRef;
 use merc_aterm::ATermString;
 use merc_aterm::Markable;
-use merc_aterm::Symb;
 use merc_aterm::Symbol;
 use merc_aterm::SymbolRef;
 use merc_aterm::Term;
@@ -421,11 +420,11 @@ impl Boolean for PbesExpression {
     }
 
     fn is_true(&self) -> bool {
-        matches!(self.kind(), PbesKind::True)
+        is_bool_literal(self, true)
     }
 
     fn is_false(&self) -> bool {
-        matches!(self.kind(), PbesKind::False)
+        is_bool_literal(self, false)
     }
 
     fn negated(&self) -> Option<Self> {

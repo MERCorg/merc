@@ -1,5 +1,9 @@
 use merc_data::DataVariable;
 use merc_data::Mcrl2DataSpecification;
+use merc_utilities::optimized_and;
+use merc_utilities::optimized_conjunction;
+use merc_utilities::optimized_disjunction;
+use merc_utilities::optimized_or;
 
 use crate::FixpointSymbol;
 use crate::Pbes;
@@ -8,8 +12,6 @@ use crate::PbesExpression;
 use crate::PropositionalVariable;
 use crate::PropositionalVariableInstantiation;
 use crate::distribute_not_over_and;
-use crate::join_and;
-use crate::join_or;
 
 /// A single summand of an [SrfEquation]: `exists/forall parameters . condition <> variable`, where
 /// `<>` is `&&` for a disjunctive equation and `||` (with `condition` negated) for a conjunctive
@@ -53,15 +55,15 @@ impl SrfSummand {
     }
 
     pub(crate) fn add_condition(&mut self, extra: &PbesExpression) {
-        self.condition = PbesExpression::and(extra, &self.condition);
+        self.condition = optimized_and(extra.clone(), self.condition.clone());
     }
 
     pub(crate) fn to_pbes_expression(&self, conjunctive: bool) -> PbesExpression {
         let variable = PbesExpression::from(self.variable.clone());
         let body = if conjunctive {
-            join_or([distribute_not_over_and(&self.condition.copy()), variable])
+            optimized_or(distribute_not_over_and(&self.condition.copy()), variable)
         } else {
-            join_and([self.condition.clone(), variable])
+            optimized_and(self.condition.clone(), variable)
         };
 
         if self.parameters.is_empty() {
@@ -111,9 +113,9 @@ impl SrfEquation {
             symbol: self.symbol,
             variable: self.variable.clone(),
             formula: if self.conjunctive {
-                join_and(summands)
+                optimized_conjunction(summands)
             } else {
-                join_or(summands)
+                optimized_disjunction(summands)
             },
         }
     }

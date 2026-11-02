@@ -1,11 +1,14 @@
 use std::cell::RefCell;
 use std::mem::ManuallyDrop;
 
+use merc_aterm::ATerm;
 use merc_aterm::ATermString;
 use merc_aterm::Symb;
 use merc_aterm::Term;
+use merc_utilities::BinaryChain;
+use merc_utilities::Boolean;
+use merc_utilities::BooleanChain;
 
-use crate::BasicSort;
 use crate::DataApplication;
 use crate::DataExpression;
 use crate::DataExpressionRef;
@@ -92,19 +95,15 @@ impl DataExpression {
 
     /// Builds `lhs == rhs`, where both sides have sort `domain`.
     pub fn equal(domain: SortExpression, lhs: DataExpression, rhs: DataExpression) -> DataExpression {
-        let symbol = function_symbol(EQ, SortArrow::new(&[domain.clone(), domain], bool_sort()));
+        let symbol = function_symbol(EQ, SortArrow::new(&[domain.clone(), domain], SortExpression::bool()));
         DataApplication::with_args(&symbol, &[lhs, rhs]).into()
     }
 
     /// Builds `lhs != rhs`, where both sides have sort `domain`.
     pub fn not_equal(domain: SortExpression, lhs: DataExpression, rhs: DataExpression) -> DataExpression {
-        let symbol = function_symbol(NEQ, SortArrow::new(&[domain.clone(), domain], bool_sort()));
+        let symbol = function_symbol(NEQ, SortArrow::new(&[domain.clone(), domain], SortExpression::bool()));
         DataApplication::with_args(&symbol, &[lhs, rhs]).into()
     }
-}
-
-fn bool_sort() -> SortExpression {
-    SortExpression::from(BasicSort::new("Bool"))
 }
 
 /// Builds the function symbol named `name` with the function sort `arrow`.
@@ -113,9 +112,116 @@ fn function_symbol(name: &'static str, arrow: SortArrow) -> DataFunctionSymbol {
     DataFunctionSymbol::with_sort(name, sort.copy())
 }
 
+/// Returns the canonical `Bool` literal `true`/`false`.
+pub fn bool_literal(value: bool) -> DataExpression {
+    if value {
+        TRUE_LITERAL.with(|term| (**term).clone().into())
+    } else {
+        FALSE_LITERAL.with(|term| (**term).clone().into())
+    }
+}
+
+/// Returns true iff `term` is the `Bool` literal `value`, in constant time.
+pub fn is_bool_literal<'a, 'b>(term: &'b impl Term<'a, 'b>, value: bool) -> bool {
+    let literal = if value { &TRUE_LITERAL } else { &FALSE_LITERAL };
+    literal.with(|literal| term.copy() == literal.copy())
+}
+
+/// A connective of `Bool` whose nested applications form a chain, see [BinaryChain].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BoolConnective {
+    And,
+    Or,
+}
+
+impl Clone for DataExpressionRef<'_> {
+    fn clone(&self) -> Self {
+        self.copy()
+    }
+}
+
+impl<'a> BinaryChain for DataExpressionRef<'a> {
+    type Op = BoolConnective;
+
+    fn binary_operands(&self, op: BoolConnective) -> Option<(Self, Self)> {
+        match (self.bool_kind(), op) {
+            (BoolKind::And(lhs, rhs), BoolConnective::And) | (BoolKind::Or(lhs, rhs), BoolConnective::Or) => {
+                Some((lhs, rhs))
+            }
+            _ => None,
+        }
+    }
+}
+
+impl BooleanChain for DataExpressionRef<'_> {
+    type Owned = DataExpression;
+
+    fn conjunction() -> BoolConnective {
+        BoolConnective::And
+    }
+
+    fn disjunction() -> BoolConnective {
+        BoolConnective::Or
+    }
+
+    fn into_owned(self) -> DataExpression {
+        self.protect()
+    }
+}
+
+impl Boolean for DataExpression {
+    fn true_constant() -> Self {
+        bool_literal(true)
+    }
+
+    fn false_constant() -> Self {
+        bool_literal(false)
+    }
+
+    fn is_true(&self) -> bool {
+        is_bool_literal(self, true)
+    }
+
+    fn is_false(&self) -> bool {
+        is_bool_literal(self, false)
+    }
+
+    fn negated(&self) -> Option<Self> {
+        match self.copy().bool_kind() {
+            BoolKind::Not(operand) => Some(operand.protect()),
+            _ => None,
+        }
+    }
+
+    fn make_not(self) -> Self {
+        DataExpression::negation(self)
+    }
+
+    fn make_and(self, rhs: Self) -> Self {
+        DataExpression::and(self, rhs)
+    }
+
+    fn make_or(self, rhs: Self) -> Self {
+        DataExpression::or(self, rhs)
+    }
+
+    fn make_imp(self, rhs: Self) -> Self {
+        DataExpression::implies(self, rhs)
+    }
+}
+
 thread_local! {
     /// Canonical terms for the boolean connectives.
     static BOOL_SYMBOLS: RefCell<BoolSymbols> = RefCell::new(BoolSymbols::new());
+
+    /// The canonical `Bool` literals `true`/`false`.
+    static TRUE_LITERAL: ManuallyDrop<ATerm> = ManuallyDrop::new(bool_literal_term("true"));
+    static FALSE_LITERAL: ManuallyDrop<ATerm> = ManuallyDrop::new(bool_literal_term("false"));
+}
+
+/// Builds the nullary `Bool` function symbol term named `name` (`"true"` or `"false"`).
+fn bool_literal_term(name: &str) -> ATerm {
+    DataFunctionSymbol::with_sort(name, SortExpression::bool().copy()).into()
 }
 
 /// `&&`, `||`, `!`, and `=>` always have the same (monomorphic) `Bool` sort, so each is built
@@ -141,16 +247,28 @@ impl BoolSymbols {
         Self {
             and: ManuallyDrop::new(function_symbol(
                 AND,
-                SortArrow::new(&[bool_sort(), bool_sort()], bool_sort()),
+                SortArrow::new(
+                    &[SortExpression::bool(), SortExpression::bool()],
+                    SortExpression::bool(),
+                ),
             )),
             or: ManuallyDrop::new(function_symbol(
                 OR,
-                SortArrow::new(&[bool_sort(), bool_sort()], bool_sort()),
+                SortArrow::new(
+                    &[SortExpression::bool(), SortExpression::bool()],
+                    SortExpression::bool(),
+                ),
             )),
-            not: ManuallyDrop::new(function_symbol(NOT, SortArrow::new(&[bool_sort()], bool_sort()))),
+            not: ManuallyDrop::new(function_symbol(
+                NOT,
+                SortArrow::new(&[SortExpression::bool()], SortExpression::bool()),
+            )),
             implies: ManuallyDrop::new(function_symbol(
                 IMPLIES,
-                SortArrow::new(&[bool_sort(), bool_sort()], bool_sort()),
+                SortArrow::new(
+                    &[SortExpression::bool(), SortExpression::bool()],
+                    SortExpression::bool(),
+                ),
             )),
             eq_name: ManuallyDrop::new(ATermString::new(EQ)),
             neq_name: ManuallyDrop::new(ATermString::new(NEQ)),
