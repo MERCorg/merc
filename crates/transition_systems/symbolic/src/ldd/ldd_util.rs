@@ -74,6 +74,58 @@ fn merge_rec(
     cache.insert(key, result.clone());
     Ok(result)
 }
+/// Rebuilds `set` such that it resides at `level`, or returns it as is when it already does.
+///
+/// Nodes do not store their level, but they are stored per level, so a sub-LDD
+/// that is reused at a different depth must be rebuilt to remain canonical.
+fn relevel(
+    manager: &LddManager<'_>,
+    set: &LDDFunction,
+    level: LevelNo,
+    cache: &mut FxHashMap<(NodeID, LevelNo), LDDFunction>,
+) -> AllocResult<LDDFunction> {
+    let Node::Inner(node) = manager.get_node(set.as_edge(manager)) else {
+        return Ok(set.clone());
+    };
+
+    // A node in the unique table of `level` has its `down` at `level + 1` and its `right` at `level`, so if that table
+    // holds a node with the same children and value then the whole LDD already resides at `level`. The level lock
+    // must be released before rebuilding, since `make_node` acquires it again.
+    let existing = manager
+        .level(level)
+        .get(&[node.child(0), node.child(1)], node.value())
+        .map(|edge| manager.clone_edge(edge));
+    if let Some(edge) = existing {
+        return Ok(LDDFunction::from_edge(manager, edge));
+    }
+
+    relevel_rec(manager, set, level, cache)
+}
+
+/// Recursive implementation of [relevel] that rebuilds every node of `set` at `level`, sharing `cache` between calls.
+fn relevel_rec(
+    manager: &LddManager<'_>,
+    set: &LDDFunction,
+    level: LevelNo,
+    cache: &mut FxHashMap<(NodeID, LevelNo), LDDFunction>,
+) -> AllocResult<LDDFunction> {
+    let Some((value, down, right)) = node_of(manager, set) else {
+        return Ok(set.clone());
+    };
+
+    let key = (set.as_edge(manager).node_id(), level);
+    if let Some(cached) = cache.get(&key) {
+        return Ok(cached.clone());
+    }
+
+    let down = relevel_rec(manager, &down, level + 1, cache)?;
+    let right = relevel_rec(manager, &right, level, cache)?;
+    let result = LDDFunction::make_node(manager, level, value, &down, &right)?;
+
+    cache.insert(key, result.clone());
+    Ok(result)
+}
+
 /// A table of LDD nodes that are read bottom-up, for example from a file, where
 /// the level of a node is not yet known.
 ///
