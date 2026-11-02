@@ -74,6 +74,82 @@ fn merge_rec(
     cache.insert(key, result.clone());
     Ok(result)
 }
+/// A table of LDD nodes that are read bottom-up, for example from a file, where
+/// the level of a node is not yet known.
+///
+/// Indices 0 and 1 are the empty set and the empty vector respectively, and every
+/// [RawLddTable::push]ed node obtains the next index. Nodes are only constructed by
+/// [RawLddTable::build], at which point their level is known. A node can be shared
+/// between LDDs whose vectors differ in length, and is then constructed once per level.
+#[derive(Default)]
+pub struct RawLddTable {
+    /// The (value, down, right) triples of the inner nodes, starting at index 2.
+    nodes: Vec<(Value, usize, usize)>,
+    cache: FxHashMap<(usize, LevelNo), LDDFunction>,
+}
+
+impl RawLddTable {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns the number of indices in the table, including the two terminals.
+    pub(crate) fn len(&self) -> usize {
+        self.nodes.len() + 2
+    }
+
+    /// Adds the node `(value, down, right)`, where `down` and `right` must be existing indices.
+    pub fn push(&mut self, value: Value, down: usize, right: usize) -> Result<(), String> {
+        if down >= self.len() {
+            return Err(format!("Read invalid down ldd index {down}, length {}", self.len()));
+        }
+
+        if right >= self.len() {
+            return Err(format!("Read invalid right ldd index {right}, length {}", self.len()));
+        }
+
+        self.nodes.push((value, down, right));
+        Ok(())
+    }
+
+    /// Constructs the LDD at `index`, residing at level 0.
+    pub fn build(&mut self, manager: &LDDManagerRef, index: usize) -> Result<LDDFunction, MercError> {
+        if index >= self.len() {
+            return Err(format!("Read invalid ldd index {index}, length {}", self.len()).into());
+        }
+
+        Ok(self.build_at(manager, 0, index)?)
+    }
+
+    /// Constructs the LDD at `index`, residing at `level`.
+    fn build_at(&mut self, manager: &LDDManagerRef, level: LevelNo, index: usize) -> AllocResult<LDDFunction> {
+        // Walk the `right` sibling chain iteratively instead of recursing on it.
+        let mut chain = Vec::new();
+        let mut current = index;
+        let mut result = loop {
+            match current {
+                0 => break manager.with_manager_shared(LDDFunction::empty_set)?,
+                1 => break manager.with_manager_shared(LDDFunction::empty_vector)?,
+                _ => {
+                    if let Some(cached) = self.cache.get(&(current, level)) {
+                        break cached.clone();
+                    }
+                    chain.push(current);
+                    current = self.nodes[current - 2].2;
+                }
+            }
+        };
+
+        for index in chain.into_iter().rev() {
+            let (value, down, _) = self.nodes[index - 2];
+            let down = self.build_at(manager, level + 1, down)?;
+            result = manager.with_manager_shared(|m| LDDFunction::make_node(m, level, value, &down, &result))?;
+            self.cache.insert((index, level), result.clone());
+        }
+
+        Ok(result)
+    }
+}
 
 /// Restricts `set` to the vectors whose element at `level` equals `value`.
 ///

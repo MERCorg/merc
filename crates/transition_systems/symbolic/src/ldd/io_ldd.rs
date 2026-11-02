@@ -14,6 +14,7 @@ use merc_number::bits_for_value;
 use merc_utilities::MercError;
 
 use crate::Data;
+use crate::RawLddTable;
 use crate::iter_nodes;
 
 ///  The magic value for a binary LDD format stream.
@@ -132,12 +133,12 @@ impl<W: BitStreamWrite> BitStreamWrite for BinaryLddWriter<W> {
 
 pub struct BinaryLddReader<R: BitStreamRead> {
     reader: R,
-    nodes: Vec<LDDFunction>,
+    nodes: RawLddTable,
 }
 
 impl<R: BitStreamRead> BinaryLddReader<R> {
     /// Inserts the header into the stream and initializes the reader.
-    pub fn new(storage: &LDDManagerRef, mut reader: R) -> Result<Self, MercError> {
+    pub fn new(_storage: &LDDManagerRef, mut reader: R) -> Result<Self, MercError> {
         // Read and verify the header of the binary LDD format.
         let magic = reader.read_bits(16)?;
         if magic != BLF_MAGIC {
@@ -149,11 +150,10 @@ impl<R: BitStreamRead> BinaryLddReader<R> {
             return Err(format!("The BLF version ({version}) of the input file is incompatible with the version ({BLF_VERSION}) of this tool. The input file must be regenerated.").into());
         }
 
-        // Add the true and false constants
-        let nodes = storage.with_manager_shared(|m| -> Result<_, MercError> {
-            Ok(vec![LDDFunction::empty_set(m)?, LDDFunction::empty_vector(m)?])
-        })?;
-        Ok(Self { reader, nodes })
+        Ok(Self {
+            reader,
+            nodes: RawLddTable::new(),
+        })
     }
 
     /// Reads an LDD from the stream.
@@ -164,34 +164,14 @@ impl<R: BitStreamRead> BinaryLddReader<R> {
             if is_output {
                 // The output is simply an index of the LDD
                 let index = self.reader.read_bits(self.ldd_index_width(false))? as usize;
-                return Ok(self
-                    .nodes
-                    .get(index)
-                    .ok_or(format!("Read invalid ldd index {index}, length {}", self.nodes.len()))?
-                    .clone());
+                return self.nodes.build(storage, index);
             }
 
+            // The level of a node is only known once it is used by an output LDD.
             let value = self.reader.read_integer()?;
             let down_index = self.reader.read_bits(self.ldd_index_width(true))? as usize;
             let right_index = self.reader.read_bits(self.ldd_index_width(true))? as usize;
-            let down = self
-                .nodes
-                .get(down_index)
-                .ok_or(format!(
-                    "Read invalid down ldd index {down_index}, length {}",
-                    self.nodes.len()
-                ))?
-                .clone();
-            let right = self
-                .nodes
-                .get(right_index)
-                .ok_or(format!(
-                    "Read invalid right ldd index {right_index}, length {}",
-                    self.nodes.len()
-                ))?
-                .clone();
-            let ldd = storage.with_manager_shared(|m| LDDFunction::make_node(m, value as u32, &down, &right))?;
-            self.nodes.push(ldd);
+            self.nodes.push(value as u32, down_index, right_index)?;
         }
     }
 
@@ -265,6 +245,7 @@ mod tests {
     fn test_binary_ldd_stream() {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+            manager.reserve_levels(10);
 
             let input: Vec<_> = (0..20)
                 .map(|_| {

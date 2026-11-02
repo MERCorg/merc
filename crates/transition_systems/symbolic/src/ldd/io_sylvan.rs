@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt;
 use std::io::Read;
 
@@ -9,6 +8,7 @@ use oxidd::ldd::LDDFunction;
 use oxidd::ldd::LDDManagerRef;
 use oxidd::ldd::Value;
 
+use crate::RawLddTable;
 use crate::SymbolicLPS;
 use crate::TransitionGroup;
 
@@ -17,7 +17,10 @@ pub fn read_sylvan<R: Read>(manager: &LDDManagerRef, stream: &mut R) -> Result<S
     info!("Reading symbolic LTS in Sylvan format...");
     let mut reader = SylvanReader::new();
 
-    let _vector_length = read_u32(stream)?;
+    let vector_length = read_u32(stream)?;
+
+    // The relations and their meta-LDDs are the longest vectors: a read and a write value per position.
+    manager.reserve_levels(2 * vector_length);
 
     let _unused = read_u32(stream)?; // This is called 'k' in Sylvan's ldd2bdd.c, but unused.
     let initial_state = reader.read_ldd(manager, stream)?;
@@ -29,7 +32,7 @@ pub fn read_sylvan<R: Read>(manager: &LDDManagerRef, stream: &mut R) -> Result<S
         let (read_proj, write_proj) = read_projection(stream)?;
 
         let (meta, empty) = manager.with_manager_shared(|m| -> Result<_, MercError> {
-            let meta = LDDFunction::relation_product_meta(m, &read_proj, &write_proj)?.meta;
+            let meta = LDDFunction::relation_meta(m, &read_proj, &write_proj)?.meta;
             Ok((meta, LDDFunction::empty_set(m)?))
         })?;
         groups.push(SylvanTransitionGroup::new(empty, meta, read_proj, write_proj));
@@ -164,15 +167,14 @@ impl fmt::Debug for SylvanTransitionGroup {
 
 /// A reader for LDDs in the Sylvan .ldd format.
 pub struct SylvanReader {
-    indexed_set: HashMap<u64, LDDFunction>, // Assigns LDDs to every index.
-    last_index: u64,                        // The index of the last LDD read from file.
+    /// Assigns nodes to every index, where Sylvan also uses 0 and 1 for the terminals.
+    nodes: RawLddTable,
 }
 
 impl SylvanReader {
     pub fn new() -> Self {
         Self {
-            indexed_set: HashMap::new(),
-            last_index: 2,
+            nodes: RawLddTable::new(),
         }
     }
 
@@ -199,37 +201,12 @@ impl SylvanReader {
                 return Err("Sylvan copy nodes are not supported".into());
             }
 
-            let down = self.node_from_index(manager, down)?;
-            let right = self.node_from_index(manager, right)?;
-
-            let ldd = manager.with_manager_shared(|m| LDDFunction::make_node(m, value as Value, &down, &right))?;
-            self.indexed_set.insert(self.last_index, ldd);
-
-            self.last_index += 1;
+            // The level of a node is only known once it is used by an output LDD.
+            self.nodes.push(value as Value, down as usize, right as usize)?;
         }
 
         let result = read_u64(stream)?;
-        self.node_from_index(manager, result)
-    }
-
-    /// Returns the LDD belonging to the given index.
-    fn node_from_index(&self, manager: &LDDManagerRef, index: u64) -> Result<LDDFunction, MercError> {
-        if index == 0 {
-            Ok(manager.with_manager_shared(|m| LDDFunction::empty_set(m))?)
-        } else if index == 1 {
-            Ok(manager.with_manager_shared(|m| LDDFunction::empty_vector(m))?)
-        } else {
-            Ok(self
-                .indexed_set
-                .get(&index)
-                .ok_or_else(|| {
-                    format!(
-                        "LDD index {index} not found in table of {} entries",
-                        self.indexed_set.len()
-                    )
-                })?
-                .clone())
-        }
+        self.nodes.build(manager, result as usize)
     }
 }
 
