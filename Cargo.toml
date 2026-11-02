@@ -167,6 +167,7 @@ merc_vpg = { version = "3.0", path = "crates/transition_systems/vpg", features =
 merc_syntax = { version = "3.0", path = "crates/language/syntax" }
 merc_typecheck = { version = "2.0", path = "crates/language/typecheck" }
 merc_pbes = { version = "2.0", path = "crates/language/pbes" }
+merc_pres = { version = "2.0", path = "crates/language/pres" }
 
 # Vendored libraries
 merc_pest_consume = { version = "2.1", git = "https://github.com/MERCorg/pest_consume" }
