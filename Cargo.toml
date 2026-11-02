@@ -52,6 +52,7 @@ members = [
     "crates/transition_systems/vpg/benchmarks",
 
     "crates/language/pbes",
+    "crates/language/pres",
     "crates/language/syntax",
     "crates/language/typecheck",
 
