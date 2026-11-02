@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::fmt;
 use std::mem::ManuallyDrop;
 use std::ops::ControlFlow;
@@ -18,12 +17,11 @@ use merc_aterm::Term;
 use merc_aterm::TermIterator;
 use merc_aterm::Transmutable;
 use merc_aterm::storage::Marker;
-use merc_data::BasicSort;
 use merc_data::DataExpression;
 use merc_data::DataExpressionRef;
-use merc_data::DataFunctionSymbol;
 use merc_data::DataVariable;
-use merc_data::SortExpression;
+use merc_data::bool_literal;
+use merc_data::is_bool_literal;
 use merc_data::is_data_application;
 use merc_data::is_data_binder;
 use merc_data::is_data_function_symbol;
@@ -32,7 +30,13 @@ use merc_data::is_data_variable;
 use merc_data::is_data_where_clause;
 use merc_macros::merc_derive_terms;
 use merc_macros::merc_term;
+use merc_utilities::BinaryChain;
+use merc_utilities::Boolean;
+use merc_utilities::BooleanChain;
 use merc_utilities::Step;
+use merc_utilities::optimized_disjunction;
+use merc_utilities::optimized_not;
+use merc_utilities::unique_chain_operands;
 
 use crate::visit_pbes_expr;
 
@@ -162,14 +166,14 @@ mod inner {
     impl PbesExpression {
         /// The Boolean constant `true`.
         #[merc_ignore]
-        pub fn true_() -> Self {
-            boolean("true")
+        pub fn true_constant() -> Self {
+            bool_literal(true).into()
         }
 
         /// The Boolean constant `false`.
         #[merc_ignore]
-        pub fn false_() -> Self {
-            boolean("false")
+        pub fn false_constant() -> Self {
+            bool_literal(false).into()
         }
 
         #[merc_ignore]
@@ -291,11 +295,6 @@ pub use inner::PropositionalVariableInstantiation;
 pub use inner::PropositionalVariableInstantiationRef;
 pub use inner::PropositionalVariableRef;
 
-fn boolean(name: &str) -> PbesExpression {
-    let sort = SortExpression::from(BasicSort::new("Bool"));
-    ATerm::from(DataFunctionSymbol::with_sort(name, sort.copy())).into()
-}
-
 fn binary(symbol: &Symbol, lhs: &PbesExpression, rhs: &PbesExpression) -> PbesExpression {
     ATerm::with_args(symbol, &[lhs.copy(), rhs.copy()]).protect().into()
 }
@@ -344,23 +343,14 @@ impl<'a> PbesExpressionRef<'a> {
                 PbesKind::Exists(term.arg(0).protect().into(), operand(1))
             } else if head == symbols.instantiation.copy() {
                 PbesKind::Instantiation(term.copy().into())
-            } else if is_data_function_symbol(&term) && term.arg(0).get_head_symbol().name() == "true" {
+            } else if is_bool_literal(&term, true) {
                 PbesKind::True
-            } else if is_data_function_symbol(&term) && term.arg(0).get_head_symbol().name() == "false" {
+            } else if is_bool_literal(&term, false) {
                 PbesKind::False
             } else {
                 PbesKind::Data(term.copy().into())
             }
         })
-    }
-
-    /// The operands of `self` if it is a conjunction (when `conjunction` holds) or a disjunction.
-    fn operands(&self, conjunction: bool) -> Option<(PbesExpressionRef<'a>, PbesExpressionRef<'a>)> {
-        match self.kind() {
-            PbesKind::And(lhs, rhs) if conjunction => Some((lhs, rhs)),
-            PbesKind::Or(lhs, rhs) if !conjunction => Some((lhs, rhs)),
-            _ => None,
-        }
     }
 
     /// Returns true iff `predicate` holds for some subexpression of `self`, including itself.
@@ -379,73 +369,104 @@ impl<'a> PbesExpressionRef<'a> {
     }
 }
 
-/// The conjunction of `exprs`, or `true` if there are none.
-pub fn join_and<I>(exprs: I) -> PbesExpression
-where
-    I: IntoIterator<Item = PbesExpression>,
-{
-    exprs
-        .into_iter()
-        .reduce(|lhs, rhs| PbesExpression::and(&lhs, &rhs))
-        .unwrap_or_else(PbesExpression::true_)
+/// A binary connective of PBES expressions, whose nested applications form a chain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PbesConnective {
+    And,
+    Or,
 }
 
-/// The disjunction of `exprs`, or `false` if there are none.
-pub fn join_or<I>(exprs: I) -> PbesExpression
-where
-    I: IntoIterator<Item = PbesExpression>,
-{
-    exprs
-        .into_iter()
-        .reduce(|lhs, rhs| PbesExpression::or(&lhs, &rhs))
-        .unwrap_or_else(PbesExpression::false_)
+impl Clone for PbesExpressionRef<'_> {
+    fn clone(&self) -> Self {
+        self.copy()
+    }
+}
+
+impl<'a> BinaryChain for PbesExpressionRef<'a> {
+    type Op = PbesConnective;
+
+    fn binary_operands(&self, op: PbesConnective) -> Option<(Self, Self)> {
+        match (self.kind(), op) {
+            (PbesKind::And(lhs, rhs), PbesConnective::And) | (PbesKind::Or(lhs, rhs), PbesConnective::Or) => {
+                Some((lhs, rhs))
+            }
+            _ => None,
+        }
+    }
+}
+
+impl BooleanChain for PbesExpressionRef<'_> {
+    type Owned = PbesExpression;
+
+    fn conjunction() -> PbesConnective {
+        PbesConnective::And
+    }
+
+    fn disjunction() -> PbesConnective {
+        PbesConnective::Or
+    }
+
+    fn into_owned(self) -> PbesExpression {
+        self.protect()
+    }
+}
+
+impl Boolean for PbesExpression {
+    fn true_constant() -> Self {
+        PbesExpression::true_constant()
+    }
+
+    fn false_constant() -> Self {
+        PbesExpression::false_constant()
+    }
+
+    fn is_true(&self) -> bool {
+        matches!(self.kind(), PbesKind::True)
+    }
+
+    fn is_false(&self) -> bool {
+        matches!(self.kind(), PbesKind::False)
+    }
+
+    fn negated(&self) -> Option<Self> {
+        match self.kind() {
+            PbesKind::Not(inner) => Some(inner.protect()),
+            _ => None,
+        }
+    }
+
+    fn make_not(self) -> Self {
+        PbesExpression::not(&self)
+    }
+
+    fn make_and(self, rhs: Self) -> Self {
+        PbesExpression::and(&self, &rhs)
+    }
+
+    fn make_or(self, rhs: Self) -> Self {
+        PbesExpression::or(&self, &rhs)
+    }
+
+    fn make_imp(self, rhs: Self) -> Self {
+        PbesExpression::imp(&self, &rhs)
+    }
 }
 
 /// The operands of a nested conjunction, in the order in which they occur and without duplicates,
 /// as mCRL2's `split_and` returns a set.
 pub fn split_and<'a>(expr: &PbesExpressionRef<'a>) -> Vec<PbesExpressionRef<'a>> {
-    split(expr, true)
+    unique_chain_operands(expr.copy(), PbesConnective::And)
 }
 
 /// See [split_and]; splits a nested disjunction instead.
 pub fn split_or<'a>(expr: &PbesExpressionRef<'a>) -> Vec<PbesExpressionRef<'a>> {
-    split(expr, false)
-}
-
-fn split<'a>(expr: &PbesExpressionRef<'a>, conjunction: bool) -> Vec<PbesExpressionRef<'a>> {
-    // An explicit stack, since long chains such as those produced by enumeration are deep.
-    let mut stack = vec![PbesExpressionRef::from(expr.term.copy())];
-    let mut seen = HashSet::new();
-    let mut result = Vec::new();
-    while let Some(expr) = stack.pop() {
-        // Compound nodes are marked too: the operands of a shared one have already been visited,
-        // so expanding it again only repeats work, exponentially so for nested sharing.
-        if !seen.insert(PbesExpressionRef::from(expr.term.copy())) {
-            continue;
-        }
-
-        if let Some((lhs, rhs)) = expr.operands(conjunction) {
-            stack.push(rhs);
-            stack.push(lhs);
-        } else {
-            result.push(expr);
-        }
-    }
-    result
-}
-
-/// The negation of `expr`, collapsing a double negation instead of nesting it.
-pub fn make_not(expr: &PbesExpressionRef<'_>) -> PbesExpression {
-    match expr.kind() {
-        PbesKind::Not(inner) => inner.protect(),
-        _ => PbesExpression::not(&expr.protect()),
-    }
+    unique_chain_operands(expr.copy(), PbesConnective::Or)
 }
 
 /// Assuming `expr` is `x₁ && … && xₙ`, returns `!x₁ || … || !xₙ`, which keeps the negation
 /// pushed inwards.
 pub fn distribute_not_over_and(expr: &PbesExpressionRef<'_>) -> PbesExpression {
-    join_or(split_and(expr).iter().map(make_not))
+    optimized_disjunction(split_and(expr).iter().map(|clause| optimized_not(clause.protect())))
 }
 
 /// Writes `x₁: D₁, …, xₙ: Dₙ`.
