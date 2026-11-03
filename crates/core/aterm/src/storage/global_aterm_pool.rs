@@ -305,6 +305,7 @@ impl GlobalTermPool {
     /// returns the budget as it was *before* the subtraction. A returned value not greater than
     /// `amount` means the budget is exhausted and a collection should be triggered.
     pub(crate) fn consume_gc_budget(&self, amount: usize) -> usize {
+        #[allow(deprecated)] // Requires MSRV 1.99.0
         self.gc_budget
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 Some(current.saturating_sub(amount))
