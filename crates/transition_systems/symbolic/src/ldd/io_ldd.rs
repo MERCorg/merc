@@ -264,9 +264,9 @@ mod tests {
             drop(output_stream); // Explicitly drop to release the mutable borrow
 
             let mut input_stream = BinaryLddReader::new(&manager, BitStreamReader::new(&vector[..])).unwrap();
-            for term in &input {
+            for ldd in &input {
                 assert!(
-                    *term == input_stream.read_ldd(&manager).unwrap(),
+                    *ldd == input_stream.read_ldd(&manager).unwrap(),
                     "The read LDD must match the LDD that we have written"
                 );
             }

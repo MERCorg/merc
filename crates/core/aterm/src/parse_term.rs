@@ -254,6 +254,8 @@ mod tests {
     #[test]
     fn test_parse_error_renders_the_source_line() {
         let error = ATerm::from_string("f(a,\n  g(b c))").unwrap_err();
+        // Render the parse error itself, since MercError appends a backtrace when RUST_BACKTRACE is set.
+        let error = error.downcast_ref::<ParseTermError>().unwrap();
 
         assert_eq!(
             error.to_string(),

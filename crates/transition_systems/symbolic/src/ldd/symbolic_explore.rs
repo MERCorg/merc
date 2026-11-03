@@ -847,7 +847,6 @@ mod test {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(1 << 20, 1 << 18, 1);
             let num_state_variables = rng.random_range(2..=8);
-            manager.reserve_levels(2 * num_state_variables as LevelNo + 1);
             let mut lts = random_symbolic_lts(rng, &manager, num_state_variables, 3).unwrap();
 
             assert_strategies_correct(&format!("{num_state_variables} variables"), &manager, &mut lts);
@@ -880,6 +879,8 @@ mod test {
     }
 
     fn line_lts(manager: &oxidd::ldd::LDDManagerRef) -> LineLts {
+        manager.reserve_levels(3);
+
         // One read+write of parameter 0; relation short vectors place the read/write values at the
         // positions reported by `relation_meta`.
         let RelationMeta {
@@ -1031,6 +1032,8 @@ mod test {
     /// laid out the way `SymbolicLpsGroup` does: relation vectors hold the read/write positions given by the
     /// meta, followed by a single action label position that is not covered by the meta.
     fn summand_lts(manager: &LDDManagerRef, num_parameters: usize, initial: &[Value], groups: &[GroupSpec]) -> TestLts {
+        manager.reserve_levels(1 + 2 * num_parameters as LevelNo);
+
         let parameters = (0..num_parameters)
             .map(|i| DataVariable::new(ATermString::new(format!("p{i}"))))
             .collect::<Vec<_>>();
@@ -1097,7 +1100,6 @@ mod test {
     /// Runs [assert_is_reachable_set] on the line `0 -> 1 -> 2` with the given state set.
     fn check_line_states(states: &[Vec<Value>]) {
         let manager = oxidd::ldd::new_manager(SMALL_NODE_CAPACITY, SMALL_CACHE_CAPACITY, 1);
-        manager.reserve_levels(3);
         let group = GroupSpec {
             read: vec![0],
             write: vec![0],
@@ -1184,7 +1186,6 @@ mod test {
         // The models are tiny, so a small manager is enough.
         let check = |name: &str, groups: &[GroupSpec]| {
             let manager = oxidd::ldd::new_manager(SMALL_NODE_CAPACITY, SMALL_CACHE_CAPACITY, 1);
-            manager.reserve_levels(2 * 3 + 1);
             let mut lts = summand_lts(&manager, 3, &[0, 0, 0], groups);
             assert_strategies_correct(name, &manager, &mut lts);
         };
@@ -1227,7 +1228,6 @@ mod test {
             ExplorationStrategy::Saturation,
         ] {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-            manager.reserve_levels(2);
             let mut lts = line_lts(&manager);
 
             let options = ReachabilityOptions {

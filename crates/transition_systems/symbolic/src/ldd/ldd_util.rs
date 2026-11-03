@@ -386,7 +386,7 @@ mod tests {
     fn test_random_merge() {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-            manager.reserve_levels(2 * 3);
+            manager.reserve_levels(6);
 
             let a = random_vector_set(rng, 8, 3, 5);
             let b = random_vector_set(rng, 8, 3, 5);

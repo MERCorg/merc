@@ -260,7 +260,6 @@ mod tests {
     fn test_random_symbolic_lts_io() {
         random_test(20, |rng| {
             let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-            ldd_manager.reserve_levels(2 * 5 + 1);
             let lts = random_symbolic_lts(rng, &ldd_manager, 5, 3).unwrap();
 
             let mut buffer: Vec<u8> = Vec::new();

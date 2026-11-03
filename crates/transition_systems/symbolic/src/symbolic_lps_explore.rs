@@ -134,12 +134,13 @@ impl<L: LPS> SymbolicLps<PermutedLps<L>> {
     ///
     /// The order is applied by permuting the state vector of `lps` itself, so that position `i` of
     /// the LPS that is encoded below is stored at level `i` of the diagrams.
-    ///
-    /// The `manager` must have at least `2 * n + 1` levels reserved, see
-    /// [LDDManagerRef::reserve_levels], where `n` is the length of the state vector of `lps`: the
-    /// relations interleave a read and a write value per position, followed by the action label.
     pub fn with_options(manager: &LDDManagerRef, lps: L, options: &SymbolicLpsOptions) -> Result<Self, MercError> {
         let num_positions = lps.initial_state().len();
+
+        // The `manager` must have at least `2 * n + 1` levels reserved. The
+        // relations interleave a read and a write value per position, followed
+        // by the action label.
+        manager.reserve_levels((2 * num_positions + 1) as LevelNo);
 
         let patterns = read_write_patterns(&lps, num_positions)?;
         debug!(
@@ -499,8 +500,16 @@ mod tests {
     use crate::ldd_len;
     use crate::reachability_with_options;
 
-    use super::*;
-    use oxidd::LevelNo;
+    use super::LPS;
+    use super::MercError;
+    use super::Summand;
+    use super::SummandGrouping;
+    use super::SymbolicLPS;
+    use super::SymbolicLps;
+    use super::SymbolicLpsOptions;
+    use super::TransitionGroup;
+    use super::Value;
+    use super::VariableOrder;
 
     /// A grid [`LPS`]: summand `i` increments position `i` while it is below its bound, and one
     /// extra summand increments the first two positions at once. The diagonal summand couples two
@@ -600,7 +609,6 @@ mod tests {
     /// and returns the reachable state count.
     fn explored_count(bounds: &[usize], options: &SymbolicLpsOptions, strategy: ExplorationStrategy) -> usize {
         let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-        storage.reserve_levels(2 * bounds.len() as LevelNo + 1);
 
         let mut symbolic =
             SymbolicLps::with_options(&storage, GridLps::new(bounds), options).expect("the encoding is valid");
@@ -669,7 +677,6 @@ mod tests {
     #[cfg_attr(miri, ignore)] // miri does not work with oxidd.
     fn test_variable_order_permutes_the_transition_groups() {
         let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-        storage.reserve_levels(6);
 
         let options = SymbolicLpsOptions {
             grouping: SummandGrouping::None,
@@ -692,7 +699,6 @@ mod tests {
     #[cfg_attr(miri, ignore)] // miri does not work with oxidd.
     fn test_invalid_variable_order_is_rejected() {
         let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-        storage.reserve_levels(4);
 
         let options = SymbolicLpsOptions {
             grouping: SummandGrouping::None,

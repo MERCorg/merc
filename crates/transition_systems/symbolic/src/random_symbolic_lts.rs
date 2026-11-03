@@ -1,3 +1,4 @@
+use oxidd::LevelNo;
 use oxidd::ldd::LDDFunction;
 use oxidd::ldd::LDDManagerRef;
 use oxidd::ldd::Value;
@@ -34,6 +35,8 @@ pub fn random_symbolic_lts<R: Rng>(
 
     let states = random_vector_set(rng, 100, num_state_variables, num_of_values as u32);
     let initial_state = states.iter().choose(rng).ok_or("at least one state generated")?;
+
+    manager.reserve_levels(2 * initial_state.len() as LevelNo);
 
     let mut action_labels = Vec::new();
     for i in 0..num_action_labels {

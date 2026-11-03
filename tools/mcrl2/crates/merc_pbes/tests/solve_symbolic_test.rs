@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use mcrl2::Pbes;
 use mcrl2::SrfPbes;
 use merc_explore::CachingStrategy;
@@ -21,17 +19,14 @@ use merc_vpg::verify_symbolic_strategy;
 use merc_pbes::explore_pbes_symbolic_game;
 use merc_pbes::explore_srf_pbes;
 
-/// Converts `pbes` to SRF form and unifies its parameter lists for the explicit path, as
-/// `explore_srf_pbes` requires (see `PbesSrfLps::new`).
+/// Converts `pbes` to SRF form and unifies its parameter lists for the explicit path.
 fn unified_srf(pbes: &Pbes) -> SrfPbes {
     let mut srf = SrfPbes::from(pbes).expect("Failed to convert to SRF");
     srf.unify_parameters(false, true).expect("Failed to unify parameters");
     srf
 }
 
-/// Converts `pbes` to SRF form and unifies its parameter lists for the symbolic path
-/// (`ignore_ce_equations = true`, unlike the explicit path — see `SymbolicExploreArgs::build_srf`
-/// in `main.rs`).
+/// Converts `pbes` to SRF form and unifies its parameter lists for the symbolic path.
 fn unified_symbolic_srf(pbes: &Pbes) -> SrfPbes {
     let mut srf = SrfPbes::from(pbes).expect("Failed to convert to SRF");
     srf.unify_parameters(true, false).expect("Failed to unify parameters");
@@ -39,21 +34,9 @@ fn unified_symbolic_srf(pbes: &Pbes) -> SrfPbes {
 }
 
 /// Solves `pbes` both explicitly (SRF exploration + Zielonka) and symbolically (LDD reachability +
-/// the symbolic Zielonka solver), and asserts the initial vertex has the same winner in both. Also
-/// independently certifies the *entire* symbolic winning partition via [`verify_symbolic_strategy`]
-/// (the same certificate `--verify-solution` computes, scaling the way the rest of symbolic
-/// solving does).
-///
-/// A reachable deadlock (a PVI with no enabled summand) is resolved identically by both paths:
-/// `explore_common.rs`'s `builder.finish(true, true)` (`ParityGame::from_edges`'s `make_total`)
-/// gives the deadlocked vertex a self-loop whose priority is set to the *opponent* of its owner's
-/// index, and `SymbolicParityGame::compute_total_graph` assigns the deadlock to the winning set of
-/// the opponent of its owner directly — both are the standard "stuck = lose" game convention, so
-/// they agree by construction. Verified directly against `a.text.pbes`/`b.text.pbes` (which do
-/// reach deadlocks) and the trivial `val(true)`/`val(false)` fixtures below.
+/// the symbolic Zielonka solver), and asserts the initial vertex has the same winner in both.
 fn assert_symbolic_matches_explicit(pbes: &Pbes) {
-    // Normalise to positive normal form so the SRF converter accepts it (see
-    // `explore_pbes_test.rs`'s `assert_general_matches_srf`).
+    // Normalise to positive normal form so the SRF converter accepts it.
     let mut pbes = pbes.clone();
     pbes.normalize();
     let pbes = &pbes;
@@ -88,9 +71,7 @@ fn assert_symbolic_matches_explicit(pbes: &Pbes) {
 
     let epg = ExtendedParityGame::new(symbolic.game, symbolic.initial_vertex, symbolic.sinks);
 
-    // Force a full solve (no early termination), so the returned partition — and hence what
-    // `verify_symbolic_strategy` below certifies — covers every reachable vertex, not only
-    // whatever `compute_total_graph`'s sink-attractor step happened to resolve on its own.
+    // Force a full solve (no early termination).
     let (symbolic_winner, symbolic_solution) = solve_symbolic_zielonka(&epg, false).expect("symbolic solve failed");
 
     assert_eq!(
@@ -104,18 +85,6 @@ fn assert_symbolic_matches_explicit(pbes: &Pbes) {
 
 fn assert_symbolic_matches_explicit_from_text(text: &str) {
     let pbes = Pbes::from_text(text).expect("Failed to parse PBES");
-    assert_symbolic_matches_explicit(&pbes);
-}
-
-fn assert_symbolic_matches_explicit_from_file(text_pbes_relative_path: &str) {
-    let text_pbes_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(text_pbes_relative_path);
-    assert!(
-        text_pbes_path.exists(),
-        "Text PBES file not found: {}",
-        text_pbes_path.display()
-    );
-
-    let pbes = Pbes::from_text_file(text_pbes_path.to_str().unwrap()).expect("Failed to read text PBES");
     assert_symbolic_matches_explicit(&pbes);
 }
 
@@ -146,19 +115,19 @@ fn test_simple_nu_false() {
 #[test]
 #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
 fn test_symbolic_a_text_pbes() {
-    assert_symbolic_matches_explicit_from_file("../../../../examples/pbes/a.text.pbes");
+    assert_symbolic_matches_explicit_from_text(include_str!("../../../../../examples/pbes/a.text.pbes"));
 }
 
 #[test]
 #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
 fn test_symbolic_b_text_pbes() {
-    assert_symbolic_matches_explicit_from_file("../../../../examples/pbes/b.text.pbes");
+    assert_symbolic_matches_explicit_from_text(include_str!("../../../../../examples/pbes/b.text.pbes"));
 }
 
 #[test]
 #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
 fn test_symbolic_c_text_pbes() {
-    assert_symbolic_matches_explicit_from_file("../../../../examples/pbes/c.text.pbes");
+    assert_symbolic_matches_explicit_from_text(include_str!("../../../../../examples/pbes/c.text.pbes"));
 }
 
 #[test]
@@ -169,6 +138,7 @@ fn test_symbolic_random_pbes_seeds() {
 
     for seed in 0u64..50 {
         let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);
+
         // Propositional only (no quantifiers, no integers): the symbolic path enumerates every
         // parameter's domain when interning it into an LDD value, so it needs a finite one.
         let pbes_ast = random_pbes(&mut rng, 0, 0, 3, 2, 3, false, false);

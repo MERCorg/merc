@@ -1019,7 +1019,6 @@ dependencies = [
 name = "merc_lts"
 version = "3.0.0"
 dependencies = [
- "cargo-emit",
  "clap",
  "delegate",
  "itertools",
@@ -1051,7 +1050,6 @@ name = "merc_number"
 version = "3.0.0"
 dependencies = [
  "bnum",
- "merc_utilities",
  "num",
  "rand",
 ]

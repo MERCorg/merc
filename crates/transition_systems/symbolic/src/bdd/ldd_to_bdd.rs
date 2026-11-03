@@ -397,6 +397,7 @@ mod tests {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
             manager.reserve_levels(3);
+
             let set = random_vector_set(rng, 4, 3, 5);
             let ldd = from_iter(&manager, set.iter());
             println!("LDD: {}", LddDisplay::new(&ldd));
@@ -436,6 +437,7 @@ mod tests {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
             manager.reserve_levels(3);
+
             let set = random_vector_set(rng, 50, 3, 5);
 
             let ldd = from_iter(&manager, set.iter());

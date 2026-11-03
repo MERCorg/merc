@@ -139,7 +139,6 @@ mod tests {
     fn test_random_reachability() {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-            manager.reserve_levels(2 * 10 + 1);
 
             // We don't really check anything here, just ensure that reachability runs without errors.
             let mut lts = random_symbolic_lts(rng, &manager, 10, 5).unwrap();
