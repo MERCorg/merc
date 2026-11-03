@@ -19,7 +19,6 @@ use merc_syntax::ActFrm;
 use merc_syntax::ActFrmBinaryOp;
 use merc_syntax::ActFrmKind;
 use merc_syntax::FixedPointOperator;
-use merc_syntax::FreshStateVarGenerator;
 use merc_syntax::ModalityOperator;
 use merc_syntax::MultiAction;
 use merc_syntax::RegFrm;
@@ -30,10 +29,12 @@ use merc_syntax::StateFrmOp;
 use merc_syntax::StateVarDecl;
 use merc_syntax::Traverse;
 use merc_syntax::UntypedStateFrmSpec;
+use merc_syntax::fresh_state_var_generator;
 use merc_syntax::respan;
 use merc_typecheck::FormulaType;
 use merc_typecheck::ModalEquationSystem;
 use merc_typecheck::ModalSpecification;
+use merc_utilities::FreshNameGenerator;
 use merc_utilities::MercError;
 use merc_utilities::Span;
 
@@ -64,7 +65,7 @@ pub fn translate(
         })
         .collect::<Result<Vec<MultiAction>, MercError>>()?;
 
-    let mut identifier_generator = FreshStateVarGenerator::new(&spec.formula);
+    let mut identifier_generator = fresh_state_var_generator(&spec.formula);
     spec.formula = translate_regular_formulas(spec.formula, &mut identifier_generator);
     debug!("Translated regular formulas: {}", spec.formula);
 
@@ -155,7 +156,7 @@ fn warn_unknown_action_labels_in(formula: &StateFrm, labels: &[MultiAction]) {
 /// <a*>phi = mu I. <a>I || phi
 /// <a+>phi = <a>(mu I. <a>I || phi)
 /// ```
-fn translate_regular_formulas(formula: StateFrm, identifier_generator: &mut FreshStateVarGenerator) -> StateFrm {
+fn translate_regular_formulas(formula: StateFrm, identifier_generator: &mut FreshNameGenerator) -> StateFrm {
     let translated = formula.apply::<Infallible, _>(|subformula| {
         if let StateFrmKind::Modality {
             operator,

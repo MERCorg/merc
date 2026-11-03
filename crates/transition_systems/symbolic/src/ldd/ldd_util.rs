@@ -310,7 +310,6 @@ fn fix_element_rec(
     }
 }
 
-
 /// Returns an LDD containing all elements of the given iterator over vectors.
 pub fn from_iter<'a, I>(manager: &LDDManagerRef, iter: I) -> LDDFunction
 where

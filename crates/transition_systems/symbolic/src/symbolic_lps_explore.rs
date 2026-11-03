@@ -601,6 +601,7 @@ mod tests {
     fn explored_count(bounds: &[usize], options: &SymbolicLpsOptions, strategy: ExplorationStrategy) -> usize {
         let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         storage.reserve_levels(2 * bounds.len() as LevelNo + 1);
+
         let mut symbolic =
             SymbolicLps::with_options(&storage, GridLps::new(bounds), options).expect("the encoding is valid");
 
@@ -668,6 +669,8 @@ mod tests {
     #[cfg_attr(miri, ignore)] // miri does not work with oxidd.
     fn test_variable_order_permutes_the_transition_groups() {
         let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+        storage.reserve_levels(6);
+
         let options = SymbolicLpsOptions {
             grouping: SummandGrouping::None,
             order: VariableOrder::Explicit(vec![2, 1, 0]),
@@ -689,6 +692,8 @@ mod tests {
     #[cfg_attr(miri, ignore)] // miri does not work with oxidd.
     fn test_invalid_variable_order_is_rejected() {
         let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+        storage.reserve_levels(4);
+
         let options = SymbolicLpsOptions {
             grouping: SummandGrouping::None,
             order: VariableOrder::Explicit(vec![0, 1]),

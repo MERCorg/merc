@@ -19,7 +19,7 @@ pub(crate) use syntax_tree::*;
 pub use counterexample_formula::generate_distinguishing_formula;
 #[cfg(feature = "counter-example")]
 pub use counterexample_formula::generate_refinement_formula;
-pub use fresh_state_var::FreshStateVarGenerator;
+pub use fresh_state_var::fresh_state_var_generator;
 pub use imports::ImportDirective;
 pub use imports::ImportError;
 pub use imports::ImportGraph;

@@ -5,14 +5,15 @@ use std::ops::ControlFlow;
 
 use log::debug;
 use merc_syntax::FixedPointOperator;
-use merc_syntax::FreshStateVarGenerator;
 use merc_syntax::StateFrm;
 use merc_syntax::StateFrmKind;
 use merc_syntax::StateVarDecl;
 use merc_syntax::StateVarId;
 use merc_syntax::StateVarIdAllocator;
 use merc_syntax::Traverse;
+use merc_syntax::fresh_state_var_generator;
 use merc_syntax::respan;
+use merc_utilities::FreshNameGenerator;
 use merc_utilities::Span;
 
 /// A fixpoint equation system representing a ranked set of fixpoint equations.
@@ -65,7 +66,7 @@ impl ModalEquationSystem {
     /// `formula` must already be resolved (see `resolve_modal_variables`).
     pub fn new(formula: &StateFrm, state_var_ids: &mut StateVarIdAllocator) -> Self {
         let mut equations = Vec::new();
-        let mut identifier_generator = FreshStateVarGenerator::new(formula);
+        let mut identifier_generator = fresh_state_var_generator(formula);
 
         // Ensure that the formula has an outermost fixpoint operator.
         let formula = add_placeholder_operator(formula.clone(), &mut identifier_generator, state_var_ids);
@@ -193,7 +194,7 @@ impl ModalEquationSystem {
 /// fixpoint operator around it.
 fn add_placeholder_operator(
     formula: StateFrm,
-    identifier_generator: &mut FreshStateVarGenerator,
+    identifier_generator: &mut FreshNameGenerator,
     state_var_ids: &mut StateVarIdAllocator,
 ) -> StateFrm {
     if matches!(formula.node, StateFrmKind::FixedPoint { .. }) {
