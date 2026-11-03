@@ -78,9 +78,9 @@ oxidd = { version = "0.13", features = ["multi-threading"] }
 # mcrl2-sys = { path = "crates/mCRL2-sys" }
 
 [patch.crates-io]
-oxidd = { git = "https://github.com/mlaveaux/oxidd", rev = "786897a1259129f3a13b378bfc16cc0363027d32" }
-oxidd-core = { git = "https://github.com/mlaveaux/oxidd", rev = "786897a1259129f3a13b378bfc16cc0363027d32" }
-oxidd-dump = { git = "https://github.com/mlaveaux/oxidd", rev = "786897a1259129f3a13b378bfc16cc0363027d32" }
-oxidd-reorder = { git = "https://github.com/mlaveaux/oxidd", rev = "786897a1259129f3a13b378bfc16cc0363027d32" }
-oxidd-rules-bdd = { git = "https://github.com/mlaveaux/oxidd", rev = "786897a1259129f3a13b378bfc16cc0363027d32" }
-oxidd-rules-ldd = { git = "https://github.com/mlaveaux/oxidd", rev = "786897a1259129f3a13b378bfc16cc0363027d32" }
+oxidd = { git = "https://github.com/mlaveaux/oxidd", rev = "4aaa40c57fdf90da71db3d6372136f5248da2108" }
+oxidd-core = { git = "https://github.com/mlaveaux/oxidd", rev = "4aaa40c57fdf90da71db3d6372136f5248da2108" }
+oxidd-dump = { git = "https://github.com/mlaveaux/oxidd", rev = "4aaa40c57fdf90da71db3d6372136f5248da2108" }
+oxidd-reorder = { git = "https://github.com/mlaveaux/oxidd", rev = "4aaa40c57fdf90da71db3d6372136f5248da2108" }
+oxidd-rules-bdd = { git = "https://github.com/mlaveaux/oxidd", rev = "4aaa40c57fdf90da71db3d6372136f5248da2108" }
+oxidd-rules-ldd = { git = "https://github.com/mlaveaux/oxidd", rev = "4aaa40c57fdf90da71db3d6372136f5248da2108" }

@@ -841,7 +841,7 @@ checksum = "491194d601b4fa9fac3c9571e014070a0ad1bc3392d1bc10419695196a8b3cc3"
 [[package]]
 name = "hugealloc"
 version = "0.1.1"
-source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
+source = "git+https://github.com/mlaveaux/oxidd?rev=4aaa40c57fdf90da71db3d6372136f5248da2108#4aaa40c57fdf90da71db3d6372136f5248da2108"
 dependencies = [
  "allocator-api2 0.2.21",
  "libc",
@@ -999,7 +999,7 @@ dependencies = [
 [[package]]
 name = "linear-hashtbl"
 version = "0.1.4"
-source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
+source = "git+https://github.com/mlaveaux/oxidd?rev=4aaa40c57fdf90da71db3d6372136f5248da2108#4aaa40c57fdf90da71db3d6372136f5248da2108"
 dependencies = [
  "allocator-api2 0.2.21",
 ]
@@ -1162,6 +1162,7 @@ dependencies = [
  "parking_lot",
  "rand",
  "rustc-hash 2.1.3",
+ "rustversion",
  "thiserror",
  "trybuild",
 ]
@@ -1780,7 +1781,7 @@ dependencies = [
 [[package]]
 name = "oxidd"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
+source = "git+https://github.com/mlaveaux/oxidd?rev=4aaa40c57fdf90da71db3d6372136f5248da2108#4aaa40c57fdf90da71db3d6372136f5248da2108"
 dependencies = [
  "cfg-if",
  "derive-where",
@@ -1801,7 +1802,7 @@ dependencies = [
 [[package]]
 name = "oxidd-cache"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
+source = "git+https://github.com/mlaveaux/oxidd?rev=4aaa40c57fdf90da71db3d6372136f5248da2108#4aaa40c57fdf90da71db3d6372136f5248da2108"
 dependencies = [
  "allocator-api2 0.2.21",
  "document-features",
@@ -1813,7 +1814,7 @@ dependencies = [
 [[package]]
 name = "oxidd-core"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
+source = "git+https://github.com/mlaveaux/oxidd?rev=4aaa40c57fdf90da71db3d6372136f5248da2108#4aaa40c57fdf90da71db3d6372136f5248da2108"
 dependencies = [
  "dashu-int",
  "derive-where",
@@ -1823,7 +1824,7 @@ dependencies = [
 [[package]]
 name = "oxidd-derive"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
+source = "git+https://github.com/mlaveaux/oxidd?rev=4aaa40c57fdf90da71db3d6372136f5248da2108#4aaa40c57fdf90da71db3d6372136f5248da2108"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -1834,7 +1835,7 @@ dependencies = [
 [[package]]
 name = "oxidd-dump"
 version = "0.8.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
+source = "git+https://github.com/mlaveaux/oxidd?rev=4aaa40c57fdf90da71db3d6372136f5248da2108#4aaa40c57fdf90da71db3d6372136f5248da2108"
 dependencies = [
  "document-features",
  "fixedbitset 0.5.7",
@@ -1847,7 +1848,7 @@ dependencies = [
 [[package]]
 name = "oxidd-manager-index"
 version = "0.13.1"
-source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
+source = "git+https://github.com/mlaveaux/oxidd?rev=4aaa40c57fdf90da71db3d6372136f5248da2108#4aaa40c57fdf90da71db3d6372136f5248da2108"
 dependencies = [
  "allocator-api2 0.2.21",
  "crossbeam-utils",
@@ -1865,7 +1866,7 @@ dependencies = [
 [[package]]
 name = "oxidd-reorder"
 version = "0.8.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
+source = "git+https://github.com/mlaveaux/oxidd?rev=4aaa40c57fdf90da71db3d6372136f5248da2108#4aaa40c57fdf90da71db3d6372136f5248da2108"
 dependencies = [
  "fixedbitset 0.5.7",
  "oxidd-core",
@@ -1876,7 +1877,7 @@ dependencies = [
 [[package]]
 name = "oxidd-rules-bdd"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
+source = "git+https://github.com/mlaveaux/oxidd?rev=4aaa40c57fdf90da71db3d6372136f5248da2108#4aaa40c57fdf90da71db3d6372136f5248da2108"
 dependencies = [
  "document-features",
  "fixedbitset 0.5.7",
@@ -1888,7 +1889,7 @@ dependencies = [
 [[package]]
 name = "oxidd-rules-ldd"
 version = "0.8.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
+source = "git+https://github.com/mlaveaux/oxidd?rev=4aaa40c57fdf90da71db3d6372136f5248da2108#4aaa40c57fdf90da71db3d6372136f5248da2108"
 dependencies = [
  "oxidd-core",
  "oxidd-derive",
@@ -1897,7 +1898,7 @@ dependencies = [
 [[package]]
 name = "oxidd-rules-mtbdd"
 version = "0.8.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
+source = "git+https://github.com/mlaveaux/oxidd?rev=4aaa40c57fdf90da71db3d6372136f5248da2108#4aaa40c57fdf90da71db3d6372136f5248da2108"
 dependencies = [
  "document-features",
  "fixedbitset 0.5.7",
@@ -1909,7 +1910,7 @@ dependencies = [
 [[package]]
 name = "oxidd-rules-tdd"
 version = "0.8.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
+source = "git+https://github.com/mlaveaux/oxidd?rev=4aaa40c57fdf90da71db3d6372136f5248da2108#4aaa40c57fdf90da71db3d6372136f5248da2108"
 dependencies = [
  "document-features",
  "oxidd-core",
@@ -1920,7 +1921,7 @@ dependencies = [
 [[package]]
 name = "oxidd-rules-zbdd"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=786897a1259129f3a13b378bfc16cc0363027d32#786897a1259129f3a13b378bfc16cc0363027d32"
+source = "git+https://github.com/mlaveaux/oxidd?rev=4aaa40c57fdf90da71db3d6372136f5248da2108#4aaa40c57fdf90da71db3d6372136f5248da2108"
 dependencies = [
  "document-features",
  "fixedbitset 0.5.7",
