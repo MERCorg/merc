@@ -41,4 +41,5 @@ rustc-hash.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+rustversion.workspace = true
 trybuild.workspace = true

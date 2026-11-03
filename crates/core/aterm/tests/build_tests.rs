@@ -1,3 +1,5 @@
+// The expected compiler diagnostics are only stable within a release channel, nightly changes them.
+#[rustversion::stable]
 #[test]
 #[cfg_attr(miri, ignore)]
 fn test_soundness() {

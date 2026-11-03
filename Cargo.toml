@@ -133,6 +133,7 @@ which = "8.0"
 indoc  = "2.0"
 test-case  = "3.3"
 test-log = "0.2"
+rustversion = "1.0"
 trybuild = "1.0"
 tempfile = "3.27"
 
