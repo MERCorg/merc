@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 
+mod binder;
 mod innermost_rewriter;
 mod naive_rewriter;
 mod quantifier;

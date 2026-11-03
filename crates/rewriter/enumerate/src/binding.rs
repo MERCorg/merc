@@ -17,7 +17,6 @@ use merc_data::DataExpressionRef;
 use merc_data::DataFunctionSymbolRef;
 use merc_data::DataVariable;
 use merc_data::DataVariableRef;
-use merc_data::mark_occurrences;
 use merc_sabre::RewriteEngine;
 use merc_sabre::utilities::RewriteSubstitution;
 
@@ -357,8 +356,8 @@ impl RewriteSubstitution for SingleSubstitution<'_> {
         (self.variable == *variable).then(|| self.value.copy())
     }
 
-    fn mark_range_occurrences(&self, variables: &[DataVariable], occurs: &mut [bool]) {
-        mark_occurrences(&self.value, variables, occurs);
+    fn for_each_binding(&self, f: &mut dyn FnMut(&DataVariableRef<'_>, &DataExpressionRef<'_>)) {
+        f(&self.variable, &self.value);
     }
 }
 

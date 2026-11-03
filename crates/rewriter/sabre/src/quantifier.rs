@@ -20,10 +20,10 @@ pub trait Enumerator {
     /// quantifier's body, already rewritten with `vars` held as free normal
     /// forms.
     ///
-    /// Returns `Some(true)`/`Some(false)` once the search settles the
-    /// quantifier, or `None` when it can't. `rewriter` decides nested
-    /// quantifiers through this enumerator again, so no borrow of `self` may
-    /// be held across a rewrite.
+    /// Returns a normal form equivalent to the quantifier, which is a `Bool`
+    /// literal once the search settles it, or `None` to keep it as given.
+    /// `rewriter` decides nested quantifiers through this enumerator again, so
+    /// no borrow of `self` may be held across a rewrite.
     fn decide<R: RewriteEngine>(
         &self,
         frame: &mut Self::Frame,
@@ -31,7 +31,7 @@ pub trait Enumerator {
         binder: BinderType,
         vars: &[DataVariable],
         body: &DataExpression,
-    ) -> Option<bool>;
+    ) -> Option<DataExpression>;
 }
 
 /// The default [`Enumerator`]: never decides, so every quantifier it reaches
@@ -49,7 +49,7 @@ impl Enumerator for NoQuantifierEnumerator {
         _binder: BinderType,
         _vars: &[DataVariable],
         _body: &DataExpression,
-    ) -> Option<bool> {
+    ) -> Option<DataExpression> {
         None
     }
 }
