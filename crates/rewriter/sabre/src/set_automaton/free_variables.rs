@@ -39,14 +39,14 @@ pub(crate) fn free_variables(expr: &DataExpression) -> impl Iterator<Item = Data
         }
     }
 
-    impl DataExpressionVisitor for FreeVariables {
+    impl<'a> DataExpressionVisitor<'a> for FreeVariables {
         type Context = Option<usize>;
         type Break = Infallible;
         type Error = Infallible;
 
         fn visit_variable(
             &mut self,
-            variable: &DataVariableRef<'_>,
+            variable: &DataVariableRef<'a>,
             scope: Option<usize>,
         ) -> Visit<Infallible, Option<usize>, Infallible, Infallible> {
             if !self.is_bound(variable, scope) {
@@ -57,7 +57,7 @@ pub(crate) fn free_variables(expr: &DataExpression) -> impl Iterator<Item = Data
 
         fn visit_binder(
             &mut self,
-            binder: &DataAbstractionRef<'_>,
+            binder: &DataAbstractionRef<'a>,
             mut scope: Option<usize>,
         ) -> Visit<Infallible, Option<usize>, Infallible, Infallible> {
             for variable in binder.variables() {
@@ -68,7 +68,7 @@ pub(crate) fn free_variables(expr: &DataExpression) -> impl Iterator<Item = Data
 
         fn visit_where_clause(
             &mut self,
-            clause: &DataWhereClauseRef<'_>,
+            clause: &DataWhereClauseRef<'a>,
             scope: Option<usize>,
         ) -> Visit<Infallible, Option<usize>, Infallible, Infallible> {
             // The declared values are in the enclosing scope, only the body is in the scope of

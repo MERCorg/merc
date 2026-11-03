@@ -30,9 +30,11 @@ use crate::is_data_where_clause;
 /// children, which lets a visitor track where it is without maintaining a stack of its own.
 ///
 /// Terms are maximally shared, so the same subterm is typically reachable along many paths. A
-/// visitor whose work per node is not trivial should remember the indices of the nodes it has
-/// seen and prune the repeats, which keeps the traversal linear in the size of the term graph
-/// rather than of the tree it unfolds to.
+/// visitor whose work per node is not trivial should remember the nodes it has seen and prune the
+/// repeats, which keeps the traversal linear in the size of the term graph rather than of the tree
+/// it unfolds to. Every node is a subterm of the visited expression and is passed with its
+/// lifetime `'a`, so it can be kept as such a [DataExpressionRef] for as long as the expression is
+/// borrowed.
 ///
 /// The traversal only inspects terms; [Step::Replace] is uninhabited here because a rewritten
 /// term has to be rebuilt bottom-up, which is what `TermBuilder` is for.
@@ -41,7 +43,7 @@ use crate::is_data_where_clause;
 /// variables, only their occurrences in the body are, so a visitor that needs to tell bound
 /// occurrences from free ones handles [DataExpressionVisitor::visit_binder] and
 /// [DataExpressionVisitor::visit_where_clause] itself.
-pub trait DataExpressionVisitor {
+pub trait DataExpressionVisitor<'a> {
     /// Threaded from a node to its children.
     type Context: Copy;
 
@@ -53,7 +55,7 @@ pub trait DataExpressionVisitor {
     /// The returned [Step] is ignored, since a variable has no children.
     fn visit_variable(
         &mut self,
-        _variable: &DataVariableRef<'_>,
+        _variable: &DataVariableRef<'a>,
         context: Self::Context,
     ) -> Visit<Infallible, Self::Context, Self::Break, Self::Error> {
         Ok(ControlFlow::Continue(Step::Into(context)))
@@ -62,7 +64,7 @@ pub trait DataExpressionVisitor {
     /// The returned [Step] is ignored, since a function symbol has no children.
     fn visit_function_symbol(
         &mut self,
-        _function_symbol: &DataFunctionSymbolRef<'_>,
+        _function_symbol: &DataFunctionSymbolRef<'a>,
         context: Self::Context,
     ) -> Visit<Infallible, Self::Context, Self::Break, Self::Error> {
         Ok(ControlFlow::Continue(Step::Into(context)))
@@ -71,7 +73,7 @@ pub trait DataExpressionVisitor {
     /// The returned [Step] is ignored, since a machine number has no children.
     fn visit_machine_number(
         &mut self,
-        _number: &MachineNumberRef<'_>,
+        _number: &MachineNumberRef<'a>,
         context: Self::Context,
     ) -> Visit<Infallible, Self::Context, Self::Break, Self::Error> {
         Ok(ControlFlow::Continue(Step::Into(context)))
@@ -81,7 +83,7 @@ pub trait DataExpressionVisitor {
     /// application that carries it.
     fn visit_application(
         &mut self,
-        _application: &DataApplicationRef<'_>,
+        _application: &DataApplicationRef<'a>,
         context: Self::Context,
     ) -> Visit<Infallible, Self::Context, Self::Break, Self::Error> {
         Ok(ControlFlow::Continue(Step::Into(context)))
@@ -90,7 +92,7 @@ pub trait DataExpressionVisitor {
     /// A binder's only subexpression is its body.
     fn visit_binder(
         &mut self,
-        _binder: &DataAbstractionRef<'_>,
+        _binder: &DataAbstractionRef<'a>,
         context: Self::Context,
     ) -> Visit<Infallible, Self::Context, Self::Break, Self::Error> {
         Ok(ControlFlow::Continue(Step::Into(context)))
@@ -100,7 +102,7 @@ pub trait DataExpressionVisitor {
     /// body.
     fn visit_where_clause(
         &mut self,
-        _clause: &DataWhereClauseRef<'_>,
+        _clause: &DataWhereClauseRef<'a>,
         context: Self::Context,
     ) -> Visit<Infallible, Self::Context, Self::Break, Self::Error> {
         Ok(ControlFlow::Continue(Step::Into(context)))
@@ -112,10 +114,10 @@ pub trait DataExpressionVisitor {
     /// stack, so a term that is deeper than the stack can hold is still traversed.
     fn try_visit(
         &mut self,
-        expr: &DataExpressionRef<'_>,
+        expr: &DataExpressionRef<'a>,
         context: Self::Context,
     ) -> Result<Option<Self::Break>, Self::Error> {
-        let mut stack: Vec<(DataExpressionRef<'_>, Self::Context)> = vec![(expr.copy(), context)];
+        let mut stack: Vec<(DataExpressionRef<'a>, Self::Context)> = vec![(expr.copy(), context)];
 
         while let Some((expr, context)) = stack.pop() {
             // Recognising an application is the most expensive test, so it is tried last.
@@ -183,9 +185,9 @@ pub trait DataExpressionVisitor {
     }
 
     /// See [DataExpressionVisitor::try_visit], for visitors that cannot fail.
-    fn visit(&mut self, expr: &DataExpressionRef<'_>, context: Self::Context) -> Option<Self::Break>
+    fn visit(&mut self, expr: &DataExpressionRef<'a>, context: Self::Context) -> Option<Self::Break>
     where
-        Self: DataExpressionVisitor<Error = Infallible>,
+        Self: DataExpressionVisitor<'a, Error = Infallible>,
     {
         match self.try_visit(expr, context) {
             Ok(result) => result,
@@ -209,40 +211,40 @@ impl<C, T, E, F> ClosureVisitor<C, T, E, F> {
     }
 }
 
-impl<C, T, E, F> DataExpressionVisitor for ClosureVisitor<C, T, E, F>
+impl<'a, C, T, E, F> DataExpressionVisitor<'a> for ClosureVisitor<C, T, E, F>
 where
     C: Copy,
-    F: FnMut(&DataExpressionRef<'_>, C) -> Visit<Infallible, C, T, E>,
+    F: FnMut(&DataExpressionRef<'a>, C) -> Visit<Infallible, C, T, E>,
 {
     type Context = C;
     type Break = T;
     type Error = E;
 
-    fn visit_variable(&mut self, variable: &DataVariableRef<'_>, context: C) -> Visit<Infallible, C, T, E> {
+    fn visit_variable(&mut self, variable: &DataVariableRef<'a>, context: C) -> Visit<Infallible, C, T, E> {
         (self.function)(&DataExpressionRef::from(Term::copy(variable)), context)
     }
 
     fn visit_function_symbol(
         &mut self,
-        function_symbol: &DataFunctionSymbolRef<'_>,
+        function_symbol: &DataFunctionSymbolRef<'a>,
         context: C,
     ) -> Visit<Infallible, C, T, E> {
         (self.function)(&DataExpressionRef::from(Term::copy(function_symbol)), context)
     }
 
-    fn visit_machine_number(&mut self, number: &MachineNumberRef<'_>, context: C) -> Visit<Infallible, C, T, E> {
+    fn visit_machine_number(&mut self, number: &MachineNumberRef<'a>, context: C) -> Visit<Infallible, C, T, E> {
         (self.function)(&DataExpressionRef::from(Term::copy(number)), context)
     }
 
-    fn visit_application(&mut self, application: &DataApplicationRef<'_>, context: C) -> Visit<Infallible, C, T, E> {
+    fn visit_application(&mut self, application: &DataApplicationRef<'a>, context: C) -> Visit<Infallible, C, T, E> {
         (self.function)(&DataExpressionRef::from(Term::copy(application)), context)
     }
 
-    fn visit_binder(&mut self, binder: &DataAbstractionRef<'_>, context: C) -> Visit<Infallible, C, T, E> {
+    fn visit_binder(&mut self, binder: &DataAbstractionRef<'a>, context: C) -> Visit<Infallible, C, T, E> {
         (self.function)(&DataExpressionRef::from(Term::copy(binder)), context)
     }
 
-    fn visit_where_clause(&mut self, clause: &DataWhereClauseRef<'_>, context: C) -> Visit<Infallible, C, T, E> {
+    fn visit_where_clause(&mut self, clause: &DataWhereClauseRef<'a>, context: C) -> Visit<Infallible, C, T, E> {
         (self.function)(&DataExpressionRef::from(Term::copy(clause)), context)
     }
 }
@@ -251,19 +253,19 @@ where
 ///
 /// See [DataExpressionVisitor] for the meaning of the context and the return value; implement
 /// that trait directly when the node kinds need to be treated differently.
-pub fn try_visit_data_expr<C, T, E, F>(expr: &DataExpressionRef<'_>, context: C, visitor: F) -> Result<Option<T>, E>
+pub fn try_visit_data_expr<'a, C, T, E, F>(expr: &DataExpressionRef<'a>, context: C, visitor: F) -> Result<Option<T>, E>
 where
     C: Copy,
-    F: FnMut(&DataExpressionRef<'_>, C) -> Visit<Infallible, C, T, E>,
+    F: FnMut(&DataExpressionRef<'a>, C) -> Visit<Infallible, C, T, E>,
 {
-    ClosureVisitor::<C, T, E, F>::new(visitor).try_visit(expr, context)
+    DataExpressionVisitor::<'a>::try_visit(&mut ClosureVisitor::<C, T, E, F>::new(visitor), expr, context)
 }
 
 /// See [try_visit_data_expr], for visitors that cannot fail.
-pub fn visit_data_expr<C, T, F>(expr: &DataExpressionRef<'_>, context: C, mut visitor: F) -> Option<T>
+pub fn visit_data_expr<'a, C, T, F>(expr: &DataExpressionRef<'a>, context: C, mut visitor: F) -> Option<T>
 where
     C: Copy,
-    F: FnMut(&DataExpressionRef<'_>, C) -> ControlFlow<T, Step<Infallible, C>>,
+    F: FnMut(&DataExpressionRef<'a>, C) -> ControlFlow<T, Step<Infallible, C>>,
 {
     match try_visit_data_expr::<C, T, Infallible, _>(expr, context, |expr, context| Ok(visitor(expr, context))) {
         Ok(result) => result,
@@ -302,14 +304,14 @@ mod tests {
         names: Vec<String>,
     }
 
-    impl DataExpressionVisitor for SymbolNames {
+    impl<'a> DataExpressionVisitor<'a> for SymbolNames {
         type Context = ();
         type Break = Infallible;
         type Error = Infallible;
 
         fn visit_function_symbol(
             &mut self,
-            function_symbol: &DataFunctionSymbolRef<'_>,
+            function_symbol: &DataFunctionSymbolRef<'a>,
             context: (),
         ) -> Visit<Infallible, (), Infallible, Infallible> {
             self.names.push(function_symbol.name().value().to_string());
@@ -318,7 +320,7 @@ mod tests {
 
         fn visit_application(
             &mut self,
-            application: &DataApplicationRef<'_>,
+            application: &DataApplicationRef<'a>,
             context: (),
         ) -> Visit<Infallible, (), Infallible, Infallible> {
             self.names

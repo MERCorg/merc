@@ -803,14 +803,14 @@ fn find_symbols(t: &DataExpressionRef<'_>, symbols: &mut HashMap<DataFunctionSym
         symbols: &'a mut HashMap<DataFunctionSymbol, usize>,
     }
 
-    impl DataExpressionVisitor for FindSymbols<'_> {
+    impl<'a> DataExpressionVisitor<'a> for FindSymbols<'_> {
         type Context = ();
         type Break = Infallible;
         type Error = Infallible;
 
         fn visit_function_symbol(
             &mut self,
-            function_symbol: &DataFunctionSymbolRef<'_>,
+            function_symbol: &DataFunctionSymbolRef<'a>,
             context: (),
         ) -> Visit<Infallible, (), Infallible, Infallible> {
             add_symbol(function_symbol.protect(), 0, self.symbols);
@@ -819,7 +819,7 @@ fn find_symbols(t: &DataExpressionRef<'_>, symbols: &mut HashMap<DataFunctionSym
 
         fn visit_application(
             &mut self,
-            application: &DataApplicationRef<'_>,
+            application: &DataApplicationRef<'a>,
             context: (),
         ) -> Visit<Infallible, (), Infallible, Infallible> {
             // REC specifications should never contain this so it can be a debug error.
@@ -838,7 +838,7 @@ fn find_symbols(t: &DataExpressionRef<'_>, symbols: &mut HashMap<DataFunctionSym
 
         fn visit_machine_number(
             &mut self,
-            _number: &MachineNumberRef<'_>,
+            _number: &MachineNumberRef<'a>,
             context: (),
         ) -> Visit<Infallible, (), Infallible, Infallible> {
             // A machine number has no function symbol of its own, so it is

@@ -18,12 +18,11 @@ use crate::visit_data_expr;
 pub fn is_closed<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
     // Terms are maximally shared, so the same subterm is typically reachable along many paths.
     // Remembering the ones already seen keeps this linear in the size of the term graph rather
-    // than the size of the tree it unfolds to. Keying on the term address is only valid because
-    // no terms are created here, so no garbage collection can run during the traversal.
-    let mut visited = AHashSet::new();
+    // than the size of the tree it unfolds to.
+    let mut visited: AHashSet<DataExpressionRef<'a>> = AHashSet::new();
 
     let variable: Option<()> = visit_data_expr(&DataExpressionRef::from(term.copy()), (), |expr, context| {
-        if !visited.insert(expr.index()) {
+        if !visited.insert(expr.copy()) {
             ControlFlow::Continue(Step::Prune)
         } else if is_data_variable(expr) {
             ControlFlow::Break(())
