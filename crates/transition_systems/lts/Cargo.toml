@@ -17,7 +17,7 @@ workspace = true
 
 [features]
 # Enable CADP to read and write files in the BCG format.
-cadp = ["dep:bindgen"]
+cadp = ["dep:bindgen", "dep:cargo-emit"]
 # Derive some additional traits for clap.
 clap = ["dep:clap"]
 
@@ -46,4 +46,4 @@ tempfile.workspace = true
 
 [build-dependencies]
 bindgen = { workspace = true, optional = true }
-cargo-emit.workspace = true
+cargo-emit = { workspace = true, optional = true }

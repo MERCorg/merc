@@ -13,8 +13,9 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
-merc_utilities.workspace = true
-
 rand.workspace = true
 bnum.workspace = true
 num.workspace = true
+
+[dev-dependencies]
+merc_utilities.workspace = true

@@ -27,3 +27,6 @@ merc_typecheck.workspace = true
 test-log.workspace = true
 
 rand.workspace = true
+
+[lints]
+workspace = true

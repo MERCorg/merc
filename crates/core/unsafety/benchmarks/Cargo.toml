@@ -9,12 +9,14 @@ autobenches = false
 [dependencies]
 merc_unsafety.workspace = true
 
-ahash.workspace = true
 criterion.workspace = true
 dashmap.workspace = true
 foldhash = "0.2"
 rand.workspace = true
 rustc-hash.workspace = true
+
+[dev-dependencies]
+ahash.workspace = true
 # The 1.x hasher, for comparison against the 2.x one the workspace uses.
 rustc-hash-v1 = { package = "rustc-hash", version = "1.1" }
 
