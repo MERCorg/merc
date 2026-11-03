@@ -15,6 +15,9 @@ use crate::RewriteEngine;
 use crate::RewriteSpecification;
 use crate::RewritingStatistics;
 use crate::Rule;
+use crate::binder::BinderRewriter;
+use crate::binder::BinderState;
+use crate::binder::rewrite_binder;
 use crate::matching::condition_cache::ConditionCache;
 use crate::matching::conditions::EMACondition;
 use crate::matching::conditions::extend_conditions;
@@ -29,7 +32,7 @@ use crate::utilities::DataPositionIndexed;
 use crate::utilities::EmptySubstitution;
 use crate::utilities::InnermostStack;
 use crate::utilities::RewriteSubstitution;
-use crate::utilities::Shadowed;
+use crate::utilities::SliceSubstitution;
 use crate::utilities::TermStack;
 use crate::utilities::TermStackBuilder;
 use merc_utilities::debug_trace;
@@ -51,8 +54,13 @@ enum Step {
     /// Find a match for the constructed term, and place the result at the index.
     Match(DataExpression, usize),
 
-    /// Decide, or reconstruct, the binder term and place the result at the index.
-    Binder(DataAbstraction, usize),
+    /// Rewrite a binder of the input term under `sigma`, and place the result at the index.
+    SubjectBinder(DataAbstraction, usize),
+
+    /// Rewrite the binder `b` of a right-hand side, given as the template `lambda x0, .., xn .
+    /// b` over its free variables (see [Config::Binder]), under `xi := values[i]`, and place the
+    /// result at the index.
+    RhsBinder(DataAbstraction, Vec<DataExpression>, usize),
 
     /// The normal form of the input term.
     Return(DataExpression),
@@ -69,8 +77,8 @@ impl InnermostRewriter<NoQuantifierEnumerator> {
     }
 
     /// Like [InnermostRewriter::new], but `max_entries` sets the condition
-    /// cache's capacity (0 means unbounded; see `ConditionCache::new`)
-    /// instead of the default.
+    /// cache's capacity instead of the default, and `None` disables it (see
+    /// `ConditionCache::new`).
     pub fn with_condition_cache_capacity(spec: &RewriteSpecification, max_entries: Option<usize>) -> Self {
         Self::build(spec, max_entries, NoQuantifierEnumerator)
     }
@@ -78,7 +86,7 @@ impl InnermostRewriter<NoQuantifierEnumerator> {
 
 impl<E: Enumerator> InnermostRewriter<E> {
     fn build(spec: &RewriteSpecification, max_entries: Option<usize>, enumerator: E) -> Self {
-        let apma = SetAutomaton::new(spec, AnnouncementInnermost::new, true);
+        let apma = SetAutomaton::with_binders(spec, AnnouncementInnermost::new);
 
         InnermostRewriter {
             apma,
@@ -86,7 +94,7 @@ impl<E: Enumerator> InnermostRewriter<E> {
             builder: TermStackBuilder::new(),
             condition_cache: ConditionCache::new(max_entries),
             enumerator,
-            frames: Vec::new(),
+            binders: BinderState::default(),
         }
     }
 
@@ -143,7 +151,7 @@ impl<E: Enumerator> InnermostRewriter<E> {
                 t,
                 sigma,
                 &self.enumerator,
-                &mut self.frames,
+                &mut self.binders,
             )
         });
 
@@ -158,7 +166,7 @@ impl<E: Enumerator> InnermostRewriter<E> {
 /// behind `&mut self`, so the borrow checker allows each to be borrowed independently. In
 /// particular, so a nested rewrite (a condition, or a quantifier's candidate body) can reuse
 /// the same stack and automaton without holding a borrow of the whole [InnermostRewriter],
-/// which is what lets a quantifier's search call back into it (see [evaluate_binder]).
+/// which is what lets a quantifier's search call back into it (see [NestedRewriteView]).
 ///
 /// Uses a stack of terms and configurations to avoid recursion and to keep track of terms in
 /// normal form without explicit tagging. Each configuration is one of:
@@ -167,11 +175,25 @@ impl<E: Enumerator> InnermostRewriter<E> {
 ///       index.
 ///     - Construct(symbol, arity, index): Constructs `symbol` applied to the `arity` terms at
 ///       the top of the stack and places the result at the given index.
+///     - Term(term, index): Places a normal form of a right-hand side at the given index.
+///     - Binder(template, arity, index): Rewrites a binder of a right-hand side, with the
+///       values of its free variables at the top of the stack.
 ///
 /// Free variables of `input_term` are replaced by their image under `sigma` when they are
 /// reached, which is the point where the substitution is consumed: every term that is
 /// matched, constructed or used to instantiate a condition afterwards is already
 /// substituted.
+///
+/// A binder is rewritten by [rewrite_binder] under a substitution for its free variables, and
+/// which one depends on where it comes from:
+///     - A binder of the input term is reached through `Rewrite`, while `sigma` is not yet
+///       consumed for its free variables, so its body is rewritten under `sigma`.
+///     - A binder of a right-hand side is instantiated by `Binder`. Its free variables are
+///       variables of the rule, and their values are the normal forms of the matched subterms,
+///       which are rewritten like any other argument first. These are already substituted, so
+///       its body is rewritten under the values instead of `sigma`.
+///
+/// See [binders in right-hand sides](https://mercorg.github.io/merc-website/developer/rewriting/quantifiers/#binders-in-right-hand-sides).
 #[allow(clippy::too_many_arguments)]
 fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
     tp: &ThreadTermPool,
@@ -183,7 +205,7 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
     input_term: &DataExpression,
     sigma: &S,
     enumerator: &E,
-    frames: &mut Vec<E::Frame>,
+    binders: &mut BinderState<E::Frame>,
 ) -> DataExpression {
     stats.recursions += 1;
     stack.terms.write(|write_terms| {
@@ -207,45 +229,48 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
                 Config::Rewrite(result) => {
                     let term = write_terms.pop().unwrap().unwrap();
 
-                    // A machine number is a value in normal form; it has no head function
-                    // symbol to decompose, so place it directly at the result index.
-                    if is_data_machine_number(&term) {
-                        // Safety: term is stored in the container on the same line.
-                        write_terms[result] = Some(unsafe { write_terms.protect(&term) }.into());
-                        return Step::Continue;
-                    }
-
-                    // A binder has no head function symbol either, and is not addressed by
-                    // the set automaton.
-                    if is_data_binder(&term) {
-                        return Step::Binder(term.protect().into(), result);
-                    }
-
-                    if let Some(symbol) = term.try_data_function_symbol() {
-                        let arguments = term.data_arguments();
-
-                        // For all the argument we reserve space on the stack.
-                        let top_of_stack = write_terms.len();
-                        for _ in 0..arguments.len() {
-                            write_terms.push(Default::default());
+                    match term.kind() {
+                        // A machine number is a value in normal form; it has no head function
+                        // symbol to decompose, so place it directly at the result index.
+                        DataExpressionKind::MachineNumber(_) => {
+                            // Safety: term is stored in the container on the same line.
+                            write_terms[result] = Some(unsafe { write_terms.protect(&term) }.into());
                         }
-
-                        // Safety: symbol is stored in the container on the next line.
-                        let symbol = unsafe { write_configs.protect(&symbol) };
-                        InnermostStack::add_result(write_configs, symbol.into(), arguments.len(), result);
-                        for (offset, arg) in arguments.into_iter().enumerate() {
-                            InnermostStack::add_rewrite(write_configs, write_terms, arg, top_of_stack + offset);
+                        // A binder has no head function symbol either, and is not addressed by
+                        // the set automaton.
+                        DataExpressionKind::Abstraction(binder) => {
+                            return Step::SubjectBinder(binder.protect(), result);
                         }
-                    } else {
+                        DataExpressionKind::Application(_) | DataExpressionKind::FunctionSymbol(_) => {
+                            let symbol = term.data_function_symbol();
+                            let arguments = term.data_arguments();
+
+                            // For all the argument we reserve space on the stack.
+                            let top_of_stack = write_terms.len();
+                            for _ in 0..arguments.len() {
+                                write_terms.push(Default::default());
+                            }
+
+                            // Safety: symbol is stored in the container on the next line.
+                            let symbol = unsafe { write_configs.protect(&symbol) };
+                            InnermostStack::add_result(write_configs, symbol.into(), arguments.len(), result);
+                            for (offset, arg) in arguments.into_iter().enumerate() {
+                                InnermostStack::add_rewrite(write_configs, write_terms, arg, top_of_stack + offset);
+                            }
+                        }
                         // A variable has no head symbol to match on. It is replaced by its
                         // image under sigma, which is assumed to be in normal form, so it
                         // goes straight into the result slot without being constructed.
                         // Variables outside the domain of sigma are their own normal form.
-                        let variable: DataVariableRef<'_> = term.copy().into();
-                        let replacement = sigma.get(&variable).unwrap_or_else(|| term.copy());
+                        DataExpressionKind::Variable(variable) => {
+                            let replacement = sigma.get(&variable).unwrap_or_else(|| term.copy());
 
-                        // Safety: replacement is stored in the container on the same line.
-                        write_terms[result] = Some(unsafe { write_terms.protect(&replacement) }.into());
+                            // Safety: replacement is stored in the container on the same line.
+                            write_terms[result] = Some(unsafe { write_terms.protect(&replacement) }.into());
+                        }
+                        DataExpressionKind::WhereClause(_) => {
+                            unimplemented!("rewriting a where clause: {term}")
+                        }
                     }
                     Step::Continue
                 }
@@ -264,6 +289,16 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
                     // Remove the arguments from the stack.
                     write_terms.drain(length - arity..);
                     Step::Match(term, index)
+                }
+                Config::Binder(binder, arity, index) => {
+                    let length = write_terms.len();
+                    let values: Vec<DataExpression> = write_terms[length - arity..]
+                        .iter()
+                        .flatten()
+                        .map(|value| value.protect())
+                        .collect();
+                    write_terms.drain(length - arity..);
+                    Step::RhsBinder(binder.protect().into(), values, index)
                 }
                 Config::Term(term, index) => {
                     // A constant carried by a right-hand side (a machine number)
@@ -284,19 +319,40 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
 
         match step {
             Step::Continue => {}
-            Step::Binder(abstraction, index) => {
-                let value = evaluate_binder(
+            Step::SubjectBinder(abstraction, index) => {
+                let mut view = NestedRewriteView {
                     tp,
                     stack,
                     builder,
                     stats,
                     automaton,
                     condition_cache,
-                    &abstraction,
-                    sigma,
                     enumerator,
-                    frames,
-                );
+                    binders,
+                };
+                let value = rewrite_binder(&mut view, &abstraction, sigma);
+
+                stack.terms.write(|write_terms| {
+                    // Safety: value is stored in the container on the same line.
+                    write_terms[index] = Some(unsafe { write_terms.protect(&value) }.into());
+                });
+            }
+            Step::RhsBinder(template, values, index) => {
+                // The lambda only records which variables the values are for.
+                let variables: Vec<DataVariable> = template.variables().into_iter().collect();
+                let abstraction: DataAbstraction = template.body().protect().into();
+
+                let mut view = NestedRewriteView {
+                    tp,
+                    stack,
+                    builder,
+                    stats,
+                    automaton,
+                    condition_cache,
+                    enumerator,
+                    binders,
+                };
+                let value = rewrite_binder(&mut view, &abstraction, &SliceSubstitution::new(&variables, &values));
 
                 stack.terms.write(|write_terms| {
                     // Safety: value is stored in the container on the same line.
@@ -313,7 +369,7 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
                     condition_cache,
                     &term.copy(),
                     enumerator,
-                    frames,
+                    binders,
                 ) {
                     Some(MatchResult::Native(result)) => {
                         debug_trace!("native rewrite {} => {}", term, result);
@@ -368,6 +424,7 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
                                 Config::Construct(_, _, result) => index == *result,
                                 Config::Rewrite(result) => index == *result,
                                 Config::Term(_, result) => index == *result,
+                                Config::Binder(_, _, result) => index == *result,
                                 Config::Return() => true,
                             }
                         }),
@@ -379,83 +436,15 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
     }
 }
 
-/// Decides, or reconstructs unevaluated, the binder term `abstraction`.
-///
-/// The body is rewritten first, with the bound variables held as free normal
-/// forms (shadowed against `sigma`, so an enclosing substitution cannot reach
-/// into the binder's own scope), and — for `Exists`/`Forall` — `enumerator`
-/// is then asked to decide it.
+/// A [RewriteEngine] handle used only while a binder is rewritten (see
+/// [rewrite_binder]): rewrites through the same innermost stack and automaton,
+/// and decides quantifiers through the same enumerator.
 ///
 /// As in mCRL2's `Rewriter::quantifier_enumeration`, a nested quantifier is
 /// therefore first tried while rewriting the outer body, with the outer
 /// variables still free. If that does not settle it, it remains in the outer
 /// body, and is tried again each time the outer search rewrites that body
-/// under a candidate value: [NestedRewriteView] decides quantifiers through
-/// the same `enumerator`, on a frame of its own.
-#[allow(clippy::too_many_arguments)]
-fn evaluate_binder<S: RewriteSubstitution, E: Enumerator>(
-    tp: &ThreadTermPool,
-    stack: &mut InnermostStack,
-    builder: &mut TermStackBuilder,
-    stats: &mut RewritingStatistics,
-    automaton: &SetAutomaton<AnnouncementInnermost>,
-    condition_cache: &mut ConditionCache,
-    abstraction: &DataAbstraction,
-    sigma: &S,
-    enumerator: &E,
-    frames: &mut Vec<E::Frame>,
-) -> DataExpression {
-    let binder = abstraction.binder_type();
-    let vars: Vec<DataVariable> = abstraction.variables().into_iter().collect();
-    let body = abstraction.body().protect();
-
-    let shadowed = Shadowed::new(sigma, &vars);
-    let rewritten_body = rewrite_aux(
-        tp,
-        stack,
-        builder,
-        stats,
-        automaton,
-        condition_cache,
-        &body,
-        &shadowed,
-        enumerator,
-        frames,
-    );
-
-    if !matches!(binder, BinderType::Exists | BinderType::Forall) {
-        // Lambda / SetComp / BagComp: reduction is unimplemented.
-        return DataAbstraction::new(binder, &vars, rewritten_body).into();
-    }
-
-    // The frames of the enclosing searches are taken off `frames` while they
-    // run, so the one on top is free to reuse.
-    let mut frame = frames.pop().unwrap_or_default();
-    let mut view = NestedRewriteView {
-        tp,
-        stack,
-        builder,
-        stats,
-        automaton,
-        condition_cache,
-        enumerator,
-        frames,
-    };
-
-    let decision = enumerator.decide(&mut frame, &mut view, binder, &vars, &rewritten_body);
-    frames.push(frame);
-
-    match decision {
-        Some(value) => DataExpression::bool_literal(value),
-        // No decision could be made, yield the reconstructed binder.
-        None => DataAbstraction::new(binder, &vars, rewritten_body).into(),
-    }
-}
-
-/// A [RewriteEngine] handle used only while a [Enumerator::decide] call is in
-/// progress (see [evaluate_binder]): rewrites through the same innermost
-/// stack and automaton, and decides nested quantifiers through the same
-/// enumerator.
+/// under a candidate value, on a frame of its own.
 struct NestedRewriteView<'a, E: Enumerator> {
     tp: &'a ThreadTermPool,
     stack: &'a mut InnermostStack,
@@ -464,7 +453,7 @@ struct NestedRewriteView<'a, E: Enumerator> {
     automaton: &'a SetAutomaton<AnnouncementInnermost>,
     condition_cache: &'a mut ConditionCache,
     enumerator: &'a E,
-    frames: &'a mut Vec<E::Frame>,
+    binders: &'a mut BinderState<E::Frame>,
 }
 
 impl<E: Enumerator> RewriteEngine for NestedRewriteView<'_, E> {
@@ -483,8 +472,29 @@ impl<E: Enumerator> RewriteEngine for NestedRewriteView<'_, E> {
             t,
             sigma,
             self.enumerator,
-            self.frames,
+            self.binders,
         )
+    }
+}
+
+impl<E: Enumerator> BinderRewriter for NestedRewriteView<'_, E> {
+    fn decide(
+        &mut self,
+        binder: BinderType,
+        variables: &[DataVariable],
+        body: &DataExpression,
+    ) -> Option<DataExpression> {
+        // The frames of the enclosing searches are taken off the stack while they
+        // run, so the one on top is free to reuse.
+        let enumerator = self.enumerator;
+        let mut frame = self.binders.frames.pop().unwrap_or_default();
+        let result = enumerator.decide(&mut frame, self, binder, variables, body);
+        self.binders.frames.push(frame);
+        result
+    }
+
+    fn fresh_name(&mut self, base: &str) -> String {
+        self.binders.names.generate(base)
     }
 }
 
@@ -501,7 +511,7 @@ fn find_match<'a, E: Enumerator>(
     condition_cache: &mut ConditionCache,
     t: &DataExpressionRef<'_>,
     enumerator: &E,
-    frames: &mut Vec<E::Frame>,
+    binders: &mut BinderState<E::Frame>,
 ) -> Option<MatchResult<'a, AnnouncementInnermost>> {
     // Start at the initial state
     let mut state_index = 0;
@@ -547,7 +557,7 @@ fn find_match<'a, E: Enumerator>(
                         annotation,
                         t,
                         enumerator,
-                        frames,
+                        binders,
                     )
                 {
                     // We found a matching pattern
@@ -581,11 +591,19 @@ fn check_conditions<E: Enumerator>(
     announcement: &AnnouncementInnermost,
     t: &DataExpressionRef<'_>,
     enumerator: &E,
-    frames: &mut Vec<E::Frame>,
+    binders: &mut BinderState<E::Frame>,
 ) -> bool {
     for c in &announcement.conditions {
         let rhs: DataExpression = c.rhs_term_stack.evaluate_with(t, builder);
         let lhs: DataExpression = c.lhs_term_stack.evaluate_with(t, builder);
+
+        // Syntactically equal sides have the same normal form, so neither needs normalising.
+        if lhs == rhs {
+            if c.equality {
+                continue;
+            }
+            return false;
+        }
 
         let rhs_normal = normalise_condition_side(
             tp,
@@ -596,7 +614,7 @@ fn check_conditions<E: Enumerator>(
             condition_cache,
             &rhs,
             enumerator,
-            frames,
+            binders,
         );
         let lhs_normal = normalise_condition_side(
             tp,
@@ -607,7 +625,7 @@ fn check_conditions<E: Enumerator>(
             condition_cache,
             &lhs,
             enumerator,
-            frames,
+            binders,
         );
 
         if (lhs_normal != rhs_normal && c.equality) || (lhs_normal == rhs_normal && !c.equality) {
@@ -631,7 +649,7 @@ fn normalise_condition_side<E: Enumerator>(
     condition_cache: &mut ConditionCache,
     term: &DataExpression,
     enumerator: &E,
-    frames: &mut Vec<E::Frame>,
+    binders: &mut BinderState<E::Frame>,
 ) -> DataExpression {
     if let Some(normal_form) = condition_cache.get(term) {
         stats.condition_cache_hits += 1;
@@ -648,7 +666,7 @@ fn normalise_condition_side<E: Enumerator>(
         term,
         &EmptySubstitution,
         enumerator,
-        frames,
+        binders,
     );
     condition_cache.insert(term.clone(), normal_form.clone());
     normal_form
@@ -664,8 +682,8 @@ pub struct InnermostRewriter<E: Enumerator = NoQuantifierEnumerator> {
     /// Decides `exists`/`forall` quantifiers the rewriter reaches; see
     /// [Enumerator].
     enumerator: E,
-    /// One search frame per quantifier nesting depth, reused between searches.
-    frames: Vec<E::Frame>,
+    /// The state for rewriting binders, see [BinderState].
+    binders: BinderState<E::Frame>,
 }
 
 pub struct AnnouncementInnermost {
