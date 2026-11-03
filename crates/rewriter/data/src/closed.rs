@@ -5,6 +5,7 @@ use merc_aterm::Term;
 use merc_utilities::Step;
 
 use crate::DataExpressionRef;
+use crate::DataVariable;
 use crate::is_data_variable;
 use crate::visit_data_expr;
 
@@ -37,12 +38,50 @@ pub fn is_closed<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
     variable.is_none()
 }
 
+/// Sets `occurs[i]` for every `variables[i]` that occurs in `term`, stopping as soon as all of
+/// them are set.
+///
+/// As for [is_closed], occurrences bound by a binder or a where clause inside `term` count too.
+///
+/// # Panics
+///
+/// Panics if `occurs` is shorter than `variables`.
+pub fn mark_occurrences<'a, 'b, T: Term<'a, 'b>>(term: &'b T, variables: &[DataVariable], occurs: &mut [bool]) {
+    let occurs = &mut occurs[..variables.len()];
+    if occurs.iter().all(|found| *found) {
+        return;
+    }
+
+    // See is_closed for why keying on the term address is valid.
+    let mut visited = AHashSet::new();
+
+    let _: Option<()> = visit_data_expr(&DataExpressionRef::from(term.copy()), (), |expr, context| {
+        if !visited.insert(expr.index()) {
+            ControlFlow::Continue(Step::Prune)
+        } else if is_data_variable(expr) {
+            for (variable, found) in variables.iter().zip(occurs.iter_mut()) {
+                *found |= variable.index() == expr.index();
+            }
+
+            if occurs.iter().all(|found| *found) {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(Step::Prune)
+            }
+        } else {
+            ControlFlow::Continue(Step::Into(context))
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use ahash::AHashSet;
 
     use crate::DataExpression;
+    use crate::DataVariable;
     use crate::is_closed;
+    use crate::mark_occurrences;
 
     #[test]
     fn test_is_closed_ground_term() {
@@ -62,5 +101,16 @@ mod tests {
         let variables = AHashSet::from_iter(["x".to_string()]);
         let term = DataExpression::from_string_untyped("x", &variables).unwrap();
         assert!(!is_closed(&term));
+    }
+
+    #[test]
+    fn test_mark_occurrences_finds_only_occurring_variables() {
+        let variables = AHashSet::from_iter(["x".to_string(), "y".to_string()]);
+        let term = DataExpression::from_string_untyped("s(x, s(x, b))", &variables).unwrap();
+        let candidates = [DataVariable::new("x"), DataVariable::new("y")];
+
+        let mut occurs = [false; 2];
+        mark_occurrences(&term, &candidates, &mut occurs);
+        assert_eq!(occurs, [true, false]);
     }
 }
