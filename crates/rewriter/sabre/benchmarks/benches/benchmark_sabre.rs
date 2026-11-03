@@ -139,7 +139,7 @@ pub fn criterion_benchmark_condition_cache(c: &mut Criterion) {
 
         c.bench_function(&format!("condition cache innermost 1-entry {name}"), |bencher| {
             bencher.iter(|| {
-                let mut inner = InnermostRewriter::with_condition_cache_capacity(&spec, 1);
+                let mut inner = InnermostRewriter::with_condition_cache_capacity(&spec, None);
                 for term in &terms {
                     let _ = black_box(inner.rewrite(term));
                 }
@@ -157,7 +157,7 @@ pub fn criterion_benchmark_condition_cache(c: &mut Criterion) {
 
         c.bench_function(&format!("condition cache sabre 1-entry {name}"), |bencher| {
             bencher.iter(|| {
-                let mut sabre = SabreRewriter::with_condition_cache_capacity(&spec, 1);
+                let mut sabre = SabreRewriter::with_condition_cache_capacity(&spec, None);
                 for term in &terms {
                     let _ = black_box(sabre.rewrite(term));
                 }

@@ -143,8 +143,8 @@ fn pbes_to_pre_srf_impl(pbes: &Pbes, allow_ce: bool, merge_simple_expressions: b
             .iter()
             .map(|equation| equation.variable.name().value().to_string()),
     );
-    let x_false = id_generator.generate("X_false");
-    let x_true = id_generator.generate("X_true");
+    let x_false = String::from(id_generator.generate("X_false"));
+    let x_true = String::from(id_generator.generate("X_true"));
 
     // mu X_false = false || X_false; nu X_true = X_true: the escape equations every other
     // equation can route to.

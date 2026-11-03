@@ -1,5 +1,3 @@
-use std::num::NonZero;
-
 use ahash::HashMap;
 use ahash::HashMapExt;
 use merc_utilities::test_logger;
@@ -171,7 +169,7 @@ fn rec_test(rec_files: Vec<&str>, expected_result: &str, check_steps: bool) {
     let expected = parse_expected(&terms, expected_result);
 
     let mut inner = InnermostRewriter::with_condition_cache_capacity(&spec, None);
-    let mut sabre = SabreRewriter::with_condition_cache_capacity(&spec, NonZero);
+    let mut sabre = SabreRewriter::with_condition_cache_capacity(&spec, None);
 
     for (i, (term, expected_result)) in terms.iter().zip(&expected).enumerate() {
         let (inner_result, inner_stats) = inner.rewrite_with_statistics(term);

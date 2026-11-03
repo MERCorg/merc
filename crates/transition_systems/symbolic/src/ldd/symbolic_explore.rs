@@ -454,7 +454,7 @@ fn step<L: SymbolicLPS>(
                 transition.learn_successors(context, storage, &source, options.cached)
             })?;
 
-            let result = source.relational_product(transition.relation(), transition.meta())?;
+            let result = source.relational_successors(transition.relation(), transition.meta())?;
             todo1 = todo1.union(&result)?;
 
             if detect_deadlocks {
@@ -483,7 +483,7 @@ fn step<L: SymbolicLPS>(
             // Apply group i repeatedly until it no longer adds new states.
             loop {
                 let old = todo1.clone();
-                let result = todo1.relational_product(groups[i].relation(), groups[i].meta())?;
+                let result = todo1.relational_successors(groups[i].relation(), groups[i].meta())?;
                 todo1 = todo1.union(&result)?;
                 if todo1 == old {
                     break;
@@ -503,7 +503,7 @@ fn step<L: SymbolicLPS>(
                 loop {
                     let old = todo1.clone();
                     for group in groups.iter().take(i + 1) {
-                        let result = todo1.relational_product(group.relation(), group.meta())?;
+                        let result = todo1.relational_successors(group.relation(), group.meta())?;
                         todo1 = todo1.union(&result)?;
                     }
                     if todo1 == old {
@@ -529,8 +529,8 @@ fn remove_states_with_successor(
     group: &impl TransitionGroup,
     deadlocks: &LDDFunction,
 ) -> Result<LDDFunction, MercError> {
-    let with_successor = todo1.relational_predecessor(group.relation(), group.meta(), deadlocks)?;
-    Ok(deadlocks.minus(&with_successor)?)
+    let with_successor = todo1.relational_predecessors(group.relation(), group.meta(), deadlocks)?;
+    Ok(deadlocks.diff(&with_successor)?)
 }
 
 #[cfg(test)]

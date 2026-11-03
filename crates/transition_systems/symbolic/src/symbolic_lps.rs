@@ -151,7 +151,7 @@ impl SummandGroup {
 
         let meta = manager
             .with_manager_shared(|m| {
-                LDDFunction::relation_product_meta(m, &read_parameter_indices, &write_parameter_indices)
+                LDDFunction::relation_meta(m, &read_parameter_indices, &write_parameter_indices)
             })?
             .meta;
         let action_label_index = read_parameters.len() + write_parameters.len();

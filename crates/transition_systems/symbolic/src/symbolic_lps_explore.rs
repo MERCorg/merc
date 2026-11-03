@@ -8,10 +8,11 @@ use merc_explore::LPS;
 use merc_explore::PermutedLps;
 use merc_explore::Summand;
 use merc_utilities::MercError;
+use oxidd::LevelNo;
 use oxidd::ManagerRef;
 use oxidd::ldd::LDDFunction;
 use oxidd::ldd::LDDManagerRef;
-use oxidd::ldd::RelationProductMeta;
+use oxidd::ldd::RelationMeta;
 use oxidd::ldd::Value;
 use streaming_iterator::StreamingIterator;
 
@@ -360,7 +361,7 @@ impl<L: LPS> TransitionGroup for SymbolicLpsGroup<L> {
         // With caching only the projections that have not been learned from before are enumerated;
         // the ones in the domain already contributed all their transitions to the relation.
         let proj = if cached {
-            projection.minus(&self.domain)?
+            projection.diff(&self.domain)?
         } else {
             projection.clone()
         };
@@ -411,7 +412,7 @@ impl<L: LPS> TransitionGroup for SymbolicLpsGroup<L> {
                 full_state[position] = *columns[position]
                     .get_by_index(value as usize)
                     .expect("read value must already be interned");
-                interleaved[self.read_positions[k]] = value;
+                interleaved[self.read_positions[k] as usize] = value;
             }
 
             // Prepare the backend assignments for this state and collect the summands of this group
@@ -440,7 +441,7 @@ impl<L: LPS> TransitionGroup for SymbolicLpsGroup<L> {
                     for (m, &write_index) in write_indices.iter().enumerate() {
                         let position = write_index as usize;
                         let (value, _) = columns[position].insert(next_state[position]);
-                        interleaved[write_positions[m]] = *value as Value;
+                        interleaved[write_positions[m] as usize] = *value as Value;
                     }
 
                     if L::HAS_LABELS {
