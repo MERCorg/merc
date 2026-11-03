@@ -750,20 +750,6 @@ fn test_enumerate_constructors_that_are_not_a_normal_form() {
 }
 
 #[test]
-#[ignore = "Set(Bool) applies function values such as `@false_`, which needs higher-order matching"]
-fn test_enumerate_set_of_bool() {
-    let spec = lower_without_prelude(
-        "map goal: Set(Bool) -> Bool;
-         var f: Set(Bool);
-         eqn goal(f) = true in f;",
-    );
-
-    let (outcome, results) = solutions(&spec, "goal", usize::MAX);
-    assert!(matches!(outcome, Outcome::Exhausted), "{outcome:?}");
-    assert_eq!(results.len(), 4, "{results:?}");
-}
-
-#[test]
 #[cfg_attr(miri, ignore)]
 fn test_cannot_enumerate_real() {
     let spec = lower_without_prelude(
