@@ -25,6 +25,7 @@ pub(crate) use data_terms::is_sort_expression;
 pub use booleans::BoolConnective;
 pub use booleans::BoolKind;
 pub use booleans::is_bool_literal;
+pub use closed::collect_variables;
 pub use closed::is_closed;
 pub use closed::mark_occurrences;
 pub use data_expression::BinderType;

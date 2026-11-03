@@ -13,12 +13,16 @@ use merc_utilities::Visit;
 
 /// Returns the free variables of `expr`: occurrences bound by an enclosing binder or where
 /// clause are skipped.
+///
+/// They are yielded in the order of their first occurrence, from left to right, so that the
+/// result does not depend on hashing, and a compiled right-hand side is the same in every run.
 pub(crate) fn free_variables(expr: &DataExpression) -> impl Iterator<Item = DataVariable> + use<> {
     /// The context is the innermost scope, an index into `scopes`, which forms a linked list of
     /// the variables bound around the visited node.
     struct FreeVariables {
         scopes: Vec<(DataVariable, Option<usize>)>,
-        free: HashSet<DataVariable>,
+        seen: HashSet<DataVariable>,
+        free: Vec<DataVariable>,
     }
 
     impl FreeVariables {
@@ -49,8 +53,8 @@ pub(crate) fn free_variables(expr: &DataExpression) -> impl Iterator<Item = Data
             variable: &DataVariableRef<'a>,
             scope: Option<usize>,
         ) -> Visit<Infallible, Option<usize>, Infallible, Infallible> {
-            if !self.is_bound(variable, scope) {
-                self.free.insert(variable.protect());
+            if !self.is_bound(variable, scope) && self.seen.insert(variable.protect()) {
+                self.free.push(variable.protect());
             }
             Ok(ControlFlow::Continue(Step::Into(scope)))
         }
@@ -85,7 +89,8 @@ pub(crate) fn free_variables(expr: &DataExpression) -> impl Iterator<Item = Data
 
     let mut visitor = FreeVariables {
         scopes: Vec::new(),
-        free: HashSet::default(),
+        seen: HashSet::default(),
+        free: Vec::new(),
     };
     visitor.visit(&expr.copy(), None);
     visitor.free.into_iter()

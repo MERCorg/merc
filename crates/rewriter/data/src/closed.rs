@@ -74,12 +74,32 @@ pub fn mark_occurrences<'a, 'b, T: Term<'a, 'b>>(term: &'b T, variables: &[DataV
     });
 }
 
+/// Inserts every variable that occurs in `term` into `variables`.
+///
+/// As for [is_closed], occurrences bound by a binder or a where clause inside `term` count too.
+pub fn collect_variables<'a, 'b, T: Term<'a, 'b>>(term: &'b T, variables: &mut AHashSet<DataVariable>) {
+    // See is_closed for why keying on the term address is valid.
+    let mut visited = AHashSet::new();
+
+    let _: Option<()> = visit_data_expr(&DataExpressionRef::from(term.copy()), (), |expr, context| {
+        if !visited.insert(expr.index()) {
+            ControlFlow::Continue(Step::Prune)
+        } else if is_data_variable(expr) {
+            variables.insert(DataVariable::from(expr.protect()));
+            ControlFlow::Continue(Step::Prune)
+        } else {
+            ControlFlow::Continue(Step::Into(context))
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use ahash::AHashSet;
 
     use crate::DataExpression;
     use crate::DataVariable;
+    use crate::collect_variables;
     use crate::is_closed;
     use crate::mark_occurrences;
 
@@ -112,5 +132,18 @@ mod tests {
         let mut occurs = [false; 2];
         mark_occurrences(&term, &candidates, &mut occurs);
         assert_eq!(occurs, [true, false]);
+    }
+
+    #[test]
+    fn test_collect_variables_collects_each_variable_once() {
+        let variables = AHashSet::from_iter(["x".to_string(), "y".to_string()]);
+        let term = DataExpression::from_string_untyped("s(x, s(y, x))", &variables).unwrap();
+
+        let mut collected = AHashSet::new();
+        collect_variables(&term, &mut collected);
+        assert_eq!(
+            collected,
+            AHashSet::from_iter([DataVariable::new("x"), DataVariable::new("y")])
+        );
     }
 }
