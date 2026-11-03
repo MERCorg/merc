@@ -1,5 +1,8 @@
 #![forbid(unsafe_code)]
 
+use std::borrow::Cow;
+
+use ahash::AHashSet;
 use ahash::HashMap;
 use merc_aterm::ATerm;
 use merc_aterm::Symbol;
@@ -8,20 +11,19 @@ use merc_aterm::TermBuilder;
 use merc_aterm::Yield;
 use merc_aterm::storage::THREAD_TERM_POOL;
 use merc_data::DataExpression;
+use merc_data::DataExpressionKind;
 use merc_data::DataExpressionRef;
 use merc_data::DataVariable;
 use merc_data::DataVariableRef;
+use merc_data::collect_variables;
 use merc_data::is_closed;
-use merc_data::is_data_application;
-use merc_data::is_data_function_symbol;
-use merc_data::is_data_machine_number;
-use merc_data::is_data_variable;
 
 /// Maps free variables to their replacement while rewriting.
 ///
 /// Implementations are usually taken as a generic parameter, so that the variable lookup is
 /// monomorphised at every call site and [EmptySubstitution] collapses to nothing at all. The
-/// trait is object safe for the places that need to erase the type, such as [Shadowed].
+/// trait is object safe for the places that need to erase the type, such as the scope of a
+/// binder.
 pub trait RewriteSubstitution {
     /// May only return `true` when [RewriteSubstitution::get] always returns `None`.
     ///
@@ -37,6 +39,30 @@ pub trait RewriteSubstitution {
     /// The returned term must be in normal form; rewriters splice it in without normalising it
     /// again.
     fn get<'a>(&'a self, variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>>;
+
+    /// Calls `f` with every variable in the domain and its image. A variable may be reported
+    /// more than once, when one image shadows another.
+    fn for_each_binding(&self, f: &mut dyn FnMut(&DataVariableRef<'_>, &DataExpressionRef<'_>));
+
+    /// Returns the variables that occur in the image of another variable: a binder of one of
+    /// them is renamed apart before the substitution is applied to its body, since the image
+    /// would otherwise be captured.
+    ///
+    /// An image `v` of `v` is skipped: it only matters under a binder of `v`, where `v` is not
+    /// free. Over-approximating only costs a needless renaming. The default traverses every
+    /// image, which is only done when a binder is reached; the scope of a binder keeps its range
+    /// instead, so that nested binders do not traverse the same images again.
+    fn range(&self) -> Cow<'_, AHashSet<DataVariable>> {
+        let mut range = AHashSet::new();
+        if !self.is_empty() {
+            self.for_each_binding(&mut |variable, image| {
+                if image.index() != variable.index() {
+                    collect_variables(image, &mut range);
+                }
+            });
+        }
+        Cow::Owned(range)
+    }
 }
 
 /// The identity substitution, which leaves every variable unchanged.
@@ -53,6 +79,8 @@ impl RewriteSubstitution for EmptySubstitution {
     fn get<'a>(&'a self, _variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>> {
         None
     }
+
+    fn for_each_binding(&self, _f: &mut dyn FnMut(&DataVariableRef<'_>, &DataExpressionRef<'_>)) {}
 }
 
 impl RewriteSubstitution for HashMap<DataVariable, DataExpression> {
@@ -66,6 +94,12 @@ impl RewriteSubstitution for HashMap<DataVariable, DataExpression> {
         // variable next to its value under its term index; deferred until it shows up in a
         // profile.
         HashMap::get(self, &variable.protect()).map(|value| value.copy())
+    }
+
+    fn for_each_binding(&self, f: &mut dyn FnMut(&DataVariableRef<'_>, &DataExpressionRef<'_>)) {
+        for (variable, value) in self {
+            f(&variable.copy(), &value.copy());
+        }
     }
 }
 
@@ -96,61 +130,11 @@ impl RewriteSubstitution for SliceSubstitution<'_> {
             .position(|v| v.copy() == *variable)
             .map(|index| self.values[index].copy())
     }
-}
 
-/// Wraps a substitution so it reports every variable in `shadowed` as outside
-/// its domain, regardless of what `inner` says.
-///
-/// # Example
-///
-/// Used when descending into a binder's body: `inner`'s domain may contain a
-/// name that coincides with one of the binder's own bound variables, and that
-/// bound variable must shadow it rather than be replaced.
-pub(crate) struct Shadowed<'a> {
-    pub inner: &'a dyn RewriteSubstitution,
-    pub shadowed: &'a [DataVariable],
-}
-
-impl<'a> Shadowed<'a> {
-    pub fn new(inner: &'a dyn RewriteSubstitution, shadowed: &'a [DataVariable]) -> Self {
-        Shadowed { inner, shadowed }
-    }
-}
-
-impl RewriteSubstitution for Shadowed<'_> {
-    fn is_empty(&self) -> bool {
-        self.inner.is_empty()
-    }
-
-    fn get<'a>(&'a self, variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>> {
-        if self.shadowed.iter().any(|v| v.copy() == *variable) {
-            None
-        } else {
-            self.inner.get(variable)
+    fn for_each_binding(&self, f: &mut dyn FnMut(&DataVariableRef<'_>, &DataExpressionRef<'_>)) {
+        for (variable, value) in self.variables.iter().zip(self.values) {
+            f(&variable.copy(), &value.copy());
         }
-    }
-}
-
-/// Layers one substitution over another without merging them into a single
-/// collection.
-pub struct Chained<'a, A: ?Sized, B: ?Sized> {
-    pub first: &'a A,
-    pub second: &'a B,
-}
-
-impl<'a, A: ?Sized, B: ?Sized> Chained<'a, A, B> {
-    pub fn new(first: &'a A, second: &'a B) -> Self {
-        Chained { first, second }
-    }
-}
-
-impl<A: RewriteSubstitution + ?Sized, B: RewriteSubstitution + ?Sized> RewriteSubstitution for Chained<'_, A, B> {
-    fn is_empty(&self) -> bool {
-        self.first.is_empty() && self.second.is_empty()
-    }
-
-    fn get<'a>(&'a self, variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>> {
-        self.first.get(variable).or_else(|| self.second.get(variable))
     }
 }
 
@@ -176,20 +160,21 @@ pub fn apply_substitution<S: RewriteSubstitution + ?Sized>(t: &DataExpression, s
             builder.evaluate(
                 tp,
                 t.copy().protect().into(),
-                |_tp, args, t| {
-                    if is_data_variable(&t) {
-                        let replacement = sigma.get(&t.copy().into()).map(|value| value.protect().into());
+                |_tp, args, t| match DataExpressionRef::from(t.copy()).kind() {
+                    DataExpressionKind::Variable(variable) => {
+                        let replacement = sigma.get(&variable).map(|value| value.protect().into());
 
                         Ok(Yield::Term(replacement.unwrap_or(t)))
-                    } else if is_data_function_symbol(&t) || is_data_machine_number(&t) {
-                        Ok(Yield::Term(t))
-                    } else if is_data_application(&t) {
+                    }
+                    DataExpressionKind::FunctionSymbol(_) | DataExpressionKind::MachineNumber(_) => Ok(Yield::Term(t)),
+                    DataExpressionKind::Application(_) => {
                         for arg in t.arguments() {
                             args.push(arg.protect());
                         }
 
                         Ok(Yield::Construct(t.get_head_symbol().protect()))
-                    } else {
+                    }
+                    DataExpressionKind::Abstraction(_) | DataExpressionKind::WhereClause(_) => {
                         panic!("apply_substitution is not defined for binders and where clauses: {t}");
                     }
                 },
@@ -208,7 +193,6 @@ mod tests {
     use merc_data::DataExpression;
     use merc_data::DataVariable;
 
-    use crate::utilities::Chained;
     use crate::utilities::EmptySubstitution;
     use crate::utilities::SliceSubstitution;
     use crate::utilities::apply_substitution;
@@ -277,20 +261,6 @@ mod tests {
         assert_eq!(
             apply_substitution(&term("f(x, y)", &["x", "y"]), &sigma),
             term("f(a, b)", &[])
-        );
-    }
-
-    #[test]
-    fn test_chained_prefers_first_substitution() {
-        let variables = [DataVariable::new("x")];
-        let values = [term("a", &[])];
-        let first = SliceSubstitution::new(&variables, &values);
-        let second = substitution(&[("x", "b"), ("y", "c")]);
-        let sigma = Chained::new(&first, &second);
-
-        assert_eq!(
-            apply_substitution(&term("f(x, y)", &["x", "y"]), &sigma),
-            term("f(a, c)", &[])
         );
     }
 }
