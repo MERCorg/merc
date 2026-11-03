@@ -1,10 +1,19 @@
 use std::cmp::Ordering;
 
+use merc_utilities::MercError;
+use oxidd::Function;
+use oxidd::InnerNode;
+use oxidd::LevelNo;
+use oxidd::Manager;
 use oxidd::ManagerRef;
+use oxidd::Node;
+use oxidd::NodeID;
 use oxidd::ldd::LDDFunction;
 use oxidd::ldd::LDDManagerRef;
 use oxidd::ldd::Value;
 use oxidd::util::AllocResult;
+use oxidd_core::LevelView;
+use oxidd_rules_ldd::LDDTerminal;
 use rustc_hash::FxHashMap;
 
 use crate::height;
@@ -32,48 +41,60 @@ use crate::height;
 /// whose `down` branch became empty is not a valid node and collapses to its
 /// `right` sibling.
 pub fn merge(manager: &LDDManagerRef, a: &LDDFunction, b: &LDDFunction) -> AllocResult<LDDFunction> {
-    let mut cache = FxHashMap::default();
-    merge_rec(manager, a, b, &mut cache)
+    manager.with_manager_shared(|m| {
+        let mut cache = FxHashMap::default();
+        let mut relevel_cache = FxHashMap::default();
+        merge_rec(m, 0, a, b, &mut cache, &mut relevel_cache)
+    })
 }
 
+/// Recursive implementation of [merge], producing an LDD that resides at `level`.
 fn merge_rec(
-    manager: &LDDManagerRef,
+    manager: &LddManager<'_>,
+    level: LevelNo,
     a: &LDDFunction,
     b: &LDDFunction,
-    cache: &mut FxHashMap<(usize, usize), LDDFunction>,
+    cache: &mut FxHashMap<(NodeID, NodeID), LDDFunction>,
+    relevel_cache: &mut FxHashMap<(NodeID, LevelNo), LDDFunction>,
 ) -> AllocResult<LDDFunction> {
-    if a.is_empty_vector() {
-        return Ok(b.clone());
+    let a_edge = a.as_edge(manager);
+    let b_edge = b.as_edge(manager);
+    let a_node = manager.get_node(a_edge);
+    let b_node = manager.get_node(b_edge);
+    if a_node.is_terminal(&LDDTerminal::True) {
+        return relevel(manager, b, level, relevel_cache);
     }
-    if b.is_empty_vector() {
-        return Ok(a.clone());
+    if b_node.is_terminal(&LDDTerminal::True) {
+        return relevel(manager, a, level, relevel_cache);
     }
-    if a.is_empty() || b.is_empty() {
-        return manager.with_manager_shared(LDDFunction::empty_set);
+    if a_node.is_terminal(&LDDTerminal::Empty) || b_node.is_terminal(&LDDTerminal::Empty) {
+        return LDDFunction::empty_set(manager);
     }
 
-    let key = (a.id(), b.id());
+    let key = (a_edge.node_id(), b_edge.node_id());
     if let Some(cached) = cache.get(&key) {
         return Ok(cached.clone());
     }
 
-    let (value, down, right) = a
-        .node()
-        .expect("checked above: neither the empty set nor the empty vector");
+    let (value, down, right) = node_of(manager, a).expect("checked above: neither the empty set nor the empty vector");
 
-    let down_result = merge_rec(manager, b, &down, cache)?;
-    let right_result = merge_rec(manager, &right, b, cache)?;
+    let down_result = merge_rec(manager, level + 1, b, &down, cache, relevel_cache)?;
+    let right_result = merge_rec(manager, level, &right, b, cache, relevel_cache)?;
 
-    let result = if down_result.is_empty() {
+    let down_is_empty = manager
+        .get_node(down_result.as_edge(manager))
+        .is_terminal(&LDDTerminal::Empty);
+    let result = if down_is_empty {
         // A node with an empty `down` branch is not canonical; it collapses to `right`.
         right_result
     } else {
-        manager.with_manager_shared(|m| LDDFunction::make_node(m, value, &down_result, &right_result))?
+        LDDFunction::make_node(manager, level, value, &down_result, &right_result)?
     };
 
     cache.insert(key, result.clone());
     Ok(result)
 }
+
 /// Rebuilds `set` such that it resides at `level`, or returns it as is when it already does.
 ///
 /// Nodes do not store their level, but they are stored per level, so a sub-LDD
@@ -124,6 +145,28 @@ fn relevel_rec(
 
     cache.insert(key, result.clone());
     Ok(result)
+}
+
+/// The manager of [LDDFunction], as borrowed by [ManagerRef::with_manager_shared].
+type LddManager<'id> = <LDDFunction as Function>::Manager<'id>;
+
+/// Returns the `(value, down, right)` triple of the root node of `set`, or `None` if `set` is a terminal.
+///
+/// This is [LDDFunction::node] for an already-borrowed `manager`, which avoids locking the manager again.
+fn node_of(manager: &LddManager<'_>, set: &LDDFunction) -> Option<(Value, LDDFunction, LDDFunction)> {
+    match manager.get_node(set.as_edge(manager)) {
+        Node::Terminal(_) => None,
+        Node::Inner(node) => {
+            let mut children = node.children();
+            let down = children.next().expect("an LDD node has a down child");
+            let right = children.next().expect("an LDD node has a right child");
+            Some((
+                *node.value(),
+                LDDFunction::from_edge(manager, manager.clone_edge(down)),
+                LDDFunction::from_edge(manager, manager.clone_edge(right)),
+            ))
+        }
+    }
 }
 
 /// A table of LDD nodes that are read bottom-up, for example from a file, where
@@ -214,10 +257,17 @@ pub fn fix_element(manager: &LDDManagerRef, set: &LDDFunction, level: usize, val
         "fix_element: level {level} is out of range for a set of height {}",
         height(manager, set)
     );
-    fix_element_rec(manager, set, level, value)
+    fix_element_rec(manager, 0, set, level, value)
 }
 
-fn fix_element_rec(manager: &LDDManagerRef, set: &LDDFunction, level: usize, value: Value) -> AllocResult<LDDFunction> {
+/// Recursive implementation of [fix_element] for a `set` that resides at `depth`.
+fn fix_element_rec(
+    manager: &LDDManagerRef,
+    depth: LevelNo,
+    set: &LDDFunction,
+    level: usize,
+    value: Value,
+) -> AllocResult<LDDFunction> {
     if level == 0 {
         let mut current = set.clone();
         loop {
@@ -226,7 +276,7 @@ fn fix_element_rec(manager: &LDDManagerRef, set: &LDDFunction, level: usize, val
                 Some((v, down, right)) => match v.cmp(&value) {
                     Ordering::Equal => {
                         let empty = manager.with_manager_shared(LDDFunction::empty_set)?;
-                        return manager.with_manager_shared(|m| LDDFunction::make_node(m, value, &down, &empty));
+                        return manager.with_manager_shared(|m| LDDFunction::make_node(m, depth, value, &down, &empty));
                     }
                     Ordering::Greater => return manager.with_manager_shared(LDDFunction::empty_set),
                     Ordering::Less => current = right,
@@ -243,7 +293,7 @@ fn fix_element_rec(manager: &LDDManagerRef, set: &LDDFunction, level: usize, val
                 // end of its vectors): there is no element at `level` to match, so the result is ∅.
                 None => break,
                 Some((v, down, right)) => {
-                    let new_down = fix_element_rec(manager, &down, level - 1, value)?;
+                    let new_down = fix_element_rec(manager, depth + 1, &down, level - 1, value)?;
                     if !new_down.is_empty() {
                         kept.push((v, new_down));
                     }
@@ -254,11 +304,12 @@ fn fix_element_rec(manager: &LDDManagerRef, set: &LDDFunction, level: usize, val
 
         let mut result = manager.with_manager_shared(LDDFunction::empty_set)?;
         for (v, new_down) in kept.into_iter().rev() {
-            result = manager.with_manager_shared(|m| LDDFunction::make_node(m, v, &new_down, &result))?;
+            result = manager.with_manager_shared(|m| LDDFunction::make_node(m, depth, v, &new_down, &result))?;
         }
         Ok(result)
     }
 }
+
 
 /// Returns an LDD containing all elements of the given iterator over vectors.
 pub fn from_iter<'a, I>(manager: &LDDManagerRef, iter: I) -> LDDFunction
@@ -311,6 +362,7 @@ mod tests {
     fn test_random_intersect() {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+            manager.reserve_levels(3);
 
             let a = random_vector_set(rng, 8, 3, 5);
             let b = random_vector_set(rng, 8, 3, 5);
@@ -318,7 +370,7 @@ mod tests {
             let ldd_a = from_iter(&manager, a.iter());
             let ldd_b = from_iter(&manager, b.iter());
 
-            let result = ldd_a.intersect(&ldd_b).unwrap();
+            let result = ldd_a.intsec(&ldd_b).unwrap();
             let expected: HashSet<Vec<u32>> = a.intersection(&b).cloned().collect();
 
             assert_eq!(count(&result), expected.len());
@@ -335,6 +387,7 @@ mod tests {
     fn test_random_merge() {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+            manager.reserve_levels(2 * 3);
 
             let a = random_vector_set(rng, 8, 3, 5);
             let b = random_vector_set(rng, 8, 3, 5);
@@ -369,6 +422,7 @@ mod tests {
     fn test_random_fix_element() {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+            manager.reserve_levels(5);
 
             let length = 5;
             let max_value = 5;
