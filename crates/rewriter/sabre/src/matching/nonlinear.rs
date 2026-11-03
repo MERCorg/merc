@@ -3,9 +3,9 @@
 use std::fmt;
 
 use itertools::Itertools;
+use merc_data::DataExpressionKind;
 use merc_data::DataVariable;
 use merc_data::DataVariableRef;
-use merc_data::is_data_variable;
 
 use crate::Rule;
 use crate::utilities::DataPosition;
@@ -32,9 +32,9 @@ pub fn derive_equivalence_classes(rule: &Rule) -> Vec<EquivalenceClass> {
     let mut var_equivalences = vec![];
 
     for (term, pos) in DataPositionIterator::new(rule.lhs.copy()) {
-        if is_data_variable(&term) {
+        if let DataExpressionKind::Variable(variable) = term.kind() {
             // Register the position of the variable
-            update_equivalences(&mut var_equivalences, &DataVariableRef::from(term), pos);
+            update_equivalences(&mut var_equivalences, &variable, pos);
         }
     }
 

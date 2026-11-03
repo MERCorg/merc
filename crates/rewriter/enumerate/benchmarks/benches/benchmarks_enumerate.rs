@@ -16,7 +16,6 @@ use merc_data::DataVariable;
 use merc_data::Mcrl2DataSpecification;
 use merc_data::SortArrow;
 use merc_data::SortExpression;
-use merc_data::bool_literal;
 use merc_enumerate::EnumerationLimits;
 use merc_enumerate::EnumerationPlans;
 use merc_enumerate::Enumerator;
@@ -174,7 +173,11 @@ fn criterion_benchmark_quantifier_goals(c: &mut Criterion) {
                 )
             };
 
-            assert_eq!(new_rewriter().rewrite(&body), bool_literal(expected), "{name}: {goal}");
+            assert_eq!(
+                new_rewriter().rewrite(&body),
+                DataExpression::bool_literal(expected),
+                "{name}: {goal}"
+            );
             bencher.iter_batched(
                 new_rewriter,
                 |mut rewriter| {

@@ -14,14 +14,12 @@ use merc_data::BinderType;
 use merc_data::DataAbstraction;
 use merc_data::DataApplication;
 use merc_data::DataExpression;
+use merc_data::DataExpressionKind;
 use merc_data::DataExpressionRef;
 use merc_data::DataFunctionSymbolRef;
 use merc_data::DataVariable;
-use merc_data::DataVariableRef;
 use merc_data::DataWhereClause;
 use merc_data::DataWhrDecl;
-use merc_data::is_data_binder;
-use merc_data::is_data_machine_number;
 use merc_data::is_data_variable;
 use merc_utilities::debug_trace;
 
@@ -157,50 +155,54 @@ impl TermStack {
 
         let mut queue: VecDeque<DataExpression> = VecDeque::from([term.protect()]);
         while let Some(term) = queue.pop_front() {
-            if is_data_variable(&term) {
-                let variable: DataVariableRef<'_> = term.copy().into();
-                variables.push((
-                    var_map
-                        .get(&variable.protect())
-                        .expect("All variables in the right hand side must occur in the left hand side")
-                        .clone(),
-                    stack_size,
-                ));
-                stack_size += 1;
-            } else if is_data_machine_number(&term) {
-                // A machine number is a constant with no head function symbol to
-                // construct from, so it gets its own slot that is filled with the
-                // literal term. Right-hand sides contain them whenever numeric
-                // literals are lowered with `NumberEncoding::MachineWord`, where a
-                // number is a chain of `@word` digits.
-                innermost_stack.write(|write| {
-                    // Safety: term is pushed into the container on the next line.
-                    let t = unsafe { write.protect(&term) };
-                    write.push(Config::Term(t.into(), stack_size));
-                });
-                stack_size += 1;
-            } else if is_data_binder(&term) {
-                // Closing the binder over its free variables records which variables the values
-                // are for, so they need not be computed again for every instance.
-                let free: Vec<DataVariable> = free_variables(&term).collect();
-                let template: DataExpression = DataAbstraction::new(BinderType::Lambda, &free, term.clone()).into();
-                innermost_stack.write(|write| {
-                    // Safety: template is pushed into the container on the next line.
-                    let t = unsafe { write.protect(&template) };
-                    write.push(Config::Binder(t.into(), free.len(), stack_size));
-                });
-                stack_size += 1;
-                queue.extend(free.into_iter().map(DataExpression::from));
-            } else {
-                let arity = term.data_arguments().len();
-                innermost_stack.write(|write| {
-                    // Safety: symbol is pushed into the container on the next line.
-                    let symbol = unsafe { write.protect(&term.data_function_symbol()) };
-                    write.push(Config::Construct(symbol.into(), arity, stack_size));
-                });
-                stack_size += 1;
-                queue.extend(term.data_arguments().map(|argument| argument.protect()));
+            match term.kind() {
+                DataExpressionKind::Variable(variable) => {
+                    variables.push((
+                        var_map
+                            .get(&variable.protect())
+                            .expect("All variables in the right hand side must occur in the left hand side")
+                            .clone(),
+                        stack_size,
+                    ));
+                }
+                DataExpressionKind::MachineNumber(_) => {
+                    // A machine number is a constant with no head function symbol to
+                    // construct from, so it gets its own slot that is filled with the
+                    // literal term. Right-hand sides contain them whenever numeric
+                    // literals are lowered with `NumberEncoding::MachineWord`, where a
+                    // number is a chain of `@word` digits.
+                    innermost_stack.write(|write| {
+                        // Safety: term is pushed into the container on the next line.
+                        let t = unsafe { write.protect(&term) };
+                        write.push(Config::Term(t.into(), stack_size));
+                    });
+                }
+                DataExpressionKind::Abstraction(_) => {
+                    // Closing the binder over its free variables records which variables the
+                    // values are for, so they need not be computed again for every instance.
+                    let free: Vec<DataVariable> = free_variables(&term).collect();
+                    let template: DataExpression = DataAbstraction::new(BinderType::Lambda, &free, term.clone()).into();
+                    innermost_stack.write(|write| {
+                        // Safety: template is pushed into the container on the next line.
+                        let t = unsafe { write.protect(&template) };
+                        write.push(Config::Binder(t.into(), free.len(), stack_size));
+                    });
+                    queue.extend(free.into_iter().map(DataExpression::from));
+                }
+                DataExpressionKind::Application(_) | DataExpressionKind::FunctionSymbol(_) => {
+                    let arity = term.data_arguments().len();
+                    innermost_stack.write(|write| {
+                        // Safety: symbol is pushed into the container on the next line.
+                        let symbol = unsafe { write.protect(&term.data_function_symbol()) };
+                        write.push(Config::Construct(symbol.into(), arity, stack_size));
+                    });
+                    queue.extend(term.data_arguments().map(|argument| argument.protect()));
+                }
+                DataExpressionKind::WhereClause(_) => {
+                    unreachable!("is_supported_rule keeps no rule with a where clause in its right-hand side")
+                }
             }
+            stack_size += 1;
         }
 
         // A term always contributes at least its root variable or function

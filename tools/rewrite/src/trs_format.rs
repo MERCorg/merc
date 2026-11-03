@@ -6,11 +6,9 @@ use std::fmt;
 use ahash::HashSet;
 use merc_aterm::ATermRef;
 use merc_aterm::Term;
+use merc_data::DataExpressionKind;
 use merc_data::DataExpressionRef;
-use merc_data::DataFunctionSymbolRef;
 use merc_data::DataVariableRef;
-use merc_data::is_data_application;
-use merc_data::is_data_function_symbol;
 use merc_data::is_data_variable;
 use merc_sabre::RewriteSpecification;
 use merc_sabre::is_supported_rule;
@@ -36,36 +34,36 @@ impl SimpleTermFormatter<'_> {
 
 impl fmt::Display for SimpleTermFormatter<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if is_data_function_symbol(&self.term) {
-            let symbol = DataFunctionSymbolRef::from(self.term.copy());
-            write!(f, "{}_{}", symbol.name(), symbol.operation_id())
-        } else if is_data_application(&self.term) {
-            let mut args = self.term.arguments();
+        match DataExpressionRef::from(self.term.copy()).kind() {
+            DataExpressionKind::FunctionSymbol(symbol) => write!(f, "{}_{}", symbol.name(), symbol.operation_id()),
+            DataExpressionKind::Application(_) => {
+                let mut args = self.term.arguments();
 
-            let head = args.next().unwrap();
-            write!(f, "{}", SimpleTermFormatter::new(&head))?;
+                let head = args.next().unwrap();
+                write!(f, "{}", SimpleTermFormatter::new(&head))?;
 
-            let mut first = true;
-            for arg in args {
-                if !first {
-                    write!(f, ", ")?;
-                } else {
-                    write!(f, "(")?;
+                let mut first = true;
+                for arg in args {
+                    if !first {
+                        write!(f, ", ")?;
+                    } else {
+                        write!(f, "(")?;
+                    }
+
+                    write!(f, "{}", SimpleTermFormatter::new(&arg))?;
+                    first = false;
                 }
 
-                write!(f, "{}", SimpleTermFormatter::new(&arg))?;
-                first = false;
-            }
+                if !first {
+                    write!(f, ")")?;
+                }
 
-            if !first {
-                write!(f, ")")?;
+                Ok(())
             }
-
-            Ok(())
-        } else if is_data_variable(&self.term) {
-            write!(f, "{}", DataVariableRef::from(self.term.copy()).name())
-        } else {
-            write!(f, "{}", self.term)
+            DataExpressionKind::Variable(variable) => write!(f, "{}", variable.name()),
+            DataExpressionKind::MachineNumber(_)
+            | DataExpressionKind::Abstraction(_)
+            | DataExpressionKind::WhereClause(_) => write!(f, "{}", self.term),
         }
     }
 }

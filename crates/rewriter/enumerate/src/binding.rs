@@ -12,12 +12,12 @@ use merc_aterm::Transmutable;
 use merc_aterm::storage::Marker;
 use merc_data::DataApplication;
 use merc_data::DataExpression;
+use merc_data::DataExpressionKind;
 use merc_data::DataExpressionRef;
 use merc_data::DataFunctionSymbolRef;
 use merc_data::DataVariable;
 use merc_data::DataVariableRef;
-use merc_data::is_data_application;
-use merc_data::is_data_variable;
+use merc_data::mark_occurrences;
 use merc_sabre::RewriteEngine;
 use merc_sabre::utilities::RewriteSubstitution;
 
@@ -141,6 +141,10 @@ impl BindingArena {
     /// remains, rewriting each result to normal form, and stores them in `out`
     /// in the same order as `vars`. `out` is cleared first.
     ///
+    /// A variable that is not bound along `chain` is free in the searched
+    /// body, such as the variable of an enclosing quantifier that a one-point
+    /// equation equated a bound variable with, and is left in place.
+    ///
     /// The result is rewritten once at the end rather than per reconstructed
     /// application: substituting normal forms into a normal form can still
     /// create a redex (`@succ_nat` applied to a machine-word `Nat` digit), and
@@ -148,8 +152,7 @@ impl BindingArena {
     ///
     /// # Panics
     ///
-    /// Panics if a variable in `vars`, or one they transitively depend on, is
-    /// not bound along `chain`.
+    /// Panics if a variable in `vars` is not bound along `chain`.
     pub(crate) fn resolve<R: RewriteEngine>(
         guard: &mut BindingGuard<'_, '_>,
         rewriter: &mut R,
@@ -163,7 +166,7 @@ impl BindingArena {
         let BindingStore { list, closed } = &mut **guard;
         for v in vars {
             let value = Self::lookup_bound(list, chain, &v.copy());
-            match Self::substitute(list, closed, arguments, chain, &value) {
+            match Self::substitute(list, closed, arguments, chain, &value, &mut false) {
                 // Values are stored in normal form, so an unchanged one is final.
                 None => out.push(value.protect()),
                 Some(substituted) => out.push(rewriter.rewrite(&substituted)),
@@ -191,24 +194,31 @@ impl BindingArena {
     /// `protect`ing it first.
     ///
     /// Only subterms of bound values are inserted into `closed`, which the
-    /// protected store keeps alive until [`BindingArena::clear`].
+    /// protected store keeps alive until [`BindingArena::clear`]. A subterm
+    /// with an unbound variable is not, and sets `free`: that variable may
+    /// well be bound along another chain.
     fn substitute<'g, 'b, T: Term<'g, 'b>>(
         list: &ArenaList<Binding<'g>>,
         closed: &mut HashSet<ATermRef<'g>, RandomState>,
         arguments: &mut Vec<DataExpression>,
         chain: BindingChain,
         term: &'b T,
+        free: &mut bool,
     ) -> Option<DataExpression> {
-        if is_data_variable(term) {
-            let variable: DataVariableRef<'_> = term.copy().into();
-            let value = Self::lookup_bound(list, chain, &variable);
-            return Some(Self::substitute(list, closed, arguments, chain, &value).unwrap_or_else(|| value.protect()));
-        }
-
-        // Binders never occur here: the enumerator only ever builds
-        // constructor applications and plain variables.
-        if !is_data_application(term) {
-            return None;
+        match DataExpressionRef::from(term.copy()).kind() {
+            DataExpressionKind::Variable(variable) => {
+                let Some(value) = Self::lookup_in(list, chain, &variable) else {
+                    *free = true;
+                    return None;
+                };
+                return Some(
+                    Self::substitute(list, closed, arguments, chain, &value, free).unwrap_or_else(|| value.protect()),
+                );
+            }
+            DataExpressionKind::Application(_) => {}
+            // Binders never occur here: the enumerator only ever builds
+            // constructor applications and plain variables.
+            _ => return None,
         }
 
         if closed.contains(&term.copy()) {
@@ -220,8 +230,9 @@ impl BindingArena {
         // substituted one are only protected once a rebuild is certain.
         let start = arguments.len();
         let mut changed = false;
+        let mut subterm_free = false;
         for (index, argument) in term.arguments().skip(1).enumerate() {
-            match Self::substitute(list, closed, arguments, chain, &argument) {
+            match Self::substitute(list, closed, arguments, chain, &argument, &mut subterm_free) {
                 Some(substituted) => {
                     if !changed {
                         changed = true;
@@ -234,8 +245,11 @@ impl BindingArena {
             }
         }
 
+        *free |= subterm_free;
         if !changed {
-            closed.insert(term.copy());
+            if !subterm_free {
+                closed.insert(term.copy());
+            }
             return None;
         }
 
@@ -342,6 +356,10 @@ impl RewriteSubstitution for SingleSubstitution<'_> {
     fn get<'a>(&'a self, variable: &DataVariableRef<'_>) -> Option<DataExpressionRef<'a>> {
         (self.variable == *variable).then(|| self.value.copy())
     }
+
+    fn mark_range_occurrences(&self, variables: &[DataVariable], occurs: &mut [bool]) {
+        mark_occurrences(&self.value, variables, occurs);
+    }
 }
 
 #[cfg(test)]
@@ -397,6 +415,32 @@ mod tests {
     }
 
     #[test]
+    fn test_resolve_leaves_an_unbound_variable_in_place() {
+        // v -> c(x) with x free in the searched body, as when a one-point
+        // equation `v == c(x)` mentions the variable of an enclosing quantifier.
+        let v = DataVariable::with_sort("v", SortExpression::nat().copy());
+        let x = DataVariable::with_sort("x", SortExpression::nat().copy());
+        let c = DataFunctionSymbol::with_sort("c", SortExpression::nat().copy());
+        let v_value: DataExpression = DataApplication::with_args(&c, &[DataExpression::from(x)]).into();
+
+        let mut arena = BindingArena::default();
+        let mut rewriter = InnermostRewriter::new(&RewriteSpecification::new(vec![]));
+        let mut resolved = Vec::new();
+        arena.chain.write(|guard| {
+            let chain = BindingArena::extend(guard, BindingChain::default(), &v.copy(), &v_value.copy());
+            BindingArena::resolve(
+                guard,
+                &mut rewriter,
+                &mut arena.arguments,
+                chain,
+                std::slice::from_ref(&v),
+                &mut resolved,
+            );
+        });
+        assert_eq!(resolved, vec![v_value]);
+    }
+
+    #[test]
     fn test_substitute_is_linear_in_a_shared_closed_value() {
         // A one-point value is an arbitrary subterm of the body, so it can be
         // maximally shared: e_{k+1} = g(e_k, e_k) has k + 1 distinct subterms
@@ -424,7 +468,7 @@ mod tests {
             let chain = BindingArena::extend(guard, chain, &y.copy(), &a.copy());
 
             let super::BindingStore { list, closed } = &mut **guard;
-            BindingArena::substitute(list, closed, &mut arena.arguments, chain, &v_value)
+            BindingArena::substitute(list, closed, &mut arena.arguments, chain, &v_value, &mut false)
         });
         let expected: DataExpression = DataApplication::with_args(&c, &[a, shared]).into();
         assert_eq!(substituted, Some(expected));

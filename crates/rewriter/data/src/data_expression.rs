@@ -83,13 +83,10 @@ mod inner {
         /// Panics for variables, machine numbers, binders, and where clauses, which have no
         /// head symbol.
         pub fn data_function_symbol(&self) -> DataFunctionSymbolRef<'_> {
-            if is_data_application(&self.term) {
-                self.term.arg(0).into()
-            } else if is_data_function_symbol(&self.term) {
-                self.term.copy().into()
-            } else {
-                // This can only happen if the term is an incorrect data expression.
-                panic!("data_function_symbol not implemented for {self}");
+            match self.kind() {
+                DataExpressionKind::Application(_) => self.term.arg(0).into(),
+                DataExpressionKind::FunctionSymbol(symbol) => symbol,
+                _ => panic!("data_function_symbol not implemented for {self}"),
             }
         }
 
@@ -98,21 +95,19 @@ mod inner {
         ///
         /// Pattern matching uses this to observe a symbol: a variable or an undecided
         /// quantifier in the subject term has no head symbol and therefore matches no pattern
-        /// position. These are only tested after the two cases that do have one, so the
-        /// common path costs the same.
+        /// position.
         ///
         /// # Panics
         ///
         /// Panics for machine numbers and where clauses.
         pub fn try_data_function_symbol(&self) -> Option<DataFunctionSymbolRef<'_>> {
-            if is_data_application(&self.term) {
-                Some(self.term.arg(0).into())
-            } else if is_data_function_symbol(&self.term) {
-                Some(self.term.copy().into())
-            } else if is_data_variable(&self.term) || is_data_binder(&self.term) {
-                None
-            } else {
-                panic!("try_data_function_symbol not implemented for {self}");
+            match self.kind() {
+                DataExpressionKind::Application(_) => Some(self.term.arg(0).into()),
+                DataExpressionKind::FunctionSymbol(symbol) => Some(symbol),
+                DataExpressionKind::Variable(_) | DataExpressionKind::Abstraction(_) => None,
+                DataExpressionKind::MachineNumber(_) | DataExpressionKind::WhereClause(_) => {
+                    panic!("try_data_function_symbol not implemented for {self}")
+                }
             }
         }
 
@@ -128,7 +123,7 @@ mod inner {
         /// map cleanly to a flat argument list.
         #[merc_ignore]
         pub fn data_arguments(&self) -> impl ExactSizeIterator<Item = DataExpressionRef<'_>> + use<'_> {
-            let skip = data_argument_skip_count(&self.term)
+            let skip = data_argument_skip_count(&self.kind())
                 .unwrap_or_else(|| panic!("data_arguments is not defined for binders and where clauses: {self}"));
             self.term.arguments().skip(skip).map(|t| t.into())
         }
@@ -163,28 +158,28 @@ mod inner {
         /// sort requires traversing the SortArrow chain), machine numbers, binders, and where
         /// clauses.
         pub fn data_sort(&self) -> SortExpression {
-            if is_data_function_symbol(&self.term) {
-                DataFunctionSymbolRef::from(self.term.copy()).sort().protect()
-            } else if is_data_variable(&self.term) {
-                DataVariableRef::from(self.term.copy()).sort().protect()
-            } else {
-                panic!("data_sort not implemented for {self}");
+            match self.kind() {
+                DataExpressionKind::FunctionSymbol(symbol) => symbol.sort().protect(),
+                DataExpressionKind::Variable(variable) => variable.sort().protect(),
+                _ => panic!("data_sort not implemented for {self}"),
             }
+        }
+
+        /// The top-level shape of this expression.
+        #[merc_ignore]
+        pub fn kind(&self) -> DataExpressionKind<'_> {
+            self.copy().kind()
         }
     }
 
     impl fmt::Display for DataExpression {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            if is_data_function_symbol(&self.term) {
-                write!(f, "{}", DataFunctionSymbolRef::from(self.term.copy()))
-            } else if is_data_application(&self.term) {
-                write!(f, "{}", DataApplicationRef::from(self.term.copy()))
-            } else if is_data_variable(&self.term) {
-                write!(f, "{}", DataVariableRef::from(self.term.copy()))
-            } else if is_data_machine_number(&self.term) {
-                write!(f, "{}", MachineNumberRef::from(self.term.copy()))
-            } else {
-                write!(f, "{}", self.term)
+            match self.kind() {
+                DataExpressionKind::FunctionSymbol(symbol) => write!(f, "{symbol}"),
+                DataExpressionKind::Application(application) => write!(f, "{application}"),
+                DataExpressionKind::Variable(variable) => write!(f, "{variable}"),
+                DataExpressionKind::MachineNumber(number) => write!(f, "{number}"),
+                DataExpressionKind::Abstraction(_) | DataExpressionKind::WhereClause(_) => write!(f, "{}", self.term),
             }
         }
     }
@@ -709,6 +704,19 @@ pub use inner::DataWhrDeclRef;
 pub use inner::MachineNumber;
 pub use inner::MachineNumberRef;
 
+/// The top-level shape of a [DataExpression], borrowing its subterms.
+pub enum DataExpressionKind<'a> {
+    Variable(DataVariableRef<'a>),
+    FunctionSymbol(DataFunctionSymbolRef<'a>),
+    /// An application `h(t_0, ..., t_n)`, where the head `h` is a function symbol or, in a
+    /// higher-order term, any other data expression.
+    Application(DataApplicationRef<'a>),
+    MachineNumber(MachineNumberRef<'a>),
+    /// A lambda, quantifier or set/bag comprehension.
+    Abstraction(DataAbstractionRef<'a>),
+    WhereClause(DataWhereClauseRef<'a>),
+}
+
 /// Returns the number of leading `ATerm` arguments that are *not* data sub-expressions and
 /// must therefore be skipped by `data_arguments`, or `None` for binders/where clauses which
 /// have no flat argument list.
@@ -716,21 +724,52 @@ pub use inner::MachineNumberRef;
 ///   - application `f(t_0, ..., t_n)` -> skip 1 (the head function symbol)
 ///   - function symbol / variable     -> skip 2 (name and sort)
 ///   - machine number                 -> skip 0 (int terms carry no `ATerm` children)
-fn data_argument_skip_count<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> Option<usize> {
-    if is_data_application(term) {
-        Some(1)
-    } else if is_data_function_symbol(term) || is_data_variable(term) {
-        Some(2)
-    } else if is_data_machine_number(term) {
-        Some(0)
-    } else {
-        None
+fn data_argument_skip_count(kind: &DataExpressionKind<'_>) -> Option<usize> {
+    match kind {
+        DataExpressionKind::Application(_) => Some(1),
+        DataExpressionKind::FunctionSymbol(_) | DataExpressionKind::Variable(_) => Some(2),
+        DataExpressionKind::MachineNumber(_) => Some(0),
+        DataExpressionKind::Abstraction(_) | DataExpressionKind::WhereClause(_) => None,
     }
 }
 
 impl<'a> DataExpressionRef<'a> {
+    /// The top-level shape of this expression. The subterms live as long as this reference, so
+    /// that a traversal can keep them on an explicit stack.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the term is not a data expression, which the conversion into one only checks
+    /// in debug builds.
+    pub fn kind(&self) -> DataExpressionKind<'a> {
+        let term: ATermRef<'a> = self.term.copy();
+
+        // Only the constructor is chosen while the symbols are borrowed: a conversion checks its
+        // own predicate in debug builds, which borrows them again. An application is recognised
+        // by a lookup on its arity, so it is tested after the single symbol comparisons.
+        let construct = DATA_SYMBOLS.with_borrow_mut(|ds| -> fn(ATermRef<'a>) -> DataExpressionKind<'a> {
+            if ds.is_data_variable(&term) {
+                |term| DataExpressionKind::Variable(term.into())
+            } else if ds.is_data_function_symbol(&term) {
+                |term| DataExpressionKind::FunctionSymbol(term.into())
+            } else if ds.is_data_machine_number(&term) {
+                |term| DataExpressionKind::MachineNumber(term.into())
+            } else if ds.is_data_application(&term) {
+                |term| DataExpressionKind::Application(term.into())
+            } else if ds.is_data_binder(&term) {
+                |term| DataExpressionKind::Abstraction(term.into())
+            } else if ds.is_data_where_clause(&term) {
+                |term| DataExpressionKind::WhereClause(term.into())
+            } else {
+                panic!("not a data expression: {term}")
+            }
+        });
+
+        construct(term)
+    }
+
     pub fn data_arguments(&self) -> impl ExactSizeIterator<Item = DataExpressionRef<'a>> + use<'a> {
-        let skip = data_argument_skip_count(&self.term)
+        let skip = data_argument_skip_count(&self.kind())
             .unwrap_or_else(|| panic!("data_arguments is not defined for binders and where clauses: {self}"));
         self.term.arguments().skip(skip).map(|t| t.into())
     }

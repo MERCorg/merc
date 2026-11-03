@@ -1,14 +1,9 @@
-use merc_aterm::ATermRef;
 use merc_number::machine_word as mw;
 
 use crate::DataExpression;
+use crate::DataExpressionKind;
 use crate::DataExpressionRef;
-use crate::DataFunctionSymbolRef;
 use crate::MachineNumber;
-use crate::MachineNumberRef;
-use crate::is_data_application;
-use crate::is_data_function_symbol;
-use crate::is_data_machine_number;
 
 /// A machine-word operation, resolved from the name of a `@`-prefixed function
 /// symbol. Every such operation is `defined_by_code`: it has no rewrite rules
@@ -319,7 +314,10 @@ impl MachineWordOp {
 /// should resolve it once (e.g. via the `SetAutomaton`) rather than calling
 /// this on every constructed term.
 pub fn try_evaluate_machine_word(expr: &DataExpression) -> Option<DataExpression> {
-    if !is_data_function_symbol(expr) && !is_data_application(expr) {
+    if !matches!(
+        expr.kind(),
+        DataExpressionKind::FunctionSymbol(_) | DataExpressionKind::Application(_)
+    ) {
         return None;
     }
 
@@ -336,26 +334,22 @@ fn machine_number(value: u64) -> DataExpression {
 /// Reads a machine number argument as its `u64` value, or `None` when the
 /// argument is not (yet) a concrete machine number.
 fn as_word(arg: &DataExpressionRef<'_>) -> Option<u64> {
-    if is_data_machine_number(arg) {
-        Some(MachineNumberRef::from(ATermRef::from(arg.copy())).value())
-    } else {
-        None
+    match arg.kind() {
+        DataExpressionKind::MachineNumber(number) => Some(number.value()),
+        _ => None,
     }
 }
 
 /// Reads a `Bool` literal argument, or `None` when the argument is not (yet) a
 /// concrete `true`/`false` literal.
 fn as_bool(arg: &DataExpressionRef<'_>) -> Option<bool> {
-    if is_data_function_symbol(arg) {
-        let symbol = DataFunctionSymbolRef::from(ATermRef::from(arg.copy()));
-        let name = symbol.name();
-        match name.value() {
+    match arg.kind() {
+        DataExpressionKind::FunctionSymbol(symbol) => match symbol.name().value() {
             "true" => Some(true),
             "false" => Some(false),
             _ => None,
-        }
-    } else {
-        None
+        },
+        _ => None,
     }
 }
 

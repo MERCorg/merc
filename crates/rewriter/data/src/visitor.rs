@@ -9,17 +9,12 @@ use merc_utilities::Visit;
 
 use crate::DataAbstractionRef;
 use crate::DataApplicationRef;
+use crate::DataExpressionKind;
 use crate::DataExpressionRef;
 use crate::DataFunctionSymbolRef;
 use crate::DataVariableRef;
 use crate::DataWhereClauseRef;
 use crate::MachineNumberRef;
-use crate::is_data_application;
-use crate::is_data_binder;
-use crate::is_data_function_symbol;
-use crate::is_data_machine_number;
-use crate::is_data_variable;
-use crate::is_data_where_clause;
 
 /// A top-down traversal over data expressions that threads a context down the term.
 ///
@@ -120,60 +115,56 @@ pub trait DataExpressionVisitor<'a> {
         let mut stack: Vec<(DataExpressionRef<'a>, Self::Context)> = vec![(expr.copy(), context)];
 
         while let Some((expr, context)) = stack.pop() {
-            // Recognising an application is the most expensive test, so it is tried last.
-            let outcome = if is_data_variable(&expr) {
-                self.visit_variable(&DataVariableRef::from(Term::copy(&expr)), context)?
-            } else if is_data_function_symbol(&expr) {
-                self.visit_function_symbol(&DataFunctionSymbolRef::from(Term::copy(&expr)), context)?
-            } else if is_data_machine_number(&expr) {
-                self.visit_machine_number(&MachineNumberRef::from(Term::copy(&expr)), context)?
-            } else if is_data_application(&expr) {
-                let context = match self.visit_application(&DataApplicationRef::from(Term::copy(&expr)), context)? {
-                    ControlFlow::Break(result) => return Ok(Some(result)),
-                    ControlFlow::Continue(Step::Prune) => continue,
-                    ControlFlow::Continue(Step::Replace(replacement)) => match replacement {},
-                    ControlFlow::Continue(Step::Into(context)) => context,
-                };
+            let outcome = match expr.kind() {
+                DataExpressionKind::Variable(variable) => self.visit_variable(&variable, context)?,
+                DataExpressionKind::FunctionSymbol(symbol) => self.visit_function_symbol(&symbol, context)?,
+                DataExpressionKind::MachineNumber(number) => self.visit_machine_number(&number, context)?,
+                DataExpressionKind::Application(application) => {
+                    let context = match self.visit_application(&application, context)? {
+                        ControlFlow::Break(result) => return Ok(Some(result)),
+                        ControlFlow::Continue(Step::Prune) => continue,
+                        ControlFlow::Continue(Step::Replace(replacement)) => match replacement {},
+                        ControlFlow::Continue(Step::Into(context)) => context,
+                    };
 
-                // The arguments are pushed in reverse so that they are visited left to right.
-                for index in (0..expr.data_arguments().len()).rev() {
-                    stack.push((expr.data_arg(index), context));
-                }
+                    // The arguments are pushed in reverse so that they are visited left to right.
+                    for index in (0..expr.data_arguments().len()).rev() {
+                        stack.push((expr.data_arg(index), context));
+                    }
 
-                continue;
-            } else if is_data_binder(&expr) {
-                let binder = DataAbstractionRef::from(Term::copy(&expr));
-                match self.visit_binder(&binder, context)? {
-                    ControlFlow::Break(result) => return Ok(Some(result)),
-                    ControlFlow::Continue(Step::Prune) => {}
-                    ControlFlow::Continue(Step::Replace(replacement)) => match replacement {},
-                    ControlFlow::Continue(Step::Into(context)) => stack.push((expr.arg(2).into(), context)),
+                    continue;
                 }
-                continue;
-            } else if is_data_where_clause(&expr) {
-                let clause = DataWhereClauseRef::from(Term::copy(&expr));
-                match self.visit_where_clause(&clause, context)? {
-                    ControlFlow::Break(result) => return Ok(Some(result)),
-                    ControlFlow::Continue(Step::Prune) => {}
-                    ControlFlow::Continue(Step::Replace(replacement)) => match replacement {},
-                    ControlFlow::Continue(Step::Into(context)) => {
-                        // Pushed in reverse, so the declarations are visited first and the body last.
-                        stack.push((expr.arg(0).into(), context));
-                        // The declarations form a cons list of `DataVarIdInit(variable, value)`.
-                        let mut declarations = Vec::new();
-                        let mut list = expr.arg(1);
-                        while list.get_head_symbol().arity() == 2 {
-                            declarations.push(list.arg(0).arg(1));
-                            list = list.arg(1);
-                        }
-                        for value in declarations.into_iter().rev() {
-                            stack.push((value.into(), context));
+                DataExpressionKind::Abstraction(binder) => {
+                    match self.visit_binder(&binder, context)? {
+                        ControlFlow::Break(result) => return Ok(Some(result)),
+                        ControlFlow::Continue(Step::Prune) => {}
+                        ControlFlow::Continue(Step::Replace(replacement)) => match replacement {},
+                        ControlFlow::Continue(Step::Into(context)) => stack.push((expr.arg(2).into(), context)),
+                    }
+                    continue;
+                }
+                DataExpressionKind::WhereClause(clause) => {
+                    match self.visit_where_clause(&clause, context)? {
+                        ControlFlow::Break(result) => return Ok(Some(result)),
+                        ControlFlow::Continue(Step::Prune) => {}
+                        ControlFlow::Continue(Step::Replace(replacement)) => match replacement {},
+                        ControlFlow::Continue(Step::Into(context)) => {
+                            // Pushed in reverse, so the declarations are visited first and the body last.
+                            stack.push((expr.arg(0).into(), context));
+                            // The declarations form a cons list of `DataVarIdInit(variable, value)`.
+                            let mut declarations = Vec::new();
+                            let mut list = expr.arg(1);
+                            while list.get_head_symbol().arity() == 2 {
+                                declarations.push(list.arg(0).arg(1));
+                                list = list.arg(1);
+                            }
+                            for value in declarations.into_iter().rev() {
+                                stack.push((value.into(), context));
+                            }
                         }
                     }
+                    continue;
                 }
-                continue;
-            } else {
-                panic!("not a data expression: {expr}");
             };
 
             if let ControlFlow::Break(result) = outcome {
@@ -279,7 +270,6 @@ mod tests {
     use std::ops::ControlFlow;
 
     use ahash::AHashSet;
-    use merc_aterm::Term;
     use merc_utilities::Step;
     use merc_utilities::Visit;
 
@@ -287,14 +277,13 @@ mod tests {
     use crate::DataAbstraction;
     use crate::DataApplicationRef;
     use crate::DataExpression;
+    use crate::DataExpressionKind;
     use crate::DataExpressionRef;
     use crate::DataFunctionSymbolRef;
     use crate::DataVariable;
-    use crate::DataVariableRef;
     use crate::DataWhereClause;
     use crate::DataWhrDecl;
     use crate::SortExpression;
-    use crate::is_data_variable;
     use crate::visitor::DataExpressionVisitor;
     use crate::visitor::visit_data_expr;
 
@@ -347,8 +336,8 @@ mod tests {
         let mut visited = 0;
         let found = visit_data_expr(&term.copy(), (), |expr, context| {
             visited += 1;
-            if crate::is_data_variable(expr) {
-                ControlFlow::Break(DataVariableRef::from(Term::copy(expr)).protect())
+            if let DataExpressionKind::Variable(variable) = expr.kind() {
+                ControlFlow::Break(variable.protect())
             } else {
                 ControlFlow::Continue(Step::Into(context))
             }
@@ -414,8 +403,8 @@ mod tests {
 
         let mut variables = Vec::new();
         let _: Option<()> = visit_data_expr(&clause.copy(), (), |expr, context| {
-            if is_data_variable(expr) {
-                variables.push(DataVariableRef::from(expr.copy()).name().to_string());
+            if let DataExpressionKind::Variable(variable) = expr.kind() {
+                variables.push(variable.name().to_string());
             }
             ControlFlow::Continue(Step::Into(context))
         });

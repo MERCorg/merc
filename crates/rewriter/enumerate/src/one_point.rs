@@ -2,14 +2,12 @@
 
 use std::ops::ControlFlow;
 
-use merc_aterm::Term;
 use merc_data::BoolConnective;
 use merc_data::BoolKind;
 use merc_data::DataExpression;
+use merc_data::DataExpressionKind;
 use merc_data::DataExpressionRef;
 use merc_data::DataVariable;
-use merc_data::DataVariableRef;
-use merc_data::is_data_variable;
 use merc_data::visit_data_expr;
 use merc_sabre::RewriteEngine;
 use merc_sabre::utilities::SliceSubstitution;
@@ -143,11 +141,10 @@ fn find_one_point_equation<'a>(
         };
 
         for (side, other) in [(&lhs, &rhs), (&rhs, &lhs)] {
-            if !is_data_variable(side) {
+            let DataExpressionKind::Variable(variable) = side.kind() else {
                 continue;
-            }
+            };
 
-            let variable = DataVariableRef::from(Term::copy(side));
             if vars.iter().any(|v| v.copy() == variable) && !mentions_any(other, vars) {
                 return Some((variable.protect(), other.protect()));
             }
@@ -159,11 +156,10 @@ fn find_one_point_equation<'a>(
 /// Returns whether `term` mentions any variable in `vars`.
 fn mentions_any(term: &DataExpressionRef<'_>, vars: &[DataVariable]) -> bool {
     visit_data_expr(term, (), |expr, context| {
-        if is_data_variable(expr) {
-            let variable = DataVariableRef::from(Term::copy(expr));
-            if vars.iter().any(|v| v.copy() == variable) {
-                return ControlFlow::Break(());
-            }
+        if let DataExpressionKind::Variable(variable) = expr.kind()
+            && vars.iter().any(|v| v.copy() == variable)
+        {
+            return ControlFlow::Break(());
         }
         ControlFlow::Continue(Step::Into(context))
     })

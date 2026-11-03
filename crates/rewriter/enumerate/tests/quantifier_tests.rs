@@ -94,7 +94,7 @@ fn test_an_undecided_quantifier_under_an_operator_is_matched_as_a_normal_form() 
     let body = goal_body(&data_spec);
 
     let result = rewriter_with_enumerator(&data_spec).rewrite(&body);
-    assert_eq!(result, bool_literal(true));
+    assert_eq!(result, DataExpression::bool_literal(true));
 }
 
 /// A quantifier in a rule's right-hand side is instantiated with the matched

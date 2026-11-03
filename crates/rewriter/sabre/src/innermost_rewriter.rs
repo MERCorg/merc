@@ -4,10 +4,9 @@ use merc_data::BinderType;
 use merc_data::DataAbstraction;
 use merc_data::DataApplication;
 use merc_data::DataExpression;
+use merc_data::DataExpressionKind;
 use merc_data::DataExpressionRef;
 use merc_data::DataVariable;
-use merc_data::DataVariableRef;
-use merc_data::is_data_binder;
 use merc_data::is_data_machine_number;
 
 use crate::Enumerator;

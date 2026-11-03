@@ -79,6 +79,20 @@ fn test_bound_variable_shadows_an_enclosing_substitution_of_the_same_name() {
     );
 }
 
+/// A nested binder of the same variable is not renamed: `x` shadows the outer `x` it would
+/// otherwise be renamed apart from.
+#[test]
+#[cfg_attr(miri, ignore)] // Test is too slow under miri
+fn test_nested_binder_of_the_same_variable_is_not_renamed() {
+    let spec = identity_spec();
+    let x = DataVariable::new("x");
+    let inner: DataExpression =
+        DataAbstraction::new(BinderType::Exists, std::slice::from_ref(&x), term("g(x)", &["x"])).into();
+    let input: DataExpression = DataAbstraction::new(BinderType::Forall, std::slice::from_ref(&x), inner).into();
+
+    assert_eq!(InnermostRewriter::new(&spec).rewrite(&input), input);
+}
+
 /// Returns the single bound variable and the body of `binder`.
 fn single_bound_variable(binder: &DataExpression) -> (DataVariable, DataExpression) {
     assert!(is_data_binder(binder), "expected a binder, got {binder}");
