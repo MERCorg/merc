@@ -164,6 +164,17 @@ impl Symbol {
     pub fn new_fmt(args: fmt::Arguments<'_>, arity: usize) -> Symbol {
         THREAD_TERM_POOL.with(|tp| tp.create_symbol_fmt(args, arity))
     }
+
+    /// Like [Symbol::new_fmt], but only creates the symbol if no symbol with this name and
+    /// arity exists yet, and returns `None` otherwise.
+    ///
+    /// A term keeps its symbols alive, so the returned symbol occurs in no term that is alive,
+    /// in any thread, which makes it a fresh name. Checking and creating is one step, so two
+    /// threads never receive the same symbol. `None` is also returned for a symbol that no
+    /// term uses any more but that was not garbage collected yet.
+    pub fn new_unused_fmt(args: fmt::Arguments<'_>, arity: usize) -> Option<Symbol> {
+        THREAD_TERM_POOL.with(|tp| tp.create_unused_symbol_fmt(args, arity))
+    }
 }
 
 impl Symbol {

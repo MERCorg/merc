@@ -1,14 +1,14 @@
 use std::borrow::Cow;
 
 use ahash::AHashSet;
+use merc_aterm::ATermString;
+use merc_aterm::Symbol;
 use merc_data::BinderType;
 use merc_data::DataAbstraction;
 use merc_data::DataExpression;
 use merc_data::DataExpressionRef;
 use merc_data::DataVariable;
 use merc_data::DataVariableRef;
-use merc_data::mark_occurrences;
-use merc_utilities::FreshNameGenerator;
 
 use crate::RewriteEngine;
 use crate::utilities::RewriteSubstitution;
@@ -24,24 +24,45 @@ pub(crate) trait BinderRewriter: RewriteEngine {
         body: &DataExpression,
     ) -> Option<DataExpression>;
 
-    /// Returns a name starting with `base` that this rewriter has not returned before, see
-    /// [BinderState].
-    fn fresh_name(&mut self, base: &str) -> String;
+    /// Returns a variable of the sort of `variable` whose name occurs in no term, see
+    /// [BinderState::fresh_variable].
+    fn fresh_variable(&mut self, variable: &DataVariable) -> DataVariable;
 }
 
 /// The state a rewriter keeps for the binders it rewrites.
 pub(crate) struct BinderState<F> {
     /// One search frame per quantifier nesting depth, reused between searches.
     pub frames: Vec<F>,
-    /// Names the fresh variables that bound variables are renamed to.
-    pub names: FreshNameGenerator,
+    /// The index of the next fresh variable.
+    next_fresh: usize,
 }
 
 impl<F> Default for BinderState<F> {
     fn default() -> Self {
         BinderState {
             frames: Vec::new(),
-            names: FreshNameGenerator::new([]),
+            next_fresh: 0,
+        }
+    }
+}
+
+impl<F> BinderState<F> {
+    /// Returns a variable of the sort of `variable`, named `<name>@<index>`, whose name occurs
+    /// in no term that is alive.
+    ///
+    /// A variable's name is a symbol, which every live term that uses it keeps in the symbol
+    /// pool, so a name that the pool creates anew occurs in no term: not in a body or an image,
+    /// where a binder would capture it, nor in a term from another rewriter or read from a file.
+    /// No term has to be traversed. The `@` cannot occur in a parsed identifier, so the first
+    /// candidate is nearly always new.
+    pub fn fresh_variable(&mut self, variable: &DataVariable) -> DataVariable {
+        loop {
+            let index = self.next_fresh;
+            self.next_fresh += 1;
+
+            if let Some(name) = Symbol::new_unused_fmt(format_args!("{}@{index}", variable.name()), 0) {
+                return DataVariable::with_sort(ATermString::with_symbol(&name), variable.sort());
+            }
         }
     }
 }
@@ -54,10 +75,11 @@ impl<F> Default for BinderState<F> {
 /// [BinderRewriter::decide]. Lambdas and comprehensions are rebuilt over their rewritten body,
 /// since their reduction is not implemented.
 ///
-/// See [rewriting a binder](https://mercorg.github.io/merc-website/developer/rewriting/quantifiers/#rewriting-a-binder).
+/// `range` must be `sigma.range()`. It is passed in so that a caller that rewrites several
+/// binders under the same `sigma`, such as the siblings in `f(exists x . g(x), exists y . h(y))`,
+/// computes it only once.
 ///
-/// `range` must be `sigma.range()`, which the caller computes once for all binders it rewrites
-/// under the same `sigma`.
+/// See [rewriting a binder](https://mercorg.github.io/merc-website/developer/rewriting/quantifiers/#rewriting-a-binder).
 pub(crate) fn rewrite_binder<R: BinderRewriter, S: RewriteSubstitution>(
     rewriter: &mut R,
     abstraction: &DataAbstraction,
@@ -67,7 +89,7 @@ pub(crate) fn rewrite_binder<R: BinderRewriter, S: RewriteSubstitution>(
     let binder = abstraction.binder_type();
     let body = abstraction.body().protect();
 
-    let scope = Scope::new(rewriter, abstraction, &body, sigma, range);
+    let scope = Scope::new(rewriter, abstraction, sigma, range);
     let body = rewriter.rewrite_with(&body, &scope);
     let renamed: Vec<DataVariable> = scope.renamed.into_iter().map(DataVariable::from).collect();
 
@@ -94,8 +116,8 @@ pub(crate) fn rewrite_binder<R: BinderRewriter, S: RewriteSubstitution>(
 /// it.
 ///
 /// `range` holds the variables that occur in the images of this substitution: those of
-/// `outer`, plus the fresh names. A nested binder reads it instead of traversing all images
-/// again.
+/// `outer`, plus the fresh names. It borrows the range of `outer`, and is only copied when a
+/// variable is renamed. A nested binder reads it instead of traversing all images again.
 struct Scope<'a> {
     /// The bound variables `x1, .., xn`.
     bound: Vec<DataVariable>,
@@ -106,10 +128,11 @@ struct Scope<'a> {
 }
 
 impl<'a> Scope<'a> {
+    /// Returns the scope of `abstraction` inside `outer`, renaming the bound variables that
+    /// occur in `range`, which must be `outer.range()`.
     fn new<R: BinderRewriter>(
         rewriter: &mut R,
         abstraction: &DataAbstraction,
-        body: &DataExpression,
         outer: &'a dyn RewriteSubstitution,
         range: &'a AHashSet<DataVariable>,
     ) -> Self {
@@ -123,18 +146,7 @@ impl<'a> Scope<'a> {
                 continue;
             }
 
-            // The fresh names contain an `@`, which cannot occur in a parsed identifier, so they
-            // are unique within this rewriter, but a term may come from another one.
-            let base = format!("{}@", variable.name());
-            let fresh = loop {
-                let candidate = DataVariable::with_sort(rewriter.fresh_name(&base).as_str(), variable.sort());
-                let mut occurs = [range.contains(&candidate) || bound.contains(&candidate)];
-                mark_occurrences(body, std::slice::from_ref(&candidate), &mut occurs);
-                if !occurs[0] {
-                    break candidate;
-                }
-            };
-
+            let fresh = rewriter.fresh_variable(variable);
             range.to_mut().insert(fresh.clone());
             renamed.push(fresh.into());
         }

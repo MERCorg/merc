@@ -44,7 +44,7 @@ mod inner {
     }
 
     impl ATermString {
-        /// Creates a new ATermString from a string slice.
+        /// Creates a new [ATermString] from a string slice.
         ///
         /// # Panics
         ///
@@ -56,6 +56,15 @@ mod inner {
         {
             THREAD_TERM_POOL.with(|tp| ATermString {
                 term: tp.create_constant(&Symbol::new(string, 0)),
+            })
+        }
+
+        /// Creates the [ATermString] whose value is the name of `symbol`, which must be a constant.
+        #[merc_ignore]
+        pub fn with_symbol(symbol: &Symbol) -> Self {
+            debug_assert_eq!(symbol.arity(), 0, "a string is a constant");
+            THREAD_TERM_POOL.with(|tp| ATermString {
+                term: tp.create_constant(symbol),
             })
         }
 

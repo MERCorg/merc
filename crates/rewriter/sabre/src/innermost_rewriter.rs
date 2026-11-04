@@ -502,8 +502,8 @@ impl<E: Enumerator> BinderRewriter for NestedRewriteView<'_, E> {
         result
     }
 
-    fn fresh_name(&mut self, base: &str) -> String {
-        self.binders.names.generate(base)
+    fn fresh_variable(&mut self, variable: &DataVariable) -> DataVariable {
+        self.binders.fresh_variable(variable)
     }
 }
 

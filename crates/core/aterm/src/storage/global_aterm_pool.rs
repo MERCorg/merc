@@ -208,6 +208,16 @@ impl GlobalTermPool {
         protect(self.symbol_pool.create(name, arity))
     }
 
+    /// Create a function symbol that did not exist yet, see [SymbolPool::create_unused].
+    ///
+    /// Crate-private: `protect` receives an unprotected index, as for [Self::create_symbol].
+    pub(crate) fn create_unused_symbol<P>(&self, name: &str, arity: usize, protect: P) -> Option<Symbol>
+    where
+        P: FnOnce(SymbolIndex) -> Symbol,
+    {
+        self.symbol_pool.create_unused(name, arity).map(protect)
+    }
+
     /// Registers a new thread term pool.
     ///
     /// # Safety

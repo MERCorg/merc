@@ -329,8 +329,29 @@ impl ThreadTermPool {
 
     /// Create a function symbol whose name is given by the format arguments, see [Symbol::new_fmt].
     pub fn create_symbol_fmt(&self, args: fmt::Arguments<'_>, arity: usize) -> Symbol {
+        self.with_formatted(args, |name| self.create_symbol(name, arity))
+    }
+
+    /// Create a function symbol whose name is given by the format arguments, unless it exists
+    /// already, see [Symbol::new_unused_fmt].
+    pub fn create_unused_symbol_fmt(&self, args: fmt::Arguments<'_>, arity: usize) -> Option<Symbol> {
+        self.with_formatted(args, |name| {
+            self.term_pool
+                .read_recursive()
+                .expect("Lock poisoned!")
+                .create_unused_symbol(name, arity, |index| unsafe {
+                    // SAFETY: the index was just created under the read lock, which is still held.
+                    self.protect_symbol(&SymbolRef::from_index(&index))
+                })
+        })
+    }
+
+    /// Calls `f` with the formatted `args`, formatting into a reusable per-thread buffer.
+    fn with_formatted<T, F>(&self, args: fmt::Arguments<'_>, f: F) -> T 
+        where F: FnOnce(&str) -> T
+    {
         if let Some(name) = args.as_str() {
-            return self.create_symbol(name, arity);
+            return f(name);
         }
 
         // Take the buffer out while formatting, so that a `Display` implementation that creates
@@ -341,9 +362,9 @@ impl ThreadTermPool {
         buffer
             .write_fmt(args)
             .expect("a formatting trait implementation returned an error");
-        let symbol = self.create_symbol(&buffer, arity);
+        let result = f(&buffer);
         self.tmp_symbol_name.set(buffer);
-        symbol
+        result
     }
 
     /// Protect the term by adding its index to the protection set

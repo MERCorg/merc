@@ -56,6 +56,17 @@ impl SymbolPool {
         self.create_impl::<false>(name, arity)
     }
 
+    /// Creates a function symbol with the given name and arity, or returns `None` when the pool
+    /// already contains one. Checking and inserting is a single step, so of several threads
+    /// that ask for the same new symbol exactly one receives it.
+    ///
+    /// The returned pointer is unprotected, so the caller must protect it
+    /// before the lock it was created under is released.
+    pub(crate) fn create_unused(&self, name: &str, arity: usize) -> Option<StablePointer<SharedSymbol>> {
+        let (shared_symbol, inserted) = self.insert(name, arity);
+        inserted.then_some(shared_symbol)
+    }
+
     /// Creates one of the pool's own reserved marker symbols (e.g.
     /// `<aterm_int>`).
     ///
@@ -74,17 +85,9 @@ impl SymbolPool {
     /// [`SharedSymbol`]) is compiled away entirely for `create_reserved`'s call,
     /// and costs only a handful of pointer comparisons for `create`'s call.
     fn create_impl<const RESERVED: bool>(&self, name: &str, arity: usize) -> StablePointer<SharedSymbol> {
-        // Get or create symbol index. A colliding name/arity resolves to the
-        // existing reserved entry rather than inserting a new one, since both
-        // paths key on the same `(name, arity)`. The name is only copied into
-        // the symbol's own allocation when it is inserted.
-        // SAFETY: `construct` fully initialises the symbol allocated for `name.len()` bytes.
-        let (shared_symbol, _inserted) = unsafe {
-            self.symbols
-                .insert_equiv_dst(&SharedSymbolLookup { name, arity }, name.len(), |ptr, key| {
-                    SharedSymbol::construct(ptr, key.name, key.arity)
-                })
-        };
+        // A colliding name/arity resolves to the existing reserved entry rather
+        // than inserting a new one, since both paths key on the same `(name, arity)`.
+        let (shared_symbol, _inserted) = self.insert(name, arity);
 
         if !RESERVED && self.reserved.contains(&shared_symbol) {
             // SAFETY: `shared_symbol` was just returned by `insert_equiv` above, so it
@@ -99,6 +102,18 @@ impl SymbolPool {
         }
 
         shared_symbol
+    }
+
+    /// Gets or creates the symbol with the given name and arity, and returns whether it was
+    /// created. The name is only copied into the symbol's own allocation when it is inserted.
+    fn insert(&self, name: &str, arity: usize) -> (StablePointer<SharedSymbol>, bool) {
+        // SAFETY: `construct` fully initialises the symbol allocated for `name.len()` bytes.
+        unsafe {
+            self.symbols
+                .insert_equiv_dst(&SharedSymbolLookup { name, arity }, name.len(), |ptr, key| {
+                    SharedSymbol::construct(ptr, key.name, key.arity)
+                })
+        }
     }
 
     /// Return the symbol of the SharedTerm for the given ATermRef

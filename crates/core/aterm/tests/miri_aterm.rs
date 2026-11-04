@@ -184,3 +184,24 @@ fn test_aterm_args_size_hint_is_exact() {
         "skip(1) on a 3-argument iterator must report len 2"
     );
 }
+
+#[test]
+fn test_miri_new_unused_symbol_is_created_only_once() {
+    // The name is unique to this test, so no other test creates the symbol.
+    let symbol = Symbol::new_unused_fmt(format_args!("unused@{}", 0), 0).expect("the symbol is new");
+    assert_eq!(symbol.name(), "unused@0");
+    let term = ATerm::constant(&symbol);
+    drop(symbol);
+
+    // Only the term keeps the symbol alive now.
+    THREAD_TERM_POOL.with(|tp| tp.force_collect_garbage());
+    assert!(
+        Symbol::new_unused_fmt(format_args!("unused@{}", 0), 0).is_none(),
+        "a live term keeps its symbol"
+    );
+    assert!(
+        Symbol::new_unused_fmt(format_args!("unused@{}", 0), 1).is_some(),
+        "the arity is part of the symbol"
+    );
+    drop(term);
+}
