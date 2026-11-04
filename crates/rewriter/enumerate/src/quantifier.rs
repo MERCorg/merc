@@ -45,7 +45,7 @@ impl SabreEnumerator for Enumerator {
         // (`Outcome::NotEnumerable`), so not even the enumerable variables would be eliminated.
         // Quantifiers of the same kind commute, so `exists x: Real, p: Pos . φ` equals
         // `exists x: Real . exists p: Pos . φ`. The inner quantifier is searched as usual, and
-        // `x` stays bound around whatever the search leaves, as in mCRL2. For example,
+        // `x` stays bound around whatever the search leaves. For example,
         // `exists x: Real, p: Pos . p == 1 && x > 4` becomes `exists x: Real . x > 4`.
         let (searched, others): (Vec<DataVariable>, Vec<DataVariable>) =
             vars.iter().cloned().partition(|variable| self.is_enumerable(variable));
@@ -73,7 +73,7 @@ impl SabreEnumerator for Enumerator {
                     // conjunction for `forall`. For example, `exists y: Bool . (y && c) || (!y && d)`
                     // leaves `c` for `y = true` and `d` for `y = false`, and becomes `c || d`.
                     //
-                    // As in mCRL2 the quantifier is replaced by the residuals, so that an
+                    // The quantifier is replaced by the residuals, so that an
                     // enclosing search does not repeat this one for every value of its own
                     // variables. In `forall x: Bool . exists y: Bool . y == x`, the body of the
                     // outer quantifier is rewritten first, with `x` free, and the inner one

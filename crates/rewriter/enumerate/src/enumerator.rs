@@ -261,7 +261,7 @@ impl Enumerator {
     /// for [`QuantifierKind::Forall`], a counterexample making it `false`.
     ///
     /// Bounded by [`EnumerationLimits`], unless every variable has a finite sort: that search
-    /// always ends, so it runs to a decision as in mCRL2.
+    /// always ends, so it runs to a decision.
     ///
     /// The one-point rule is not applied, since it is a preprocessing step for the caller, see
     /// [`crate::simplify_one_point`].

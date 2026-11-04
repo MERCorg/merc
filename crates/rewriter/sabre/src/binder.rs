@@ -109,8 +109,8 @@ pub(crate) fn rewrite_binder<R: BinderRewriter, S: RewriteSubstitution>(
 /// - any other variable is mapped as by `outer`.
 ///
 /// Each `renamed[i]` is `xi` itself, unless `xi` occurs in an image of `outer`. Then a bound
-/// `xi` would capture that occurrence, so it is renamed to a fresh `xi@k`, as in mCRL2's
-/// `rewrite_single_lambda`. For example, `exists y . f(x, y)` under `outer = {x := y}` is
+/// `xi` would capture that occurrence, so it is renamed to a fresh `xi@k`.
+/// For example, `exists y . f(x, y)` under `outer = {x := y}` is
 /// rewritten as `exists y@0 . f(y, y@0)`: `x` gets its image `y` from `outer`, and the bound `y`
 /// is mapped to `y@0`. Mapping an unrenamed `xi` to itself is what keeps `outer` from replacing
 /// it.

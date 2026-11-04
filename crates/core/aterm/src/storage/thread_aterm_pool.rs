@@ -347,8 +347,9 @@ impl ThreadTermPool {
     }
 
     /// Calls `f` with the formatted `args`, formatting into a reusable per-thread buffer.
-    fn with_formatted<T, F>(&self, args: fmt::Arguments<'_>, f: F) -> T 
-        where F: FnOnce(&str) -> T
+    fn with_formatted<T, F>(&self, args: fmt::Arguments<'_>, f: F) -> T
+    where
+        F: FnOnce(&str) -> T,
     {
         if let Some(name) = args.as_str() {
             return f(name);

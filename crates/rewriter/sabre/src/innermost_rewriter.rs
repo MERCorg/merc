@@ -449,8 +449,7 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
 /// [rewrite_binder]): rewrites through the same innermost stack and automaton,
 /// and decides quantifiers through the same enumerator.
 ///
-/// As in mCRL2's `Rewriter::quantifier_enumeration`, a nested quantifier is
-/// therefore first tried while rewriting the outer body, with the outer
+/// A nested quantifier is therefore first tried while rewriting the outer body, with the outer
 /// variables still free. If that does not settle it, it remains in the outer
 /// body, and is tried again each time the outer search rewrites that body
 /// under a candidate value, on a frame of its own.

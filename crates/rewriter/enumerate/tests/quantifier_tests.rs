@@ -259,7 +259,7 @@ fn test_a_quantifier_over_finite_sorts_is_decided_beyond_the_limits() {
 }
 
 /// When every leaf is decided or undecided, the quantifier is replaced by the disjunction (or
-/// conjunction) of the undecided leaves, as in mCRL2, instead of being kept.
+/// conjunction) of the undecided leaves, instead of being kept.
 #[test]
 #[cfg_attr(miri, ignore)]
 fn test_an_exhausted_search_with_undecided_leaves_eliminates_the_quantifier() {
