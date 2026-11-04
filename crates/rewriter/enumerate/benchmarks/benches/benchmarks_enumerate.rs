@@ -118,6 +118,16 @@ const QUANTIFIER_GOALS: &[(&str, bool, &str)] = &[
         "forall x: Nat . x < 30 => exists y: Nat . y < 30 && x + y == 29",
     ),
     (
+        "deep_nested",
+        true,
+        "forall x: Nat . x < 12 => exists y: Nat . y < 12 && (forall z: Nat . z < 12 => x + y + z < 36)",
+    ),
+    (
+        "siblings",
+        true,
+        "forall x: Nat . x < 30 => ((exists y: Nat . y < 30 && x + y == 29) && (exists z: Nat . z < 30 && x == z))",
+    ),
+    (
         "sum_squares",
         false,
         "exists x, y: Nat . x < 40 && y < 40 && x * x + y * y == 3",

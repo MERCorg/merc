@@ -24,7 +24,8 @@ use crate::fresh::FreshVariableGenerator;
 use crate::remaining::RemainingArena;
 use crate::remaining::RemainingList;
 
-/// Configures how far [`Enumerator::find_witness`] searches before giving up.
+/// Configures how far [`Enumerator::find_witness`] searches before giving up. A search over
+/// finite sorts only always ends, so these limits do not apply to it.
 ///
 /// Must stay fixed for the lifetime of a cache built over this enumerator's
 /// results: a summand or quantifier cache keyed on read positions assumes two
@@ -107,6 +108,15 @@ impl Solution<'_> {
     }
 }
 
+/// The result of [`Enumerator::find_witness_normalized`].
+pub(crate) struct WitnessSearch {
+    pub(crate) outcome: WitnessOutcome,
+    /// The bodies of the undecided leaves, when the search was otherwise exhausted. Every
+    /// other branch was rejected, so the quantifier is equivalent to their disjunction for
+    /// `exists`, and their conjunction for `forall`.
+    pub(crate) residuals: Option<Vec<DataExpression>>,
+}
+
 /// One unfinished branch of the search.
 struct WorkItem {
     /// The variables still to be instantiated, in enumeration order, as a
@@ -123,6 +133,8 @@ struct WorkItem {
 /// Enumerates ground constructor instances of a data sort, closing a
 /// quantifier body (via [`Enumerator::find_witness`]) or a `sum`-variable
 /// guard (via [`Enumerator::enumerate`]).
+///
+/// See [the search](https://mercorg.github.io/merc-website/developer/rewriting/enumeration/#the-search) for the algorithm.
 pub struct Enumerator {
     plans: Rc<EnumerationPlans>,
     limits: EnumerationLimits,
@@ -239,8 +251,8 @@ impl Enumerator {
         frame.bindings_arena.clear();
         self.drive(
             frame, rewriter, vars, body, false, // reject on `false`, accept on `true`
-            false, // unbounded
-            consume,
+            false, // limits never apply
+            None, consume,
         )
     }
 
@@ -248,8 +260,11 @@ impl Enumerator {
     /// for [`QuantifierKind::Exists`], one making `rewrite(body, σ)` `true`;
     /// for [`QuantifierKind::Forall`], a counterexample making it `false`.
     ///
-    /// Bounded by [`EnumerationLimits`]. The one-point rule is not applied;
-    /// callers that want it run [`crate::simplify_one_point`] first.
+    /// Bounded by [`EnumerationLimits`], unless every variable has a finite sort: that search
+    /// always ends, so it runs to a decision as in mCRL2.
+    ///
+    /// The one-point rule is not applied, since it is a preprocessing step for the caller, see
+    /// [`crate::simplify_one_point`].
     pub fn find_witness<R: RewriteEngine>(
         &self,
         frame: &mut EnumeratorFrame,
@@ -258,40 +273,73 @@ impl Enumerator {
         body: &DataExpression,
         kind: QuantifierKind,
     ) -> WitnessOutcome {
+        let body = rewriter.rewrite(body);
+        self.find_witness_normalized(frame, rewriter, vars, body, kind).outcome
+    }
+
+    /// Same as [`Self::find_witness`], but for a `body` the caller has
+    /// already rewritten to normal form.
+    ///
+    /// Also returns what a quantifier can be simplified to when the search reaches no
+    /// decision, see [`WitnessSearch`].
+    pub(crate) fn find_witness_normalized<R: RewriteEngine>(
+        &self,
+        frame: &mut EnumeratorFrame,
+        rewriter: &mut R,
+        vars: &[DataVariable],
+        body: DataExpression,
+        kind: QuantifierKind,
+    ) -> WitnessSearch {
         // `reject_is_true` says which literal settles the quantifier for a
         // branch without deciding it; the other produces the witness.
-        let reject_is_true = match kind {
-            QuantifierKind::Exists => false,
-            QuantifierKind::Forall => true,
-        };
+        let reject_is_true = matches!(kind, QuantifierKind::Forall);
 
         frame.bindings_arena.clear();
-        let body = rewriter.rewrite(body);
+
+        // Over finite sorts only, the search introduces no fresh variables and so always ends.
+        let apply_limits = !vars.iter().all(|variable| self.is_finite(variable));
 
         let mut found: Option<Vec<DataExpression>> = None;
+        let mut residuals = Vec::new();
         let outcome = self.drive(
             frame,
             rewriter,
             vars,
             body,
             reject_is_true,
-            true,
+            apply_limits,
+            Some(&mut residuals),
             |_rewriter, solution| {
                 found = Some(solution.values().to_vec());
                 ControlFlow::Break(())
             },
         );
 
-        match (outcome, found) {
-            (_, Some(values)) => WitnessOutcome::Found(values),
-            (Outcome::Exhausted, None) => WitnessOutcome::NoneExists,
-            (Outcome::LimitReached, None) | (Outcome::NotEnumerable(..), None) | (Outcome::Undecided(_), None) => {
-                WitnessOutcome::LimitReached
-            }
+        let (outcome, residuals) = match (outcome, found) {
+            (_, Some(values)) => (WitnessOutcome::Found(values), None),
+            (Outcome::Exhausted, None) => (WitnessOutcome::NoneExists, None),
+            (Outcome::Undecided(_), None) => (WitnessOutcome::LimitReached, Some(residuals)),
+            (Outcome::LimitReached, None) | (Outcome::NotEnumerable(..), None) => (WitnessOutcome::LimitReached, None),
             (Outcome::Stopped(()), None) => {
                 unreachable!("Stopped only occurs when on_leaf returns Break, which only happens once `found` is set")
             }
-        }
+        };
+
+        WitnessSearch { outcome, residuals }
+    }
+
+    /// Returns true iff the sort of `variable` can be enumerated.
+    pub(crate) fn is_enumerable(&self, variable: &DataVariable) -> bool {
+        self.plans
+            .get(&variable.sort())
+            .is_some_and(|id| !matches!(self.plans.plan(id).enumerability(), SortEnumerability::NotEnumerable(_)))
+    }
+
+    /// Returns true iff the sort of `variable` has finitely many elements.
+    fn is_finite(&self, variable: &DataVariable) -> bool {
+        self.plans
+            .get(&variable.sort())
+            .is_some_and(|id| self.plans.plan(id).enumerability() == SortEnumerability::Finite)
     }
 
     /// Returns `sort_id`'s materialised element list, computing and caching it
@@ -357,7 +405,9 @@ impl Enumerator {
     /// own remaining list (§4.1/§4.5).
     ///
     /// `reject_is_true` selects which of the enumerator's cached `Bool`
-    /// literals is the rejecting one.
+    /// literals is the rejecting one. The search stops at [`EnumerationLimits`]
+    /// only when `apply_limits` is set. The body of every undecided leaf is
+    /// pushed to `residuals`, when given.
     #[allow(clippy::too_many_arguments)]
     fn drive<R: RewriteEngine, F, B>(
         &self,
@@ -366,7 +416,8 @@ impl Enumerator {
         vars: &[DataVariable],
         body: DataExpression,
         reject_is_true: bool,
-        bounded: bool,
+        apply_limits: bool,
+        mut residuals: Option<&mut Vec<DataExpression>>,
         mut on_leaf: F,
     ) -> Outcome<B>
     where
@@ -412,7 +463,7 @@ impl Enumerator {
                     // Counted here rather than per constructor expansion, so the bound
                     // covers every branch the search takes, not only the ones over an
                     // infinite sort.
-                    if bounded {
+                    if apply_limits {
                         if processed >= limits.max_items {
                             return Outcome::LimitReached;
                         }
@@ -421,7 +472,13 @@ impl Enumerator {
 
                     if item.remaining.is_empty() {
                         if item.body != *accept {
-                            undecided.get_or_insert_with(|| item.body.clone());
+                            // `undecided` keeps one body for `Outcome::Undecided`, which tells the
+                            // caller that the search was exhausted without a decision; `residuals`
+                            // collects all of them, when the caller asked for that.
+                            if let Some(residuals) = residuals.as_deref_mut() {
+                                residuals.push(item.body.clone());
+                            }
+                            undecided.get_or_insert(item.body);
                             continue;
                         }
 
@@ -444,7 +501,7 @@ impl Enumerator {
                     }
 
                     // Only a constructor expansion nests deeper.
-                    if bounded && item.depth >= limits.max_depth {
+                    if apply_limits && item.depth >= limits.max_depth {
                         truncated = true;
                         continue;
                     }
