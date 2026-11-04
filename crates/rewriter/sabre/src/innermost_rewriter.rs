@@ -1,3 +1,5 @@
+use std::cell::OnceCell;
+
 use merc_aterm::storage::THREAD_TERM_POOL;
 use merc_aterm::storage::ThreadTermPool;
 use merc_data::BinderType;
@@ -208,6 +210,11 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
     binders: &mut BinderState<E::Frame>,
 ) -> DataExpression {
     stats.recursions += 1;
+
+    // Every binder of input_term is rewritten under sigma, so its range is computed once, when
+    // the first one is reached.
+    let sigma_range = OnceCell::new();
+
     stack.terms.write(|write_terms| {
         stack.configs.write(|write_configs| {
             // Push the result term to the stack.
@@ -330,7 +337,8 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
                     enumerator,
                     binders,
                 };
-                let value = rewrite_binder(&mut view, &abstraction, sigma);
+                let range = sigma_range.get_or_init(|| sigma.range());
+                let value = rewrite_binder(&mut view, &abstraction, sigma, range);
 
                 stack.terms.write(|write_terms| {
                     // Safety: value is stored in the container on the same line.
@@ -352,7 +360,8 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
                     enumerator,
                     binders,
                 };
-                let value = rewrite_binder(&mut view, &abstraction, &SliceSubstitution::new(&variables, &values));
+                let values = SliceSubstitution::new(&variables, &values);
+                let value = rewrite_binder(&mut view, &abstraction, &values, &values.range());
 
                 stack.terms.write(|write_terms| {
                     // Safety: value is stored in the container on the same line.
