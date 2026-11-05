@@ -7,7 +7,6 @@ use merc_syntax::ProcDecl;
 use merc_syntax::ProcessExpr;
 use merc_syntax::SortExpression;
 use merc_syntax::SourceMap;
-use merc_syntax::Span;
 use merc_syntax::UntypedProcessSpecification;
 
 use merc_typecheck::DataSpecification;
@@ -107,30 +106,44 @@ impl ProcessSpecification {
 /// [`super::check`]'s scoped walk to resolve every `Action`/`Id` process-expression node it
 /// reaches, and by [`super::process_specification`] to check each declaration's own body against
 /// its own parameters.
-pub(super) struct DeclarationTables {
+pub(super) struct DeclarationTables<'a> {
     /// Resolved sort of each `glob` declaration, parallel to `spec.global_variables`.
     pub(super) global_sorts: Vec<ResolvedSortId>,
-    /// Resolved `(name, sort)` parameters of each process declaration, parallel to
-    /// `spec.process_declarations`.
-    pub(super) process_params: Vec<Vec<(String, ResolvedSortId)>>,
-    /// `spec.process_declarations[i].identifier.span`, parallel to
-    /// `process_params`.
-    pub(super) process_decl_spans: Vec<Span>,
-    /// name -> indices into `spec.process_declarations`/`process_params` declaring it.
+    /// Every process declaration, in declaration order, with its resolved parameter sorts.
+    pub(super) processes: Vec<ProcessDeclaration<'a>>,
+    /// name -> indices into `processes` declaring it.
     pub(super) processes_by_name: HashMap<String, Vec<usize>>,
     /// The `act` declaration table, shared with `merc_formula` via [`checking::ActionTable`].
     pub(super) actions: checking::ActionTable,
 }
 
-impl DeclarationTables {
-    fn build(data: &mut DataSpecification, spec: &UntypedProcessSpecification) -> Result<Self, ProcessError> {
+/// A `proc` declaration together with the resolved sorts of its parameters.
+pub(super) struct ProcessDeclaration<'a> {
+    pub(super) declaration: &'a ProcDecl,
+    /// The resolved sort of each parameter, parallel to `declaration.params`.
+    pub(super) parameter_sorts: Vec<ResolvedSortId>,
+}
+
+impl ProcessDeclaration<'_> {
+    /// The resolved sort of the parameter named `name`, if the process declares one.
+    pub(super) fn parameter_sort(&self, name: &str) -> Option<ResolvedSortId> {
+        self.declaration
+            .params
+            .iter()
+            .zip(&self.parameter_sorts)
+            .find(|(param, _)| param.identifier.node == name)
+            .map(|(_, &sort)| sort)
+    }
+}
+
+impl<'a> DeclarationTables<'a> {
+    fn build(data: &mut DataSpecification, spec: &'a UntypedProcessSpecification) -> Result<Self, ProcessError> {
         let actions = checking::ActionTable::build(data, &spec.action_declarations, resolve_declared_sort)?;
 
-        let mut process_params = Vec::with_capacity(spec.process_declarations.len());
-        let mut process_decl_spans = Vec::with_capacity(spec.process_declarations.len());
+        let mut processes = Vec::with_capacity(spec.process_declarations.len());
         let mut processes_by_name: HashMap<String, Vec<usize>> = HashMap::new();
         for (index, decl) in spec.process_declarations.iter().enumerate() {
-            let mut params = Vec::with_capacity(decl.params.len());
+            let mut parameter_sorts = Vec::with_capacity(decl.params.len());
             let mut seen = HashSet::new();
             for param in &decl.params {
                 if !seen.insert(param.identifier.as_str()) {
@@ -140,15 +153,16 @@ impl DeclarationTables {
                         span: param.identifier.span.clone(),
                     });
                 }
-                let sort = resolve_declared_sort(data, &param.sort)?;
-                params.push((param.identifier.node.clone(), sort));
+                parameter_sorts.push(resolve_declared_sort(data, &param.sort)?);
             }
             processes_by_name
                 .entry(decl.identifier.node.clone())
                 .or_default()
                 .push(index);
-            process_params.push(params);
-            process_decl_spans.push(decl.identifier.span.clone());
+            processes.push(ProcessDeclaration {
+                declaration: decl,
+                parameter_sorts,
+            });
         }
 
         // A name declared as both an action and a process would make `Action(name, args)`
@@ -179,8 +193,7 @@ impl DeclarationTables {
 
         Ok(DeclarationTables {
             global_sorts,
-            process_params,
-            process_decl_spans,
+            processes,
             processes_by_name,
             actions,
         })

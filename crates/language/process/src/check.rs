@@ -35,6 +35,7 @@ use merc_typecheck::internal::real_sort;
 
 use crate::ProcessError;
 use crate::process_specification::DeclarationTables;
+use crate::process_specification::ProcessDeclaration;
 use crate::process_specification::resolve_declared_sort;
 
 /// Checks a process specification against the declared sorts, returning the
@@ -72,14 +73,16 @@ pub(super) fn check_process_specification(
         tables.global_sorts.iter().copied(),
     );
 
-    for (proc_decl, params) in spec.process_declarations.iter().zip(&tables.process_params) {
+    for process in &tables.processes {
+        let declaration = process.declaration;
+
         // A process's own parameters are in scope throughout its body.
         let mut scope = globals.clone();
-        let sorts = params.iter().map(|&(_, sort)| sort);
-        declare_variables(data, &mut scope, &mut typing, &proc_decl.params, sorts);
+        let sorts = process.parameter_sorts.iter().copied();
+        declare_variables(data, &mut scope, &mut typing, &declaration.params, sorts);
 
-        collect_scope(data, &proc_decl.body, &mut scope, &mut sort_references, &mut typing)?;
-        check_process_expr(data, tables, &scope, &proc_decl.body, &mut typing)?;
+        collect_scope(data, &declaration.body, &mut scope, &mut sort_references, &mut typing)?;
+        check_process_expr(data, tables, &scope, &declaration.body, &mut typing)?;
     }
 
     if let Some(init) = &spec.init {
@@ -182,8 +185,7 @@ fn check_process_expr(
 
 /// Which declaration table an [`check_action_or_process`] candidate came from, kept alongside its
 /// resolved argument domain so the winning candidate's own declaration span can be recovered once
-/// exactly one succeeds — `tables.actions.action_domains`/`process_params` alone don't say which
-/// table (or index) a flattened candidate list entry belongs to.
+/// exactly one succeeds.
 enum Candidate {
     Action(usize),
     Process(usize),
@@ -196,9 +198,7 @@ enum Candidate {
 /// the single successful candidate is known — a failed or ultimately-ambiguous candidate's typing
 /// must never reach `typing`, since it would otherwise misreport a sort for the wrong overload at
 /// the same span. On success, also pushes a [`ResolvedName::Action`]/[`ResolvedName::Process`] at
-/// `name`'s own span (not `span`, the whole `name(args)` node) — the winning candidate identifies
-/// exactly which declaration `name` names, the same way `typing_info::resolved_name` already picks
-/// a `Constructor`/`Mapping` declaration by its resolved overload.
+/// `name`'s own span.
 fn check_action_or_process(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
@@ -224,7 +224,7 @@ fn check_action_or_process(
                 .map(|&index| {
                     (
                         Candidate::Process(index),
-                        tables.process_params[index].iter().map(|&(_, sort)| sort).collect(),
+                        tables.processes[index].parameter_sorts.clone(),
                     )
                 }),
         )
@@ -268,7 +268,7 @@ fn check_action_or_process(
         },
         Candidate::Process(index) => ResolvedName::Process {
             name: name.node.clone(),
-            declaration: declared_span(&tables.process_decl_spans[*index]),
+            declaration: declared_span(&tables.processes[*index].declaration.identifier.span),
         },
     };
     push_resolved_name(&mut matched_typing, name.span.clone(), resolved);
@@ -295,9 +295,7 @@ fn check_arguments(
 /// assignment list may legally leave some parameters unassigned.
 ///
 /// Merges only the single successful candidate's `TypingInfo` into `typing`, plus a
-/// [`ResolvedName::Process`] at `name`'s own span — see [`check_action_or_process`]'s doc comment.
-/// Zero successes is reported the same way too: wrapped in [`ProcessError::NoMatchingOverload`]
-/// even for a single candidate, rather than surfacing that candidate's own error bare.
+/// [`ResolvedName::Process`] at `name`'s own span.
 fn check_instantiation(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
@@ -329,7 +327,7 @@ fn check_instantiation(
             check_one_instantiation(
                 data,
                 scope,
-                &tables.process_params[index],
+                &tables.processes[index],
                 assignments,
                 &name.node,
                 candidate_typing,
@@ -352,7 +350,7 @@ fn check_instantiation(
         name.span.clone(),
         ResolvedName::Process {
             name: name.node.clone(),
-            declaration: declared_span(&tables.process_decl_spans[index]),
+            declaration: declared_span(&tables.processes[index].declaration.identifier.span),
         },
     );
     typing.merge(matched_typing);
@@ -362,14 +360,14 @@ fn check_instantiation(
 fn check_one_instantiation(
     data: &mut DataSpecification,
     scope: &Scope,
-    params: &[(String, ResolvedSortId)],
+    process_declaration: &ProcessDeclaration<'_>,
     assignments: &[Assignment],
     process: &str,
     typing: &mut TypingInfo,
 ) -> Result<(), ProcessError> {
     let mut assigned: Vec<&str> = Vec::with_capacity(assignments.len());
     for assignment in assignments {
-        let Some(&(_, sort)) = params.iter().find(|(param, _)| *param == assignment.identifier) else {
+        let Some(sort) = process_declaration.parameter_sort(&assignment.identifier) else {
             return Err(ProcessError::UnknownProcessParameter {
                 process: process.to_string(),
                 name: assignment.identifier.clone(),

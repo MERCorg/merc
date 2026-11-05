@@ -5,7 +5,7 @@ use merc_syntax::UntypedDataSpecification;
 use merc_typecheck::DataSpecification;
 
 use crate::lower_data_specification;
-use crate::mcrl2_lowering::lower_syntax_sort;
+use crate::lowering::lower_syntax_sort;
 
 /// Whether the *lowered* spec of `text` declares the function-update
 /// operators, checked through the full `from_untyped`/`lower_data_specification`

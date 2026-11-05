@@ -4,8 +4,6 @@ use std::fmt;
 use log::debug;
 
 use merc_collections::IndexedSet;
-use merc_data::DataExpression;
-use merc_data::Mcrl2DataSpecification;
 use merc_syntax::DataExpr;
 use merc_syntax::EqnSpecId;
 use merc_syntax::EquationId;
@@ -47,8 +45,6 @@ use crate::is_basic_sort_name;
 use crate::is_well_typed;
 use crate::lower_data_expr;
 use crate::lower_data_expressions;
-use crate::lower_data_specification;
-use crate::lower_expression;
 use crate::normalize_sorts;
 use crate::resolve_data_expr_variables;
 use crate::resolve_data_specification_variables;
@@ -393,16 +389,6 @@ impl DataSpecification {
             .expect("a well-typed specification has no equation inference errors")
     }
 
-    /// Assembles and returns the fully typed mCRL2 data specification in the
-    /// binary aterm format.
-    ///
-    /// Includes the user sort declarations, aliases, constructors, mappings,
-    /// and equations. Call this once after [`Self::from_untyped`] when the
-    /// lowered typed specification is needed.
-    pub fn lower_data_specification(&self) -> Mcrl2DataSpecification {
-        lower_data_specification(&self.context, &self.spec, &self.system, self.encoding)
-    }
-
     /// Renders `self.data_specification()` the same way its own `Display` does
     /// except each equation's own sub-expressions are annotated with their
     /// resolved sort (`expr:Sort`) rather than left implicit.
@@ -410,26 +396,13 @@ impl DataSpecification {
         TypedDataSpecification { spec: self }
     }
 
-    /// Type checks a single data expression against this specification and
-    /// lowers it to the aterm form, so the result can be handed straight to a
-    /// rewriter built from that specification.
+    /// Type checks a single data expression against this specification. The result can be
+    /// lowered to the aterm form with `merc_lowering::lower_expression`, so it can be handed
+    /// straight to a rewriter built from that specification.
     ///
     /// Takes `&mut self` because inference interns the sorts it discovers into
     /// the shared context; the specification itself is not modified.
-    pub fn typecheck_expression(&mut self, expr: &DataExpr) -> Result<DataExpression, InferenceError> {
-        self.typecheck_expression_with_typing(expr)
-            .map(|(lowered, _typing_info)| lowered)
-    }
-
-    /// As [`Self::typecheck_expression`], additionally returning `expr`'s [`TypingInfo`].
-    ///
-    /// # Panics
-    ///
-    /// Same as [`Self::typecheck_expression`].
-    pub fn typecheck_expression_with_typing(
-        &mut self,
-        expr: &DataExpr,
-    ) -> Result<(DataExpression, TypingInfo), InferenceError> {
+    pub fn typecheck_expression(&mut self, expr: &DataExpr) -> Result<TypedExpression, InferenceError> {
         // Ties every occurrence of one of `expr`'s own binders to it.
         let mut expr = expr.clone();
         resolve_data_expr_variables(&mut expr);
@@ -437,14 +410,11 @@ impl DataSpecification {
         // The built-in operator nodes (`x + y`, `[x, y]`, `f[x -> y]`) become
         // applications first, exactly as `from_untyped_with` does for the
         // equations: inference and lowering both require a lowered expression.
-        let lowered_expr = lower_data_expr(expr);
+        let expr = lower_data_expr(expr);
 
-        let typing = infer_expression(&mut self.context, &self.spec, &lowered_expr)?;
-        let info = typing_info::build(self, Roots::Expression(&lowered_expr), &typing);
-
-        let lowered = lower_expression(&self.context, &self.spec, &typing, &lowered_expr, self.encoding)
-            .unwrap_or_else(|| panic!("expression '{lowered_expr}' passed inference but failed lowering"));
-        Ok((lowered, info))
+        let typing = infer_expression(&mut self.context, &self.spec, &expr)?;
+        let info = typing_info::build(self, Roots::Expression(&expr), &typing);
+        Ok(TypedExpression { expr, typing, info })
     }
 
     /// The typing of one user equation, span-keyed so hover/go-to-definition can look up a
@@ -486,7 +456,8 @@ impl DataSpecification {
     /// action argument, a process parameter, a global variable declaration — against this
     /// already-resolved specification's declared sort names.
     ///
-    /// Requires `sort` to contain no anonymous `struct` (see [`crate::process`]).
+    /// Requires `sort` to contain no anonymous `struct` (see `merc_process`).
+    #[cfg_attr(not(feature = "internal"), allow(dead_code))]
     pub(crate) fn resolve_declared_sort(
         &mut self,
         sort: &SortExpression,
@@ -497,8 +468,9 @@ impl DataSpecification {
     }
 
     /// Splits into simultaneous borrows of the query context and the resolved specification, for
-    /// a caller (process-level checking, see [`crate::process`]) that needs to run inference
+    /// a caller (process-level checking, see `merc_process`) that needs to run inference
     /// against a variable scope of its own rather than one of `self`'s own equations.
+    #[cfg_attr(not(feature = "internal"), allow(dead_code))]
     pub(crate) fn context_and_specs_mut(&mut self) -> (&mut TypeCheckContext, &UntypedDataSpecification) {
         (&mut self.context, &self.spec)
     }
@@ -511,6 +483,7 @@ impl DataSpecification {
     /// expression (an action argument, a condition, …), or a caller-supplied expression to
     /// [`Self::typecheck_expression`] — so a binder over a user-declared sort name resolves
     /// correctly.
+    #[cfg_attr(not(feature = "internal"), allow(dead_code))]
     pub(crate) fn resolve_expression_binder_sorts(&mut self, expr: &mut DataExpr) -> Result<(), WellTypedError> {
         apply_sorts_in_data_expr(
             expr,
@@ -616,7 +589,7 @@ pub(crate) fn argument_sorts(sort: &SortExpression) -> &[SortExpression] {
 /// Rewrites every `Function` node of `sort` into a `FlattenedFunction` whose
 /// domain is the flattened `Product` spine (`(A#B)->C` becomes `A#B->C`).
 ///
-/// `pub(crate)`: also used by [`crate::process`] to resolve a binder sort embedded in a
+/// `pub(crate)`: also used by `merc_process` (through `crate::checking`) to resolve a binder sort embedded in a
 /// process-body expression, the same way it's used below for every sort in the data
 /// specification proper (including equation-embedded binder sorts, via `apply_sorts_in_spec`).
 pub(crate) fn flatten_function_sorts(sort: &SortExpression) -> SortExpression {
@@ -653,6 +626,38 @@ fn flatten_function_domain_rec(sort: &SortExpression, domain: &mut Vec<SortExpre
     }
 }
 
+/// A standalone data expression type checked against a [`DataSpecification`], see
+/// [`DataSpecification::typecheck_expression`].
+pub struct TypedExpression {
+    /// The expression, with its variables resolved and its built-in operator nodes rewritten
+    /// into applications.
+    expr: DataExpr,
+    /// The inferred sort of every node of `expr`, and the resolution of every name.
+    typing: EquationTyping,
+    /// The span-keyed typing of `expr`.
+    info: TypingInfo,
+}
+
+impl TypedExpression {
+    /// The checked expression, with its variables resolved and its built-in operator nodes
+    /// (`x + y`, `[x, y]`, `f[x -> y]`) rewritten into applications.
+    pub fn expression(&self) -> &DataExpr {
+        &self.expr
+    }
+
+    /// The typing of the expression, span-keyed so hover/go-to-definition can look up a
+    /// sub-expression by source position (see [`TypingInfo::at_offset`]).
+    pub fn typing_info(&self) -> &TypingInfo {
+        &self.info
+    }
+
+    /// The inferred sorts and name resolutions of the expression, indexed by `ExprId`.
+    #[cfg_attr(not(feature = "internal"), allow(dead_code))]
+    pub(crate) fn typing(&self) -> &EquationTyping {
+        &self.typing
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -685,328 +690,6 @@ mod tests {
         );
         let again = infer_equation_typing(&mut checked.context, &checked.spec, key).unwrap();
         assert!(Arc::ptr_eq(&first, &again));
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_mcrl2_data_specification_sections_populated() {
-        let spec = DataSpecification::from_untyped(
-            UntypedDataSpecification::parse(
-                "sort D; \
-                 sort A = Nat; \
-                 cons c: D; \
-                 map f: D -> Bool; \
-                 var d: D; \
-                 eqn f(d) = true;",
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        let mcrl2 = spec.lower_data_specification();
-
-        // User abstract sort `D` → sorts section.
-        assert!(mcrl2.sorts().iter().any(|s| s.name() == "D"), "D must appear in sorts");
-        // User alias `A = Nat` → aliases section.
-        assert!(
-            mcrl2.aliases().iter().any(|a| a.name().name() == "A"),
-            "A must appear in aliases"
-        );
-        // User constructor `c` → constructors section.
-        assert!(
-            mcrl2.constructors().iter().any(|c| c.name() == "c"),
-            "c must appear in constructors"
-        );
-        // User mapping `f` → mappings section.
-        assert!(
-            mcrl2.mappings().iter().any(|m| m.name() == "f"),
-            "f must appear in mappings"
-        );
-        // User equation `f(d) = true` → equations section.
-        assert!(
-            !mcrl2.equations().is_empty(),
-            "at least one user equation must be lowered"
-        );
-        assert_eq!(mcrl2.equations()[0].lhs().to_string(), "f(d)");
-        assert_eq!(mcrl2.equations()[0].rhs().to_string(), "true");
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_mcrl2_data_specification_system_constructors_present() {
-        // `Bool` always pulls in its system constructors; at least `true`/`false` must appear.
-        let spec = DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Bool;").unwrap()).unwrap();
-        let mcrl2 = spec.lower_data_specification();
-        assert!(
-            mcrl2.constructors().iter().any(|c| c.name() == "true"),
-            "system Bool constructor `true` must appear in constructors"
-        );
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_mcrl2_data_specification_system_equations_present() {
-        // System Bool equations (e.g. `!true = false`) must appear now that
-        // `lower_data_specification` includes structurally-lowerable system equations.
-        let spec = DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Bool;").unwrap()).unwrap();
-        let mcrl2 = spec.lower_data_specification();
-        // `!true = false` should be among the system Bool equations.
-        let found = mcrl2
-            .equations()
-            .iter()
-            .any(|e| e.lhs().to_string().contains("!(true)") && e.rhs().to_string() == "false");
-        assert!(found, "system Bool equation `!(true) = false` must be present");
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_mcrl2_data_specification_empty_container_equations_present() {
-        // A `List(D)` sort pulls in the Appendix-B list equations, several of
-        // which mention the empty-list literal `[]` (`in(d, []) = false`,
-        // `#[] = @c0`). These are now lowered structurally via expected-sort
-        // propagation rather than skipped.
-        let spec = DataSpecification::from_untyped(
-            UntypedDataSpecification::parse("sort D; map f: List(D) -> Bool;").unwrap(),
-        )
-        .unwrap();
-        let mcrl2 = spec.lower_data_specification();
-
-        // `in(d, []) = false` — the empty list as a `List(D)` argument.
-        let in_empty = mcrl2
-            .equations()
-            .iter()
-            .any(|e| e.lhs().to_string() == "in(d, [])" && e.rhs().to_string() == "false");
-        assert!(in_empty, "system list equation `in(d, []) = false` must be present");
-
-        // `#[] = @c0` — the empty list under the length operator.
-        let length_empty = mcrl2
-            .equations()
-            .iter()
-            .any(|e| e.lhs().to_string() == "#([])" && e.rhs().to_string() == "@c0");
-        assert!(length_empty, "system list equation `#[] = @c0` must be present");
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_mcrl2_data_specification_enumeration_literal_container_equations_present() {
-        // `List(Nat)` never occurs as a textual sort here — only as the
-        // element sort of the list-enumeration literal `[1, 2, 3]`, which
-        // `collect_system_sorts_in_spec`'s syntactic scan cannot see (its own
-        // doc comment notes enumeration literals are not syntactically
-        // apparent). Its Appendix-B equations must still be instantiated from
-        // the inferred sort during lowering.
-        let spec = DataSpecification::from_untyped(
-            UntypedDataSpecification::parse("map f: Bool; eqn f = 1 in [2, 3];").unwrap(),
-        )
-        .unwrap();
-        let mcrl2 = spec.lower_data_specification();
-
-        let in_empty = mcrl2
-            .equations()
-            .iter()
-            .any(|e| e.lhs().to_string() == "in(d, [])" && e.rhs().to_string() == "false");
-        assert!(
-            in_empty,
-            "system list equation `in(d, []) = false` for List(Nat) must be present: {:#?}",
-            mcrl2.equations().iter().map(|e| e.to_string()).collect::<Vec<_>>()
-        );
-
-        // The `|>` (cons) constructor for `List(Nat)` must also be declared,
-        // not just its equations.
-        assert!(
-            mcrl2.constructors().iter().any(|c| c.name() == "|>"),
-            "the List(Nat) cons constructor must be present"
-        );
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_mcrl2_data_specification_set_enumeration_literal_container_equations_present() {
-        // As above, but for a set-enumeration literal (`FSet(Nat)`, never
-        // declared textually).
-        let spec = DataSpecification::from_untyped(
-            UntypedDataSpecification::parse("map n: Nat; eqn n = #{1, 2, 3};").unwrap(),
-        )
-        .unwrap();
-        let mcrl2 = spec.lower_data_specification();
-
-        let in_empty = mcrl2
-            .equations()
-            .iter()
-            .any(|e| e.lhs().to_string() == "in(d, {})" && e.rhs().to_string() == "false");
-        assert!(
-            in_empty,
-            "system fset equation `in(d, {{}}) = false` for FSet(Nat) must be present: {:#?}",
-            mcrl2.equations().iter().map(|e| e.to_string()).collect::<Vec<_>>()
-        );
-        assert!(
-            mcrl2.constructors().iter().any(|c| c.name() == "@fset_insert"),
-            "the FSet(Nat) @fset_insert constructor must be present"
-        );
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_mcrl2_data_specification_bag_enumeration_literal_container_equations_present() {
-        // As above, but for a bag-enumeration literal (`FBag(Nat)`, never
-        // declared textually).
-        let spec = DataSpecification::from_untyped(
-            UntypedDataSpecification::parse("map n: Nat; eqn n = #{1: 2, 3: 4};").unwrap(),
-        )
-        .unwrap();
-        let mcrl2 = spec.lower_data_specification();
-
-        assert!(
-            mcrl2.mappings().iter().any(|m| m.name() == "@fbag_cinsert"),
-            "the FBag(Nat) @fbag_cinsert mapping must be present: {:#?}",
-            mcrl2
-                .mappings()
-                .iter()
-                .map(|m| m.name().to_string())
-                .collect::<Vec<_>>()
-        );
-    }
-
-    /// Formats every lowered equation as `lhs = rhs`, for assertion messages.
-    fn equation_strings(mcrl2: &merc_data::Mcrl2DataSpecification) -> Vec<String> {
-        mcrl2
-            .equations()
-            .iter()
-            .map(|e| format!("{} = {}", e.lhs(), e.rhs()))
-            .collect()
-    }
-
-    // The tests below guard that a system equation using a binder, a bare
-    // higher-order name value, or a struct-desugared symbol reaches the lowered
-    // output rather than being dropped.
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_set_extensionality_equation_survives_lowering() {
-        // `set.mcrl2`'s `@set(f, s) == @set(g, t) = forall c:S. ...`.
-        let spec =
-            DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Set(Nat) -> Bool;").unwrap())
-                .unwrap();
-        let mcrl2 = spec.lower_data_specification();
-        let found = mcrl2
-            .equations()
-            .iter()
-            .any(|e| e.lhs().to_string().contains("==") && e.rhs().to_string().contains("Forall"));
-        assert!(
-            found,
-            "the Set extensionality equation (a forall in its rhs) must survive lowering: {:#?}",
-            equation_strings(&mcrl2)
-        );
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_bag_extensionality_equation_survives_lowering() {
-        // `bag.mcrl2`'s counterpart of the Set extensionality equation.
-        let spec =
-            DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Bag(Nat) -> Bool;").unwrap())
-                .unwrap();
-        let mcrl2 = spec.lower_data_specification();
-        let found = mcrl2
-            .equations()
-            .iter()
-            .any(|e| e.lhs().to_string().contains("==") && e.rhs().to_string().contains("Forall"));
-        assert!(
-            found,
-            "the Bag extensionality equation (a forall in its rhs) must survive lowering: {:#?}",
-            equation_strings(&mcrl2)
-        );
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_bare_higher_order_value_equation_survives_lowering() {
-        // `set.mcrl2`'s `@setfset(s) = @set(@false_, s)`, where `@false_` is used
-        // point-free (`S -> Bool`, never applied).
-        let spec =
-            DataSpecification::from_untyped(UntypedDataSpecification::parse("map f: Set(Nat) -> Bool;").unwrap())
-                .unwrap();
-        let mcrl2 = spec.lower_data_specification();
-        let found = mcrl2
-            .equations()
-            .iter()
-            .any(|e| e.lhs().to_string() == "@setfset(s)" && e.rhs().to_string() == "@set(@false_, s)");
-        assert!(
-            found,
-            "the '@setfset(s) = @set(@false_, s)' equation must survive lowering: {:#?}",
-            equation_strings(&mcrl2)
-        );
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_struct_recogniser_and_projection_equations_survive_lowering() {
-        // A struct's recogniser/projection equations reference symbols (`is_c1`,
-        // `pr1`, `c1`) declared on the user spec by struct desugaring, not on
-        // the system spec.
-        let spec = DataSpecification::from_untyped(
-            UntypedDataSpecification::parse(
-                "sort D = struct c1(pr1: Nat, pr2: Bool)?is_c1 | c2?is_c2; map f: D -> Bool;",
-            )
-            .unwrap(),
-        )
-        .unwrap();
-        let mcrl2 = spec.lower_data_specification();
-
-        let recogniser = mcrl2
-            .equations()
-            .iter()
-            .any(|e| e.lhs().to_string() == "is_c1(c1(@x0_0, @x0_1))" && e.rhs().to_string() == "true");
-        assert!(
-            recogniser,
-            "the recogniser equation 'is_c1(c1(@x0_0, @x0_1)) = true' must survive lowering: {:#?}",
-            equation_strings(&mcrl2)
-        );
-
-        let projection = mcrl2
-            .equations()
-            .iter()
-            .any(|e| e.lhs().to_string() == "pr1(c1(@x0_0, @x0_1))" && e.rhs().to_string() == "@x0_0");
-        assert!(
-            projection,
-            "the projection equation 'pr1(c1(@x0_0, @x0_1)) = @x0_0' must survive lowering: {:#?}",
-            equation_strings(&mcrl2)
-        );
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Test is too slow under miri
-    fn test_multiple_element_sorts_of_the_same_container_do_not_collide() {
-        // `Bag(Nat)` and `Bag(D)` each carry their own copy of `bag.mcrl2`'s
-        // `@zero_ == @one_ = false;`, which pins down no instantiation and would
-        // be ambiguous against one pooled signature — see `SystemEquationGroup`.
-        let spec = DataSpecification::from_untyped(
-            UntypedDataSpecification::parse("sort D = struct d1; map f: Bag(Nat) -> Bool; g: Bag(D) -> Bool;").unwrap(),
-        )
-        .unwrap();
-        let mcrl2 = spec.lower_data_specification();
-
-        assert_eq!(
-            mcrl2.mappings().iter().filter(|m| m.name() == "@zero_").count(),
-            2,
-            "both Bag(Nat) and Bag(D) should declare their own @zero_: {:#?}",
-            mcrl2
-                .mappings()
-                .iter()
-                .map(|m| m.name().to_string())
-                .collect::<Vec<_>>()
-        );
-
-        let zero_eq_one_false_count = mcrl2
-            .equations()
-            .iter()
-            .filter(|e| e.lhs().to_string() == "==(@zero_, @one_)" && e.rhs().to_string() == "false")
-            .count();
-        assert_eq!(
-            zero_eq_one_false_count,
-            2,
-            "'@zero_ == @one_ = false' should survive once per instantiation: {:#?}",
-            equation_strings(&mcrl2)
-        );
     }
 
     #[test]
