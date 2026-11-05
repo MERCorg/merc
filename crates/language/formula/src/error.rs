@@ -18,10 +18,10 @@ pub enum ModalError {
     /// parameter sort against it.
     #[error(transparent)]
     WellTyped(#[from] WellTypedError),
-    /// A sort-inference error checking a real-valued `val(...)` state-formula expression, a
-    /// boolean-valued `val(...)` action-formula expression, an action argument, a fixpoint
-    /// variable's initial value or reference argument, or a `forall`/`exists`/`inf`/`sup`/`sum`
-    /// binder.
+    /// A sort-inference error checking a real-valued `val(...)` state-formula
+    /// expression, a boolean-valued `val(...)` action-formula expression, an
+    /// action argument, a fixpoint variable's initial value or reference
+    /// argument, or a binder.
     #[error(transparent)]
     Inference(#[from] InferenceError),
 
