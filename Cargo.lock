@@ -1407,12 +1407,14 @@ name = "merc_sabre"
 version = "3.0.0"
 dependencies = [
  "ahash",
+ "bitvec",
  "env_logger",
  "html-escape",
  "itertools 0.15.0",
  "log",
  "merc_aterm",
  "merc_data",
+ "merc_sabre",
  "merc_syntax",
  "merc_typecheck",
  "merc_utilities",

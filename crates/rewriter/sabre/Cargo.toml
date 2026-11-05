@@ -28,6 +28,7 @@ rustc-hash.workspace = true
 smallvec.workspace = true
 html-escape.workspace = true
 ahash.workspace = true
+bitvec.workspace = true
 env_logger.workspace = true
 log.workspace = true
 itertools.workspace = true
