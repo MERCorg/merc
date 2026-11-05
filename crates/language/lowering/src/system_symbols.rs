@@ -1,13 +1,3 @@
-//! The system-defined function symbols that lowering constructs directly, rather than reading them
-//! from a declaration of the specification: the constructors of numeric literals, the numeric and
-//! container coercions, and the constructors of container literals.
-//!
-//! Every symbol here is declared in one of the bundled specification files in
-//! `crates/language/syntax/spec`, which the type checker instantiates as the system-defined
-//! specification. The tests at the end of this module check that the name and sort of every
-//! symbol constructed here match a declaration in each file listed in its documentation, so the
-//! two cannot drift apart.
-
 use std::mem::ManuallyDrop;
 
 use merc_data::ContainerSortKind;
@@ -247,8 +237,29 @@ mod tests {
     use merc_data::SortExpression;
     use merc_syntax::UntypedDataSpecification;
 
-    use super::*;
-    use crate::mcrl2_lowering::lower_syntax_sort;
+    use crate::system_symbols::C_NAT;
+    use crate::lowering::lower_syntax_sort;
+
+    use super::bag_constructor;
+    use super::c_dub;
+    use super::c_int;
+    use super::c_nat;
+    use super::c_real;
+    use super::c0;
+    use super::c1;
+    use super::concat_digit_nat;
+    use super::concat_digit_pos;
+    use super::empty_fbag;
+    use super::empty_fset;
+    use super::empty_list;
+    use super::false_function;
+    use super::fbag_cinsert;
+    use super::fset_insert;
+    use super::most_significant_digit;
+    use super::most_significant_digit_nat;
+    use super::pos2nat;
+    use super::set_constructor;
+    use super::zero_function;
 
     /// Declares the bundled specification files by name, so a failure names the file.
     macro_rules! spec {
