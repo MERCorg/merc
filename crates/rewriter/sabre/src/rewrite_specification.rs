@@ -28,7 +28,7 @@ impl RewriteSpecification {
 
     /// Builds a rewrite specification from the equations of a fully typed
     /// mCRL2 data specification, e.g. the output of
-    /// `merc_typecheck::DataSpecification::lower_data_specification`.
+    /// `merc_lowering::lower_data_specification`.
     ///
     /// A conditional equation `condition -> lhs = rhs` becomes a rule with a
     /// single condition that the (rewritten) condition equals the `Bool`
@@ -164,6 +164,7 @@ impl fmt::Display for Condition {
 
 #[cfg(test)]
 mod tests {
+    use merc_lowering::lower_data_specification;
     use merc_syntax::UntypedDataSpecification;
     use merc_typecheck::DataSpecification;
 
@@ -173,7 +174,7 @@ mod tests {
     fn lower(source: &str) -> Mcrl2DataSpecification {
         let untyped = UntypedDataSpecification::parse(source).unwrap();
         let data_spec = DataSpecification::from_untyped(untyped).unwrap();
-        data_spec.lower_data_specification()
+        lower_data_specification(&data_spec)
     }
 
     #[test]

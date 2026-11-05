@@ -8,6 +8,7 @@ use merc_enumerate::Enumerator;
 use merc_enumerate::EnumeratorFrame;
 use merc_enumerate::FreshVariableGenerator;
 use merc_enumerate::NaiveEnumerator;
+use merc_lowering::lower_data_specification;
 use merc_sabre::InnermostRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
@@ -29,7 +30,7 @@ fn enumerate_finds_every_solution_for_real_machine_word_nat() {
     .unwrap();
     let typed =
         DataSpecification::from_untyped_with(untyped, NumberEncoding::MachineWord, &mut SourceMap::new()).unwrap();
-    let spec = typed.lower_data_specification();
+    let spec = lower_data_specification(&typed);
 
     let rewrite_spec = RewriteSpecification::from_data_specification(&spec);
     let mut rewriter = InnermostRewriter::new(&rewrite_spec);
@@ -97,7 +98,7 @@ fn naive_enumerator_finds_every_solution_for_real_machine_word_nat() {
     .unwrap();
     let typed =
         DataSpecification::from_untyped_with(untyped, NumberEncoding::MachineWord, &mut SourceMap::new()).unwrap();
-    let spec = typed.lower_data_specification();
+    let spec = lower_data_specification(&typed);
 
     let rewrite_spec = RewriteSpecification::from_data_specification(&spec);
     let mut rewriter = InnermostRewriter::new(&rewrite_spec);

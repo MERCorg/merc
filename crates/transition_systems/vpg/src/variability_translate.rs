@@ -6,12 +6,12 @@ use oxidd::bdd::BDDFunction;
 use oxidd::bdd::BDDManagerRef;
 
 use merc_collections::ByteCompressedVec;
+use merc_formula::FormulaType;
+use merc_formula::ModalSpecification;
 use merc_lts::LTS;
 use merc_syntax::Action;
 use merc_syntax::MultiAction;
 use merc_syntax::UntypedStateFrmSpec;
-use merc_typecheck::FormulaType;
-use merc_typecheck::ModalSpecification;
 use merc_utilities::MercError;
 
 use crate::FeatureTransitionSystem;

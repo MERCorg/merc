@@ -11,6 +11,7 @@
 //! [`test_square_root`] are ported from mCRL2's
 //! `libraries/data/test/rewrite_large_numbers_test.cpp`.
 
+use merc_lowering::lower_data_specification;
 use merc_sabre::InnermostRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
@@ -34,7 +35,7 @@ fn rewrite(expr: &str, sort: &str, encoding: NumberEncoding) -> String {
     let untyped = UntypedDataSpecification::parse(&text).expect("the specification should parse");
     let spec = DataSpecification::from_untyped_with(untyped, encoding, &mut SourceMap::new())
         .unwrap_or_else(|error| panic!("{encoding:?} should type check `{expr}`: {error:?}"));
-    let lowered = spec.lower_data_specification();
+    let lowered = lower_data_specification(&spec);
 
     let query = lowered
         .equations()
