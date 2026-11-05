@@ -237,8 +237,8 @@ mod tests {
     use merc_data::SortExpression;
     use merc_syntax::UntypedDataSpecification;
 
-    use crate::system_symbols::C_NAT;
     use crate::lowering::lower_syntax_sort;
+    use crate::system_symbols::C_NAT;
 
     use super::bag_constructor;
     use super::c_dub;

@@ -162,6 +162,7 @@ dependencies = [
  "criterion",
  "merc_data",
  "merc_enumerate",
+ "merc_lowering",
  "merc_sabre",
  "merc_syntax",
  "merc_typecheck",
@@ -189,6 +190,7 @@ dependencies = [
  "env_logger",
  "merc_aterm",
  "merc_data",
+ "merc_lowering",
  "merc_number",
  "merc_rec-tests",
  "merc_sabre",
@@ -1093,8 +1095,11 @@ dependencies = [
  "log",
  "merc_aterm",
  "merc_data",
+ "merc_formula",
+ "merc_lowering",
  "merc_pbes",
  "merc_pres",
+ "merc_process",
  "merc_rec-tests",
  "merc_sabre",
  "merc_sabre-compiling",
@@ -1205,6 +1210,7 @@ dependencies = [
  "log",
  "merc_aterm",
  "merc_data",
+ "merc_lowering",
  "merc_sabre",
  "merc_syntax",
  "merc_typecheck",
@@ -1241,6 +1247,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "merc_formula"
+version = "2.0.0"
+dependencies = [
+ "log",
+ "merc_syntax",
+ "merc_typecheck",
+ "merc_utilities",
+ "thiserror",
+]
+
+[[package]]
 name = "merc_io"
 version = "3.0.0"
 dependencies = [
@@ -1251,6 +1268,15 @@ dependencies = [
  "regex",
  "streaming-iterator",
  "tempfile",
+]
+
+[[package]]
+name = "merc_lowering"
+version = "2.0.0"
+dependencies = [
+ "merc_data",
+ "merc_syntax",
+ "merc_typecheck",
 ]
 
 [[package]]
@@ -1350,6 +1376,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "merc_process"
+version = "2.0.0"
+dependencies = [
+ "merc_syntax",
+ "merc_typecheck",
+ "merc_utilities",
+ "rand",
+ "test-case",
+ "thiserror",
+]
+
+[[package]]
 name = "merc_rec-tests"
 version = "2.0.0"
 dependencies = [
@@ -1416,6 +1454,7 @@ dependencies = [
  "log",
  "merc_aterm",
  "merc_data",
+ "merc_lowering",
  "merc_syntax",
  "merc_typecheck",
  "merc_utilities",
@@ -1539,9 +1578,7 @@ version = "2.0.0"
 dependencies = [
  "ena",
  "log",
- "merc_aterm",
  "merc_collections",
- "merc_data",
  "merc_syntax",
  "merc_utilities",
  "rand",
@@ -1592,6 +1629,7 @@ dependencies = [
  "itertools 0.15.0",
  "log",
  "merc_collections",
+ "merc_formula",
  "merc_io",
  "merc_lts",
  "merc_macros",
@@ -1599,7 +1637,6 @@ dependencies = [
  "merc_refinement",
  "merc_symbolic",
  "merc_syntax",
- "merc_typecheck",
  "merc_utilities",
  "oxidd",
  "oxidd-core",
