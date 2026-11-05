@@ -15,6 +15,10 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Counts what the rewriters do, see `RewriteMetrics`.
+metrics = []
+
 [dependencies]
 merc_aterm.workspace = true
 merc_data.workspace = true
@@ -30,6 +34,8 @@ itertools.workspace = true
 rand.workspace = true
 
 [dev-dependencies]
+# The tests compare rewriters by their metrics.
+merc_sabre = { path = ".", features = ["metrics"] }
 merc_syntax.workspace = true
 merc_typecheck.workspace = true
 

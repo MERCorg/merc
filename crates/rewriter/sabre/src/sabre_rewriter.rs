@@ -1,13 +1,12 @@
 #![forbid(unsafe_code)]
 
-use log::info;
-
 use merc_aterm::storage::THREAD_TERM_POOL;
 use merc_aterm::storage::ThreadTermPool;
 use merc_data::DataExpression;
 use merc_data::DataExpressionRef;
 use merc_utilities::debug_trace;
 
+use crate::RewriteMetrics;
 use crate::RewriteSpecification;
 use crate::matching::condition_cache::ConditionCache;
 use crate::matching::nonlinear::check_equivalence_classes;
@@ -46,19 +45,6 @@ pub trait RewriteEngine {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct RewritingStatistics {
-    /// Count the number of rewrite rules applied
-    pub rewrite_steps: usize,
-    /// Counts the number of times symbols are compared.
-    pub symbol_comparisons: usize,
-    /// The number of times rewrite is called recursively (to rewrite conditions etc)
-    pub recursions: usize,
-    /// The number of times a condition side was already in the
-    /// [ConditionCache], so its normal form did not need recomputing.
-    pub condition_cache_hits: usize,
-}
-
 /// The Set Automaton based Rewrite Engine implementation.
 pub struct SabreRewriter {
     automaton: SetAutomaton<AnnouncementSabre>,
@@ -74,6 +60,8 @@ pub struct SabreRewriter {
     /// every top-level [rewrite call](SabreRewriter::rewrite), not just one —
     /// keyed by the substituted term; see `matching::condition_cache`.
     condition_cache: ConditionCache,
+    /// The metrics of the last rewrite.
+    metrics: RewriteMetrics,
 }
 
 impl RewriteEngine for SabreRewriter {
@@ -98,21 +86,15 @@ impl SabreRewriter {
             builder: TermStackBuilder::new(),
             term_stack: SharedTermStack::new(),
             condition_cache: ConditionCache::new(max_entries),
+            metrics: RewriteMetrics::default(),
         }
     }
 
     /// Rewrites `t` to normal form.
     pub fn stack_based_normalise(&mut self, t: &DataExpression) -> DataExpression {
-        self.rewrite_with_statistics(t).0
-    }
+        self.metrics.reset();
 
-    /// Rewrites `t` to normal form and returns the normal form together with the
-    /// [RewritingStatistics] gathered while doing so, most notably the number of
-    /// applied rewrite steps.
-    pub fn rewrite_with_statistics(&mut self, t: &DataExpression) -> (DataExpression, RewritingStatistics) {
-        let mut stats = RewritingStatistics::default();
-
-        let result = THREAD_TERM_POOL.with(|tp| {
+        THREAD_TERM_POOL.with(|tp| {
             SabreRewriter::stack_based_normalise_aux(
                 tp,
                 &self.automaton,
@@ -120,16 +102,14 @@ impl SabreRewriter {
                 &mut self.term_stack,
                 &mut self.condition_cache,
                 t,
-                &mut stats,
+                &mut self.metrics,
             )
-        });
+        })
+    }
 
-        info!(
-            "{} rewrites, {} single steps, {} symbol comparisons and {} condition cache hits",
-            stats.recursions, stats.rewrite_steps, stats.symbol_comparisons, stats.condition_cache_hits
-        );
-
-        (result, stats)
+    /// Returns the metrics of the last rewrite, see [RewriteMetrics].
+    pub fn metrics(&self) -> &RewriteMetrics {
+        &self.metrics
     }
 
     /// Rewrites `t` to normal form using an explicit configuration stack instead of recursion.
@@ -145,9 +125,9 @@ impl SabreRewriter {
         term_stack: &mut SharedTermStack,
         condition_cache: &mut ConditionCache,
         t: &DataExpression,
-        stats: &mut RewritingStatistics,
+        metrics: &mut RewriteMetrics,
     ) -> DataExpression {
-        stats.recursions += 1;
+        metrics.recursion();
 
         // We explore the configuration tree depth first using a ConfigurationStack
         let mut cs = ConfigurationStack::new(term_stack, 0, t);
@@ -165,7 +145,7 @@ impl SabreRewriter {
                     match ConfigurationStack::pop_side_branch_leaf(&mut cs.side_branch_stack, leaf_index) {
                         None => {
                             if SabreRewriter::observe_leaf_transition(
-                                tp, automaton, builder, term_stack, &mut cs, leaf_index, leaf_state, stats,
+                                tp, automaton, builder, term_stack, &mut cs, leaf_index, leaf_state, metrics,
                             ) {
                                 break 'skip_point;
                             }
@@ -180,7 +160,7 @@ impl SabreRewriter {
                                 &mut cs,
                                 leaf_index,
                                 sit,
-                                stats,
+                                metrics,
                             );
                         }
                     }
@@ -209,7 +189,7 @@ impl SabreRewriter {
         cs: &mut ConfigurationStack<'a>,
         leaf_index: usize,
         leaf_state: usize,
-        stats: &mut RewritingStatistics,
+        metrics: &mut RewriteMetrics,
     ) -> bool {
         let read_terms = term_stack.terms.read();
         let leaf_term = &read_terms[cs.terms_base + leaf_index];
@@ -217,7 +197,7 @@ impl SabreRewriter {
         // Observe a symbol according to the state label of the set automaton.
         let pos: DataExpressionRef = leaf_term.get_data_position(automaton.states()[leaf_state].label());
 
-        stats.symbol_comparisons += 1;
+        metrics.symbol_compared();
 
         // Get the transition belonging to the observed symbol. A variable
         // has no head symbol and therefore matches no pattern position.
@@ -249,7 +229,7 @@ impl SabreRewriter {
                             annotation,
                             leaf_index,
                             cs,
-                            stats,
+                            metrics,
                         );
                         return true;
                     }
@@ -305,7 +285,7 @@ impl SabreRewriter {
         cs: &mut ConfigurationStack<'a>,
         leaf_index: usize,
         sit: SideInfoType<'a>,
-        stats: &mut RewritingStatistics,
+        metrics: &mut RewriteMetrics,
     ) {
         match sit {
             SideInfoType::SideBranch(sb) => {
@@ -323,7 +303,7 @@ impl SabreRewriter {
                     annotation,
                     leaf_index,
                     cs,
-                    stats,
+                    metrics,
                 );
             }
             SideInfoType::EquivalenceAndConditionCheck(announcement, annotation) => {
@@ -347,7 +327,7 @@ impl SabreRewriter {
                         condition_cache,
                         annotation,
                         &matched,
-                        stats,
+                        metrics,
                     )
                 {
                     SabreRewriter::apply_rewrite_rule(
@@ -359,7 +339,7 @@ impl SabreRewriter {
                         annotation,
                         leaf_index,
                         cs,
-                        stats,
+                        metrics,
                     );
                 } else {
                     // The check failed, so this announcement does not apply. The
@@ -386,9 +366,9 @@ impl SabreRewriter {
         annotation: &AnnouncementSabre,
         leaf_index: usize,
         cs: &mut ConfigurationStack<'_>,
-        stats: &mut RewritingStatistics,
+        metrics: &mut RewriteMetrics,
     ) {
-        stats.rewrite_steps += 1;
+        metrics.rule_applied(&announcement.rule);
 
         let read_terms = term_stack.terms.read();
         let leaf_subterm: &DataExpressionRef<'_> = &read_terms[cs.terms_base + leaf_index];
@@ -425,7 +405,7 @@ impl SabreRewriter {
         condition_cache: &mut ConditionCache,
         annotation: &AnnouncementSabre,
         matched: &DataExpression,
-        stats: &mut RewritingStatistics,
+        metrics: &mut RewriteMetrics,
     ) -> bool {
         for c in &annotation.conditions {
             let rhs: DataExpression = c.rhs_term_stack.evaluate_with(matched, builder);
@@ -440,7 +420,7 @@ impl SabreRewriter {
                     term_stack,
                     condition_cache,
                     &rhs,
-                    stats,
+                    metrics,
                 );
                 let lhs_normal = SabreRewriter::normalise_condition_side(
                     tp,
@@ -449,7 +429,7 @@ impl SabreRewriter {
                     term_stack,
                     condition_cache,
                     &lhs,
-                    stats,
+                    metrics,
                 );
 
                 // If lhs != rhs && !equality OR equality && lhs == rhs.
@@ -473,15 +453,22 @@ impl SabreRewriter {
         term_stack: &mut SharedTermStack,
         condition_cache: &mut ConditionCache,
         term: &DataExpression,
-        stats: &mut RewritingStatistics,
+        metrics: &mut RewriteMetrics,
     ) -> DataExpression {
         if let Some(normal_form) = condition_cache.get(term) {
-            stats.condition_cache_hits += 1;
+            metrics.condition_cache_hit();
             return normal_form;
         }
 
-        let normal_form =
-            SabreRewriter::stack_based_normalise_aux(tp, automaton, builder, term_stack, condition_cache, term, stats);
+        let normal_form = SabreRewriter::stack_based_normalise_aux(
+            tp,
+            automaton,
+            builder,
+            term_stack,
+            condition_cache,
+            term,
+            metrics,
+        );
         condition_cache.insert(term.clone(), normal_form.clone());
         normal_form
     }
