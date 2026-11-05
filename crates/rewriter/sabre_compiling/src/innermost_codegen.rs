@@ -426,7 +426,10 @@ fn generate_rewrite_term_stack_impl(
             Config::Binder(..) => {
                 unreachable!("SetAutomaton::new keeps no rule with a binder in its right-hand side")
             }
-            Config::Rewrite(_) | Config::Return() => {
+            Config::Lazy(..) => {
+                unreachable!("right-hand sides are compiled without lazy symbols")
+            }
+            Config::Rewrite(_) | Config::Return() | Config::Strategy(..) | Config::Activate(..) => {
                 unreachable!("The term stack never contains these configurations")
             }
         }
