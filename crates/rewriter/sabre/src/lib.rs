@@ -2,6 +2,7 @@
 
 mod binder;
 mod innermost_rewriter;
+mod metrics;
 mod naive_rewriter;
 mod quantifier;
 mod rewrite_specification;
