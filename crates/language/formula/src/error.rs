@@ -1,8 +1,8 @@
 use merc_syntax::SourceMap;
 use merc_syntax::Span;
 
-use crate::InferenceError;
-use crate::WellTypedError;
+use merc_typecheck::InferenceError;
+use merc_typecheck::WellTypedError;
 
 /// An error type checking a whole state formula with [`crate::ModalSpecification`]: an `act`
 /// declaration, a fixpoint variable, or the formula itself that doesn't type check, on top of

@@ -1,9 +1,9 @@
 //! Whole-state-formula type-checking tests:.
 
+use merc_formula::FormulaType;
+use merc_formula::ModalError;
+use merc_formula::ModalSpecification;
 use merc_syntax::UntypedStateFrmSpec;
-use merc_typecheck::FormulaType;
-use merc_typecheck::ModalError;
-use merc_typecheck::ModalSpecification;
 
 /// Type checks `text` under `val_sort`, asserting it is accepted.
 #[track_caller]

@@ -1,6 +1,6 @@
+use merc_formula::FormulaType;
+use merc_formula::ModalSpecification;
 use merc_syntax::UntypedStateFrmSpec;
-use merc_typecheck::FormulaType;
-use merc_typecheck::ModalSpecification;
 use merc_typecheck::ResolvedName;
 use merc_typecheck::TypingInfo;
 

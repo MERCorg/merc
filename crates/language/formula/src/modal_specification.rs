@@ -9,16 +9,16 @@ use merc_syntax::StateFrm;
 use merc_syntax::StateVarId;
 use merc_syntax::UntypedStateFrmSpec;
 
-use crate::DataSpecification;
-use crate::NumberEncoding;
-use crate::ResolvedSortId;
-use crate::TypingInfo;
-use crate::checking;
-use crate::resolve_modal_variables;
+use crate::variable_resolution::resolve_modal_variables;
+use merc_typecheck::DataSpecification;
+use merc_typecheck::NumberEncoding;
+use merc_typecheck::TypingInfo;
+use merc_typecheck::internal::ResolvedSortId;
+use merc_typecheck::internal::checking;
 
-use super::ModalError;
-use super::check;
-use super::modal_equation_system::ModalEquationSystem;
+use crate::ModalError;
+use crate::check;
+use crate::modal_equation_system::ModalEquationSystem;
 
 /// Whether a state formula's `val(...)` occurrences are `Real`- or `Bool`-sorted.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
