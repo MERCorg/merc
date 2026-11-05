@@ -2,9 +2,9 @@
 //! information accumulated over a checked process specification's action arguments,
 //! process-instantiation arguments, conditions, time bounds, and `dist` weights.
 
+use merc_process::ProcessSpecification;
 use merc_syntax::Span;
 use merc_syntax::UntypedProcessSpecification;
-use merc_typecheck::ProcessSpecification;
 use merc_typecheck::ResolvedName;
 use merc_typecheck::TypingInfo;
 

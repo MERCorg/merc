@@ -2,8 +2,8 @@
 
 use std::path::Path;
 
+use merc_process::ProcessSpecification;
 use merc_syntax::UntypedProcessSpecification;
-use merc_typecheck::ProcessSpecification;
 use merc_utilities::check_snapshot;
 use merc_utilities::test_logger;
 use test_case::test_case;

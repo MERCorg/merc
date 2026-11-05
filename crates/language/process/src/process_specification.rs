@@ -10,15 +10,15 @@ use merc_syntax::SourceMap;
 use merc_syntax::Span;
 use merc_syntax::UntypedProcessSpecification;
 
-use crate::DataSpecification;
-use crate::NumberEncoding;
-use crate::ResolvedSortId;
-use crate::TypingInfo;
-use crate::checking;
+use merc_typecheck::DataSpecification;
+use merc_typecheck::NumberEncoding;
+use merc_typecheck::TypingInfo;
+use merc_typecheck::internal::ResolvedSortId;
+use merc_typecheck::internal::checking;
 
-use super::ProcessError;
-use super::check;
-use super::disambiguation;
+use crate::ProcessError;
+use crate::check;
+use crate::disambiguation;
 
 /// A type-checked mCRL2 process specification.
 pub struct ProcessSpecification {
@@ -50,7 +50,7 @@ impl ProcessSpecification {
 
         // Resolve all process variables to ensure each one has a unique
         // identifier before further checking.
-        crate::resolve_process_variables(&mut spec);
+        crate::variable_resolution::resolve_process_variables(&mut spec);
 
         let data_spec = std::mem::take(&mut spec.data_specification);
         let mut data = DataSpecification::from_untyped_with(data_spec, encoding, sources)?;
@@ -118,7 +118,7 @@ pub(super) struct DeclarationTables {
     pub(super) process_decl_spans: Vec<Span>,
     /// name -> indices into `spec.process_declarations`/`process_params` declaring it.
     pub(super) processes_by_name: HashMap<String, Vec<usize>>,
-    /// The `act` declaration table, shared with `crate::modal` via [`checking::ActionTable`].
+    /// The `act` declaration table, shared with `merc_formula` via [`checking::ActionTable`].
     pub(super) actions: checking::ActionTable,
 }
 

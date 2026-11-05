@@ -1,9 +1,9 @@
 //! Whole-process-specification type-checking tests: actions, process bodies, and `init`, on top
 //! of the data-specification checking `data_specification_test.rs` already covers.
 
+use merc_process::ProcessError;
+use merc_process::ProcessSpecification;
 use merc_syntax::UntypedProcessSpecification;
-use merc_typecheck::ProcessError;
-use merc_typecheck::ProcessSpecification;
 
 /// Type checks `text`, asserting it is accepted.
 #[track_caller]
