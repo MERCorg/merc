@@ -5,6 +5,7 @@ use std::ops::ControlFlow;
 use std::rc::Rc;
 
 use criterion::BatchSize;
+use criterion::Bencher;
 use criterion::Criterion;
 use criterion::criterion_group;
 use criterion::criterion_main;
@@ -22,10 +23,13 @@ use merc_enumerate::Enumerator;
 use merc_enumerate::EnumeratorFrame;
 use merc_enumerate::FreshVariableGenerator;
 use merc_sabre::InnermostRewriter;
+use merc_sabre::JittyRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
+use merc_syntax::SourceMap;
 use merc_syntax::UntypedDataSpecification;
 use merc_typecheck::DataSpecification;
+use merc_typecheck::NumberEncoding;
 
 /// A small recursive sort mirroring `Nat`'s shape (`dzero`/`dsucc`), avoiding
 /// the real `Nat`/`Pos` prelude.
@@ -41,8 +45,12 @@ const PRELUDE: &str = "
 ";
 
 fn lower(source: &str) -> Mcrl2DataSpecification {
+    lower_with(source, NumberEncoding::default())
+}
+
+fn lower_with(source: &str, encoding: NumberEncoding) -> Mcrl2DataSpecification {
     let untyped = UntypedDataSpecification::parse(source).unwrap();
-    let data_spec = DataSpecification::from_untyped(untyped).unwrap();
+    let data_spec = DataSpecification::from_untyped_with(untyped, encoding, &mut SourceMap::new()).unwrap();
     data_spec.lower_data_specification()
 }
 
@@ -152,54 +160,82 @@ const QUANTIFIER_GOALS: &[(&str, bool, &str)] = &[
 /// whose construction and destruction are not timed, so that the condition cache does not
 /// carry results over from earlier iterations.
 ///
+/// Each goal is timed with the innermost and jitty rewriters, under both number encodings.
+/// mCRL2 uses machine words, so compare with it under `machine word`.
+///
 /// The timing of a goal depends on the state of the global term pool that earlier goals
 /// leave behind, by more than a factor two, so compare goals measured in separate runs.
 fn criterion_benchmark_quantifier_goals(c: &mut Criterion) {
     let mut group = c.benchmark_group("quantifier goals");
     for &(name, expected, goal) in QUANTIFIER_GOALS {
-        // Set up in the closure, which criterion skips for a goal that is filtered out.
-        group.bench_function(name, |bencher| {
-            let spec = lower(&format!(
-                "sort Colour = struct red | green | blue | yellow;\nmap b: Bool;\neqn b = {goal};"
-            ));
-            let body = spec
-                .equations()
-                .iter()
-                .find(|eq| eq.lhs().data_function_symbol().name().value() == "b")
-                .expect("no equation for b")
-                .rhs()
-                .protect();
-            let rewrite_spec = RewriteSpecification::from_data_specification(&spec);
-            let plans = Rc::new(EnumerationPlans::build(&spec));
-            let new_rewriter = || {
+        for (encoding_name, encoding) in [
+            ("binary", NumberEncoding::Binary),
+            ("machine word", NumberEncoding::MachineWord),
+        ] {
+            // Set up in the closures, which criterion skips for a goal that is filtered out.
+            let setup = || {
+                let spec = lower_with(
+                    &format!("sort Colour = struct red | green | blue | yellow;\nmap b: Bool;\neqn b = {goal};"),
+                    encoding,
+                );
+                let body = spec
+                    .equations()
+                    .iter()
+                    .find(|eq| eq.lhs().data_function_symbol().name().value() == "b")
+                    .expect("no equation for b")
+                    .rhs()
+                    .protect();
+                let rewrite_spec = RewriteSpecification::from_data_specification(&spec);
+                let plans = Rc::new(EnumerationPlans::build(&spec));
+                (body, rewrite_spec, plans)
+            };
+            let enumerator = |plans: &Rc<EnumerationPlans>| {
                 let limits = EnumerationLimits {
                     max_items: usize::MAX,
                     max_depth: u32::MAX,
                 };
                 let generator = FreshVariableGenerator::new("v", std::iter::empty());
-                InnermostRewriter::with_enumerator(
-                    &rewrite_spec,
-                    Enumerator::new(plans.clone(), generator).with_limits(limits),
-                )
+                Enumerator::new(plans.clone(), generator).with_limits(limits)
             };
 
-            assert_eq!(
-                new_rewriter().rewrite(&body),
-                DataExpression::bool_literal(expected),
-                "{name}: {goal}"
-            );
-            bencher.iter_batched(
-                new_rewriter,
-                |mut rewriter| {
-                    let result = rewriter.rewrite(&body);
-                    // Dropped after timing, since dropping a rewriter takes about a millisecond.
-                    (rewriter, result)
-                },
-                BatchSize::LargeInput,
-            );
-        });
+            group.bench_function(format!("innermost {name} {encoding_name}"), |bencher| {
+                let (body, rewrite_spec, plans) = setup();
+                let new_rewriter = || InnermostRewriter::with_enumerator(&rewrite_spec, enumerator(&plans));
+                bench_goal(bencher, &body, expected, new_rewriter);
+            });
+
+            group.bench_function(format!("jitty {name} {encoding_name}"), |bencher| {
+                let (body, rewrite_spec, plans) = setup();
+                let new_rewriter = || JittyRewriter::with_enumerator(&rewrite_spec, enumerator(&plans));
+                bench_goal(bencher, &body, expected, new_rewriter);
+            });
+        }
     }
     group.finish();
+}
+
+/// Times rewriting `body` to `expected`, with a fresh rewriter made by `new_rewriter` per
+/// iteration.
+fn bench_goal<R: RewriteEngine>(
+    bencher: &mut Bencher<'_>,
+    body: &DataExpression,
+    expected: bool,
+    new_rewriter: impl Fn() -> R,
+) {
+    assert_eq!(
+        new_rewriter().rewrite(body),
+        DataExpression::bool_literal(expected),
+        "{body}"
+    );
+    bencher.iter_batched(
+        new_rewriter,
+        |mut rewriter| {
+            let result = rewriter.rewrite(body);
+            // Dropped after timing, since dropping a rewriter takes about a millisecond.
+            (rewriter, result)
+        },
+        BatchSize::LargeInput,
+    );
 }
 
 /// Cost of constructing the enumeration plans for a specification.

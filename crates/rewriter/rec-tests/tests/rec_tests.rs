@@ -11,6 +11,7 @@ use merc_data::is_data_application;
 use merc_data::to_untyped_data_expression;
 use merc_rec_tests::load_rec_from_strings;
 use merc_sabre::InnermostRewriter;
+use merc_sabre::JittyRewriter;
 use merc_sabre::NaiveRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
@@ -129,11 +130,27 @@ fn test_sabre_matches_jitty_step_count_on_if_heavy() {
     let (spec, terms) = load_spec(&[include_str!("lazyif.rec")]);
 
     let mut inner = InnermostRewriter::new(&spec);
+    let mut jitty = JittyRewriter::new(&spec);
     let mut sabre = SabreRewriter::new(&spec);
 
     for (i, term) in terms.iter().enumerate() {
-        let (inner_result, inner_stats) = inner.rewrite_with_statistics(term);
-        let (sabre_result, sabre_stats) = sabre.rewrite_with_statistics(term);
+        let inner_result = inner.rewrite(term);
+        let inner_stats = inner.metrics().clone();
+        let jitty_result = jitty.rewrite(term);
+        let jitty_stats = jitty.metrics().clone();
+        let sabre_result = sabre.rewrite(term);
+        let sabre_stats = sabre.metrics().clone();
+
+        assert_eq!(
+            inner_result, jitty_result,
+            "the innermost and jitty rewriters disagree on term {i}"
+        );
+        assert!(
+            jitty_stats.rewrite_steps <= sabre_stats.rewrite_steps,
+            "the jitty rewriter took {} steps versus {} for the set-automaton rewriter on term {i}",
+            jitty_stats.rewrite_steps,
+            sabre_stats.rewrite_steps
+        );
 
         // Both engines must reach the same normal form.
         assert_eq!(
@@ -174,16 +191,25 @@ fn rec_test(rec_files: Vec<&str>, expected_result: &str, check_steps: bool) {
     let expected = parse_expected(&terms, expected_result);
 
     let mut inner = InnermostRewriter::with_condition_cache_capacity(&spec, None);
+    let mut jitty = JittyRewriter::with_condition_cache_capacity(&spec, None);
     let mut sabre = SabreRewriter::with_condition_cache_capacity(&spec, None);
 
     for (i, (term, expected_result)) in terms.iter().zip(&expected).enumerate() {
-        let (inner_result, inner_stats) = inner.rewrite_with_statistics(term);
+        let inner_result = inner.rewrite(term);
+        let inner_stats = inner.metrics().clone();
         assert_eq!(
             &inner_result, expected_result,
             "The inner rewrite result doesn't match the expected result"
         );
 
-        let (sabre_result, sabre_stats) = sabre.rewrite_with_statistics(term);
+        let jitty_result = jitty.rewrite(term);
+        assert_eq!(
+            &jitty_result, expected_result,
+            "The jitty rewrite result doesn't match the expected result"
+        );
+
+        let sabre_result = sabre.rewrite(term);
+        let sabre_stats = sabre.metrics().clone();
         assert_eq!(
             &sabre_result, expected_result,
             "The sabre rewrite result doesn't match the expected result"
@@ -283,6 +309,7 @@ fn test_rec_specification_substitution(rec_files: Vec<&str>, expected_result: &s
     let expected = parse_expected(&terms, expected_result);
 
     check_rewriter_with_substitution(&mut InnermostRewriter::new(&spec), &terms, &expected, "innermost");
+    check_rewriter_with_substitution(&mut JittyRewriter::new(&spec), &terms, &expected, "jitty");
     check_rewriter_with_substitution(&mut SabreRewriter::new(&spec), &terms, &expected, "sabre");
     check_rewriter_with_substitution(&mut NaiveRewriter::new(&spec), &terms, &expected, "naive");
 }

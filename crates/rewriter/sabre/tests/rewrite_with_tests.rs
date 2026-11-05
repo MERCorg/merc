@@ -177,17 +177,16 @@ fn test_substituted_value_is_not_rewritten() {
         create_rewrite_rule("a", "b", &[]).unwrap(),
     ]);
 
-    let (substituted, substituted_stats) = InnermostRewriter::new(&spec)
-        .rewrite_under_with_statistics(&term("f(x)", &["x"]), &substitution(&[("x", "a")]));
+    let mut rewriter = InnermostRewriter::new(&spec);
+    let substituted = rewriter.rewrite_with(&term("f(x)", &["x"]), &substitution(&[("x", "a")]));
     assert_eq!(substituted, term("g(a)", &[]));
+    assert_eq!(rewriter.metrics().rewrite_steps, 1);
 
     // Rewriting the same term with `a` spelled out instead normalises it to `b` first, which
     // costs the extra rewrite step that the normal-form assumption saves.
-    let (rewritten, rewritten_stats) = InnermostRewriter::new(&spec).rewrite_with_statistics(&term("f(a)", &[]));
+    let rewritten = rewriter.rewrite(&term("f(a)", &[]));
     assert_eq!(rewritten, term("g(b)", &[]));
-
-    assert_eq!(substituted_stats.rewrite_steps, 1);
-    assert_eq!(rewritten_stats.rewrite_steps, 2);
+    assert_eq!(rewriter.metrics().rewrite_steps, 2);
 }
 
 /// A non-linear pattern whose repeated variable is only equal after substituting.
