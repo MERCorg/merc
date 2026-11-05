@@ -12,6 +12,7 @@ merc_number.workspace = true
 merc_rec-tests.workspace = true
 merc_sabre.workspace = true
 merc_syntax.workspace = true
+merc_lowering.workspace = true
 merc_typecheck.workspace = true
 merc_utilities.workspace = true
 

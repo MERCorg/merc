@@ -19,6 +19,7 @@ use merc_enumerate::Outcome;
 use merc_enumerate::QuantifierKind;
 use merc_enumerate::WitnessOutcome;
 use merc_enumerate::simplify_one_point;
+use merc_lowering::lower_data_specification;
 use merc_sabre::InnermostRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
@@ -79,7 +80,7 @@ fn d_sort() -> merc_data::SortExpression {
 fn lower(source: &str) -> Mcrl2DataSpecification {
     let untyped = UntypedDataSpecification::parse(&format!("{PRELUDE}\n{source}")).unwrap();
     let data_spec = DataSpecification::from_untyped(untyped).unwrap();
-    data_spec.lower_data_specification()
+    lower_data_specification(&data_spec)
 }
 
 /// Returns the `(variables, rhs)` of the single equation defining mapping
@@ -455,7 +456,7 @@ fn test_find_witness_forall_does_not_claim_an_undecided_body_holds() {
 fn lower_without_prelude(source: &str) -> Mcrl2DataSpecification {
     let untyped = UntypedDataSpecification::parse(source).unwrap();
     let data_spec = DataSpecification::from_untyped(untyped).unwrap();
-    data_spec.lower_data_specification()
+    lower_data_specification(&data_spec)
 }
 
 /// Same as [`goal`], but keeps only the variables occurring in the equation's

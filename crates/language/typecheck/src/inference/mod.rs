@@ -5,13 +5,32 @@ mod resolved_sort;
 mod typed_display;
 mod unification;
 
+#[cfg(feature = "internal")]
+pub use context::TypeCheckContext;
+#[allow(unused_imports)]
 pub(crate) use context::*;
+#[cfg(feature = "internal")]
+pub use inference::EquationTyping;
+#[cfg(feature = "internal")]
+pub use inference::ExprId;
+#[cfg(feature = "internal")]
+pub use inference::ExprTag;
 pub use inference::InferenceError;
+#[cfg(feature = "internal")]
+pub use inference::NameTarget;
+#[cfg(feature = "internal")]
+pub use inference::for_each_expr_child;
 pub(crate) use inference::*;
+#[cfg(feature = "internal")]
+pub use resolved_sort::ResolvedSort;
 #[cfg(feature = "internal")]
 pub use resolved_sort::ResolvedSortId;
 #[cfg(feature = "internal")]
 pub use resolved_sort::ResolvedSortTag;
+#[cfg(feature = "internal")]
+pub use resolved_sort::SortInterner;
+#[cfg(feature = "internal")]
+pub use resolved_sort::unreachable_not_a_value_sort;
 pub(crate) use resolved_sort::*;
 pub(crate) use typed_display::*;
 pub(crate) use unification::*;

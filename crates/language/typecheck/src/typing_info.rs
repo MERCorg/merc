@@ -531,6 +531,7 @@ pub fn push_sort_references(spec: &DataSpecification, references: &[SortReferenc
 }
 
 /// Records a binder's own declaration occurrence.
+#[cfg_attr(not(feature = "internal"), allow(dead_code))]
 pub(crate) fn push_binder_declaration(
     data: &DataSpecification,
     typing: &mut TypingInfo,
@@ -551,8 +552,8 @@ pub(crate) fn push_binder_declaration(
 
 /// Rebuilds `id` as a [`SortExpression`], so it can be displayed via its existing
 /// [`std::fmt::Display`] impl and so a `Def` sort carries a `SortId` a consumer can use for sort
-/// go-to-definition. Mirrors [`crate::lower_sort`]'s structural recursion (same crate, targeting
-/// the binary aterm format instead of the AST's own sort type).
+/// go-to-definition. Mirrors the structural recursion of `merc_lowering`'s `lower_sort`, which
+/// targets the binary aterm format instead of the AST's own sort type.
 ///
 /// Every produced node gets [`Span::default`].
 fn sort_expression(ctx: &TypeCheckContext, spec: &UntypedDataSpecification, id: ResolvedSortId) -> SortExpression {

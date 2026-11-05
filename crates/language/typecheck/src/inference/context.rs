@@ -25,18 +25,18 @@ use crate::TemplateId;
 /// Each semantic fact is a memoized function on this context, so passes pull
 /// their dependencies lazily and results are shared.
 #[derive(Clone)]
-pub(crate) struct TypeCheckContext {
-    pub(crate) sorts: SortInterner,
+pub struct TypeCheckContext {
+    pub sorts: SortInterner,
 
     /// The memoized resolved sort of each sort declaration (an alias's resolved body), keyed by
     /// [SortId]. Populated lazily by `query_sort_of_def`.
     pub(crate) sort_of_def: HashMap<SortId, ResolvedSortId>,
     /// The memoized resolved sort of each constructor declaration, keyed by
     /// [ConstructorId]. Populated lazily by `query_sort_of_constructor`.
-    pub(crate) sort_of_constructor: HashMap<ConstructorId, ResolvedSortId>,
+    pub sort_of_constructor: HashMap<ConstructorId, ResolvedSortId>,
     /// The memoized resolved sort of each map declaration, keyed by [MapId].
     /// Populated lazily by `query_sort_of_map`.
-    pub(crate) sort_of_map: HashMap<MapId, ResolvedSortId>,
+    pub sort_of_map: HashMap<MapId, ResolvedSortId>,
     /// The memoized resolved sort of each equation variable, keyed by its own [VarId] together
     /// with the [EquationRole] that numbered it — see `query_sort_of_equation_var`'s doc comment.
     pub(crate) sort_of_equation_var: HashMap<(EquationRole, VarId), ResolvedSortId>,
@@ -44,12 +44,12 @@ pub(crate) struct TypeCheckContext {
     /// The signature of the specification
     pub(crate) signature: Option<Arc<Signature>>,
 
-    /// The memoized results of [`infer_equation_typing`](crate::infer_equation_typing), keyed by the id of the
+    /// The memoized results of `infer_equation_typing`, keyed by the id of the
     /// enclosing equation specification block and the equation's own id
     /// within it.
-    pub(crate) equation_typing: HashMap<(EqnSpecId, EquationId), Result<Arc<EquationTyping>, InferenceError>>,
+    pub equation_typing: HashMap<(EqnSpecId, EquationId), Result<Arc<EquationTyping>, InferenceError>>,
     /// The system-equation counterpart of `equation_typing`.
-    pub(crate) system_equation_typing: HashMap<(EqnSpecId, EquationId), Result<Arc<EquationTyping>, InferenceError>>,
+    pub system_equation_typing: HashMap<(EqnSpecId, EquationId), Result<Arc<EquationTyping>, InferenceError>>,
     /// The proven typing of each Appendix-B container/function-update
     /// template's own equations, checked once with its type variable(s) held
     /// rigid by `typecheck_template_equations`.
@@ -82,7 +82,7 @@ impl TypeCheckContext {
 
     /// As [`Self::sort_name`], but falls back to a synthesized `@sort_N` placeholder instead of
     /// `None` when `def` is out of range.
-    pub(crate) fn sort_display_name<'a>(&'a self, spec: &'a UntypedDataSpecification, def: SortId) -> Cow<'a, str> {
+    pub fn sort_display_name<'a>(&'a self, spec: &'a UntypedDataSpecification, def: SortId) -> Cow<'a, str> {
         match self.sort_name(spec, def) {
             Some(name) => Cow::Borrowed(name),
             None => Cow::Owned(format!("@sort_{}", def.value())),

@@ -1,7 +1,3 @@
-//! Shared building blocks for a `TypingInfo`-accumulating walk over an
-//! expression tree that lives *outside* the data specification proper — a
-//! process body (`crate::process::check`), a PBES/PRES equation, or a modal formula.
-
 use std::collections::HashMap;
 
 use merc_syntax::ActDecl;
@@ -21,18 +17,14 @@ use crate::infer_expression_in_scope;
 use crate::lower_data_expr;
 use crate::typing_info;
 
-/// Every declaration reachable from the `proc` body/PBES/PRES equation/modal formula currently
-/// being checked — global variables, that declaration's own parameters, and every
-/// `sum`/`dist`/quantifier binder anywhere in it — keyed by each declaration's own [VarId].
+/// Every declaration reachable from the expression being checked.
 ///
-/// A flat list suffices rather than a stack of nested scopes: variable resolution already tied
-/// every occurrence to its binder's unique [VarId], so a binder can only ever be found by the
-/// occurrences it actually scopes over.
+/// A flat list suffices rather than a stack of nested scopes: variable
+/// resolution already tied every occurrence to its binder's unique [VarId], so
+/// a binder can only ever be found by the occurrences it actually scopes over.
 pub type Scope = [(VarId, ResolvedSortId)];
 
-/// Prepares a raw expression for inference: resolves its embedded binder sorts (see
-/// [`DataSpecification::resolve_expression_binder_sorts`]) and lowers it, exactly as
-/// [`DataSpecification::typecheck_expression`] does for a standalone expression.
+/// Prepares a raw expression for inference.
 pub(crate) fn prepare_expression<E>(data: &mut DataSpecification, expr: &DataExpr) -> Result<DataExpr, E>
 where
     E: From<WellTypedError>,
@@ -139,17 +131,17 @@ where
     Ok(data.resolve_declared_sort(sort)?)
 }
 
-/// The resolved `act` declaration table, shared by `process`/`modal`: each declaration's resolved
+/// The resolved `act` declaration table, shared by `merc_process`/`merc_formula`: each declaration's resolved
 /// argument-sort domain and declaring span, plus a name -> declaring-indices map for overload
 /// resolution.
-pub(crate) struct ActionTable {
+pub struct ActionTable {
     /// Resolved argument-sort domain of each action declaration, parallel to the `declarations`
     /// slice [`Self::build`] was given.
-    pub(crate) action_domains: Vec<Vec<ResolvedSortId>>,
+    pub action_domains: Vec<Vec<ResolvedSortId>>,
     /// Each declaration's own identifier span, parallel to `action_domains`.
-    pub(crate) action_decl_spans: Vec<Span>,
+    pub action_decl_spans: Vec<Span>,
     /// name -> indices into `action_domains`/`action_decl_spans` declaring it.
-    pub(crate) actions_by_name: HashMap<String, Vec<usize>>,
+    pub actions_by_name: HashMap<String, Vec<usize>>,
 }
 
 impl ActionTable {
@@ -161,7 +153,7 @@ impl ActionTable {
     /// one is a harmless restatement, collapsed into the earlier entry the same way
     /// `signature::push_overload` collapses a repeated `map`/`cons` declaration. A different
     /// domain under the same name is a legitimate overload, kept as its own entry as always.
-    pub(crate) fn build<E, F>(
+    pub fn build<E, F>(
         data: &mut DataSpecification,
         declarations: &[ActDecl],
         mut resolve_declared_sort: F,
@@ -200,14 +192,14 @@ impl ActionTable {
 
 /// Tries every candidate in `candidates`, each checked into its own scratch `TypingInfo` via
 /// `check_candidate`, and requires exactly one to succeed — an mCRL2 overload set, the way
-/// `crate::process::check::check_action_or_process`/`check_instantiation` and
-/// `crate::modal::check::check_action` use this. A failed or ambiguous candidate's typing must never reach the caller's own
+/// `merc_process`'s `check_action_or_process`/`check_instantiation` and `merc_formula`'s
+/// `check_action` use this. A failed or ambiguous candidate's typing must never reach the caller's own
 /// `TypingInfo`, so each candidate gets a fresh scratch one, returned to the caller only for the
 /// single match.
 ///
 /// `candidates` must be nonempty: the "no such name at all" case usually needs a different error
 /// shape (e.g. every *other* declared name, as a suggestion), so callers check that separately.
-pub(crate) fn resolve_single_candidate<C, E, F, G, H>(
+pub fn resolve_single_candidate<C, E, F, G, H>(
     candidates: &[C],
     mut check_candidate: F,
     no_matching: G,

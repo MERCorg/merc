@@ -5,6 +5,7 @@ use criterion::Criterion;
 use criterion::criterion_group;
 use criterion::criterion_main;
 use merc_data::DataExpression;
+use merc_lowering::lower_data_specification;
 use merc_sabre::InnermostRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
@@ -63,9 +64,9 @@ const GOALS: &[(&str, &str)] = &[
 /// `b`, and the term `b`, lowered under `encoding`.
 fn lower(goal: &str, encoding: NumberEncoding) -> (RewriteSpecification, DataExpression) {
     let untyped = UntypedDataSpecification::parse(&format!("{SPEC}\nmap b: Bool;\neqn b = {goal};")).unwrap();
-    let spec = DataSpecification::from_untyped_with(untyped, encoding, &mut SourceMap::new())
-        .unwrap()
-        .lower_data_specification();
+    let spec = lower_data_specification(
+        &DataSpecification::from_untyped_with(untyped, encoding, &mut SourceMap::new()).unwrap(),
+    );
     let b = spec
         .equations()
         .iter()
