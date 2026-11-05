@@ -25,9 +25,9 @@ use crate::SrfSummand;
 use crate::distribute_not_over_and;
 use crate::fold_pbes_expr;
 use crate::is_simple_expression;
-use crate::simple_expression::SimpleExpressionCache;
 use crate::split_and;
 use crate::split_or;
+use crate::transformations::simple_expression::SimpleExpressionCache;
 
 /// Converts a PBES into standard recursive form.
 ///
