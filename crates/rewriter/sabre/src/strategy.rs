@@ -42,8 +42,8 @@ impl Strategy {
     ///
     /// A rule is tried as soon as all its needed arguments (see [needed_arguments]) are
     /// rewritten, and otherwise the argument needed by the most of the remaining rules is
-    /// rewritten next. Ties go to the highest index, since the stack machine rewrites the
-    /// arguments of an eager symbol from right to left as well.
+    /// rewritten next. Ties go to the lowest index, since the rewriting machine rewrites the
+    /// arguments of an eager symbol from left to right as well.
     pub fn generate(arity: usize, rules: &[Rule]) -> Strategy {
         let mut pending: Vec<(usize, ArgumentSet)> = rules
             .iter()
@@ -68,8 +68,11 @@ impl Strategy {
             // Every pending rule needs an argument that is not rewritten yet.
             let next = (0..arity)
                 .filter(|argument| !rewritten[*argument])
-                // max_by_key returns the last maximum, which is the highest index.
-                .max_by_key(|argument| pending.iter().filter(|(_, needed)| needed[*argument]).count())
+                .max_by_key(|argument| {
+                    let count = pending.iter().filter(|(_, needed)| needed[*argument]).count();
+                    // max_by_key returns the last maximum, so prefer lower indices explicitly.
+                    (count, std::cmp::Reverse(*argument))
+                })
                 .expect("a pending rule needs an argument that is not rewritten yet");
             rewritten.set(next, true);
             steps.push(StrategyStep::Rewrite(next));
@@ -265,7 +268,7 @@ mod tests {
     }
 
     #[test]
-    fn test_strategy_of_and_breaks_the_tie_right_to_left() {
+    fn test_strategy_of_and_breaks_the_tie_left_to_right() {
         let rules = rules(
             &[
                 ("and(b, true)", "b"),
@@ -280,10 +283,10 @@ mod tests {
         assert_eq!(
             strategy.steps,
             [
-                StrategyStep::Rewrite(1),
-                StrategyStep::Try(vec![0, 1]),
                 StrategyStep::Rewrite(0),
                 StrategyStep::Try(vec![2, 3]),
+                StrategyStep::Rewrite(1),
+                StrategyStep::Try(vec![0, 1]),
             ]
         );
     }
