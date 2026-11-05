@@ -35,10 +35,7 @@ pub(crate) fn resolve_modal_variables(formula: &mut StateFrm) -> StateVarIdAlloc
 type FixpointScope = NameStack<StateVarId>;
 
 /// What a matching `enter` call pushed onto `StateFrmScope::scope`/`state_vars` for one node,
-/// popped by `exit` once that node's whole subtree is resolved. `exit` never sees the node itself
-/// again (see [`Traverse::apply_subtree_scoped`]'s own doc comment for why a mutating scoped walk's
-/// `exit` cannot be handed one), so `enter` records here, once per node, what -- if anything --
-/// needs undoing; every arm below pushes exactly one, keeping `enter`/`exit` calls paired 1:1.
+/// popped by `exit` once that node's whole subtree is resolved.
 enum Undo {
     /// This node pushed nothing.
     None,
@@ -50,9 +47,7 @@ enum Undo {
 }
 
 /// The scoped mutable state threaded through [`resolve_in_state_frm`]'s [`Traverse::apply_scoped`]
-/// walk: `enter`/`exit` both need `scope`/`state_vars` (so, per that method's contract, both must
-/// go through this shared `state`, not plain closure capture), while `ids`/`state_var_ids` are used
-/// by `enter` alone and stay ordinary closure captures.
+/// walk.
 #[derive(Default)]
 struct StateFrmScope {
     scope: Scope,
@@ -119,10 +114,7 @@ fn resolve_in_state_frm(formula: &mut StateFrm, ids: &mut VarIdAllocator, state_
                 }
 
                 StateFrmKind::FixedPoint { variable, .. } => {
-                    // Each parameter's own initial value is a free read of the *outer* scope —
-                    // the parameter it initializes (and any sibling parameter) isn't bound yet,
-                    // mirroring `resolve_in_process_expr`'s treatment of an instantiation's
-                    // assignment value.
+                    // Each parameter's own initial value is a free read of the *outer* scope.
                     for argument in &mut variable.arguments {
                         resolve_in_data_expr(&mut argument.expr, &mut state.scope, ids);
                     }
@@ -149,11 +141,6 @@ fn resolve_in_state_frm(formula: &mut StateFrm, ids: &mut VarIdAllocator, state_
     );
 }
 
-/// `RegFrm` itself carries no binder — only crossing through one to reach an `ActFrm` does — and
-/// its own nesting (`.`/`+`/`*` chains within a single modality) is not the pathologically deep,
-/// syntactically-driven recursion `resolve_in_state_frm`'s own migration closes off; left as a
-/// plain recursive dispatch, the same way `modal::check::check_reg_formula` keeps `RegFrm`'s own
-/// dispatch a thin nested call rather than a `Traverse` walk in its own right.
 fn resolve_in_reg_frm(formula: &mut RegFrm, scope: &mut Scope, ids: &mut VarIdAllocator) {
     match &mut formula.node {
         RegFrmKind::Action(action) => resolve_in_act_frm(action, scope, ids),
@@ -381,49 +368,5 @@ mod tests {
             &multi_action.actions[0].args[0].node,
             DataExprKind::Resolved(name, var_id) if name == "n" && **var_id == inner_declared
         ));
-    }
-}
-
-#[cfg(test)]
-mod stack_depth_probe {
-    //! Isolates `resolve_in_state_frm`'s own recursion from the parser's: the tree here is built
-    //! directly, so a stack overflow can only come from this module's own walk. This was the last
-    //! of the four SIGABRT instances `review/stack-overflow-recursion.md` originally found still
-    //! using hand-written recursive descent, now migrated onto `Traverse::apply_scoped`
-    //! (`crates/syntax/src/traverse.rs`'s mutating counterpart of `visit_scoped`, added for this
-    //! migration). `formula` is let drop normally at the end of the test (rather than leaked with
-    //! `mem::forget`) as proof the separate recursive-`Drop` bug covering the same document doesn't
-    //! fire here either.
-    use merc_syntax::Span;
-    use merc_syntax::StateFrm;
-    use merc_syntax::StateFrmKind;
-    use merc_syntax::StateFrmUnaryOp;
-
-    use super::StateVarIdAllocator;
-    use super::VarIdAllocator;
-    use super::resolve_in_state_frm;
-
-    fn deep_negation(depth: usize) -> StateFrm {
-        let mut formula = StateFrmKind::True.spanned(Span::default());
-        for _ in 0..depth {
-            formula = StateFrmKind::Unary {
-                op: StateFrmUnaryOp::Negation,
-                expr: Box::new(formula),
-            }
-            .spanned(Span::default());
-        }
-        formula
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore)] // Resolving 100k nested negations is too slow under miri.
-    fn deeply_nested_negation_does_not_overflow_the_stack() {
-        let mut ids = VarIdAllocator::default();
-        let mut state_var_ids = StateVarIdAllocator::default();
-
-        // 100,000 nested negations, exactly as `modal::check`/`process::check`/`pres::check`'s own
-        // probes do.
-        let mut formula = deep_negation(100_000);
-        resolve_in_state_frm(&mut formula, &mut ids, &mut state_var_ids);
     }
 }

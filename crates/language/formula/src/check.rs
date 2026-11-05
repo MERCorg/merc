@@ -1,6 +1,3 @@
-//! The scoped walk over the state formula, checking each `val(...)` expression, action instance and
-//! fixpoint-variable reference. See `ValSort` for what a state-level `val`'s declared sort allows.
-
 use std::convert::Infallible;
 use std::ops::ControlFlow;
 
@@ -42,6 +39,9 @@ use crate::modal_specification::FormulaType;
 use crate::modal_specification::resolve_declared_sort;
 
 /// Checks a state formula specification against the declared sorts.
+///
+/// The scoped walk over the state formula, checking each `val(...)` expression, action instance and
+/// fixpoint-variable reference. See `ValSort` for what a state-level `val`'s declared sort allows.
 pub(super) fn check_modal_specification(
     data: &mut DataSpecification,
     tables: &DeclarationTables,
@@ -59,30 +59,19 @@ pub(super) fn check_modal_specification(
 
     // One scope, shared by every equation, built from the equation system directly.
     let mut scope = Vec::new();
-    for index in 0..tables.equation_system.len() {
-        let equation = tables.equation_system.equation(index);
-        let params = &tables.equation_params[index];
-
+    for (equation, sorts) in tables.equation_system.iter().zip(&tables.parameter_sorts) {
         let arguments = &equation.variable().arguments;
         for argument in arguments {
             collect_sort_name_references(&argument.decl.sort, &mut sort_references);
         }
         let declarations = arguments.iter().map(|argument| &argument.decl);
-        let sorts = params.iter().map(|&(_, sort)| sort);
-        declare_variables(data, &mut scope, &mut typing, declarations, sorts);
+        declare_variables(data, &mut scope, &mut typing, declarations, sorts.iter().copied());
 
         collect_scope(data, equation.body(), &mut scope, &mut sort_references, &mut typing)?;
     }
 
-    for index in 0..tables.equation_system.len() {
-        let equation = tables.equation_system.equation(index);
-        check_fixed_point_declaration(
-            data,
-            &scope,
-            equation.variable(),
-            &tables.equation_params[index],
-            &mut typing,
-        )?;
+    for (equation, sorts) in tables.equation_system.iter().zip(&tables.parameter_sorts) {
+        check_fixed_point_declaration(data, &scope, equation.variable(), sorts, &mut typing)?;
         check_state_formula(data, tables, &scope, equation.body(), formula_type, &mut typing)?;
     }
 
@@ -258,10 +247,10 @@ fn check_fixed_point_declaration(
     data: &mut DataSpecification,
     scope: &Scope,
     variable: &StateVarDecl,
-    params: &[(String, ResolvedSortId)],
+    sorts: &[ResolvedSortId],
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
-    for (argument, &(_, sort)) in variable.arguments.iter().zip(params) {
+    for (argument, &sort) in variable.arguments.iter().zip(sorts) {
         check_expression_against::<ModalError>(data, scope, &argument.expr, sort, typing)?;
     }
     Ok(())
@@ -295,21 +284,21 @@ fn check_state_var_inst(
         span.clone(),
         ResolvedName::StateVariable {
             name: name.to_string(),
-            declaration: declared_span(&tables.equation_decl_spans[index]),
+            declaration: declared_span(&tables.equation_system.equation(index).variable().span),
         },
     );
 
-    let params = &tables.equation_params[index];
-    if arguments.len() != params.len() {
+    let sorts = &tables.parameter_sorts[index];
+    if arguments.len() != sorts.len() {
         return Err(ModalError::ArityMismatch {
             name: name.to_string(),
-            expected: params.len(),
+            expected: sorts.len(),
             found: arguments.len(),
             span: span.clone(),
         });
     }
 
-    for (argument, &(_, sort)) in arguments.iter().zip(params) {
+    for (argument, &sort) in arguments.iter().zip(sorts) {
         check_expression_against::<ModalError>(data, scope, argument, sort, typing)?;
     }
     Ok(())

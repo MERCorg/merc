@@ -4,7 +4,6 @@ use std::collections::HashSet;
 use merc_syntax::ActDecl;
 use merc_syntax::SortExpression;
 use merc_syntax::SourceMap;
-use merc_syntax::Span;
 use merc_syntax::StateFrm;
 use merc_syntax::StateVarId;
 use merc_syntax::UntypedStateFrmSpec;
@@ -69,9 +68,7 @@ impl ModalSpecification {
         let data_spec = std::mem::take(&mut spec.data_specification);
         let mut data = DataSpecification::from_untyped_with(data_spec, encoding, sources)?;
 
-        // Flattens the formula's nested `mu`/`nu`s into a ranked list of equations up front, the
-        // same way a PBES already is one — see `DeclarationTables::build` and
-        // `check::check_modal_specification`'s per-equation loop.
+        // Flattens the formula's nested `mu`/`nu`s into a ranked list of equations up front.
         let equation_system = ModalEquationSystem::new(&spec.formula, &mut state_var_ids);
 
         let tables = DeclarationTables::build(
@@ -143,20 +140,18 @@ pub(super) enum ActionChecking {
 }
 
 /// The resolved `act` declaration table, plus the formula's own flattened fixpoint-equation view
-/// and each equation's resolved parameter sorts — built once by [`Self::build`] and used by
+/// and the resolved sorts of each equation's parameters — built once by [`Self::build`] and used by
 /// [`super::check`]'s per-equation walk to resolve every action instance and fixpoint-variable
 /// reference it reaches.
 pub(super) struct DeclarationTables {
     pub(super) actions: ActionChecking,
     /// The formula's own equations, in the shape [`super::check`]'s per-equation loop walks.
     pub(super) equation_system: ModalEquationSystem,
-    /// Resolved `(name, sort)` parameters of each equation, parallel to `equation_system`'s own
-    /// equations.
-    pub(super) equation_params: Vec<Vec<(String, ResolvedSortId)>>,
-    /// Each equation's own variable declaration span, parallel to `equation_params`.
-    pub(super) equation_decl_spans: Vec<Span>,
-    /// A fixpoint variable's own [`StateVarId`] -> index into `equation_params`/
-    /// `equation_decl_spans`/`equation_system`'s own equations.
+    /// The resolved sort of each parameter of each equation: `parameter_sorts[i][j]` is the sort
+    /// of the `j`th argument of the variable of the `i`th equation of `equation_system`.
+    pub(super) parameter_sorts: Vec<Vec<ResolvedSortId>>,
+    /// A fixpoint variable's own [`StateVarId`] -> index into `equation_system`'s own equations
+    /// and `parameter_sorts`.
     pub(super) equations_by_id: HashMap<StateVarId, usize>,
 }
 
@@ -180,13 +175,12 @@ impl DeclarationTables {
             )?)
         };
 
-        let mut equation_params = Vec::with_capacity(equation_system.len());
-        let mut equation_decl_spans = Vec::with_capacity(equation_system.len());
+        let mut parameter_sorts = Vec::with_capacity(equation_system.len());
         let mut equations_by_id = HashMap::with_capacity(equation_system.len());
-        for index in 0..equation_system.len() {
-            let variable = equation_system.equation(index).variable();
+        for (index, equation) in equation_system.iter().enumerate() {
+            let variable = equation.variable();
 
-            let mut params = Vec::with_capacity(variable.arguments.len());
+            let mut sorts = Vec::with_capacity(variable.arguments.len());
             let mut seen = HashSet::new();
             for argument in &variable.arguments {
                 if !seen.insert(argument.decl.identifier.as_str()) {
@@ -196,23 +190,20 @@ impl DeclarationTables {
                         span: argument.decl.identifier.span.clone(),
                     });
                 }
-                let sort = resolve_declared_sort(data, &argument.decl.sort)?;
-                params.push((argument.decl.identifier.node.clone(), sort));
+                sorts.push(resolve_declared_sort(data, &argument.decl.sort)?);
             }
 
             // `ModalEquationSystem` itself already guarantees every equation's own `StateVarId`
             // is unique (it's built from a resolved formula), so this can't collide.
             let id = variable.id.expect("ModalEquationSystem requires a resolved formula");
-            equations_by_id.insert(id, equation_params.len());
-            equation_params.push(params);
-            equation_decl_spans.push(variable.span.clone());
+            equations_by_id.insert(id, index);
+            parameter_sorts.push(sorts);
         }
 
         Ok(DeclarationTables {
             actions,
             equation_system,
-            equation_params,
-            equation_decl_spans,
+            parameter_sorts,
             equations_by_id,
         })
     }

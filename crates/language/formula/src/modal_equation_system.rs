@@ -100,6 +100,11 @@ impl ModalEquationSystem {
         &self.equations[i]
     }
 
+    /// Returns an iterator over the equations in the system, in order.
+    pub fn iter(&self) -> impl ExactSizeIterator<Item = &Equation> {
+        self.equations.iter()
+    }
+
     /// Returns the number of equations in the system.
     pub fn len(&self) -> usize {
         self.equations.len()
