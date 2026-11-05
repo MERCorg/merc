@@ -13,22 +13,29 @@ use merc_syntax::Traverse;
 use merc_syntax::UntypedProcessSpecification;
 use merc_syntax::VarId;
 
-use crate::DataSpecification;
-use crate::DisplaySortContext;
-use crate::ResolvedName;
-use crate::ResolvedSortId;
-use crate::TypingInfo;
-use crate::checking::Scope;
-use crate::checking::check_expression_against;
-use crate::checking::collect_binder_sorts;
-use crate::checking::declare_variables;
-use crate::checking::resolve_single_candidate;
-use crate::declared_span;
-use crate::typing_info;
+use merc_typecheck::DataSpecification;
+use merc_typecheck::ResolvedName;
+use merc_typecheck::TypingInfo;
+use merc_typecheck::internal::ResolvedSortId;
+use merc_typecheck::internal::SortReference;
+use merc_typecheck::internal::bool_sort;
+use merc_typecheck::internal::checking::Scope;
+use merc_typecheck::internal::checking::check_expression_against;
+use merc_typecheck::internal::checking::collect_binder_sorts;
+use merc_typecheck::internal::checking::declare_variables;
+use merc_typecheck::internal::checking::resolve_single_candidate;
+use merc_typecheck::internal::collect_sort_name_references;
+use merc_typecheck::internal::declared_span;
+use merc_typecheck::internal::display_sort;
+use merc_typecheck::internal::is_materializable;
+use merc_typecheck::internal::join_sorts;
+use merc_typecheck::internal::push_resolved_name;
+use merc_typecheck::internal::push_sort_references;
+use merc_typecheck::internal::real_sort;
 
-use super::ProcessError;
-use super::process_specification::DeclarationTables;
-use super::process_specification::resolve_declared_sort;
+use crate::ProcessError;
+use crate::process_specification::DeclarationTables;
+use crate::process_specification::resolve_declared_sort;
 
 /// Checks a process specification against the declared sorts, returning the
 /// merged typing information.
@@ -42,18 +49,18 @@ pub(super) fn check_process_specification(
 
     for decl in &spec.action_declarations {
         for sort in &decl.args {
-            typing_info::collect_sort_name_references(sort, &mut sort_references);
+            collect_sort_name_references(sort, &mut sort_references);
         }
     }
 
     for decl in &spec.process_declarations {
         for param in &decl.params {
-            typing_info::collect_sort_name_references(&param.sort, &mut sort_references);
+            collect_sort_name_references(&param.sort, &mut sort_references);
         }
     }
 
     for decl in &spec.global_variables {
-        typing_info::collect_sort_name_references(&decl.sort, &mut sort_references);
+        collect_sort_name_references(&decl.sort, &mut sort_references);
     }
 
     let mut globals = Vec::new();
@@ -82,7 +89,7 @@ pub(super) fn check_process_specification(
         check_process_expr(data, tables, &scope, init, &mut typing)?;
     }
 
-    typing_info::push_sort_references(data, &sort_references, &mut typing);
+    push_sort_references(data, &sort_references, &mut typing);
     Ok(typing)
 }
 
@@ -92,7 +99,7 @@ fn collect_scope(
     data: &mut DataSpecification,
     expr: &ProcessExpr,
     scope: &mut Vec<(VarId, ResolvedSortId)>,
-    sort_references: &mut Vec<typing_info::SortReference>,
+    sort_references: &mut Vec<SortReference>,
     typing: &mut TypingInfo,
 ) -> Result<(), ProcessError> {
     expr.try_visit(|expr| {
@@ -131,17 +138,17 @@ fn check_process_expr(
             // Checked against `Real`: `dist`'s weight is the distribution's density over its own
             // bound variables, already part of `scope` (collected up front by `collect_scope`).
             ProcessExprKind::Dist { expr: weight, .. } => {
-                let real_sort = data.context().sorts.real_sort();
+                let real_sort = real_sort(data);
                 check_expression_against::<ProcessError>(data, scope, weight, real_sort, typing)?;
             }
 
             ProcessExprKind::Condition { condition, .. } => {
-                let bool_sort = data.context().sorts.bool_sort();
+                let bool_sort = bool_sort(data);
                 check_expression_against::<ProcessError>(data, scope, condition, bool_sort, typing)?;
             }
 
             ProcessExprKind::At { operand: time, .. } => {
-                let real_sort = data.context().sorts.real_sort();
+                let real_sort = real_sort(data);
                 check_expression_against::<ProcessError>(data, scope, time, real_sort, typing)?;
             }
 
@@ -264,7 +271,7 @@ fn check_action_or_process(
             declaration: declared_span(&tables.process_decl_spans[*index]),
         },
     };
-    matched_typing.push(name.span.clone(), resolved);
+    push_resolved_name(&mut matched_typing, name.span.clone(), resolved);
     typing.merge(matched_typing);
     Ok(())
 }
@@ -340,7 +347,8 @@ fn check_instantiation(
         },
     )?;
 
-    matched_typing.push(
+    push_resolved_name(
+        &mut matched_typing,
         name.span.clone(),
         ResolvedName::Process {
             name: name.node.clone(),
@@ -404,7 +412,8 @@ fn check_action_names(
             .iter()
             .filter_map(|&index| declared_span(&tables.actions.action_decl_spans[index]))
             .collect();
-        typing.push(
+        push_resolved_name(
+            typing,
             name.span.clone(),
             ResolvedName::ActionSet {
                 name: name.node.clone(),
@@ -555,39 +564,34 @@ fn combined_sort_matches(
     }
 
     let mut failure: Option<(usize, ResolvedSortId, ResolvedSortId)> = None;
-    {
-        let (ctx, _) = data.context_and_specs_mut();
-        'positions: for (position, &expected) in to_domain.iter().enumerate() {
-            let mut joined = tables.actions.action_domains[from_indices[0]][position];
-            for &index in &from_indices[1..] {
-                let candidate = tables.actions.action_domains[index][position];
-                let next = ctx.sorts.join(joined, candidate).filter(|&sort| {
-                    ctx.sorts.is_materializable(joined, sort) && ctx.sorts.is_materializable(candidate, sort)
-                });
-                joined = match next {
-                    Some(sort) => sort,
-                    None => {
-                        failure = Some((position, joined, candidate));
-                        break 'positions;
-                    }
-                };
-            }
-            if !ctx.sorts.is_materializable(joined, expected) {
-                failure = Some((position, joined, expected));
-                break;
-            }
+    'positions: for (position, &expected) in to_domain.iter().enumerate() {
+        let mut joined = tables.actions.action_domains[from_indices[0]][position];
+        for &index in &from_indices[1..] {
+            let candidate = tables.actions.action_domains[index][position];
+            let next = join_sorts(data, joined, candidate)
+                .filter(|&sort| is_materializable(data, joined, sort) && is_materializable(data, candidate, sort));
+            joined = match next {
+                Some(sort) => sort,
+                None => {
+                    failure = Some((position, joined, candidate));
+                    break 'positions;
+                }
+            };
+        }
+        if !is_materializable(data, joined, expected) {
+            failure = Some((position, joined, expected));
+            break;
         }
     }
 
     match failure {
         None => Ok(()),
         Some((position, lhs, rhs)) => {
-            let (ctx, spec) = data.context_and_specs_mut();
+            let lhs = display_sort(data, lhs);
+            let rhs = display_sort(data, rhs);
             Err(format!(
-                "parameter {} has sort '{}', which is not compatible with '{}'",
+                "parameter {} has sort '{lhs}', which is not compatible with '{rhs}'",
                 position + 1,
-                DisplaySortContext::new(ctx, spec, lhs),
-                DisplaySortContext::new(ctx, spec, rhs),
             ))
         }
     }
