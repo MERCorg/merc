@@ -69,6 +69,7 @@ merc_reduction = { path = "../../crates/transition_systems/reduction" }
 merc_symbolic = { path = "../../crates/transition_systems/symbolic", features = ["clap"] }
 merc_vpg = { path = "../../crates/transition_systems/vpg" }
 
+merc_lowering = { path = "../../crates/language/lowering" }
 merc_typecheck = { path = "../../crates/language/typecheck" }
 merc_syntax = { path = "../../crates/language/syntax" }
 

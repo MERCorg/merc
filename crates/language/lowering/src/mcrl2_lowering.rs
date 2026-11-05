@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
+use crate::system_symbols;
 use merc_data::BasicSort;
 use merc_data::BinderType;
 use merc_data::ContainerSortKind;
@@ -26,23 +27,22 @@ use merc_syntax::Quantifier;
 use merc_syntax::Sort;
 use merc_syntax::SortExpression;
 use merc_syntax::SortExpressionKind;
-use merc_syntax::SourceMap;
 use merc_syntax::UntypedDataSpecification;
 
-use crate::EquationTyping;
-use crate::ExprId;
-use crate::NameTarget;
-use crate::NumberEncoding;
-use crate::ResolvedSort;
-use crate::ResolvedSortId;
-use crate::TypeCheckContext;
-use crate::assign_declaration_ids;
-use crate::build_system_defined_specification;
-use crate::extend_system_with_inferred_sorts;
-use crate::instantiate_system_equations;
-use crate::is_system_generated_name;
-use crate::resolve_data_specification_variables;
-use crate::unreachable_not_a_value_sort;
+use merc_typecheck::DataSpecification;
+use merc_typecheck::NumberEncoding;
+use merc_typecheck::TypedExpression;
+use merc_typecheck::internal::EquationTyping;
+use merc_typecheck::internal::ExprId;
+use merc_typecheck::internal::NameTarget;
+use merc_typecheck::internal::ResolvedSort;
+use merc_typecheck::internal::ResolvedSortId;
+use merc_typecheck::internal::TypeCheckContext;
+use merc_typecheck::internal::context;
+use merc_typecheck::internal::expression_typing;
+use merc_typecheck::internal::instantiate_used_templates;
+use merc_typecheck::internal::is_system_generated_name;
+use merc_typecheck::internal::unreachable_not_a_value_sort;
 
 /// The merc_data container kind for a [ComplexSort]; the two enums are kept
 /// separate because `merc_data` sits below `merc_syntax` in the dependency
@@ -73,35 +73,19 @@ fn widen_one_step(term: DataExpression, from: Sort, encoding: NumberEncoding) ->
             // so it uses the `Pos2Nat` mapping, whose equations in
             // `nat64.mcrl2` rewrite it onto the corresponding digit chain.
             let convert = match encoding {
-                NumberEncoding::Binary => DataFunctionSymbol::with_signature(
-                    "@cNat",
-                    &[DataSortExpression::pos()],
-                    &DataSortExpression::nat(),
-                ),
-                NumberEncoding::MachineWord => DataFunctionSymbol::with_signature(
-                    "Pos2Nat",
-                    &[DataSortExpression::pos()],
-                    &DataSortExpression::nat(),
-                ),
+                NumberEncoding::Binary => system_symbols::c_nat(),
+                NumberEncoding::MachineWord => system_symbols::pos2nat(),
             };
             (DataApplication::with_args(&convert, &[term]).into(), Sort::Nat)
         }
-        Sort::Nat => {
-            let cint =
-                DataFunctionSymbol::with_signature("@cInt", &[DataSortExpression::nat()], &DataSortExpression::int());
-            (DataApplication::with_args(&cint, &[term]).into(), Sort::Int)
-        }
-        Sort::Int => {
-            let creal = DataFunctionSymbol::with_signature(
-                "@cReal",
-                &[DataSortExpression::int(), DataSortExpression::pos()],
-                &DataSortExpression::real(),
-            );
-            (
-                DataApplication::with_args(&creal, &[term, pos_literal("1", encoding)]).into(),
-                Sort::Real,
-            )
-        }
+        Sort::Nat => (
+            DataApplication::with_args(&system_symbols::c_int(), &[term]).into(),
+            Sort::Int,
+        ),
+        Sort::Int => (
+            DataApplication::with_args(&system_symbols::c_real(), &[term, pos_literal("1", encoding)]).into(),
+            Sort::Real,
+        ),
         Sort::Real | Sort::Bool => unreachable!("Real/Bool never widen further"),
     }
 }
@@ -123,32 +107,16 @@ fn numeric_coerce(mut term: DataExpression, from: Sort, to: Sort, encoding: Numb
 /// "should not be part of the rewrite system").
 fn container_coerce(term: DataExpression, op: ComplexSort, element: DataSortExpression) -> DataExpression {
     match op {
-        ComplexSort::FSet => {
-            let false_fn = DataFunctionSymbol::with_signature(
-                "@false_",
-                std::slice::from_ref(&element),
-                &DataSortExpression::bool(),
-            );
-            let set_sort = SortCons::new(ContainerSortKind::Set, element.clone());
-            let fset_sort = SortCons::new(ContainerSortKind::FSet, element.clone());
-            let predicate_sort: DataSortExpression = SortArrow::new(&[element], &DataSortExpression::bool()).into();
-            let set_cons =
-                DataFunctionSymbol::with_signature("@set", &[predicate_sort, fset_sort.into()], &set_sort.into());
-            DataApplication::with_args(&set_cons, &[false_fn.into(), term]).into()
-        }
-        ComplexSort::FBag => {
-            let zero_fn = DataFunctionSymbol::with_signature(
-                "@zero_",
-                std::slice::from_ref(&element),
-                &DataSortExpression::nat(),
-            );
-            let bag_sort = SortCons::new(ContainerSortKind::Bag, element.clone());
-            let fbag_sort = SortCons::new(ContainerSortKind::FBag, element.clone());
-            let multiplicity_sort: DataSortExpression = SortArrow::new(&[element], &DataSortExpression::nat()).into();
-            let bag_cons =
-                DataFunctionSymbol::with_signature("@bag", &[multiplicity_sort, fbag_sort.into()], &bag_sort.into());
-            DataApplication::with_args(&bag_cons, &[zero_fn.into(), term]).into()
-        }
+        ComplexSort::FSet => DataApplication::with_args(
+            &system_symbols::set_constructor(&element),
+            &[system_symbols::false_function(&element).into(), term],
+        )
+        .into(),
+        ComplexSort::FBag => DataApplication::with_args(
+            &system_symbols::bag_constructor(&element),
+            &[system_symbols::zero_function(&element).into(), term],
+        )
+        .into(),
         ComplexSort::List | ComplexSort::Set | ComplexSort::Bag => {
             unreachable!("only FSet and FBag widen to another container")
         }
@@ -226,12 +194,8 @@ fn pos_literal_binary(decimal: &str) -> DataExpression {
         "the leading bit of a Pos literal is always set"
     );
 
-    let cdub = DataFunctionSymbol::with_signature(
-        "@cDub",
-        &[DataSortExpression::bool(), DataSortExpression::pos()],
-        &DataSortExpression::pos(),
-    );
-    let mut term: DataExpression = DataFunctionSymbol::with_sort("@c1", DataSortExpression::pos().copy()).into();
+    let cdub = system_symbols::c_dub();
+    let mut term: DataExpression = system_symbols::c1().into();
     for &bit in bits[..bits.len() - 1].iter().rev() {
         term = DataApplication::with_args(&cdub, &[DataExpression::bool_literal(bit), term]).into();
     }
@@ -264,20 +228,13 @@ fn decimal_words_lsb_first(decimal: &str) -> Vec<u64> {
 }
 
 /// Folds the base-`2^64` digits of `decimal` into a digit chain, starting from
-/// `most_significant` applied to the leading digit and wrapping each successively
-/// less significant digit in `@concat_digit`, which denotes `2^64 * p + w`.
+/// `leading` applied to the most significant digit and wrapping each successively
+/// less significant digit in `concat`, an `@concat_digit` overload, which denotes `2^64 * p + w`.
 ///
 /// This mirrors mCRL2's `sort_pos::pos` / `sort_nat::nat` construction in
 /// `standard_numbers_utility.h` when `MCRL2_ENABLE_MACHINENUMBERS` is set.
-fn digit_chain_literal(decimal: &str, most_significant: &str, sort: DataSortExpression) -> DataExpression {
+fn digit_chain_literal(decimal: &str, leading: DataFunctionSymbol, concat: DataFunctionSymbol) -> DataExpression {
     let words = decimal_words_lsb_first(decimal);
-
-    let leading = DataFunctionSymbol::with_signature(most_significant, &[DataSortExpression::machine_word()], &sort);
-    let concat = DataFunctionSymbol::with_signature(
-        "@concat_digit",
-        &[sort.clone(), DataSortExpression::machine_word()],
-        &sort,
-    );
 
     let mut digits = words.iter().rev();
     let most = *digits.next().expect("there is always at least one digit");
@@ -293,9 +250,11 @@ fn digit_chain_literal(decimal: &str, most_significant: &str, sort: DataSortExpr
 fn pos_literal(decimal: &str, encoding: NumberEncoding) -> DataExpression {
     match encoding {
         NumberEncoding::Binary => pos_literal_binary(decimal),
-        NumberEncoding::MachineWord => {
-            digit_chain_literal(decimal, "@most_significant_digit", DataSortExpression::pos())
-        }
+        NumberEncoding::MachineWord => digit_chain_literal(
+            decimal,
+            system_symbols::most_significant_digit(),
+            system_symbols::concat_digit_pos(),
+        ),
     }
 }
 
@@ -307,19 +266,16 @@ fn nat_literal(decimal: &str, encoding: NumberEncoding) -> DataExpression {
     match encoding {
         NumberEncoding::Binary => {
             if decimal == "0" {
-                DataFunctionSymbol::with_sort("@c0", DataSortExpression::nat().copy()).into()
+                system_symbols::c0().into()
             } else {
-                let cnat = DataFunctionSymbol::with_signature(
-                    "@cNat",
-                    &[DataSortExpression::pos()],
-                    &DataSortExpression::nat(),
-                );
-                DataApplication::with_args(&cnat, &[pos_literal_binary(decimal)]).into()
+                DataApplication::with_args(&system_symbols::c_nat(), &[pos_literal_binary(decimal)]).into()
             }
         }
-        NumberEncoding::MachineWord => {
-            digit_chain_literal(decimal, "@most_significant_digitNat", DataSortExpression::nat())
-        }
+        NumberEncoding::MachineWord => digit_chain_literal(
+            decimal,
+            system_symbols::most_significant_digit_nat(),
+            system_symbols::concat_digit_nat(),
+        ),
     }
 }
 
@@ -328,20 +284,18 @@ fn nat_literal(decimal: &str, encoding: NumberEncoding) -> DataExpression {
 /// negation is the unary `-` operator applied afterwards), so this is always
 /// `@cInt`, never `@cNeg`. Both encodings share the `@cInt` constructor.
 fn int_literal(decimal: &str, encoding: NumberEncoding) -> DataExpression {
-    let cint = DataFunctionSymbol::with_signature("@cInt", &[DataSortExpression::nat()], &DataSortExpression::int());
-    DataApplication::with_args(&cint, &[nat_literal(decimal, encoding)]).into()
+    DataApplication::with_args(&system_symbols::c_int(), &[nat_literal(decimal, encoding)]).into()
 }
 
 /// Builds the `Real` term for a decimal literal: `@cReal(n, 1)`, matching
 /// `Int2Real`'s equation in `crates/syntax/spec/real.mcrl2` (and `real64.mcrl2`,
 /// which declares `@cReal` identically).
 fn real_literal(decimal: &str, encoding: NumberEncoding) -> DataExpression {
-    let creal = DataFunctionSymbol::with_signature(
-        "@cReal",
-        &[DataSortExpression::int(), DataSortExpression::pos()],
-        &DataSortExpression::real(),
-    );
-    DataApplication::with_args(&creal, &[int_literal(decimal, encoding), pos_literal("1", encoding)]).into()
+    DataApplication::with_args(
+        &system_symbols::c_real(),
+        &[int_literal(decimal, encoding), pos_literal("1", encoding)],
+    )
+    .into()
 }
 
 /// Builds the aterm literal for a `DataExpr::Number` node whose *own*
@@ -375,7 +329,7 @@ pub(crate) struct LoweredEquation {
 
 /// Re-walks one equation's condition/left/right-hand sides alongside its
 /// [`EquationTyping`] — in the same canonical order inference numbered the nodes in (see
-/// [`crate::for_each_expr_child`]), so each node's sort/name is found by its [`ExprId`] —
+/// [`merc_typecheck::internal::for_each_expr_child`]), so each node's sort/name is found by its [`ExprId`] —
 /// building `merc_data::DataExpression`s bottom-up.
 ///
 /// Lowers variables, declared-op and builtin-op applications (including the
@@ -432,10 +386,33 @@ pub(crate) fn lower_equation(
     Some(LoweredEquation { condition, lhs, rhs })
 }
 
+/// Lowers the type checked standalone expression `expr` of `data` to the aterm form, so it can
+/// be handed straight to a rewriter built from [`lower_data_specification`] of `data`.
+///
+/// # Panics
+///
+/// When lowering does not support a construct that type checking accepted, which is an internal
+/// error.
+pub fn lower_expression(data: &DataSpecification, expr: &TypedExpression) -> DataExpression {
+    lower_typed_expression(
+        context(data),
+        data.data_specification(),
+        expression_typing(expr),
+        expr.expression(),
+        data.number_encoding(),
+    )
+    .unwrap_or_else(|| {
+        panic!(
+            "expression '{}' passed inference but failed lowering",
+            expr.expression()
+        )
+    })
+}
+
 /// Re-walks one standalone expression alongside its [`EquationTyping`], the
 /// counterpart of [lower_equation] for an expression typed on its own by
-/// `infer_expression` (see [`crate::DataSpecification::typecheck_expression`]).
-pub(crate) fn lower_expression(
+/// `infer_expression` (see [`DataSpecification::typecheck_expression`]).
+pub(crate) fn lower_typed_expression(
     ctx: &TypeCheckContext,
     spec: &UntypedDataSpecification,
     typing: &EquationTyping,
@@ -464,7 +441,7 @@ struct Lowering<'a> {
     sorts: &'a [ResolvedSortId],
     names: &'a HashMap<ExprId, NameTarget>,
     /// The [ExprId] of the next node [Self::lower] visits; every `lower` call recurses in
-    /// [`crate::for_each_expr_child`]'s order, so this counter reproduces inference's numbering.
+    /// [`merc_typecheck::internal::for_each_expr_child`]'s order, so this counter reproduces inference's numbering.
     next_id: usize,
     /// How numeric literals and numeric coercions are represented.
     encoding: NumberEncoding,
@@ -535,8 +512,8 @@ impl Lowering<'_> {
     /// [numeric_coerce]/[container_coerce]) — or returning `term` unchanged
     /// when the two sorts already coincide. Returns `None` unless `from` is
     /// `to` or a strict subsort of it that lowering can actually build a
-    /// coercion for (checked via [crate::SortInterner::is_materializable],
-    /// not [crate::SortInterner::partial_cmp] alone — the relation now also
+    /// coercion for (checked via [merc_typecheck::internal::SortInterner::is_materializable],
+    /// not [merc_typecheck::internal::SortInterner::partial_cmp] alone — the relation now also
     /// relates pairs, such as container-element covariance, that have no
     /// coercion below to build); a `Def` sort has no coercion either way.
     ///
@@ -676,14 +653,13 @@ impl Lowering<'_> {
             unreachable!("empty container always infers to a Generic sort")
         };
         let element = lower_sort(self.ctx, self.spec, *element_id);
-        let container: DataSortExpression = SortCons::new(container_kind(op), element).into();
-        let name = match op {
-            ComplexSort::List => "[]",
-            ComplexSort::FSet => "{}",
-            ComplexSort::FBag => "{:}",
+        match op {
+            ComplexSort::List => system_symbols::empty_list(&element),
+            ComplexSort::FSet => system_symbols::empty_fset(&element),
+            ComplexSort::FBag => system_symbols::empty_fbag(&element),
             _ => unreachable!("lower_empty_container only handles List/FSet/FBag"),
-        };
-        DataFunctionSymbol::with_sort(name, container.copy()).into()
+        }
+        .into()
     }
 
     /// Lowers `{m1, m2, …}` (parsed as `FSet(S)`) to `@fset_insert(m1, @fset_insert(m2, {}))`.
@@ -696,10 +672,9 @@ impl Lowering<'_> {
         };
         let element_id = *element_id;
         let element = lower_sort(self.ctx, self.spec, element_id);
-        let fset: DataSortExpression = SortCons::new(ContainerSortKind::FSet, element.clone()).into();
-        let fset_insert = DataFunctionSymbol::with_signature("@fset_insert", &[element.clone(), fset.clone()], &fset);
+        let fset_insert = system_symbols::fset_insert(&element);
 
-        let empty: DataExpression = DataFunctionSymbol::with_sort("{}", fset.copy()).into();
+        let empty: DataExpression = system_symbols::empty_fset(&element).into();
         let mut lowered = Vec::with_capacity(members.len());
         for member in members {
             let member_id = self.peek_id();
@@ -727,14 +702,9 @@ impl Lowering<'_> {
         let element_id = *element_id;
         let nat_id = self.ctx.sorts.nat_sort();
         let element = lower_sort(self.ctx, self.spec, element_id);
-        let fbag: DataSortExpression = SortCons::new(ContainerSortKind::FBag, element.clone()).into();
-        let fbag_cinsert = DataFunctionSymbol::with_signature(
-            "@fbag_cinsert",
-            &[element.clone(), DataSortExpression::nat(), fbag.clone()],
-            &fbag,
-        );
+        let fbag_cinsert = system_symbols::fbag_cinsert(&element);
 
-        let empty: DataExpression = DataFunctionSymbol::with_sort("{:}", fbag.copy()).into();
+        let empty: DataExpression = system_symbols::empty_fbag(&element).into();
         let mut lowered = Vec::with_capacity(members.len());
         for member in members {
             let elem_id = self.peek_id();
@@ -830,43 +800,25 @@ impl Lowering<'_> {
         let body_sort = self.sorts[*body_id];
         let body = self.lower(predicate)?;
 
-        let (body, range) = match op {
-            ComplexSort::Set => (body, DataSortExpression::bool()),
-            ComplexSort::Bag => (
-                self.coerce(body_id, body, body_sort, self.ctx.sorts.nat_sort())?,
-                DataSortExpression::nat(),
-            ),
+        let body = match op {
+            ComplexSort::Set => body,
+            ComplexSort::Bag => self.coerce(body_id, body, body_sort, self.ctx.sorts.nat_sort())?,
             _ => unreachable!("SetBagComp infers only to Set or Bag"),
         };
         let characteristic: DataExpression = DataAbstraction::new(BinderType::Lambda, &[var], body).into();
 
-        let container: DataSortExpression = SortCons::new(container_kind(op), element.clone()).into();
-        let finite_kind = match op {
-            ComplexSort::Set => ContainerSortKind::FSet,
-            ComplexSort::Bag => ContainerSortKind::FBag,
-            _ => unreachable!("SetBagComp infers only to Set or Bag"),
+        let (constructor, empty) = match op {
+            ComplexSort::Set => (
+                system_symbols::set_constructor(&element),
+                system_symbols::empty_fset(&element),
+            ),
+            _ => (
+                system_symbols::bag_constructor(&element),
+                system_symbols::empty_fbag(&element),
+            ),
         };
-        let finite: DataSortExpression = SortCons::new(finite_kind, element.clone()).into();
-        let empty: DataExpression = DataFunctionSymbol::with_sort(
-            match op {
-                ComplexSort::Set => "{}",
-                _ => "{:}",
-            },
-            finite.copy(),
-        )
-        .into();
 
-        let function_sort: DataSortExpression = SortArrow::new(&[element], &range).into();
-        let constructor = DataFunctionSymbol::with_signature(
-            match op {
-                ComplexSort::Set => "@set",
-                _ => "@bag",
-            },
-            &[function_sort, finite],
-            &container,
-        );
-
-        Some(DataApplication::with_args(&constructor, &[characteristic, empty]).into())
+        Some(DataApplication::with_args(&constructor, &[characteristic, empty.into()]).into())
     }
 
     fn lower_whr(&mut self, expr: &DataExpr, assignments: &[merc_syntax::Assignment]) -> Option<DataExpression> {
@@ -941,7 +893,7 @@ fn flatten_product_domain(sort: &SortExpression, domain: &mut Vec<DataSortExpres
 // ──────────────────────── lower_data_specification ───────────────────────────
 
 /// Assembles a [`Mcrl2DataSpecification`] from the already-type-checked user
-/// and system specifications:
+/// and system specifications of `data`:
 ///
 /// - **sorts** — user abstract sorts (those whose declaration has no right-hand
 ///   side after desugaring and normalization).
@@ -950,14 +902,14 @@ fn flatten_product_domain(sort: &SortExpression, domain: &mut Vec<DataSortExpres
 ///   sort lattice, followed by system declarations lowered directly from their
 ///   syntax sorts (the system spec is deliberately left unresolved).
 /// - **equations** — user equations, lowered via their
-///   [`EquationTyping`] and [`lower_equation`], followed by system-defined
+///   [`EquationTyping`] and `lower_equation`, followed by system-defined
 ///   equations lowered the same way from `ctx.system_equation_typing`.
-pub(crate) fn lower_data_specification(
-    ctx: &TypeCheckContext,
-    spec: &UntypedDataSpecification,
-    system: &UntypedDataSpecification,
-    encoding: NumberEncoding,
-) -> Mcrl2DataSpecification {
+pub fn lower_data_specification(data: &DataSpecification) -> Mcrl2DataSpecification {
+    let ctx = context(data);
+    let spec = data.data_specification();
+    let system = data.system_defined_specification();
+    let encoding = data.number_encoding();
+
     // `@NatPair`/`@word` share `spec.sort_declarations` with the user's own sorts (folded in by
     // `DataSpecification::from_untyped_with` so they get a real `SortId` from the same pass), but
     // the lowered aterm's own `sorts()` must stay exactly what the user declared: the mCRL2 toolset
@@ -1078,48 +1030,10 @@ pub(crate) fn lower_data_specification(
         }
     }
 
-    // Every container/function-update/comparison instantiation the
-    // specification actually uses is monomorphized here, for this call only,
-    // rather than during type-checking. `ctx` itself already proved every
-    // template's own equations exactly once, rigidly — the five bundled
-    // container templates and the comparison template unconditionally, and
-    // every distinct function-update arity the specification actually needs
-    // on demand (`check_container_templates`/`check_comparison_template` run
-    // unconditionally during `from_untyped_with`, `check_function_update_template`
-    // once per arity `function_update_arities` finds) — so nothing below ever
-    // infers anything: a scratch clone exists only so interning a substituted
-    // sort (`instantiate_system_equations`'s own `resolve_sort` calls)
-    // doesn't mutate the context the caller's `DataSpecification` still
-    // holds.
-    let mut scratch_ctx = ctx.clone();
-    let mut scratch_sources = SourceMap::new();
-
-    // Seeded empty, not with `basics`: `system`'s own constructors/mappings/
-    // equations (basics and desugared structs) were already lowered above,
-    // so seeding with a second copy here would duplicate them in the output.
-    // `build_system_defined_specification`'s worklist only ever scans `spec`
-    // to decide what to generate, never its own seed, so an empty seed
-    // changes nothing about *which* instantiations it discovers — except for
-    // `Nat`/`@word`, which `add_numeric_basic_sort_dependencies` seeds
-    // unconditionally whenever `Pos`/`Int`/`Real` is used, since `basics`'s
-    // own equations for those depend on `Nat`/`@word` internally regardless
-    // of what `spec` says.
-    let (generated, instantiations) = build_system_defined_specification(
-        &mut scratch_sources,
-        spec,
-        UntypedDataSpecification::default(),
-        encoding,
-    );
-    let (mut generated, more_instantiations) =
-        extend_system_with_inferred_sorts(&mut scratch_sources, &scratch_ctx, spec, &generated, encoding);
-    let mut instantiations = instantiations;
-    instantiations.extend(more_instantiations);
-
-    resolve_data_specification_variables(&mut generated);
-
-    assign_declaration_ids(&mut generated);
-
-    instantiate_system_equations(&mut scratch_ctx, spec, &generated, &instantiations);
+    // Every container/function-update/comparison instantiation the specification actually uses,
+    // monomorphized for this call only. The system specification above was already lowered, so
+    // this adds only the instantiations.
+    let (scratch_ctx, generated) = instantiate_used_templates(data);
 
     for decl in &generated.constructor_declarations {
         constructors.push(DataFunctionSymbol::with_sort(
@@ -1191,7 +1105,9 @@ mod tests {
     use super::lower_number_literal;
     use super::lower_sort;
     use super::numeric_coerce;
-    use crate::DataSpecification;
+    use merc_typecheck::DataSpecification;
+    use merc_typecheck::internal::context;
+    use merc_typecheck::internal::equation_typing;
 
     fn typed(text: &str) -> DataSpecification {
         DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap()).unwrap()
@@ -1203,9 +1119,9 @@ mod tests {
         let spec = typed(text);
         let eqn_spec = &spec.data_specification().equation_declarations[0];
         let eqn = &eqn_spec.equations[0];
-        let typing = spec.equation_typing((EqnSpecId::new(0), EquationId::new(0)));
+        let typing = equation_typing(&spec, (EqnSpecId::new(0), EquationId::new(0)));
         lower_equation(
-            spec.context(),
+            context(&spec),
             spec.data_specification(),
             typing,
             eqn.condition.as_ref(),
@@ -1220,9 +1136,9 @@ mod tests {
     fn test_lower_primitive_sort() {
         let spec = typed("map f: Nat;");
         let sort = lower_sort(
-            spec.context(),
+            context(&spec),
             spec.data_specification(),
-            spec.sort_of_map(merc_syntax::MapId::new(0)),
+            context(&spec).sort_of_map[&merc_syntax::MapId::new(0)],
         );
         assert_eq!(sort.to_string(), "Nat");
     }
@@ -1232,9 +1148,9 @@ mod tests {
     fn test_lower_generic_sort() {
         let spec = typed("map f: List(Nat);");
         let sort = lower_sort(
-            spec.context(),
+            context(&spec),
             spec.data_specification(),
-            spec.sort_of_map(merc_syntax::MapId::new(0)),
+            context(&spec).sort_of_map[&merc_syntax::MapId::new(0)],
         );
         assert!(is_container_sort(&sort));
     }
@@ -1244,9 +1160,9 @@ mod tests {
     fn test_lower_function_sort() {
         let spec = typed("map f: Nat -> Bool;");
         let sort = lower_sort(
-            spec.context(),
+            context(&spec),
             spec.data_specification(),
-            spec.sort_of_map(merc_syntax::MapId::new(0)),
+            context(&spec).sort_of_map[&merc_syntax::MapId::new(0)],
         );
         assert!(is_function_sort(&sort));
     }
@@ -1256,9 +1172,9 @@ mod tests {
     fn test_lower_def_sort() {
         let spec = typed("sort D; map f: D;");
         let sort = lower_sort(
-            spec.context(),
+            context(&spec),
             spec.data_specification(),
-            spec.sort_of_map(merc_syntax::MapId::new(0)),
+            context(&spec).sort_of_map[&merc_syntax::MapId::new(0)],
         );
         assert_eq!(sort.to_string(), "D");
     }
