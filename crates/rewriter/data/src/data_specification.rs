@@ -24,8 +24,7 @@ pub struct Mcrl2DataSpecification {
 }
 
 impl Mcrl2DataSpecification {
-    /// Builds a data specification from its typed sections, e.g. the output of
-    /// `merc_typecheck`'s Phase-4 lowering.
+    /// Builds a data specification from its type checking results.
     pub fn new(
         sorts: Vec<BasicSort>,
         aliases: Vec<SortAlias>,
