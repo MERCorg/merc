@@ -9,7 +9,7 @@ mod term_stack;
 pub use configuration_stack::*;
 pub use data_position::*;
 pub use data_substitution::*;
-pub use innermost_stack::*;
+pub(crate) use innermost_stack::*;
 pub use position::*;
 pub use rewrite_substitution::*;
 pub use term_stack::*;

@@ -14,8 +14,8 @@ use merc_sabre::RewriteSpecification;
 use merc_sabre::SetAutomaton;
 use merc_sabre::matching::conditions::EMACondition;
 use merc_sabre::matching::nonlinear::EquivalenceClass;
-use merc_sabre::utilities::Config;
 use merc_sabre::utilities::DataPosition;
+use merc_sabre::utilities::Instruction;
 use merc_sabre::utilities::TermStack;
 use merc_utilities::MercError;
 
@@ -345,14 +345,14 @@ pub fn generate(spec: &RewriteSpecification, source_dir: &Path) -> Result<(), Me
 /// `formatter`, prefixing every variable name with `prefix`. Returns the name
 /// of the variable holding the final result.
 ///
-/// Simulates the runtime stack: non-output slots start as `[1 .. stack_size)`,
-/// and each reversed-BFS construct drains the last `arity` indices as its
-/// arguments.
+/// Runs the program of the term stack on a stack of variable names: every
+/// instruction declares one variable, and an application takes the last
+/// `arity` names as its arguments.
 ///
 /// # Safety contract of the emitted code
 ///
-/// For every `Config::Construct`/`Config::Term` entry, this bakes the *current*
-/// raw term-pool address of that symbol/subterm into the generated source as a
+/// For every applied symbol and constant term, this bakes the *current* raw
+/// term-pool address of that symbol/subterm into the generated source as a
 /// `DataExpressionRefFFI::from_ptr(<addr>)` literal, read once at codegen time
 /// and dereferenced again on every call, for as long as the compiled library
 /// stays loaded. This is sound only because every embedded address is reachable
@@ -364,97 +364,66 @@ fn generate_rewrite_term_stack_impl(
     term_stack: &TermStack,
     positions: &mut HashSet<DataPosition>,
 ) -> Result<String, MercError> {
-    // Declare variables bound to subterms of the matched term.
-    for (position, stack_index) in &term_stack.variables {
-        positions.insert(position.clone());
-        writeln!(
-            formatter,
-            "let {prefix}var_{stack_index} = get_data_position_{}(t);",
-            UnderscoreFormatter(position)
-        )?;
-    }
-
-    // `integrate` allocates slots 1..stack_size for non-output entries.
-    // Evaluation pops constructs from the config stack (LIFO = reversed BFS)
-    // and each one consumes the last `arity` elements of the term-stack.
-    // Simulate that here so we know which var_N holds each argument.
-    let mut virtual_stack: Vec<usize> = (1..term_stack.stack_size).collect();
-
-    let read = term_stack.innermost_stack.read();
-    for config in read.iter().rev() {
-        match config {
-            Config::Construct(symbol, arity, stack_index) => {
-                let len = virtual_stack.len();
-                let arg_indices: Vec<usize> = virtual_stack.drain(len - arity..).collect();
+    let mut stack: Vec<String> = Vec::new();
+    for (index, instruction) in term_stack.block(0).iter().enumerate() {
+        let name = format!("{prefix}var_{index}");
+        match instruction {
+            Instruction::Variable(position) => {
+                positions.insert(position.clone());
+                writeln!(
+                    formatter,
+                    "let {name} = get_data_position_{}(t);",
+                    UnderscoreFormatter(position)
+                )?;
+            }
+            Instruction::Apply { symbol, arity } => {
+                let arguments = stack.split_off(stack.len() - arity);
 
                 // Per this function's own "Safety contract of the emitted code" doc comment
                 // above, `symbol` is reachable from the `RewriteSpecification` this rewriter
                 // keeps alive for as long as the generated code can run. Taking the address
                 // does not read the symbol.
-                let symbol_addr = symbol.shared().erased().as_ptr() as usize;
+                let symbol_addr = symbol.copy().shared().erased().as_ptr() as usize;
 
                 if *arity > 0 {
                     writeln!(
                         formatter,
-                        "let {prefix}var_{stack_index} = match_term(&DataExpressionFFI::create(unsafe {{ DataExpressionRefFFI::from_ptr({:?}) }}, &[{}]).copy());",
+                        "let {name} = match_term(&DataExpressionFFI::create(unsafe {{ DataExpressionRefFFI::from_ptr({:?}) }}, &[{}]).copy());",
                         symbol_addr,
-                        arg_indices
+                        arguments
                             .iter()
-                            .map(|i| format!("{prefix}var_{i}.copy()"))
+                            .map(|argument| format!("{argument}.copy()"))
                             .format(", ")
                     )?;
                 } else {
                     writeln!(
                         formatter,
-                        "let {prefix}var_{stack_index} = match_term(&DataExpressionFFI::constant(unsafe {{ DataExpressionRefFFI::from_ptr({:?}) }}).copy());",
+                        "let {name} = match_term(&DataExpressionFFI::constant(unsafe {{ DataExpressionRefFFI::from_ptr({:?}) }}).copy());",
                         symbol_addr,
                     )?;
                 }
             }
-            Config::Term(data_expression_ref, index) => {
+            Instruction::Term(term) => {
                 // SAFETY: per this function's own "Safety contract of the emitted code" doc
-                // comment above, `data_expression_ref` is reachable from the
-                // `RewriteSpecification` this rewriter keeps alive for as long as the generated
-                // code can run, so its `SharedTerm` pointee stays live for this read.
-                let term_addr = unsafe { data_expression_ref.shared().ptr() }.as_ptr() as *mut () as usize;
+                // comment above, `term` is reachable from the `RewriteSpecification` this
+                // rewriter keeps alive for as long as the generated code can run, so its
+                // `SharedTerm` pointee stays live for this read.
+                let term_addr = unsafe { term.copy().shared().ptr() }.as_ptr() as *mut () as usize;
                 writeln!(
                     formatter,
-                    "let {prefix}var_{index} = match_term(&unsafe {{ DataExpressionRefFFI::from_ptr({:?}) }});",
+                    "let {name} = match_term(&unsafe {{ DataExpressionRefFFI::from_ptr({:?}) }});",
                     term_addr,
                 )?;
             }
-            Config::Binder(..) => {
+            Instruction::Binder { .. } => {
                 unreachable!("SetAutomaton::new keeps no rule with a binder in its right-hand side")
             }
-            Config::Lazy(..) => {
-                unreachable!("right-hand sides are compiled without lazy symbols")
-            }
-            Config::Rewrite(_) | Config::Return() | Config::Strategy(..) | Config::Activate(..) => {
-                unreachable!("The term stack never contains these configurations")
-            }
+            Instruction::Hole(hole) => match *hole {},
         }
+        stack.push(name);
     }
 
-    // Determine the result variable name.
-    let result = if let Some(stack_index) = term_stack.innermost_stack.read().iter().find_map(|c| {
-        if let Config::Construct(_, _, idx) = c {
-            Some(*idx)
-        } else {
-            None
-        }
-    }) {
-        // The root of the BFS tree (first construct) holds the final result.
-        format!("{prefix}var_{stack_index}")
-    } else if term_stack.stack_size == 1 && term_stack.variables.len() == 1 {
-        // RHS is a bare variable; return the matched subterm directly.
-        let (_, stack_index) = &term_stack.variables[0];
-        format!("{prefix}var_{stack_index}")
-    } else {
-        // Should not occur for valid rewrite rules.
-        "t".to_string()
-    };
-
-    Ok(result)
+    Ok(stack.pop().expect("a term stack has a value"))
 }
 
 /// Generates a `rewrite_term_stack_{index}_{symbol}_{ann_idx}` function that
