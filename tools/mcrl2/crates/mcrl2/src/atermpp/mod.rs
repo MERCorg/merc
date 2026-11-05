@@ -7,6 +7,7 @@ mod convert;
 mod global_aterm_pool;
 mod markable;
 mod protected;
+#[cfg(test)]
 mod random_term;
 mod symbol;
 mod thread_aterm_pool;

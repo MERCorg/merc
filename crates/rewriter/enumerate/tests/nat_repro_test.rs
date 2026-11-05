@@ -87,6 +87,7 @@ fn enumerate_finds_every_solution_for_real_machine_word_nat() {
 /// The reference enumerator must also normalise `@c0` before substituting it,
 /// or `m = 0` is missed under the machine-word `Nat` encoding.
 #[test]
+#[cfg_attr(miri, ignore)] // Lowering the machine-word specification is too slow under miri.
 fn naive_enumerator_finds_every_solution_for_real_machine_word_nat() {
     let untyped = UntypedDataSpecification::parse(
         "map goal: Nat -> Bool;

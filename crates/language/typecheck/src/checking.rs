@@ -74,7 +74,7 @@ where
 
 /// Brings `variables`, whose sorts are already resolved to `sorts`, into `scope`, and records each
 /// variable's own declaration occurrence in `typing` so it can be hovered/go-to-definition'd the
-/// same as a use of it (see [`typing_info::push_binder_declaration`]).
+/// same as a use of it.
 pub fn declare_variables<'a, V, S>(
     data: &DataSpecification,
     scope: &mut Vec<(VarId, ResolvedSortId)>,
@@ -122,7 +122,7 @@ where
 
 /// Resolves a sort expression occurring in a declaration (an `act`/`proc`/`glob` parameter, a modal
 /// fixpoint-variable parameter or binder, …): rejects an anonymous `struct` (never legal in a
-/// declaration position), then defers to [`DataSpecification::resolve_declared_sort`] for the rest.
+/// declaration position), then resolves it as any other sort declared in the data specification.
 /// `anonymous_struct` builds the caller's own error variant for that rejection.
 pub fn resolve_declared_sort<E, F>(
     data: &mut DataSpecification,

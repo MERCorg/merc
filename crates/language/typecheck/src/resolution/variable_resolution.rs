@@ -8,6 +8,7 @@ use merc_syntax::DataExprKind;
 use merc_syntax::IdDecl;
 use merc_syntax::ProcessExpr;
 use merc_syntax::ProcessExprKind;
+#[cfg(feature = "internal")]
 use merc_syntax::PropVarInst;
 use merc_syntax::RegFrm;
 use merc_syntax::RegFrmKind;
@@ -281,8 +282,8 @@ fn resolve_in_act_frm(formula: &mut ActFrm, scope: &mut Scope, ids: &mut VarIdAl
 
 /// A stack of `(name, id)` bindings supporting shadowing lookup: the innermost (most recently
 /// pushed) binding for a name wins, and dropping back to an outer scope is a cheap truncate.
-/// Shared by [Scope] (`VarId`-keyed data/action binders) and [FixpointScope] (`StateVarId`-keyed
-/// fixpoint variables) — the two id namespaces variable resolution tracks.
+/// Shared by [Scope] (`VarId`-keyed data/action binders) and the scope of the `StateVarId`-keyed
+/// fixpoint variables — the two id namespaces variable resolution tracks.
 #[derive(Clone)]
 pub struct NameStack<Id>(Vec<(String, Id)>);
 
@@ -411,6 +412,7 @@ fn resolve_in_process_expr(expr: &mut ProcessExpr, scope: &mut Scope, ids: &mut 
     }
 }
 
+#[cfg(feature = "internal")]
 pub fn resolve_in_prop_var_inst(inst: &mut PropVarInst, scope: &mut Scope, ids: &mut VarIdAllocator) {
     for argument in &mut inst.arguments {
         resolve_in_data_expr(argument, scope, ids);
@@ -912,6 +914,7 @@ mod stack_depth_probe {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Resolving 100k nested negations is too slow under miri.
     fn deeply_nested_negation_does_not_overflow_the_stack() {
         let mut ids = VarIdAllocator::default();
         let mut state_var_ids = StateVarIdAllocator::default();

@@ -89,10 +89,12 @@ impl DataSpecification {
 ///
 /// TODO: currently only constructs and owns the underlying rewriter; it exposes
 /// no rewrite operation yet, so it is inert beyond holding the C++ object alive.
+#[expect(dead_code, reason = "placeholder until the mCRL2 rewriter is exposed")]
 pub(crate) struct Mcrl2RewriterJitty {
     _rewriter: UniquePtr<RewriterJitty>,
 }
 
+#[expect(dead_code, reason = "placeholder until the mCRL2 rewriter is exposed")]
 impl Mcrl2RewriterJitty {
     /// Creates a new Jitty rewriter from the given data specification.
     pub fn new(data_spec: &DataSpecification) -> Self {

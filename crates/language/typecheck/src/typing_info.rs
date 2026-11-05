@@ -359,7 +359,7 @@ pub struct SortReference {
 
 /// Gathers the raw material [`push_sort_references`] turns into [`ResolvedName::Sort`] nodes.
 /// Occurrences inside the data specification's own declarations must be collected before
-/// [`crate::normalize_sorts`] rewrites the tree in place — an alias reference is replaced by its
+/// sort normalisation rewrites the tree in place — an alias reference is replaced by its
 /// own expansion, discarding both the reference's span and its name (see [`TypingInfo`]'s doc
 /// comment on why a resolved sort's span can't be trusted). Occurrences inside a process/PBES/PRES
 /// specification live in a syntax tree that pass never touches, so they can be gathered any time
@@ -478,9 +478,9 @@ fn sort_declaration_by_id(spec: &UntypedDataSpecification, id: SortId) -> Option
 /// Resolves each occurrence in `references` to its declaration and pushes
 /// [`ResolvedName::Sort`]/[`ResolvedName::SystemDefined`] into `typing`.
 ///
-/// An occurrence with a real [`SortId`] resolves via [`sort_declaration_by_id`], either from its
-/// own [`SortReference::id`] or, for an unresolved [`SortExpressionKind::Reference`], by name via
-/// the [`DeclarationIndex`]. Two shapes carry no [`SortId`]: a container-sort keyword (`List`, `Set`, …),
+/// An occurrence with a real [`SortId`] resolves to the declaration with that id, which is either
+/// the occurrence's own id or, for an unresolved [`SortExpressionKind::Reference`], the id declared
+/// under its name. Two shapes carry no [`SortId`]: a container-sort keyword (`List`, `Set`, …),
 /// which has no declaration site, and a primitive basic-sort name (`Bool`, `Nat`, …), which still
 /// has a real declaration span in `system`'s own textual re-declaration of it (`sort Nat;` in
 /// `nat.mcrl2`), found by name instead.

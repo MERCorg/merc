@@ -75,6 +75,9 @@ use crate::PbesPropositionalVariableInstantiation;
 use crate::data_expression::to_assignment_pairs;
 use crate::lock_global;
 
+/// A named preprocessing step of [Pbes::preprocess] and [Pbes::preprocess_symbolic].
+type PreprocessStep = (&'static str, fn(&mut Pbes) -> Result<(), MercError>);
+
 /// mcrl2::pbes_system::pbes
 pub struct Pbes {
     pbes: UniquePtr<pbes>,
@@ -189,7 +192,7 @@ impl Pbes {
     pub fn preprocess(&mut self, timing: &Timing) -> Result<(), MercError> {
         // Named steps rather than four inlined calls so that the reporting
         // cannot drift out of sync with what is actually run.
-        let steps: [(&str, fn(&mut Pbes) -> Result<(), MercError>); 4] = [
+        let steps: [PreprocessStep; 4] = [
             ("instantiate global variables", Pbes::instantiate_global_variables),
             ("simplify quantifiers", Pbes::simplify_quantifiers),
             ("one point rule", Pbes::one_point_rule),
@@ -211,7 +214,7 @@ impl Pbes {
     ///
     /// Returns an error when a global variable cannot be instantiated.
     pub fn preprocess_symbolic(&mut self, timing: &Timing) -> Result<(), MercError> {
-        let steps: [(&str, fn(&mut Pbes) -> Result<(), MercError>); 3] = [
+        let steps: [PreprocessStep; 3] = [
             ("instantiate global variables", Pbes::instantiate_global_variables),
             ("normalize", |p| {
                 p.normalize();

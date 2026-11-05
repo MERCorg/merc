@@ -223,7 +223,7 @@ mod inner {
             domain: &[SortExpression],
             codomain: &SortExpression,
         ) -> DataFunctionSymbol {
-            let sort = SortExpression::from(crate::SortArrow::new(domain, &codomain));
+            let sort = SortExpression::from(crate::SortArrow::new(domain, codomain));
             DataFunctionSymbol::with_sort(name, sort.copy())
         }
 

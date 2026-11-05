@@ -16,7 +16,7 @@ pub fn counter_example_index(name: &str) -> Option<usize> {
 }
 
 /// Returns the PVI's counter example prefix if `name` matches the
-/// counter-example naming convention `Z{pos,neg}_<index>_...``.
+/// counter-example naming convention `Z{pos,neg}_<index>_...`.
 fn counter_example_prefix(name: &str) -> Option<&'static str> {
     for prefix in ["Zpos_", "Zneg_"] {
         if let Some(rest) = name.strip_prefix(prefix)

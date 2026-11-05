@@ -58,7 +58,6 @@ use merc_pbes::write_dot;
 use merc_explore::CacheLPS;
 use merc_explore::CachingStrategy;
 use merc_explore::ExplorationStrategy;
-use merc_explore::Summand;
 use merc_vpg::ExtendedParityGame;
 use merc_vpg::PG;
 use merc_vpg::PGBuilder;

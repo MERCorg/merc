@@ -52,8 +52,8 @@ fn bench_example(c: &mut Criterion, group_name: &str, path: PathBuf) {
                     (manager, lts)
                 },
                 |(manager, mut lts)| {
-                    let mut context = lts.create_context();
-                    reachability_with_options(&manager, &mut lts, &mut context, &options, &Timing::new()).unwrap()
+                    lts.create_context();
+                    reachability_with_options(&manager, &mut lts, &mut (), &options, &Timing::new()).unwrap()
                 },
                 BatchSize::LargeInput,
             );

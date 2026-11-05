@@ -109,9 +109,6 @@ pub(crate) struct ThreadTermPool {
     /// Function symbol for the empty list.
     empty_list_symbol: Symbol,
 
-    /// Function symbols to represent 'DataAppl' with any number of arguments.
-    data_appl: RefCell<Vec<Symbol>>,
-
     /// Counts down this thread's share of the budget until the next garbage
     /// collection, see [`GC_CHUNK`]. Testing for garbage collection is only allowed
     /// outside of a shared lock section, and counting keeps the test itself off the
@@ -140,7 +137,6 @@ impl ThreadTermPool {
             list_symbol: unsafe { Symbol::from_ptr(mcrl2_aterm_list_function_symbol()) },
             empty_list_symbol: unsafe { Symbol::from_ptr(mcrl2_aterm_empty_list_function_symbol()) },
             gc_counter: Cell::new(GC_CHUNK.load(Ordering::Relaxed)),
-            data_appl: RefCell::new(vec![]),
             arguments: RefCell::new(vec![]),
         }
     }
@@ -185,7 +181,7 @@ impl ThreadTermPool {
     }
 
     /// Creates an ATerm from a string.
-    pub fn from_string(&self, text: &str) -> Result<ATerm, Exception> {
+    pub fn create_from_string(&self, text: &str) -> Result<ATerm, Exception> {
         match mcrl2_aterm_from_string(text) {
             Ok(term) => Ok(ATerm::from_unique_ptr(term)),
             Err(exception) => Err(exception),
@@ -220,42 +216,6 @@ impl ThreadTermPool {
         }
     }
 
-    /// Creates an [ATerm] with the given symbol, head argument and other arguments.
-    pub fn create_data_application<'a, 'b, S, T>(&self, head: &S, arguments: &[T]) -> ATerm
-    where
-        S: Borrow<ATermRef<'a>>,
-        T: Borrow<ATermRef<'b>>,
-    {
-        let mut tmp_args = self.arguments.borrow_mut();
-        tmp_args.clear();
-        tmp_args.push(head.borrow().get());
-        for arg in arguments {
-            tmp_args.push(arg.borrow().get());
-        }
-
-        let mut tmp_data_appl = self.data_appl.borrow_mut();
-        while tmp_data_appl.len() <= arguments.len() + 1 {
-            let symbol = self.create_symbol("DataAppl", tmp_data_appl.len());
-            tmp_data_appl.push(symbol);
-        }
-
-        let symbol = &tmp_data_appl[arguments.len() + 1];
-
-        // Required since mCRL2 does no bound checking.
-        assert_eq!(
-            symbol.arity(),
-            tmp_args.len(),
-            "Number of arguments does not match arity"
-        );
-
-        unsafe {
-            // ThreadPool is not Sync, so only one has access.
-            let protection_set = self.protection_set.write_exclusive();
-            let term: *const ffi::_aterm = mcrl2_aterm_create(symbol.get(), &tmp_args);
-            self.protect_with(protection_set, term)
-        }
-    }
-
     /// Creates an aterm_int from the given value.
     pub fn create_int(&self, value: u64) -> ATerm {
         unsafe {
@@ -279,18 +239,6 @@ impl ThreadTermPool {
     /// Returns the function symbol for the empty list.
     pub fn empty_list_symbol(&self) -> SymbolRef<'_> {
         self.empty_list_symbol.copy()
-    }
-
-    /// Creates a term with the FFI while taking care of the protection and garbage collection.
-    pub fn create_with<F>(&self, create: F) -> ATerm
-    where
-        F: Fn() -> *const ffi::_aterm,
-    {
-        unsafe {
-            // ThreadPool is not Sync, so only one has access.
-            let protection_set = self.protection_set.write_exclusive();
-            self.protect_with(protection_set, create())
-        }
     }
 
     /// Protects the given aterm address and returns the term.
@@ -338,19 +286,6 @@ impl ThreadTermPool {
             // the owning handle is dropped exactly once, so it is unprotected once.
             container_protection_set.unprotect(container_root);
         }
-    }
-
-    /// Returns true iff the given term is a data application.
-    pub fn is_data_application(&self, term: &ATermRef<'_>) -> bool {
-        let symbol = term.get_head_symbol();
-        // Data applications can be created without using create_data_application in the mcrl2 FFI.
-        let mut data_appl = self.data_appl.borrow_mut();
-        while data_appl.len() <= symbol.arity() {
-            let new_symbol = self.create_symbol("DataAppl", data_appl.len());
-            data_appl.push(new_symbol);
-        }
-
-        symbol == data_appl[symbol.arity()].copy()
     }
 
     /// Protects the given aterm address and returns the term.

@@ -1,4 +1,5 @@
 mod is_well_typed;
+#[allow(clippy::module_inception)]
 mod signature;
 mod sort_resolution;
 mod standard_sorts;

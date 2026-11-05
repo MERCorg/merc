@@ -269,6 +269,7 @@ fn check_fixed_point_declaration(
 /// `crate::pbes::check::check_prop_var_inst`'s name-keyed lookup. On success, also pushes a
 /// [`ResolvedName::StateVariable`] at `span`, the whole `name(args)` node: the name itself is not
 /// separately spanned in the syntax tree.
+#[allow(clippy::too_many_arguments)]
 fn check_state_var_inst(
     data: &mut DataSpecification,
     tables: &DeclarationTables,

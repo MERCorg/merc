@@ -709,12 +709,12 @@ mod test {
 
             // Without stopping, every iteration is reported once, in order, and the sets only grow.
             let mut lts = read_sylvan(&manager, &mut &bytes[..]).expect("Loading should work correctly");
-            let mut context = lts.create_context();
+            lts.create_context();
             let mut seen: Vec<(usize, usize)> = Vec::new();
             let full = reachability_with_callback(
                 &manager,
                 &mut lts,
-                &mut context,
+                &mut (),
                 &options,
                 &Timing::new(),
                 |iteration, states| {
@@ -744,21 +744,15 @@ mod test {
 
             // Stopping after the first iteration returns exactly what the callback saw.
             let mut lts = read_sylvan(&manager, &mut &bytes[..]).expect("Loading should work correctly");
-            let mut context = lts.create_context();
+            lts.create_context();
             let mut calls = 0;
-            let partial = reachability_with_callback(
-                &manager,
-                &mut lts,
-                &mut context,
-                &options,
-                &Timing::new(),
-                |iteration, _| {
+            let partial =
+                reachability_with_callback(&manager, &mut lts, &mut (), &options, &Timing::new(), |iteration, _| {
                     calls += 1;
                     assert_eq!(iteration, 1, "{strategy:?}: called again after breaking");
                     ControlFlow::Break(())
-                },
-            )
-            .expect("Reachability should work correctly");
+                })
+                .expect("Reachability should work correctly");
 
             assert_eq!(calls, 1, "{strategy:?}");
             assert_eq!(count(&partial.states), seen[0].1, "{strategy:?}");
@@ -781,11 +775,11 @@ mod test {
             // Stopping in the last iteration still gives the complete result, except for saturation.
             if strategy != ExplorationStrategy::Saturation {
                 let mut lts = read_sylvan(&manager, &mut &bytes[..]).expect("Loading should work correctly");
-                let mut context = lts.create_context();
+                lts.create_context();
                 let last = reachability_with_callback(
                     &manager,
                     &mut lts,
-                    &mut context,
+                    &mut (),
                     &options,
                     &Timing::new(),
                     |iteration, _| {
@@ -1234,10 +1228,9 @@ mod test {
                 strategy,
                 detect_deadlocks: true,
                 cached: false,
-                ..ReachabilityOptions::default()
             };
-            let mut context = lts.create_context();
-            let result = reachability_with_options(&manager, &mut lts, &mut context, &options, &Timing::new())
+            lts.create_context();
+            let result = reachability_with_options(&manager, &mut lts, &mut (), &options, &Timing::new())
                 .expect("Reachability should work correctly");
 
             // States 0, 1, 2 are reachable and only state 2 has no outgoing transition.

@@ -35,7 +35,7 @@ pub const VALUE_SPACE: u64 = 1 << 16;
 
 /// Fixed seed so every run (and every baseline comparison) performs the exact
 /// same operation sequence.
-const SEED: u64 = 0x5eed_0f_5a4d_ed00;
+const SEED: u64 = 0x005e_ed0f_5a4d_ed00;
 
 /// Distance between consecutive [`KeyKind::Pointer`] keys, matching the size of
 /// a binary term in the term pool (symbol plus two argument pointers, rounded up
@@ -52,8 +52,8 @@ pub enum KeyKind {
     /// Dense integers `0, 1, 2, ...`, like the indices stored in
     /// `ConcurrentIndexedSet`.
     Dense,
-    /// Aligned addresses spaced [`POINTER_STRIDE`] apart, like the term pointers
-    /// stored in the term pool. Their low bits carry no entropy.
+    /// Aligned addresses spaced the size of a binary term apart, like the term
+    /// pointers stored in the term pool. Their low bits carry no entropy.
     Pointer,
 }
 

@@ -259,7 +259,7 @@ impl ATerm {
 
     /// Constructs an ATerm from a string by parsing it.
     pub fn from_string(s: &str) -> Result<ATerm, Exception> {
-        THREAD_TERM_POOL.with_borrow(|tp| tp.from_string(s))
+        THREAD_TERM_POOL.with_borrow(|tp| tp.create_from_string(s))
     }
 
     /// Constructs an ATerm from a `UniquePtr<aterm>`. Note that we still do the

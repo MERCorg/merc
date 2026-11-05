@@ -197,7 +197,7 @@ mod tests {
     #[test]
     fn test_roundtrip_from_mcrl2() {
         let original = MCRL2_POOL
-            .with_borrow(|tp| tp.from_string("f(g(a),b)"))
+            .with_borrow(|tp| tp.create_from_string("f(g(a),b)"))
             .expect("C++ aterm parse failed");
         let as_merc = mcrl2_aterm_to_merc(&original.copy());
         let back = merc_aterm_to_mcrl2(&MercTerm::copy(&as_merc));

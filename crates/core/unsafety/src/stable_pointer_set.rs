@@ -107,7 +107,7 @@ impl<T: ?Sized + Erasable> StablePointer<T> {
     ///
     /// # Safety
     ///
-    /// Same contract as [`StablePointer::from_ptr`], and `ptr` must satisfy [`Thin::from_erased`].
+    /// Same contract as [`StablePointer::from_ptr`], and `ptr` must be valid for [`Erasable::unerase`] of `T`.
     pub unsafe fn from_erased(ptr: ErasedPtr) -> Self {
         Self {
             // SAFETY: forwarded from this function's own contract.
@@ -122,7 +122,7 @@ impl<T: ?Sized + Erasable> StablePointer<T> {
     ///
     /// # Safety
     ///
-    /// Same contract as [`StablePointer::from_related_ptr`], and `ptr` must satisfy [`Thin::from_erased`].
+    /// Same contract as [`StablePointer::from_related_ptr`], and `ptr` must be valid for [`Erasable::unerase`] of `U`.
     pub unsafe fn from_related_erased<U: ?Sized + Erasable>(
         ptr: ErasedPtr,
         #[allow(unused)] source: &Self,

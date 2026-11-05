@@ -189,7 +189,7 @@ impl BindingArena {
     /// closed subterms.
     ///
     /// Generic over [`Term`] so a recursive call can take the
-    /// [`ATermRef`](merc_aterm::ATermRef) from `arguments()` without
+    /// [`ATermRef`] from `arguments()` without
     /// `protect`ing it first.
     ///
     /// Only subterms of bound values are inserted into `closed`, which the

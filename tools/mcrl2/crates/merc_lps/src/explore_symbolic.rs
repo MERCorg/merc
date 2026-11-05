@@ -416,12 +416,12 @@ mod tests {
             // 2. lpsreach .sym, LDD reachability.
             let mut sym_lts_ldd = read_symbolic_lts(&storage, File::open(&sym_path).expect("Failed to open .sym"))
                 .expect("Failed to read .sym (LDD path)");
-            let mut sym_context = sym_lts_ldd.create_context();
+            sym_lts_ldd.create_context();
             let sym_ldd_count = count(
                 &reachability_with_options(
                     &storage,
                     &mut sym_lts_ldd,
-                    &mut sym_context,
+                    &mut (),
                     &ReachabilityOptions::default(),
                     &timing,
                 )
@@ -477,12 +477,12 @@ mod tests {
                 File::open(&written_sym_path).expect("Failed to open written.sym"),
             )
             .expect("Failed to read the written symbolic LTS back");
-            let mut reread_context = reread_lts.create_context();
+            reread_lts.create_context();
             let written_sym_count = count(
                 &reachability_with_options(
                     &storage,
                     &mut reread_lts,
-                    &mut reread_context,
+                    &mut (),
                     &ReachabilityOptions::default(),
                     &timing,
                 )

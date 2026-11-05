@@ -182,7 +182,8 @@ pub(crate) struct SymbolHeader {
 /// Represents a function symbol with a name and arity.
 ///
 /// Uses a C representation and is a dynamically sized type that stores its
-/// name inline after the [SymbolHeader], implementing [SliceDst] and
+/// name inline after a fixed-size header holding the arity and the length of
+/// the name, implementing [SliceDst] and
 /// [Erasable]. This way a symbol is a single allocation, and is referred to by
 /// a thin pointer.
 #[repr(C)]

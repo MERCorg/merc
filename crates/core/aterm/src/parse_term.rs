@@ -222,6 +222,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)] // Parsing 100k nested terms is too slow under miri.
     fn test_parse_deeply_nested_term() {
         let depth = 100_000;
         let text = format!("{}a{}", "s(".repeat(depth), ")".repeat(depth));

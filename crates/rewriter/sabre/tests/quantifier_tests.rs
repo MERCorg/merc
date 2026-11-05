@@ -37,7 +37,8 @@ fn identity_spec() -> RewriteSpecification {
 fn test_exists_without_an_enumerator_is_left_unevaluated_over_its_rewritten_body() {
     let spec = identity_spec();
     let n = DataVariable::new("n");
-    let input: DataExpression = DataAbstraction::new(BinderType::Exists, &[n.clone()], term("f(n)", &["n"])).into();
+    let input: DataExpression =
+        DataAbstraction::new(BinderType::Exists, std::slice::from_ref(&n), term("f(n)", &["n"])).into();
     let expected: DataExpression = DataAbstraction::new(BinderType::Exists, &[n], term("n", &["n"])).into();
 
     assert_eq!(InnermostRewriter::new(&spec).rewrite(&input), expected);
@@ -51,7 +52,8 @@ fn test_exists_without_an_enumerator_is_left_unevaluated_over_its_rewritten_body
 fn test_lambda_no_longer_panics_and_rewrites_its_body() {
     let spec = identity_spec();
     let n = DataVariable::new("n");
-    let input: DataExpression = DataAbstraction::new(BinderType::Lambda, &[n.clone()], term("f(n)", &["n"])).into();
+    let input: DataExpression =
+        DataAbstraction::new(BinderType::Lambda, std::slice::from_ref(&n), term("f(n)", &["n"])).into();
     let expected: DataExpression = DataAbstraction::new(BinderType::Lambda, &[n], term("n", &["n"])).into();
 
     let result = InnermostRewriter::new(&spec).rewrite(&input);
@@ -66,8 +68,10 @@ fn test_lambda_no_longer_panics_and_rewrites_its_body() {
 fn test_bound_variable_shadows_an_enclosing_substitution_of_the_same_name() {
     let spec = identity_spec();
     let n = DataVariable::new("n");
-    let input: DataExpression = DataAbstraction::new(BinderType::Exists, &[n.clone()], term("f(n)", &["n"])).into();
-    let expected: DataExpression = DataAbstraction::new(BinderType::Exists, &[n.clone()], term("n", &["n"])).into();
+    let input: DataExpression =
+        DataAbstraction::new(BinderType::Exists, std::slice::from_ref(&n), term("f(n)", &["n"])).into();
+    let expected: DataExpression =
+        DataAbstraction::new(BinderType::Exists, std::slice::from_ref(&n), term("n", &["n"])).into();
 
     let mut sigma = HashMap::new();
     sigma.insert(n, term("g", &[]));

@@ -14,7 +14,7 @@ use crate::TypeCheckContext;
 /// A unique type for interned resolved sorts.
 pub struct ResolvedSortTag;
 
-/// An index into a [SortInterner], identifying a unique resolved sort.
+/// An index into the interned sorts of a data specification, identifying a unique resolved sort.
 ///
 /// Because sorts are interned, two ids are equal if and only if the sorts they
 /// denote are equal, so equality of sorts is a comparison of two integers.
@@ -515,10 +515,10 @@ impl SortInterner {
     /// unless `from` is `to` or a strict subsort of it.
     ///
     ///  - `head` counts steps taken at the sorts' own head position
-    /// (number-sort generality, or the FSet/Set — FBag/Bag — finiteness step);
+    ///    (number-sort generality, or the FSet/Set — FBag/Bag — finiteness step);
     ///
     ///  - `interior` counts every step taken anywhere underneath it (a
-    /// container's element, a function's domain or range).
+    ///    container's element, a function's domain or range).
     ///
     /// The split matters for ranking: a caller that only ever reaches a nonzero
     /// `interior` through [SortInterner::is_materializable]-gated pairs is

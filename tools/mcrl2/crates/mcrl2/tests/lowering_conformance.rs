@@ -32,9 +32,6 @@ use merc_syntax::SourceMap;
 use merc_syntax::UntypedDataSpecification;
 use merc_typecheck::DataSpecification as TypecheckedSpec;
 use merc_typecheck::NumberEncoding;
-use merc_utilities::random_test;
-use rand::Rng;
-use rand::RngExt;
 
 /// Run the full merc typecheck + lowering pipeline on `text`.
 ///

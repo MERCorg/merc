@@ -1,4 +1,5 @@
 mod context;
+#[allow(clippy::module_inception)]
 mod inference;
 mod resolved_sort;
 mod typed_display;
