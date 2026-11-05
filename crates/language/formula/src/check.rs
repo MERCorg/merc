@@ -18,23 +18,28 @@ use merc_syntax::Traverse;
 use merc_syntax::UntypedStateFrmSpec;
 use merc_syntax::VarId;
 
-use crate::DataSpecification;
-use crate::ResolvedName;
-use crate::ResolvedSortId;
-use crate::TypingInfo;
-use crate::checking::Scope;
-use crate::checking::check_expression_against;
-use crate::checking::collect_binder_sorts;
-use crate::checking::declare_variables;
-use crate::checking::resolve_single_candidate;
-use crate::declared_span;
-use crate::typing_info;
+use merc_typecheck::DataSpecification;
+use merc_typecheck::ResolvedName;
+use merc_typecheck::TypingInfo;
+use merc_typecheck::internal::ResolvedSortId;
+use merc_typecheck::internal::SortReference;
+use merc_typecheck::internal::bool_sort;
+use merc_typecheck::internal::checking::Scope;
+use merc_typecheck::internal::checking::check_expression_against;
+use merc_typecheck::internal::checking::collect_binder_sorts;
+use merc_typecheck::internal::checking::declare_variables;
+use merc_typecheck::internal::checking::resolve_single_candidate;
+use merc_typecheck::internal::collect_sort_name_references;
+use merc_typecheck::internal::declared_span;
+use merc_typecheck::internal::push_resolved_name;
+use merc_typecheck::internal::push_sort_references;
+use merc_typecheck::internal::real_sort;
 
-use super::ModalError;
-use super::modal_specification::ActionChecking;
-use super::modal_specification::DeclarationTables;
-use super::modal_specification::FormulaType;
-use super::modal_specification::resolve_declared_sort;
+use crate::ModalError;
+use crate::modal_specification::ActionChecking;
+use crate::modal_specification::DeclarationTables;
+use crate::modal_specification::FormulaType;
+use crate::modal_specification::resolve_declared_sort;
 
 /// Checks a state formula specification against the declared sorts.
 pub(super) fn check_modal_specification(
@@ -48,7 +53,7 @@ pub(super) fn check_modal_specification(
 
     for decl in &spec.action_declarations {
         for sort in &decl.args {
-            typing_info::collect_sort_name_references(sort, &mut sort_references);
+            collect_sort_name_references(sort, &mut sort_references);
         }
     }
 
@@ -60,7 +65,7 @@ pub(super) fn check_modal_specification(
 
         let arguments = &equation.variable().arguments;
         for argument in arguments {
-            typing_info::collect_sort_name_references(&argument.decl.sort, &mut sort_references);
+            collect_sort_name_references(&argument.decl.sort, &mut sort_references);
         }
         let declarations = arguments.iter().map(|argument| &argument.decl);
         let sorts = params.iter().map(|&(_, sort)| sort);
@@ -81,7 +86,7 @@ pub(super) fn check_modal_specification(
         check_state_formula(data, tables, &scope, equation.body(), formula_type, &mut typing)?;
     }
 
-    typing_info::push_sort_references(data, &sort_references, &mut typing);
+    push_sort_references(data, &sort_references, &mut typing);
     Ok(typing)
 }
 
@@ -91,7 +96,7 @@ fn collect_scope(
     data: &mut DataSpecification,
     formula: &StateFrm,
     scope: &mut Vec<(VarId, ResolvedSortId)>,
-    sort_references: &mut Vec<typing_info::SortReference>,
+    sort_references: &mut Vec<SortReference>,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
     formula
@@ -145,7 +150,7 @@ fn check_state_formula(
 
                 StateFrmKind::Delay(time) | StateFrmKind::Yaled(time) => {
                     if let Some(time) = time {
-                        let real_sort = data.context().sorts.real_sort();
+                        let real_sort = real_sort(data);
                         check_expression_against::<ModalError>(data, scope, time, real_sort, typing)?;
                     }
                 }
@@ -184,7 +189,7 @@ fn check_state_formula(
                         });
                     }
 
-                    let real_sort = data.context().sorts.real_sort();
+                    let real_sort = real_sort(data);
                     check_expression_against::<ModalError>(data, scope, constant, real_sort, typing)?;
                 }
 
@@ -215,13 +220,13 @@ fn check_val_expr(
     formula_type: FormulaType,
     typing: &mut TypingInfo,
 ) -> Result<(), ModalError> {
-    let bool_sort = data.context().sorts.bool_sort();
+    let bool_sort = bool_sort(data);
 
     if formula_type == FormulaType::Bool {
         return check_expression_against::<ModalError>(data, scope, data_expr, bool_sort, typing);
     }
 
-    let real_sort = data.context().sorts.real_sort();
+    let real_sort = real_sort(data);
     let mut real_typing = TypingInfo::default();
     match check_expression_against::<ModalError>(data, scope, data_expr, real_sort, &mut real_typing) {
         Ok(()) => {
@@ -266,7 +271,7 @@ fn check_fixed_point_declaration(
 /// enclosing fixpoint variable's declared parameter sorts, found in `tables.equations_by_id` by
 /// matching `declaration` rather than `name`, since shadowing is already resolved into the
 /// [`StateVarId`] this occurrence carries — mirrors
-/// `crate::pbes::check::check_prop_var_inst`'s name-keyed lookup. On success, also pushes a
+/// `merc_pbes`'s `check_prop_var_inst` name-keyed lookup. On success, also pushes a
 /// [`ResolvedName::StateVariable`] at `span`, the whole `name(args)` node: the name itself is not
 /// separately spanned in the syntax tree.
 #[allow(clippy::too_many_arguments)]
@@ -285,7 +290,8 @@ fn check_state_var_inst(
              `ModalEquationSystem`'s own equations, since `resolve_modal_variables` only ever \
              resolves a name against a genuinely enclosing binder",
     );
-    typing.push(
+    push_resolved_name(
+        typing,
         span.clone(),
         ResolvedName::StateVariable {
             name: name.to_string(),
@@ -332,11 +338,11 @@ fn check_reg_formula(
                         }
                     }
                     ActFrmKind::DataExprVal(data_expr) => {
-                        let bool_sort = data.context().sorts.bool_sort();
+                        let bool_sort = bool_sort(data);
                         check_expression_against::<ModalError>(data, scope, data_expr, bool_sort, typing)?;
                     }
                     ActFrmKind::At { operand, .. } => {
-                        let real_sort = data.context().sorts.real_sort();
+                        let real_sort = real_sort(data);
                         check_expression_against::<ModalError>(data, scope, operand, real_sort, typing)?;
                     }
 
@@ -354,7 +360,7 @@ fn check_reg_formula(
 
 /// Resolves one action instance inside a multi-action. With [`ActionChecking::Declared`], tries
 /// every same-named overload of the right arity and requires exactly one to succeed — the
-/// action-only counterpart of `crate::process::check::check_action_or_process`, as no process
+/// action-only counterpart of `merc_process`'s `check_action_or_process`, as no process
 /// table applies to a state formula's modalities. Each candidate is checked against its own
 /// scratch `TypingInfo`, merged into `typing` only once the single successful candidate is known:
 /// a failed or ambiguous candidate's typing must never reach `typing`, or it would misreport a
@@ -373,7 +379,8 @@ fn check_action(
 ) -> Result<(), ModalError> {
     let actions = match &tables.actions {
         ActionChecking::Simple => {
-            typing.push(
+            push_resolved_name(
+                typing,
                 action.id.span.clone(),
                 ResolvedName::Action {
                     name: action.id.node.clone(),
@@ -428,7 +435,8 @@ fn check_action(
         },
     )?;
 
-    matched_typing.push(
+    push_resolved_name(
+        &mut matched_typing,
         action.id.span.clone(),
         ResolvedName::Action {
             name: action.id.node.clone(),

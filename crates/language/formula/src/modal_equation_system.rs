@@ -290,9 +290,9 @@ impl fmt::Display for ModalEquationSystem {
 mod tests {
     use merc_syntax::UntypedStateFrmSpec;
 
-    use crate::resolve_modal_variables;
+    use crate::variable_resolution::resolve_modal_variables;
 
-    use super::ModalEquationSystem;
+    use crate::ModalEquationSystem;
 
     #[test]
     #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
@@ -312,7 +312,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_fixpoint_equation_system_example() {
         let mut spec =
-            UntypedStateFrmSpec::parse(include_str!("../../../../../examples/vpg/running_example.mcf")).unwrap();
+            UntypedStateFrmSpec::parse(include_str!("../../../../examples/vpg/running_example.mcf")).unwrap();
         let mut state_var_ids = resolve_modal_variables(&mut spec.formula);
         let fes = ModalEquationSystem::new(&spec.formula, &mut state_var_ids);
 

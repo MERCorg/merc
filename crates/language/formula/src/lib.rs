@@ -1,7 +1,10 @@
+//! Type checking of modal (mu-calculus) state formulas, see [ModalSpecification].
+
 mod check;
 mod error;
 mod modal_equation_system;
 mod modal_specification;
+mod variable_resolution;
 
 pub use error::ModalError;
 pub use modal_equation_system::Equation;
