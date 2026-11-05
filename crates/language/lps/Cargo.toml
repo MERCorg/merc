@@ -1,0 +1,22 @@
+[package]
+name = "merc_lps"
+description = "Linear process specifications of the mCRL2 toolset, and reading and writing them in its .lps format."
+readme = "README.md"
+
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+itertools.workspace = true
+
+merc_aterm.workspace = true
+merc_data.workspace = true
+merc_lowering.workspace = true
+merc_utilities.workspace = true
+
+[lints]
+workspace = true
