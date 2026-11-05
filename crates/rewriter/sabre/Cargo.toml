@@ -31,6 +31,7 @@ rand.workspace = true
 
 [dev-dependencies]
 merc_syntax.workspace = true
+merc_lowering.workspace = true
 merc_typecheck.workspace = true
 
 test-case.workspace = true

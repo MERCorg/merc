@@ -13,6 +13,7 @@ use merc_data::DataApplication;
 use merc_data::DataExpression;
 use merc_data::MachineNumber;
 use merc_data::MachineWordOp;
+use merc_lowering::lower_data_specification;
 use merc_sabre::InnermostRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
@@ -29,7 +30,7 @@ fn rules() -> RewriteSpecification {
     let untyped = UntypedDataSpecification::parse("map q: Nat;").expect("the specification should parse");
     let data_spec = DataSpecification::from_untyped_with(untyped, NumberEncoding::MachineWord, &mut SourceMap::new())
         .expect("the MachineWord encoding should type check");
-    RewriteSpecification::from_data_specification(&data_spec.lower_data_specification())
+    RewriteSpecification::from_data_specification(&lower_data_specification(&data_spec))
 }
 
 /// `op` applied to `args`, through its real, correctly-sorted function symbol.

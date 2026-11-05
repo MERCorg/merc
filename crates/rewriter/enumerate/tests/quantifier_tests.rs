@@ -5,6 +5,7 @@ use merc_data::Mcrl2DataSpecification;
 use merc_enumerate::EnumerationPlans;
 use merc_enumerate::Enumerator;
 use merc_enumerate::FreshVariableGenerator;
+use merc_lowering::lower_data_specification;
 use merc_sabre::InnermostRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
@@ -16,7 +17,7 @@ fn lower(goal: &str) -> Mcrl2DataSpecification {
     let source = format!("map b: Bool;\neqn b = {goal};");
     let untyped = UntypedDataSpecification::parse(&source).unwrap();
     let data_spec = DataSpecification::from_untyped(untyped).unwrap();
-    data_spec.lower_data_specification()
+    lower_data_specification(&data_spec)
 }
 
 /// Returns the right-hand side of `b`'s (nullary) defining equation.
@@ -117,9 +118,7 @@ fn test_a_quantifier_in_a_right_hand_side_is_decided() {
 fn assert_rewrites_to(spec: &str, expr: &str, expected: &str) {
     let source = format!("{spec}\nmap b, e: Bool;\neqn b = {expr};\n    e = {expected};");
     let untyped = UntypedDataSpecification::parse(&source).unwrap();
-    let data_spec = DataSpecification::from_untyped(untyped)
-        .unwrap()
-        .lower_data_specification();
+    let data_spec = lower_data_specification(&DataSpecification::from_untyped(untyped).unwrap());
 
     let rhs = |name: &str| {
         data_spec
