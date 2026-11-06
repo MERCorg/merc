@@ -245,6 +245,32 @@ where
     result
 }
 
+impl<C: Markable + ?Sized> ProtectedWriteGuard<'_, '_, C> {
+    /// Checks in debug builds that the terms and symbols protected so far are in the container,
+    /// as dropping the guard does, and only checks the ones protected after it from then on.
+    ///
+    /// A guard that is held for a sequence of steps, each of which inserts what it protects but
+    /// may remove what an earlier step inserted, calls this after every step.
+    pub fn checkpoint(&self) {
+        #[cfg(debug_assertions)]
+        {
+            for term in self.protected.borrow_mut().drain(..) {
+                debug_assert!(
+                    self.container.contains_term(&term),
+                    "Term was protected but not actually inserted"
+                );
+            }
+
+            for symbol in self.protected_symbols.borrow_mut().drain(..) {
+                debug_assert!(
+                    self.container.contains_symbol(&symbol),
+                    "Symbol was protected but not actually inserted"
+                );
+            }
+        }
+    }
+}
+
 /// Mutable access to the container of a [Protected] or [ProtectedSend], see [Protected::write].
 pub struct ProtectedWriteGuard<'a, 'env, T: ?Sized> {
     container: &'a mut T,

@@ -62,6 +62,14 @@ enum Step<'p> {
         arity: usize,
     },
 
+    /// Check the conditions of the rule at which `walk` stopped for the redex on top, see
+    /// [find_match].
+    Conditions {
+        head: Head<'p>,
+        arity: usize,
+        walk: Walk<'p>,
+    },
+
     /// Rewrite a binder of the input term under `sigma`.
     SubjectBinder(DataAbstraction),
 
@@ -308,45 +316,94 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
     loop {
         debug_trace!("{}", context.stack);
 
+        /// The number of steps that are taken without leaving the guards on the stacks.
+        const LOCAL_STEPS: usize = 256;
+
+        let automaton = context.automaton;
         let term_stacks = context.term_stacks;
+        let metrics = &mut *context.metrics;
         let stack = &mut *context.stack;
         let step = stack.configs.write(|write_configs| {
             stack.terms.write(|write_terms| {
-                match write_configs.last() {
-                    // A construct stays on the stack while its redex is matched, which keeps its
-                    // symbol protected; its arguments are already the terms on top.
-                    Some(Config::Construct { arity, .. }) => {
-                        return Step::Match {
-                            head: Head::Construct,
-                            arity: *arity,
-                        };
-                    }
-                    Some(Config::Evaluate(_)) => return evaluate_term_stack(write_configs, write_terms, term_stacks),
-                    _ => {}
-                }
+                // The steps that only change the stacks are taken without leaving the guards. The
+                // guards postpone garbage collection, so they are left after a bounded number.
+                for _ in 0..LOCAL_STEPS {
+                    let step = 'step: {
+                        match write_configs.last() {
+                            // A construct stays on the stack while its redex is matched, which keeps
+                            // its symbol protected; its arguments are already the terms on top.
+                            Some(Config::Construct { arity, .. }) => {
+                                break 'step Step::Match {
+                                    head: Head::Construct,
+                                    arity: *arity,
+                                };
+                            }
+                            Some(Config::Evaluate(_)) => {
+                                break 'step evaluate_term_stack(write_configs, write_terms, term_stacks);
+                            }
+                            _ => {}
+                        }
 
-                match write_configs
-                    .pop()
-                    .expect("The stack always ends with a Return configuration")
-                {
-                    Config::Rewrite { term } => decompose(write_configs, write_terms, &term, sigma),
-                    Config::Return => Step::Return(
-                        write_terms
+                        match write_configs
                             .pop()
-                            .expect("The result should be the last element on the stack")
-                            .expect("The result should be Some")
-                            .protect(),
-                    ),
-                    Config::Construct { .. } | Config::Evaluate(_) => {
-                        unreachable!("these configurations are handled before they are taken from the stack")
+                            .expect("The stack always ends with a Return configuration")
+                        {
+                            Config::Rewrite { term } => decompose(write_configs, write_terms, &term, sigma),
+                            Config::Return => Step::Return(
+                                write_terms
+                                    .pop()
+                                    .expect("The result should be the last element on the stack")
+                                    .expect("The result should be Some")
+                                    .protect(),
+                            ),
+                            Config::Construct { .. } | Config::Evaluate(_) => {
+                                unreachable!("these configurations are handled before they are taken from the stack")
+                            }
+                        }
+                    };
+
+                    // A step leaves what it protects on the stacks, but a later step may take it off.
+                    write_configs.checkpoint();
+                    write_terms.checkpoint();
+
+                    match step {
+                        Step::Continue => {}
+                        Step::Match { head, arity } => {
+                            match walk_redex(write_configs, write_terms, automaton, metrics, head, arity) {
+                                Walk::Done(found) => {
+                                    reduce(write_configs, write_terms, term_stacks, metrics, head, arity, found)
+                                }
+                                // Checking conditions rewrites, which needs the stacks.
+                                walk => return Step::Conditions { head, arity, walk },
+                            }
+                            write_configs.checkpoint();
+                            write_terms.checkpoint();
+                        }
+                        step => return step,
                     }
                 }
+                Step::Continue
             })
         });
 
         match step {
             Step::Continue => {}
-            Step::Match { head, arity } => match_redex(context, head, arity),
+            Step::Match { .. } => unreachable!("a redex is matched within the guards on the stacks"),
+            Step::Conditions { head, arity, walk } => {
+                let automaton = context.automaton;
+                let found = find_match(context, automaton, head, arity, walk);
+                let RewriteContext {
+                    stack,
+                    metrics,
+                    term_stacks,
+                    ..
+                } = context;
+                stack.configs.write(|write_configs| {
+                    stack.terms.write(|write_terms| {
+                        reduce(write_configs, write_terms, term_stacks, metrics, head, arity, found)
+                    })
+                });
+            }
             Step::SubjectBinder(abstraction) => {
                 let range = sigma_range.get_or_init(|| sigma.range());
                 let value = rewrite_binder(context, &abstraction, sigma, range);
@@ -478,62 +535,82 @@ enum Head<'a> {
     Symbol(&'a DataFunctionSymbol),
 }
 
-/// Matches the redex on top of the stack, and replaces it by the right-hand side of the rule
-/// that applies, or by its normal form.
-fn match_redex<E: Enumerator>(context: &mut RewriteContext<'_, E>, head: Head<'_>, arity: usize) {
-    let automaton = context.automaton;
-    let found = find_match(context, automaton, head, arity);
-    let RewriteContext {
-        stack,
+/// Replaces the redex on top of the stack by the native value or the right-hand side of the rule
+/// that `found` is, or by its normal form if it is `None`.
+fn reduce(
+    write_configs: &mut ProtectedWriteGuard<'_, '_, Vec<Config<'_>>>,
+    write_terms: &mut ProtectedWriteGuard<'_, '_, Vec<Option<DataExpressionRef<'_>>>>,
+    term_stacks: &TermStacks,
+    metrics: &mut RewriteMetrics,
+    head: Head<'_>,
+    arity: usize,
+    found: Option<MatchResult<'_, Annotation>>,
+) {
+    let symbol = match head {
+        Head::Construct => {
+            let Some(Config::Construct { symbol, .. }) = write_configs.pop() else {
+                unreachable!("the redex is that of the construct on top of the stack");
+            };
+            symbol
+        }
+        Head::Symbol(symbol) => symbol.copy(),
+    };
+
+    let first = write_terms.len() - arity;
+    match found {
+        Some(MatchResult::Native(result)) => {
+            debug_trace!("native rewrite {} => {}", symbol, result);
+            metrics.native_applied(&symbol);
+            InnermostStack::replace_values(write_terms, first, &result.copy());
+        }
+        Some(MatchResult::Rule(announcement, annotation)) => {
+            debug_trace!("rewrite {} using rule {}", symbol, announcement.rule);
+            metrics.rule_applied(&announcement.rule);
+
+            // The right-hand side is evaluated on top of the arguments, which its variables refer
+            // to, and replaces them by its value.
+            let block = term_stacks.get(annotation.right_hand_side).blocks[0];
+            write_configs.push(Config::Evaluate(Evaluate::new(
+                annotation.right_hand_side,
+                block,
+                first,
+            )));
+        }
+        None => {
+            // No rule applies, so the redex is a normal form, which is only constructed now.
+            let term: DataExpression = if arity == 0 {
+                symbol.protect().into()
+            } else {
+                DataApplication::with_iter(&symbol, arity, write_terms[first..].iter().flatten()).into()
+            };
+            InnermostStack::replace_values(write_terms, first, &term.copy());
+        }
+    }
+}
+
+/// Walks the automaton for the redex on top of the stack, within the guards on the stacks.
+fn walk_redex<'a>(
+    write_configs: &ProtectedWriteGuard<'_, '_, Vec<Config<'_>>>,
+    write_terms: &ProtectedWriteGuard<'_, '_, Vec<Option<DataExpressionRef<'_>>>>,
+    automaton: &'a SetAutomaton<Annotation>,
+    metrics: &mut RewriteMetrics,
+    head: Head<'_>,
+    arity: usize,
+) -> Walk<'a> {
+    let symbol = match head {
+        Head::Construct => match write_configs.last() {
+            Some(Config::Construct { symbol, .. }) => symbol.copy(),
+            _ => unreachable!("the redex belongs to the construct on top of the stack"),
+        },
+        Head::Symbol(symbol) => symbol.copy(),
+    };
+    let arguments = &write_terms[write_terms.len() - arity..];
+    walk(
+        automaton,
+        &Subject::Arguments(symbol, arguments),
         metrics,
-        term_stacks,
-        ..
-    } = context;
-    stack.configs.write(|write_configs| {
-        let symbol = match head {
-            Head::Construct => {
-                let Some(Config::Construct { symbol, .. }) = write_configs.pop() else {
-                    unreachable!("the redex is that of the construct on top of the stack");
-                };
-                symbol
-            }
-            Head::Symbol(symbol) => symbol.copy(),
-        };
-
-        stack.terms.write(|write_terms| {
-            let first = write_terms.len() - arity;
-            match found {
-                Some(MatchResult::Native(result)) => {
-                    debug_trace!("native rewrite {} => {}", symbol, result);
-                    metrics.native_applied(&symbol);
-                    InnermostStack::replace_values(write_terms, first, &result.copy());
-                }
-                Some(MatchResult::Rule(announcement, annotation)) => {
-                    debug_trace!("rewrite {} using rule {}", symbol, announcement.rule);
-                    metrics.rule_applied(&announcement.rule);
-
-                    // The right-hand side is evaluated on top of the arguments, which its variables refer
-                    // to, and replaces them by its value.
-                    let block = term_stacks.get(annotation.right_hand_side).blocks[0];
-                    write_configs.push(Config::Evaluate(Evaluate::new(
-                        annotation.right_hand_side,
-                        block,
-                        first,
-                    )));
-                }
-                None => {
-                    // No rule applies, so the redex is a normal form, which is only constructed
-                    // now.
-                    let term: DataExpression = if arity == 0 {
-                        symbol.protect().into()
-                    } else {
-                        DataApplication::with_iter(&symbol, arity, write_terms[first..].iter().flatten()).into()
-                    };
-                    InnermostStack::replace_values(write_terms, first, &term.copy());
-                }
-            }
-        })
-    });
+        Cursor::START,
+    )
 }
 
 impl<E: Enumerator> RewriteEngine for RewriteContext<'_, E> {
@@ -570,6 +647,8 @@ impl<E: Enumerator> BinderRewriter for RewriteContext<'_, E> {
 /// Uses the automaton to find a match for the redex on top of the stack: either a rewrite rule,
 /// or — when its head symbol is a machine-word operation — the natively-evaluated result.
 ///
+/// Continues from `walk`, where the walk for the redex on top stopped.
+///
 /// The automaton is passed separately from the context, so that the match it returns does not
 /// borrow the context.
 fn find_match<'a, E: Enumerator>(
@@ -577,19 +656,13 @@ fn find_match<'a, E: Enumerator>(
     automaton: &'a SetAutomaton<Annotation>,
     head: Head<'_>,
     arity: usize,
+    mut walk: Walk<'a>,
 ) -> Option<MatchResult<'a, Annotation>> {
     // The redex is read from the term stack, which checking conditions rewrites on. The walk
     // therefore stops at a rule with conditions, which are checked outside of it, and continues
     // after that rule when they do not hold.
-    let mut cursor = Cursor {
-        state: 0,
-        announcement: 0,
-    };
     loop {
-        let metrics = &mut *context.metrics;
-        match with_redex(context.stack, head, arity, |subject| {
-            walk(automaton, subject, metrics, cursor)
-        }) {
+        match walk {
             Walk::Done(result) => return result,
             Walk::Conditional {
                 announcement,
@@ -599,7 +672,10 @@ fn find_match<'a, E: Enumerator>(
                 if check_conditions(context, &annotation.conditions, head, arity) {
                     return Some(MatchResult::Rule(announcement, annotation));
                 }
-                cursor = next;
+                let metrics = &mut *context.metrics;
+                walk = with_redex(context.stack, head, arity, |subject| {
+                    self::walk(automaton, subject, metrics, next)
+                });
             }
         }
     }
@@ -610,6 +686,14 @@ fn find_match<'a, E: Enumerator>(
 struct Cursor {
     state: usize,
     announcement: usize,
+}
+
+impl Cursor {
+    /// The start of the walk.
+    const START: Cursor = Cursor {
+        state: 0,
+        announcement: 0,
+    };
 }
 
 /// Where [walk] stops.
