@@ -1,8 +1,12 @@
+use std::fmt;
+
 use itertools::Itertools;
 use log::info;
 use streaming_iterator::StreamingIterator;
 
+use merc_collections::IndexedSet;
 use merc_collections::VecBag;
+use merc_data::DataExpression;
 use merc_io::TimeProgress;
 use merc_lts::LTS;
 use merc_lts::LabelIndex;
@@ -227,6 +231,99 @@ pub fn combine_lts<L: LTS<Label = LtsMultiAction<A>>, A: CombineLabel, B: LtsBui
 
     builder.finish(StateIndex::new(initial_ref.index()))?;
     Ok(())
+}
+
+/// An [`LtsAction`] whose arguments are replaced by their index in an [`ActionArguments`] table.
+///
+/// Composition only compares the arguments of actions for equality, which interning preserves. Unlike the terms in
+/// the arguments of an [`LtsAction`], this label can be shared between threads.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct InternedAction {
+    label: String,
+    arguments: usize,
+}
+
+impl fmt::Display for InternedAction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}#{}", self.label, self.arguments)
+    }
+}
+
+impl TransitionLabel for InternedAction {
+    fn is_tau_label(&self) -> bool {
+        false
+    }
+
+    fn tau_label() -> Self {
+        panic!("InternedAction does not support tau labels. Use LtsMultiAction for that.")
+    }
+
+    fn matches_label(&self, label: &str) -> bool {
+        self.label == label
+    }
+
+    fn from_index(i: usize) -> Self {
+        InternedAction {
+            label: LtsAction::from_index(i).label().to_owned(),
+            arguments: 0,
+        }
+    }
+}
+
+impl CombineLabel for InternedAction {
+    fn comm_args_compatible(&self, other: &Self) -> bool {
+        self.arguments == other.arguments
+    }
+
+    fn from_comm(label: String, representative: &Self) -> Self {
+        InternedAction {
+            label,
+            arguments: representative.arguments,
+        }
+    }
+}
+
+/// Interns the arguments of [`LtsAction`]s, see [`InternedAction`].
+#[derive(Default)]
+pub struct ActionArguments {
+    arguments: IndexedSet<Vec<DataExpression>>,
+}
+
+impl ActionArguments {
+    /// Returns the multi-action in which the arguments of every action are interned.
+    pub fn intern(&mut self, multi_action: &LtsMultiAction<LtsAction>) -> LtsMultiAction<InternedAction> {
+        LtsMultiAction::new(
+            multi_action
+                .actions()
+                .iter()
+                .map(|action| InternedAction {
+                    label: action.label().to_owned(),
+                    arguments: *self.arguments.insert(action.arguments().to_vec()).0,
+                })
+                .collect(),
+        )
+    }
+
+    /// Returns the multi-action in which the arguments of every action are restored.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the arguments were not interned by this table.
+    pub fn restore(&self, multi_action: &LtsMultiAction<InternedAction>) -> LtsMultiAction<LtsAction> {
+        LtsMultiAction::new(
+            multi_action
+                .actions()
+                .iter()
+                .map(|action| {
+                    let arguments = self
+                        .arguments
+                        .get_by_index(action.arguments)
+                        .expect("The arguments must be interned by this table");
+                    LtsAction::new(action.label.clone(), arguments.clone())
+                })
+                .collect(),
+        )
+    }
 }
 
 /// Applies the communication operator $\gamma_C$ to a multi-action.
@@ -672,6 +769,8 @@ impl<'a, L: LTS> StreamingIterator for ParallelTransitionIter<'_, 'a, L> {
 #[cfg(test)]
 mod tests {
     use merc_collections::VecBag;
+    use merc_data::DataExpression;
+    use merc_lts::LtsAction;
     use merc_lts::LtsMultiAction;
     use merc_lts::SimpleAction;
     use merc_syntax::CommExpr;
@@ -679,6 +778,11 @@ mod tests {
     use merc_syntax::Span;
     use merc_syntax::respan;
 
+    use merc_lts::TransitionLabel;
+
+    use super::ActionArguments;
+    use super::CombineLabel;
+    use super::InternedAction;
     use super::SortedLtsMultiAction;
     use super::SortedMultiActionLabel;
     use super::find_communication_match;
@@ -790,5 +894,32 @@ mod tests {
         let result = find_communication_match(&actions, &expr).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0], simple("c", &[]));
+    }
+
+    /// Interning keeps exactly the actions with equal arguments compatible for communication, and restoring returns
+    /// the original actions.
+    #[test]
+    fn action_arguments_intern_and_restore() {
+        let single = |label: &str, argument: &str| {
+            LtsMultiAction::new(VecBag::from_vec(vec![LtsAction::new(
+                label.to_owned(),
+                vec![DataExpression::from_string(argument).unwrap()],
+            )]))
+        };
+        let (a_one, b_one, b_two) = (single("a", "1"), single("b", "1"), single("b", "f(2)"));
+
+        let mut arguments = ActionArguments::default();
+        let interned: Vec<LtsMultiAction<InternedAction>> = [&a_one, &b_one, &b_two]
+            .iter()
+            .map(|action| arguments.intern(action))
+            .collect();
+        let action = |i: usize| interned[i].actions().iter().next().unwrap();
+
+        assert!(action(0).comm_args_compatible(action(1)));
+        assert!(!action(1).comm_args_compatible(action(2)));
+        assert!(action(0).matches_label("a") && action(2).matches_label("b"));
+        for (original, interned) in [&a_one, &b_one, &b_two].into_iter().zip(&interned) {
+            assert_eq!(&arguments.restore(interned), original);
+        }
     }
 }
