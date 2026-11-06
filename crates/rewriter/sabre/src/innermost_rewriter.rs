@@ -14,8 +14,8 @@ use merc_data::is_data_machine_number;
 use crate::Enumerator;
 use crate::NoQuantifierEnumerator;
 use crate::RewriteEngine;
+use crate::RewriteMetrics;
 use crate::RewriteSpecification;
-use crate::RewritingStatistics;
 use crate::Rule;
 use crate::binder::BinderRewriter;
 use crate::binder::BinderState;
@@ -41,11 +41,11 @@ use merc_utilities::debug_trace;
 
 impl<E: Enumerator> RewriteEngine for InnermostRewriter<E> {
     fn rewrite(&mut self, t: &DataExpression) -> DataExpression {
-        self.rewrite_with_statistics(t).0
+        self.rewrite_under(t, &EmptySubstitution)
     }
 
     fn rewrite_with<S: RewriteSubstitution>(&mut self, t: &DataExpression, sigma: &S) -> DataExpression {
-        self.rewrite_under_with_statistics(t, sigma).0
+        self.rewrite_under(t, sigma)
     }
 }
 
@@ -97,6 +97,7 @@ impl<E: Enumerator> InnermostRewriter<E> {
             condition_cache: ConditionCache::new(max_entries),
             enumerator,
             binders: BinderState::default(),
+            metrics: RewriteMetrics::default(),
         }
     }
 
@@ -121,33 +122,27 @@ impl<E: Enumerator> InnermostRewriter<E> {
         Self::build(spec, max_entries, enumerator)
     }
 
-    /// Rewrites `t` to normal form and returns the normal form together with the
-    /// [RewritingStatistics] gathered while doing so, most notably the number of
-    /// applied rewrite steps.
-    pub fn rewrite_with_statistics(&mut self, t: &DataExpression) -> (DataExpression, RewritingStatistics) {
-        self.rewrite_under_with_statistics(t, &EmptySubstitution)
+    /// Returns the metrics of the last rewrite, see [RewriteMetrics].
+    pub fn metrics(&self) -> &RewriteMetrics {
+        &self.metrics
     }
 
     /// Replaces the free variables of `t` according to `sigma` and rewrites the result to normal
-    /// form, returning it together with the gathered [RewritingStatistics].
+    /// form.
     ///
     /// `sigma` must map every variable to a term already in normal form: replacements are spliced
     /// in without being rewritten again.
-    pub fn rewrite_under_with_statistics<S: RewriteSubstitution>(
-        &mut self,
-        t: &DataExpression,
-        sigma: &S,
-    ) -> (DataExpression, RewritingStatistics) {
-        let mut stats = RewritingStatistics::default();
+    fn rewrite_under<S: RewriteSubstitution>(&mut self, t: &DataExpression, sigma: &S) -> DataExpression {
+        self.metrics.reset();
 
         debug_trace!("input: {}", t);
 
-        let result = THREAD_TERM_POOL.with(|tp| {
+        THREAD_TERM_POOL.with(|tp| {
             rewrite_aux(
                 tp,
                 &mut self.stack,
                 &mut self.builder,
-                &mut stats,
+                &mut self.metrics,
                 &self.apma,
                 &mut self.condition_cache,
                 t,
@@ -155,9 +150,7 @@ impl<E: Enumerator> InnermostRewriter<E> {
                 &self.enumerator,
                 &mut self.binders,
             )
-        });
-
-        (result, stats)
+        })
     }
 }
 
@@ -201,7 +194,7 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
     tp: &ThreadTermPool,
     stack: &mut InnermostStack,
     builder: &mut TermStackBuilder,
-    stats: &mut RewritingStatistics,
+    stats: &mut RewriteMetrics,
     automaton: &SetAutomaton<AnnouncementInnermost>,
     condition_cache: &mut ConditionCache,
     input_term: &DataExpression,
@@ -209,7 +202,7 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
     enumerator: &E,
     binders: &mut BinderState<E::Frame>,
 ) -> DataExpression {
-    stats.recursions += 1;
+    stats.recursion();
 
     // Every binder of input_term is rewritten under sigma, so its range is computed once, when
     // the first one is reached.
@@ -387,14 +380,14 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
                             // Safety: result is stored in the container on the same line.
                             write_terms[index] = Some(unsafe { write_terms.protect(&result) }.into());
                         });
-                        stats.rewrite_steps += 1;
+                        stats.native_applied(&term.data_function_symbol());
                     }
-                    Some(MatchResult::Rule(_announcement, annotation)) => {
+                    Some(MatchResult::Rule(announcement, annotation)) => {
                         debug_trace!(
                             "rewrite {} => {} using rule {}",
                             term,
                             annotation.rhs_stack.evaluate(&term),
-                            _announcement.rule
+                            announcement.rule
                         );
 
                         // Reacquire the write access and add the matching RHSStack.
@@ -409,7 +402,7 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
                                 )
                             })
                         });
-                        stats.rewrite_steps += 1;
+                        stats.rule_applied(&announcement.rule);
                     }
                     None => {
                         // Add the term on the stack.
@@ -457,7 +450,7 @@ struct NestedRewriteView<'a, E: Enumerator> {
     tp: &'a ThreadTermPool,
     stack: &'a mut InnermostStack,
     builder: &'a mut TermStackBuilder,
-    stats: &'a mut RewritingStatistics,
+    stats: &'a mut RewriteMetrics,
     automaton: &'a SetAutomaton<AnnouncementInnermost>,
     condition_cache: &'a mut ConditionCache,
     enumerator: &'a E,
@@ -514,7 +507,7 @@ fn find_match<'a, E: Enumerator>(
     tp: &ThreadTermPool,
     stack: &mut InnermostStack,
     builder: &mut TermStackBuilder,
-    stats: &mut RewritingStatistics,
+    stats: &mut RewriteMetrics,
     automaton: &'a SetAutomaton<AnnouncementInnermost>,
     condition_cache: &mut ConditionCache,
     t: &DataExpressionRef<'_>,
@@ -527,7 +520,7 @@ fn find_match<'a, E: Enumerator>(
         let state = &automaton.states()[state_index];
 
         // Get the symbol at the position state.label; a variable there matches no pattern.
-        stats.symbol_comparisons += 1;
+        stats.symbol_compared();
         let pos = t.get_data_position(state.label());
 
         // A machine number carries no function symbol, so it is matched under
@@ -593,7 +586,7 @@ fn check_conditions<E: Enumerator>(
     tp: &ThreadTermPool,
     stack: &mut InnermostStack,
     builder: &mut TermStackBuilder,
-    stats: &mut RewritingStatistics,
+    stats: &mut RewriteMetrics,
     automaton: &SetAutomaton<AnnouncementInnermost>,
     condition_cache: &mut ConditionCache,
     announcement: &AnnouncementInnermost,
@@ -652,7 +645,7 @@ fn normalise_condition_side<E: Enumerator>(
     tp: &ThreadTermPool,
     stack: &mut InnermostStack,
     builder: &mut TermStackBuilder,
-    stats: &mut RewritingStatistics,
+    stats: &mut RewriteMetrics,
     automaton: &SetAutomaton<AnnouncementInnermost>,
     condition_cache: &mut ConditionCache,
     term: &DataExpression,
@@ -660,7 +653,7 @@ fn normalise_condition_side<E: Enumerator>(
     binders: &mut BinderState<E::Frame>,
 ) -> DataExpression {
     if let Some(normal_form) = condition_cache.get(term) {
-        stats.condition_cache_hits += 1;
+        stats.condition_cache_hit();
         return normal_form;
     }
 
@@ -692,6 +685,8 @@ pub struct InnermostRewriter<E: Enumerator = NoQuantifierEnumerator> {
     enumerator: E,
     /// The state for rewriting binders, see [BinderState].
     binders: BinderState<E::Frame>,
+    /// The metrics of the last rewrite.
+    metrics: RewriteMetrics,
 }
 
 pub struct AnnouncementInnermost {

@@ -1,346 +1,223 @@
-use std::collections::VecDeque;
+use std::convert::Infallible;
 use std::fmt;
 
 use ahash::HashMap;
 use ahash::HashMapExt;
-use merc_aterm::ATermRef;
-use merc_aterm::Markable;
 use merc_aterm::Protected;
-use merc_aterm::SymbolRef;
 use merc_aterm::Term;
-use merc_aterm::Transmutable;
-use merc_aterm::storage::Marker;
 use merc_data::BinderType;
 use merc_data::DataAbstraction;
 use merc_data::DataApplication;
 use merc_data::DataExpression;
 use merc_data::DataExpressionKind;
 use merc_data::DataExpressionRef;
-use merc_data::DataFunctionSymbolRef;
+use merc_data::DataFunctionSymbol;
 use merc_data::DataVariable;
 use merc_data::DataWhereClause;
 use merc_data::DataWhrDecl;
 use merc_data::is_data_variable;
-use merc_utilities::debug_trace;
 
 use crate::Rule;
 use crate::set_automaton::free_variables;
-use crate::utilities::InnermostStack;
 
 use super::DataPosition;
+use super::DataPositionIndexed;
 use super::DataPositionIterator;
 
-/// A stack used to represent a term with free variables that can be constructed
-/// efficiently.
+/// A term with variables, compiled to a program that builds an instance of it.
 ///
-/// It stores as much as possible in the term pool. Due to variables it cannot
-/// be fully compressed. For variables it stores the position in the lhs of a
-/// rewrite rule where the concrete term can be found that will replace the
-/// variable.
+/// The program is the term in post-order: running it pushes the value of every subterm onto a
+/// stack of values, so that the arguments of an [Instruction::Apply] are the values on top. A
+/// variable is a position in the left-hand side of a rule, whose subterm is its value. The
+/// right-hand side of `f(x, y) = g(h(x), y)` is the program
 ///
-#[derive(Hash, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TermStack {
-    /// The innermost rewrite stack for the right hand side and the positions that must be added to the stack.
-    pub innermost_stack: Protected<Vec<Config<'static>>>,
-    /// The variables of the left-hand side that must be placed at certain places in the stack.
-    pub variables: Vec<(DataPosition, usize)>,
-    /// The number of elements that must be reserved on the innermost stack.
-    pub stack_size: usize,
+/// ```text
+/// @1  h/1  @2  g/2
+/// ```
+///
+/// where `@1` pushes the subterm at position 1 of the matched term, the value of `x`, and `h/1`
+/// replaces the value on top by `h` applied to it.
+///
+/// A program can have holes of type `H` in place of subterms, which whoever runs it interprets;
+/// the default `H` has no values, so a term stack built from a term has no holes.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TermStack<H = Infallible> {
+    pub instructions: Vec<Instruction<H>>,
+    /// The blocks of `instructions`, in which they are consecutive. Block 0 builds the term.
+    pub blocks: Vec<Block>,
 }
 
-#[derive(Hash, Eq, PartialEq, Ord, PartialOrd, Debug)]
-pub enum Config<'a> {
-    /// Rewrite the top of the stack and put result at the given index.
-    Rewrite(usize),
-    /// Constructs function symbol with given arity at the given index.
-    Construct(DataFunctionSymbolRef<'a>, usize, usize),
-    /// A concrete term to be placed at the current position in the stack.
-    Term(DataExpressionRef<'a>, usize),
-    /// Instantiates the binder `b`, given as `lambda x0, .., xn . b` over its free variables
-    /// `x0, .., xn`, with the given number of values for them on top of the stack, and places
-    /// the result at the given index.
-    Binder(DataExpressionRef<'a>, usize, usize),
-    /// Yields the given index as returned term.
-    Return(),
+/// The instructions `begin..end` of a [TermStack], which build one term (see [TermStack]).
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Block {
+    pub begin: usize,
+    pub end: usize,
 }
 
-impl Markable for Config<'_> {
-    fn mark(&self, marker: &mut Marker<'_>) {
-        match self {
-            Config::Construct(t, _, _) => t.mark(marker),
-            Config::Term(t, _) | Config::Binder(t, _, _) => t.mark(marker),
-            Config::Rewrite(_) | Config::Return() => {}
-        }
-    }
-
-    fn contains_term(&self, term: &ATermRef<'_>) -> bool {
-        match self {
-            Config::Construct(t, _, _) => t.contains_term(term),
-            Config::Term(t, _) | Config::Binder(t, _, _) => t.contains_term(term),
-            Config::Rewrite(_) | Config::Return() => false,
-        }
-    }
-
-    fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
-        match self {
-            Config::Construct(t, _, _) => t.contains_symbol(symbol),
-            Config::Term(t, _) | Config::Binder(t, _, _) => t.contains_symbol(symbol),
-            Config::Rewrite(_) | Config::Return() => false,
-        }
-    }
-
-    fn len(&self) -> usize {
-        match self {
-            Config::Construct(_, _, _) | Config::Term(_, _) | Config::Binder(_, _, _) => 1,
-            Config::Rewrite(_) | Config::Return() => 0,
-        }
-    }
-}
-
-// SAFETY: `Config` only borrows the term pool through its `DataFunctionSymbolRef`
-// / `DataExpressionRef` fields, which are themselves lifetime-erasable handles
-// into the global term pool. Transmuting only changes the lifetime parameter, so
-// the layout is identical.
-unsafe impl Transmutable for Config<'static> {
-    type Target<'a> = Config<'a>;
-
-    unsafe fn transmute_lifetime<'a>(&'_ self) -> &'a Self::Target<'a> {
-        // SAFETY: see the trait impl comment above; the caller upholds that 'a does not
-        // outlive the borrow of `self`.
-        unsafe { std::mem::transmute::<&Self, &'a Config>(self) }
-    }
-
-    unsafe fn transmute_lifetime_mut<'a>(&'_ mut self) -> &'a mut Self::Target<'a> {
-        // SAFETY: see the trait impl comment above; the caller upholds that 'a does not
-        // outlive the borrow of `self`.
-        unsafe { std::mem::transmute::<&mut Self, &'a mut Config>(self) }
-    }
-}
-
-impl fmt::Display for Config<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Config::Rewrite(result) => write!(f, "Rewrite({result})"),
-            Config::Construct(symbol, arity, result) => {
-                write!(f, "Construct({symbol}, {arity}, {result})")
-            }
-            Config::Term(term, result) => {
-                write!(f, "Term({term}, {result})")
-            }
-            Config::Binder(binder, arity, result) => {
-                write!(f, "Binder({binder}, {arity}, {result})")
-            }
-            Config::Return() => write!(f, "Return()"),
-        }
-    }
+/// An instruction of a [TermStack], which pushes one value.
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Instruction<H> {
+    /// The subterm at this position of the left-hand side.
+    Variable(DataPosition),
+    /// A constant without a head symbol (a machine number).
+    Term(DataExpression),
+    /// The symbol applied to the `arity` values on top, which it replaces.
+    Apply {
+        symbol: DataFunctionSymbol,
+        arity: usize,
+    },
+    /// The binder `b`, given as the `template` `lambda x0, .., xn . b` over its free variables,
+    /// for the `arity` values of those variables on top, which it replaces.
+    Binder {
+        template: DataAbstraction,
+        arity: usize,
+    },
+    Hole(H),
 }
 
 impl TermStack {
-    /// Construct a new right-hand stack for a given equation/rewrite rule.
+    /// Compiles the right-hand side of `rule`.
     pub fn new(rule: &Rule) -> TermStack {
         Self::from_term(&rule.rhs.copy(), &create_var_map(&rule.lhs))
     }
 
-    /// Construct a term stack from a data expression where variables are taken from a specific position of the left hand side.
+    /// Compiles `term`, whose variables are taken from the given positions of a left-hand side.
     ///
-    /// The slots are allocated in breadth-first order, so that the arguments of a
-    /// [Config::Construct] are the last ones on the stack when it is evaluated. A binder is opaque
-    /// to the stack: its children are its free variables, which are filled in from the left-hand
+    /// A binder is opaque: its values are its free variables, which are taken from the left-hand
     /// side like any other variable.
     pub fn from_term(term: &DataExpressionRef, var_map: &HashMap<DataVariable, DataPosition>) -> TermStack {
-        // Compute the extra information for the InnermostRewriter.
-        let mut innermost_stack: Protected<Vec<Config>> = Protected::new(vec![]);
-        let mut variables = vec![];
-        let mut stack_size = 0;
+        /// An item of the post-order traversal.
+        enum Work {
+            Visit(DataExpression),
+            Emit(Instruction<Infallible>),
+        }
 
-        let mut queue: VecDeque<DataExpression> = VecDeque::from([term.protect()]);
-        while let Some(term) = queue.pop_front() {
+        let mut instructions = Vec::new();
+        let mut work = vec![Work::Visit(term.protect())];
+        while let Some(item) = work.pop() {
+            let term = match item {
+                Work::Emit(instruction) => {
+                    instructions.push(instruction);
+                    continue;
+                }
+                Work::Visit(term) => term,
+            };
+
             match term.kind() {
                 DataExpressionKind::Variable(variable) => {
-                    variables.push((
-                        var_map
-                            .get(&variable.protect())
-                            .expect("All variables in the right hand side must occur in the left hand side")
-                            .clone(),
-                        stack_size,
-                    ));
+                    let position = var_map
+                        .get(&variable.protect())
+                        .expect("All variables in the right hand side must occur in the left hand side");
+                    instructions.push(Instruction::Variable(position.clone()));
                 }
                 DataExpressionKind::MachineNumber(_) => {
-                    // A machine number is a constant with no head function symbol to
-                    // construct from, so it gets its own slot that is filled with the
-                    // literal term. Right-hand sides contain them whenever numeric
-                    // literals are lowered with `NumberEncoding::MachineWord`, where a
-                    // number is a chain of `@word` digits.
-                    innermost_stack.write(|write| {
-                        // Safety: term is pushed into the container on the next line.
-                        let t = unsafe { write.protect(&term) };
-                        write.push(Config::Term(t.into(), stack_size));
-                    });
+                    // A machine number is a constant without a head symbol to apply. Right-hand
+                    // sides contain them whenever numeric literals are lowered with
+                    // `NumberEncoding::MachineWord`.
+                    instructions.push(Instruction::Term(term.clone()));
                 }
                 DataExpressionKind::Abstraction(_) => {
                     // Closing the binder over its free variables records which variables the
                     // values are for, so they need not be computed again for every instance.
                     let free: Vec<DataVariable> = free_variables(&term).collect();
-                    let template: DataExpression = DataAbstraction::new(BinderType::Lambda, &free, term.clone()).into();
-                    innermost_stack.write(|write| {
-                        // Safety: template is pushed into the container on the next line.
-                        let t = unsafe { write.protect(&template) };
-                        write.push(Config::Binder(t.into(), free.len(), stack_size));
-                    });
-                    queue.extend(free.into_iter().map(DataExpression::from));
+                    let template = DataAbstraction::new(BinderType::Lambda, &free, term.clone());
+                    work.push(Work::Emit(Instruction::Binder {
+                        template,
+                        arity: free.len(),
+                    }));
+                    work.extend(free.into_iter().rev().map(|variable| Work::Visit(variable.into())));
                 }
                 DataExpressionKind::Application(_) | DataExpressionKind::FunctionSymbol(_) => {
-                    let arity = term.data_arguments().len();
-                    innermost_stack.write(|write| {
-                        // Safety: symbol is pushed into the container on the next line.
-                        let symbol = unsafe { write.protect(&term.data_function_symbol()) };
-                        write.push(Config::Construct(symbol.into(), arity, stack_size));
-                    });
-                    queue.extend(term.data_arguments().map(|argument| argument.protect()));
+                    let arguments = term.data_arguments();
+                    work.push(Work::Emit(Instruction::Apply {
+                        symbol: term.data_function_symbol().protect(),
+                        arity: arguments.len(),
+                    }));
+                    let arguments: Vec<DataExpression> = arguments.map(|argument| argument.protect()).collect();
+                    work.extend(arguments.into_iter().rev().map(Work::Visit));
                 }
                 DataExpressionKind::WhereClause(_) => {
                     unreachable!("is_supported_rule keeps no rule with a where clause in its right-hand side")
                 }
             }
-            stack_size += 1;
         }
 
-        // A term always contributes at least its root variable or function
-        // symbol to the stack. `InnermostStack::integrate` relies on this
-        // (`stack_size - 1` would otherwise underflow).
-        debug_assert!(
-            stack_size >= 1,
-            "A right-hand side must contain at least one variable or function symbol"
-        );
-
+        let end = instructions.len();
         TermStack {
-            innermost_stack,
-            stack_size,
-            variables,
+            instructions,
+            blocks: vec![Block { begin: 0, end }],
         }
     }
 
-    // See [evaluate_with]
+    /// Instantiates the term for the subterms of `term`.
     pub fn evaluate<'a, 'b, T: Term<'a, 'b>>(&self, term: &'b T) -> DataExpression {
         let mut builder = TermStackBuilder::new();
         self.evaluate_with(term, &mut builder)
     }
 
-    /// Evaluate the rhs stack for the given term and returns the result.
+    /// Like [TermStack::evaluate], reusing the stack of `builder`.
     pub fn evaluate_with<'a, 'b, T: Term<'a, 'b>>(
         &self,
         term: &'b T,
         builder: &mut TermStackBuilder,
     ) -> DataExpression {
-        let stack = &mut builder.stack;
-        stack.terms.write(|write| {
-            write.clear();
-            write.push(None);
-        });
+        let term = DataExpressionRef::from(term.copy());
+        builder.values.write(|values| values.clear());
 
-        stack.configs.write(|write_configs| {
-            stack.terms.write(|write_terms| {
-                InnermostStack::integrate(
-                    write_configs,
-                    write_terms,
-                    self,
-                    &DataExpressionRef::from(term.copy()),
-                    0,
-                )
-            })
-        });
-
-        loop {
-            debug_trace!("{}", stack);
-
-            let done = stack.configs.write(|write_configs| {
-                let Some(config) = write_configs.pop() else {
-                    return true;
-                };
-
-                stack.terms.write(|write_terms| match config {
-                    Config::Construct(symbol, arity, index) => {
-                        // Take the last arity arguments.
-                        let length = write_terms.len();
-
-                        let arguments = &write_terms[length - arity..];
-
-                        let term: DataExpression = if arguments.is_empty() {
-                            symbol.protect().into()
+        // Each instruction takes a guard of its own, since what a guard protects must still be in
+        // its container when the guard is dropped, and an application removes its arguments.
+        for instruction in self.block(0) {
+            builder.values.write(|values| {
+                let (value, arity): (DataExpression, usize) = match instruction {
+                    Instruction::Variable(position) => (term.get_data_position(position).protect(), 0),
+                    Instruction::Term(term) => (term.clone(), 0),
+                    Instruction::Apply { symbol, arity } => {
+                        let first = values.len() - arity;
+                        let term = if *arity == 0 {
+                            symbol.clone().into()
                         } else {
-                            DataApplication::with_iter(&symbol.copy(), arguments.len(), arguments.iter().flatten())
-                                .into()
+                            DataApplication::with_iter(symbol, *arity, values[first..].iter()).into()
                         };
-
-                        // Add the term on the stack.
-                        write_terms.drain(length - arity..);
-                        // Safety: t is stored in the container on the next line.
-                        let t = unsafe { write_terms.protect(&term) };
-                        write_terms[index] = Some(t.into());
+                        (term, *arity)
                     }
-                    Config::Term(term, index) => {
-                        // Safety: t is stored in the container on the next line.
-                        let t = unsafe { write_terms.protect(&term) };
-                        write_terms[index] = Some(t.into());
-                    }
-                    Config::Binder(template, arity, index) => {
+                    Instruction::Binder { template, arity } => {
                         // Substituting the values into the binder could capture them, so they
                         // are bound by a where clause around it instead.
-                        let length = write_terms.len();
-                        let template: DataAbstraction = template.protect().into();
+                        let first = values.len() - arity;
                         let binder = template.body().protect();
-                        let term: DataExpression = if arity == 0 {
+                        let term = if *arity == 0 {
                             binder
                         } else {
                             let declarations: Vec<DataWhrDecl> = template
                                 .variables()
                                 .into_iter()
-                                .zip(write_terms[length - arity..].iter().flatten())
+                                .zip(values[first..].iter())
                                 .map(|(variable, value)| DataWhrDecl::new(variable, value.protect()))
                                 .collect();
                             DataWhereClause::new(binder, &declarations).into()
                         };
+                        (term, *arity)
+                    }
+                    Instruction::Hole(hole) => match *hole {},
+                };
 
-                        write_terms.drain(length - arity..);
-                        // Safety: t is stored in the container on the next line.
-                        let t = unsafe { write_terms.protect(&term) };
-                        write_terms[index] = Some(t.into());
-                    }
-                    Config::Rewrite(_) => {
-                        unreachable!("This case should not happen");
-                    }
-                    Config::Return() => {
-                        unreachable!("This case should not happen");
-                    }
-                });
-                false
+                let first = values.len() - arity;
+                values.truncate(first);
+                // Safety: value is stored in the container on the next line.
+                let value = unsafe { values.protect(&value) };
+                values.push(value.into());
             });
-
-            if done {
-                break;
-            }
         }
 
-        debug_assert!(
-            stack.terms.read().len() == 1,
-            "Expect exactly one term on the result stack"
-        );
-
-        stack.terms.write(|write_terms| {
-            write_terms
-                .pop()
-                .expect("The result should be the last element on the stack")
-                .expect("The result should be Some")
-                .protect()
-        })
+        let values = builder.values.read();
+        debug_assert_eq!(values.len(), 1, "a term has exactly one value");
+        values.last().expect("a term has a value").protect()
     }
 
-    /// Used to check if a subterm is duplicated, for example "times(s(x), y) =
-    /// plus(y, times(x,y))" is duplicating.
+    /// Returns true iff a variable occurs more than once, for example in "times(s(x), y) =
+    /// plus(y, times(x,y))".
     pub(crate) fn contains_duplicate_var_references(&self) -> bool {
-        let mut variables: Vec<&DataPosition> = self.variables.iter().map(|(v, _)| v).collect();
-
-        // Check if there are duplicates.
+        let mut variables: Vec<&DataPosition> = self.variables().collect();
         variables.sort_unstable();
         let len = variables.len();
         variables.dedup();
@@ -349,46 +226,50 @@ impl TermStack {
     }
 }
 
-impl Clone for TermStack {
-    fn clone(&self) -> Self {
-        // TODO: It would make sense if Protected could implement Clone.
-        let mut innermost_stack: Protected<Vec<Config>> = Protected::new(vec![]);
+impl<H> TermStack<H> {
+    /// Returns the instructions of block `block`.
+    pub fn block(&self, block: usize) -> &[Instruction<H>] {
+        let Block { begin, end } = self.blocks[block];
+        &self.instructions[begin..end]
+    }
 
-        let read = self.innermost_stack.read();
-        innermost_stack.write(|write| {
-            for t in read.iter() {
-                match t {
-                    Config::Rewrite(x) => write.push(Config::Rewrite(*x)),
-                    Config::Construct(f, x, y) => {
-                        write.push(Config::Construct(f.copy(), *x, *y));
-                    }
-                    Config::Term(t, y) => {
-                        write.push(Config::Term(t.copy(), *y));
-                    }
-                    Config::Binder(t, x, y) => {
-                        write.push(Config::Binder(t.copy(), *x, *y));
-                    }
-                    Config::Return() => write.push(Config::Return()),
-                }
-            }
-        });
-
-        Self {
-            variables: self.variables.clone(),
-            stack_size: self.stack_size,
-            innermost_stack,
-        }
+    /// Returns the positions of the variables, once per occurrence.
+    pub fn variables(&self) -> impl Iterator<Item = &DataPosition> {
+        self.instructions.iter().filter_map(|instruction| match instruction {
+            Instruction::Variable(position) => Some(position),
+            _ => None,
+        })
     }
 }
 
+impl<H: fmt::Debug> fmt::Display for TermStack<H> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for block in 0..self.blocks.len() {
+            write!(f, "{block}:")?;
+            for instruction in self.block(block) {
+                match instruction {
+                    Instruction::Variable(position) => write!(f, " @{position}")?,
+                    Instruction::Term(term) => write!(f, " {term}")?,
+                    Instruction::Apply { symbol, arity } => write!(f, " {symbol}/{arity}")?,
+                    Instruction::Binder { template, arity } => write!(f, " ({template})/{arity}")?,
+                    Instruction::Hole(hole) => write!(f, " {hole:?}")?,
+                }
+            }
+            writeln!(f)?;
+        }
+        Ok(())
+    }
+}
+
+/// The stack of values that [TermStack::evaluate_with] reuses.
 pub struct TermStackBuilder {
-    stack: InnermostStack,
+    values: Protected<Vec<DataExpressionRef<'static>>>,
 }
 
 impl TermStackBuilder {
     pub fn new() -> Self {
         Self {
-            stack: InnermostStack::default(),
+            values: Protected::new(Vec::new()),
         }
     }
 }
@@ -417,7 +298,6 @@ mod tests {
     use ahash::AHashSet;
     use ahash::HashMap;
     use ahash::HashMapExt;
-    use merc_aterm::Protected;
     use merc_data::BinderType;
     use merc_data::DataAbstraction;
     use merc_data::DataApplication;
@@ -430,8 +310,8 @@ mod tests {
 
     use crate::Rule;
     use crate::test_utility::create_rewrite_rule;
-    use crate::utilities::Config;
     use crate::utilities::DataPosition;
+    use crate::utilities::Instruction;
     use crate::utilities::TermStack;
     use crate::utilities::create_var_map;
 
@@ -440,35 +320,26 @@ mod tests {
     #[test]
     fn test_rhs_stack() {
         let rhs_stack = TermStack::new(&create_rewrite_rule("fact(s(N))", "times(s(N), fact(N))", &["N"]).unwrap());
-        let mut expected: Protected<Vec<Config<'static>>> = Protected::new(vec![]);
 
-        let t1 = DataFunctionSymbol::new("times");
-        let t2 = DataFunctionSymbol::new("s");
-        let t3 = DataFunctionSymbol::new("fact");
-
-        expected.write(|write| {
-            write.push(Config::Construct(t1.copy(), 2, 0));
-            write.push(Config::Construct(t2.copy(), 1, 1));
-            write.push(Config::Construct(t3.copy(), 1, 2));
-        });
-
-        // Check if the resulting construction succeeded.
+        let n = DataPosition::new(&[1, 1]);
+        let apply = |name: &str, arity: usize| Instruction::Apply {
+            symbol: DataFunctionSymbol::new(name),
+            arity,
+        };
         assert_eq!(
-            rhs_stack.innermost_stack, expected,
-            "The resulting config stack is not as expected"
+            rhs_stack.instructions,
+            [
+                Instruction::Variable(n.clone()),
+                apply("s", 1),
+                Instruction::Variable(n),
+                apply("fact", 1),
+                apply("times", 2),
+            ]
         );
 
-        assert_eq!(rhs_stack.stack_size, 5, "The stack size does not match");
-
-        // Test the evaluation
         let lhs = DataExpression::from_string("fact(s(a))").unwrap();
         let rhs = DataExpression::from_string("times(s(a), fact(a))").unwrap();
-
-        assert_eq!(
-            rhs_stack.evaluate(&lhs),
-            rhs,
-            "The rhs stack does not evaluate to the expected term"
-        );
+        assert_eq!(rhs_stack.evaluate(&lhs), rhs);
     }
 
     #[test]
@@ -480,22 +351,24 @@ mod tests {
         let body = DataExpression::from_string_untyped("f(x, y)", &variables).unwrap();
         let binder: DataExpression = DataAbstraction::new(BinderType::Exists, std::slice::from_ref(&y), body).into();
 
-        // h(exists y. f(x, y)): the binder's only child is its free variable `x`, taken from g(x).
+        // h(exists y. f(x, y)): the binder's only value is its free variable `x`, taken from g(x).
         let h = DataFunctionSymbol::new("h");
         let rhs: DataExpression = DataApplication::with_args(&h, std::slice::from_ref(&binder)).into();
         let rhs_stack = TermStack::new(&Rule::new(lhs, rhs));
 
         // The binder is stored closed over its free variable, as `lambda x . exists y. f(x, y)`.
-        let template: DataExpression =
-            DataAbstraction::new(BinderType::Lambda, std::slice::from_ref(&x), binder.clone()).into();
-        let mut expected: Protected<Vec<Config<'static>>> = Protected::new(vec![]);
-        expected.write(|write| {
-            write.push(Config::Construct(h.copy(), 1, 0));
-            write.push(Config::Binder(template.copy(), 1, 1));
-        });
-        assert_eq!(rhs_stack.innermost_stack, expected);
-        assert_eq!(rhs_stack.stack_size, 3);
-        assert_eq!(rhs_stack.variables, [(DataPosition::new(&[1]), 2)]);
+        let template = DataAbstraction::new(BinderType::Lambda, std::slice::from_ref(&x), binder.clone());
+        assert_eq!(
+            rhs_stack.instructions,
+            [
+                Instruction::Variable(DataPosition::new(&[1])),
+                Instruction::Binder { template, arity: 1 },
+                Instruction::Apply {
+                    symbol: h.clone(),
+                    arity: 1
+                },
+            ]
+        );
 
         // Substituting `y` for `x` would be captured, so the value is bound by a where clause.
         let instance = rhs_stack.evaluate(&DataExpression::from_string_untyped("g(y)", &variables).unwrap());
@@ -507,14 +380,7 @@ mod tests {
     #[test]
     fn test_rhs_stack_variable() {
         let rhs = TermStack::new(&create_rewrite_rule("f(x)", "x", &["x"]).unwrap());
-
-        // Check if the resulting construction succeeded.
-        assert!(
-            rhs.innermost_stack.read().is_empty(),
-            "The resulting config stack is not as expected"
-        );
-
-        assert_eq!(rhs.stack_size, 1, "The stack size does not match");
+        assert_eq!(rhs.instructions, [Instruction::Variable(DataPosition::new(&[1]))]);
     }
 
     #[test]

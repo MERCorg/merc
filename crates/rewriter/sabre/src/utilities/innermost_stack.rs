@@ -1,18 +1,19 @@
 use std::fmt;
 
+use merc_aterm::ATermRef;
+use merc_aterm::Markable;
 use merc_aterm::Protected;
 use merc_aterm::ProtectedWriteGuard;
+use merc_aterm::SymbolRef;
+use merc_aterm::Transmutable;
+use merc_aterm::storage::Marker;
 use merc_data::DataExpressionRef;
 use merc_data::DataFunctionSymbolRef;
 use merc_utilities::debug_trace;
 
-// Only used in debug_trace!
-#[allow(unused_imports)]
-use itertools::Itertools;
-
 use crate::utilities::DataPositionIndexed;
 
-use super::Config;
+use super::Instruction;
 use super::TermStack;
 
 /// This stack is used to avoid recursion and also to keep track of terms in
@@ -24,8 +25,101 @@ pub struct InnermostStack {
     pub terms: Protected<Vec<Option<DataExpressionRef<'static>>>>,
 }
 
+#[derive(Hash, Eq, PartialEq, Ord, PartialOrd, Debug)]
+pub enum Config<'a> {
+    /// Rewrite the top of the stack and put result at the given index.
+    Rewrite(usize),
+    /// Constructs function symbol with given arity at the given index.
+    Construct(DataFunctionSymbolRef<'a>, usize, usize),
+    /// A concrete term to be placed at the current position in the stack.
+    Term(DataExpressionRef<'a>, usize),
+    /// Instantiates the binder `b`, given as `lambda x0, .., xn . b` over its free variables
+    /// `x0, .., xn`, with the given number of values for them on top of the stack, and places
+    /// the result at the given index.
+    Binder(DataExpressionRef<'a>, usize, usize),
+    /// Yields the given index as returned term.
+    Return(),
+}
+
+impl Markable for Config<'_> {
+    fn mark(&self, marker: &mut Marker<'_>) {
+        match self {
+            Config::Construct(t, _, _) => t.mark(marker),
+            Config::Term(t, _) | Config::Binder(t, _, _) => t.mark(marker),
+            Config::Rewrite(_) | Config::Return() => {}
+        }
+    }
+
+    fn contains_term(&self, term: &ATermRef<'_>) -> bool {
+        match self {
+            Config::Construct(t, _, _) => t.contains_term(term),
+            Config::Term(t, _) | Config::Binder(t, _, _) => t.contains_term(term),
+            Config::Rewrite(_) | Config::Return() => false,
+        }
+    }
+
+    fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
+        match self {
+            Config::Construct(t, _, _) => t.contains_symbol(symbol),
+            Config::Term(t, _) | Config::Binder(t, _, _) => t.contains_symbol(symbol),
+            Config::Rewrite(_) | Config::Return() => false,
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Config::Construct(_, _, _) | Config::Term(_, _) | Config::Binder(_, _, _) => 1,
+            Config::Rewrite(_) | Config::Return() => 0,
+        }
+    }
+}
+
+// SAFETY: `Config` only borrows the term pool through its `DataFunctionSymbolRef`
+// / `DataExpressionRef` fields, which are themselves lifetime-erasable handles
+// into the global term pool. Transmuting only changes the lifetime parameter, so
+// the layout is identical.
+unsafe impl Transmutable for Config<'static> {
+    type Target<'a> = Config<'a>;
+
+    unsafe fn transmute_lifetime<'a>(&'_ self) -> &'a Self::Target<'a> {
+        // SAFETY: see the trait impl comment above; the caller upholds that 'a does not
+        // outlive the borrow of `self`.
+        unsafe { std::mem::transmute::<&Self, &'a Config>(self) }
+    }
+
+    unsafe fn transmute_lifetime_mut<'a>(&'_ mut self) -> &'a mut Self::Target<'a> {
+        // SAFETY: see the trait impl comment above; the caller upholds that 'a does not
+        // outlive the borrow of `self`.
+        unsafe { std::mem::transmute::<&mut Self, &'a mut Config>(self) }
+    }
+}
+
+impl fmt::Display for Config<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Config::Rewrite(result) => write!(f, "Rewrite({result})"),
+            Config::Construct(symbol, arity, result) => {
+                write!(f, "Construct({symbol}, {arity}, {result})")
+            }
+            Config::Term(term, result) => {
+                write!(f, "Term({term}, {result})")
+            }
+            Config::Binder(binder, arity, result) => {
+                write!(f, "Binder({binder}, {arity}, {result})")
+            }
+            Config::Return() => write!(f, "Return()"),
+        }
+    }
+}
+
 impl InnermostStack {
     /// Updates the InnermostStack to integrate the rhs_stack instructions.
+    ///
+    /// The program is the term in post-order, so in reverse it reaches every subterm before its
+    /// arguments, and those from the last to the first. An application gets slots on top of the
+    /// stack for its arguments, which the instructions of the arguments fill: a variable
+    /// directly, and a constant, an application or a binder by a configuration, which runs once
+    /// the arguments of the application or the binder are in place.
     pub fn integrate(
         write_configs: &mut ProtectedWriteGuard<'_, '_, Vec<Config<'_>>>,
         write_terms: &mut ProtectedWriteGuard<'_, '_, Vec<Option<DataExpressionRef<'_>>>>,
@@ -33,77 +127,40 @@ impl InnermostStack {
         term: &DataExpressionRef<'_>,
         result_index: usize,
     ) {
-        // TODO: This ignores the first element of the stack, but that is kind of difficult to deal with.
-        let top_of_stack = write_terms.len();
-        write_terms.reserve(rhs_stack.stack_size - 1); // We already reserved space for the result.
-        for _ in 0..rhs_stack.stack_size - 1 {
-            write_terms.push(None);
-        }
+        debug_trace!("\t applied stack: {}", rhs_stack);
 
-        let mut first = true;
-        for config in rhs_stack.innermost_stack.read().iter() {
-            match config {
-                Config::Construct(symbol, arity, offset) => {
-                    if first {
-                        // The first result must be placed on the original result index.
-                        InnermostStack::add_result(write_configs, symbol.copy(), *arity, result_index);
-                    } else {
-                        // Otherwise, we put it on the end of the stack.
-                        InnermostStack::add_result(write_configs, symbol.copy(), *arity, top_of_stack + offset - 1);
-                    }
+        // The slots that the remaining instructions fill, the next one on top.
+        let mut slots = vec![result_index];
+        for instruction in rhs_stack.block(0).iter().rev() {
+            let index = slots.pop().expect("every instruction has a slot for its value");
+            let arity = match instruction {
+                Instruction::Variable(position) => {
+                    // Safety: term is stored in the container on the same line.
+                    write_terms[index] = Some(unsafe { write_terms.protect(&term.get_data_position(position)) }.into());
+                    0
                 }
-                Config::Term(term, offset) => {
-                    // Safety: term is pushed into the container on the next line.
-                    let term = unsafe { write_configs.protect(term) };
-                    // The offsets are relative to the right-hand side's own stack,
-                    // so they are rebased onto this stack exactly like `Construct`.
-                    if first {
-                        write_configs.push(Config::Term(term.into(), result_index));
-                    } else {
-                        write_configs.push(Config::Term(term.into(), top_of_stack + offset - 1));
-                    }
+                Instruction::Term(value) => {
+                    // Safety: value is pushed into the container on the next line.
+                    let value = unsafe { write_configs.protect(value) };
+                    write_configs.push(Config::Term(value.into(), index));
+                    0
                 }
-                Config::Binder(binder, arity, offset) => {
-                    // Safety: binder is pushed into the container on the next line.
-                    let binder = unsafe { write_configs.protect(binder) };
-                    let index = if first { result_index } else { top_of_stack + offset - 1 };
-                    write_configs.push(Config::Binder(binder.into(), *arity, index));
+                Instruction::Apply { symbol, arity } => {
+                    InnermostStack::add_result(write_configs, symbol.copy(), *arity, index);
+                    *arity
                 }
-                Config::Rewrite(_) => {
-                    unreachable!("This case should not happen");
+                Instruction::Binder { template, arity } => {
+                    // Safety: template is pushed into the container on the next line.
+                    let template = unsafe { write_configs.protect(template) };
+                    write_configs.push(Config::Binder(template.into(), *arity, index));
+                    *arity
                 }
-                Config::Return() => {
-                    unreachable!("This case should not happen");
-                }
-            }
-            first = false;
-        }
-        debug_trace!(
-            "\t applied stack size: {}, substitution: {{{}}}, stack: [{}]",
-            rhs_stack.stack_size,
-            rhs_stack.variables.iter().format_with(", ", |element, f| {
-                f(&format_args!("{} -> {}", element.0, element.1))
-            }),
-            rhs_stack.innermost_stack.read().iter().format("\n")
-        );
+                Instruction::Hole(hole) => match *hole {},
+            };
 
-        debug_assert!(
-            rhs_stack.stack_size != 1 || rhs_stack.variables.len() <= 1,
-            "There can only be a single variable in the right hand side"
-        );
-        if rhs_stack.stack_size == 1 && rhs_stack.variables.len() == 1 {
-            // This is a special case where we place the result on the correct position immediately.
-            // The right hand side is only a variable
-            // Safety: term is stored in the container on the next line.
-            write_terms[result_index] =
-                Some(unsafe { write_terms.protect(&term.get_data_position(&rhs_stack.variables[0].0)) }.into());
-        } else {
-            for (position, index) in &rhs_stack.variables {
-                // Add the positions to the stack.
-                // Safety: term is stored in the container on the same line.
-                write_terms[top_of_stack + index - 1] =
-                    Some(unsafe { write_terms.protect(&term.get_data_position(position)) }.into());
-            }
+            let top_of_stack = write_terms.len();
+            write_terms.resize(top_of_stack + arity, None);
+            slots.extend(top_of_stack..top_of_stack + arity);
         }
     }
 
