@@ -14,6 +14,7 @@ use merc_lts::LabelledTransitionSystem;
 use merc_lts::LtsAction;
 use merc_lts::LtsBuilderMem;
 use merc_lts::LtsMultiAction;
+use merc_lts::MutexLtsBuilder;
 use merc_lts::SimpleAction;
 use merc_lts::StateIndex;
 use merc_lts::TransitionLabel;
@@ -36,6 +37,8 @@ use rand::seq::IndexedRandom;
 use rand::seq::IteratorRandom;
 
 use merc_explore::combine_lts;
+use merc_explore::combine_lts_actions_parallel;
+use merc_explore::combine_lts_parallel;
 
 /// Returns a random multi-action label with action names sampled from the given list.
 fn random_multi_action<R: rand::Rng>(rng: &mut R, actions: &[String], max_size: usize) -> MultiActionLabel {
@@ -84,8 +87,8 @@ fn test_combine_communication_allow_and_hide() {
     let hide = parse_action_names("{c}").unwrap();
 
     let mut builder = LtsBuilderMem::new(Vec::new(), Vec::new());
-    combine_lts(&mut builder, ltss, &hide, &allow, &comm, &Timing::new()).unwrap();
-    let result = &builder.finish(StateIndex::new(0), false);
+    let result = combine_lts(&mut builder, ltss, &hide, &allow, &comm, &Timing::new()).unwrap();
+    let result = &result;
 
     let transitions = result
         .iter_states()
@@ -243,8 +246,19 @@ fn test_mcrl2_ltscombine() {
         let expected_path = temp_dir.path().join("expected.aut");
         write_mcrl2_aut(&mut File::create(&expected_path).unwrap(), &expected_lts).unwrap();
 
+        // The arguments of the actions are interned to combine them in parallel.
+        let parallel_lts = combine_lts_actions_parallel(
+            vec![left_lts.clone(), right_lts.clone()],
+            &hide,
+            &allow,
+            &comm,
+            4,
+            &Timing::new(),
+        )
+        .unwrap();
+
         let mut result: LtsBuilderMem<LtsMultiAction<LtsAction>> = LtsBuilderMem::new(Vec::new(), Vec::new());
-        combine_lts(
+        let result_lts = combine_lts(
             &mut result,
             vec![left_lts, right_lts],
             &hide,
@@ -253,7 +267,6 @@ fn test_mcrl2_ltscombine() {
             &Timing::new(),
         )
         .unwrap();
-        let result_lts = result.finish(StateIndex::new(0), false);
 
         let result_path = temp_dir.path().join("result.aut");
         write_mcrl2_aut(&mut File::create(&result_path).unwrap(), &result_lts).unwrap();
@@ -261,7 +274,7 @@ fn test_mcrl2_ltscombine() {
         assert!(
             compare_lts(
                 Equivalence::StrongBisim,
-                expected_lts.with_state_labels(()),
+                expected_lts.clone().with_state_labels(()),
                 result_lts,
                 false,
                 false,
@@ -269,6 +282,69 @@ fn test_mcrl2_ltscombine() {
             )
             .0,
             "The resulting LTSs are not bisimilar."
+        );
+        assert!(
+            compare_lts(
+                Equivalence::StrongBisim,
+                expected_lts.with_state_labels(()),
+                parallel_lts,
+                false,
+                false,
+                &Timing::new(),
+            )
+            .0,
+            "The LTS combined in parallel is not bisimilar."
+        );
+    });
+}
+
+/// The parallel composition computed with several threads is strongly bisimilar to the one computed with one thread,
+/// and has the same transitions up to the numbering of the states.
+#[test]
+fn test_combine_parallel_matches_sequential() {
+    random_test(20, |rng| {
+        let random_test_lts = |rng: &mut _| {
+            random_lts::<String, _>(rng, 10, 5)
+                .relabel(|label| LtsMultiAction::<SimpleAction>::from_string(&label))
+                .unwrap()
+        };
+        let ltss = vec![random_test_lts(rng), random_test_lts(rng), random_test_lts(rng)];
+        let comm = parse_comm_expr_set("{a|b -> c}").unwrap();
+        let allow = parse_allow_action_names("{a, c, a|c, d}").unwrap();
+        let hide = parse_action_names("{a}").unwrap();
+
+        let sequential = combine_lts(
+            &mut LtsBuilderMem::new(Vec::new(), Vec::new()),
+            ltss.clone(),
+            &hide,
+            &allow,
+            &comm,
+            &Timing::new(),
+        )
+        .unwrap();
+        let parallel = combine_lts_parallel(
+            &mut MutexLtsBuilder::new(LtsBuilderMem::new(Vec::new(), Vec::new())),
+            ltss,
+            &hide,
+            &allow,
+            &comm,
+            4,
+            &Timing::new(),
+        )
+        .unwrap();
+
+        assert_eq!(sequential.num_of_transitions(), parallel.num_of_transitions());
+        assert!(
+            compare_lts(
+                Equivalence::StrongBisim,
+                sequential,
+                parallel,
+                false,
+                false,
+                &Timing::new()
+            )
+            .0,
+            "The sequential and parallel compositions are not bisimilar."
         );
     });
 }
