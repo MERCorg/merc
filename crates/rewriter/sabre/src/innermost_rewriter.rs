@@ -97,12 +97,13 @@ impl InnermostRewriter<NoQuantifierEnumerator> {
 impl<E: Enumerator> InnermostRewriter<E> {
     fn build(spec: &RewriteSpecification, max_entries: Option<usize>, enumerator: E) -> Self {
         // The automaton annotates the rules through a shared reference.
-        let programs = RefCell::new(TermStacks::default());
-        let automaton =
-            SetAutomaton::with_binders(spec, |rule| programs.borrow_mut().annotate(rule, TermStack::new(rule)));
+        let term_stacks = RefCell::new(TermStacks::default());
+        let automaton = SetAutomaton::with_binders(spec, |rule| {
+            term_stacks.borrow_mut().annotate(rule, TermStack::from_rule(rule))
+        });
 
         InnermostRewriter {
-            machine: RewriteMachine::new(automaton, programs.into_inner(), max_entries, enumerator),
+            machine: RewriteMachine::new(automaton, term_stacks.into_inner(), max_entries, enumerator),
         }
     }
 
@@ -136,11 +137,11 @@ impl<E: Enumerator> InnermostRewriter<E> {
 /// The rewriting machine of the [InnermostRewriter]: the automaton of the rules, and the stacks
 /// and caches that rewriting reuses.
 ///
-/// The right-hand sides of the rules are programs (see [TermStack]), which the machine runs in
+/// The right-hand sides of the rules are term stacks (see [TermStack]), which the machine evaluates in
 /// place.
 pub(crate) struct RewriteMachine<E: Enumerator> {
     automaton: SetAutomaton<Annotation>,
-    programs: TermStacks,
+    term_stacks: TermStacks,
     stack: InnermostStack,
     builder: TermStackBuilder,
     /// Caches condition-side normal forms across the whole computation.
@@ -156,13 +157,13 @@ pub(crate) struct RewriteMachine<E: Enumerator> {
 impl<E: Enumerator> RewriteMachine<E> {
     fn new(
         automaton: SetAutomaton<Annotation>,
-        programs: TermStacks,
+        term_stacks: TermStacks,
         max_entries: Option<usize>,
         enumerator: E,
     ) -> Self {
         RewriteMachine {
             automaton,
-            programs,
+            term_stacks,
             stack: InnermostStack::default(),
             builder: TermStackBuilder::new(),
             condition_cache: ConditionCache::new(max_entries),
@@ -191,7 +192,7 @@ impl<E: Enumerator> RewriteMachine<E> {
             builder: &mut self.builder,
             metrics: &mut self.metrics,
             automaton: &self.automaton,
-            programs: &self.programs,
+            term_stacks: &self.term_stacks,
             condition_cache: &mut self.condition_cache,
             enumerator: &self.enumerator,
             binders: &mut self.binders,
@@ -200,7 +201,7 @@ impl<E: Enumerator> RewriteMachine<E> {
     }
 }
 
-/// The right-hand sides of the rules of a [RewriteMachine], which [ProgramId]s refer to.
+/// The right-hand sides of the rules of a [RewriteMachine], which [TermStackId]s refer to.
 #[derive(Default)]
 struct TermStacks {
     stacks: Vec<TermStack>,
@@ -209,21 +210,21 @@ struct TermStacks {
 /// The index of a right-hand side in [TermStacks]. Only [TermStacks::annotate] makes one, so
 /// it refers to a right-hand side of the machine whose automaton holds it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ProgramId(u32);
+pub(crate) struct TermStackId(u32);
 
 impl TermStacks {
-    /// Adds `program`, the right-hand side of `rule`, and returns the annotation of the rule.
-    fn annotate(&mut self, rule: &Rule, program: TermStack) -> Annotation {
-        self.stacks.push(program);
+    /// Adds `term_stack`, the right-hand side of `rule`, and returns the annotation of the rule.
+    fn annotate(&mut self, rule: &Rule, term_stack: TermStack) -> Annotation {
+        self.stacks.push(term_stack);
         Annotation {
             equivalence_classes: derive_equivalence_classes(rule),
             conditions: extend_conditions(rule),
-            program: ProgramId(u32::try_from(self.stacks.len() - 1).expect("fewer than 2^32 programs")),
+            right_hand_side: TermStackId(u32::try_from(self.stacks.len() - 1).expect("fewer than 2^32 term stacks")),
         }
     }
 
     /// Returns the right-hand side that `id` refers to.
-    fn get(&self, id: ProgramId) -> &TermStack {
+    fn get(&self, id: TermStackId) -> &TermStack {
         &self.stacks[id.0 as usize]
     }
 }
@@ -234,7 +235,7 @@ pub(crate) struct Annotation {
     pub equivalence_classes: Vec<EquivalenceClass>,
     pub conditions: Vec<EMACondition>,
     /// The right-hand side.
-    pub program: ProgramId,
+    pub right_hand_side: TermStackId,
 }
 
 /// The state that rewriting a term needs, borrowed from the [RewriteMachine].
@@ -253,7 +254,7 @@ struct RewriteContext<'a, E: Enumerator> {
     builder: &'a mut TermStackBuilder,
     metrics: &'a mut RewriteMetrics,
     automaton: &'a SetAutomaton<Annotation>,
-    programs: &'a TermStacks,
+    term_stacks: &'a TermStacks,
     condition_cache: &'a mut ConditionCache,
     enumerator: &'a E,
     binders: &'a mut BinderState<E::Frame>,
@@ -269,7 +270,8 @@ struct RewriteContext<'a, E: Enumerator> {
 ///       left to right and then matching the redex.
 ///     - Construct { symbol, arity }: Matches `symbol` applied to the `arity` terms on top, and
 ///       replaces them by its normal form.
-///     - Evaluate: Runs a right-hand side in place, with a program counter; see [Evaluate].
+///     - Evaluate: Evaluates the term stack of a right-hand side in place, keeping the index of
+///       its next instruction; see [Evaluate].
 ///     - Return: Pops the normal form of the input term.
 ///
 /// Free variables of `input_term` are replaced by their image under `sigma` when they are
@@ -281,7 +283,7 @@ struct RewriteContext<'a, E: Enumerator> {
 /// which one depends on where it comes from:
 ///     - A binder of the input term is reached through `Rewrite`, while `sigma` is not yet
 ///       consumed for its free variables, so its body is rewritten under `sigma`.
-///     - A binder of a right-hand side is reached by its program. Its free variables are
+///     - A binder of a right-hand side is reached by its term stack. Its free variables are
 ///       variables of the rule, and their values are the normal forms of the matched subterms,
 ///       which are rewritten like any other argument first. These are already substituted, so
 ///       its body is rewritten under the values instead of `sigma`.
@@ -306,7 +308,7 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
     loop {
         debug_trace!("{}", context.stack);
 
-        let programs = context.programs;
+        let term_stacks = context.term_stacks;
         let stack = &mut *context.stack;
         let step = stack.configs.write(|write_configs| {
             stack.terms.write(|write_terms| {
@@ -319,7 +321,7 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
                             arity: *arity,
                         };
                     }
-                    Some(Config::Evaluate(_)) => return run_program(write_configs, write_terms, programs),
+                    Some(Config::Evaluate(_)) => return evaluate_term_stack(write_configs, write_terms, term_stacks),
                     _ => {}
                 }
 
@@ -416,22 +418,23 @@ fn decompose<'p, S: RewriteSubstitution>(
     Step::Continue
 }
 
-/// Runs the [Config::Evaluate] on top of the stack until it reaches an instruction that needs
+/// Evaluates the term stack of the [Config::Evaluate] on top of the stack until it reaches an
+/// instruction that needs
 /// more than the stacks, or its end.
-fn run_program<'p>(
+fn evaluate_term_stack<'p>(
     write_configs: &mut ProtectedWriteGuard<'_, '_, Vec<Config<'_>>>,
     write_terms: &mut ProtectedWriteGuard<'_, '_, Vec<Option<DataExpressionRef<'_>>>>,
-    programs: &'p TermStacks,
+    term_stacks: &'p TermStacks,
 ) -> Step<'p> {
     let Some(Config::Evaluate(evaluate)) = write_configs.last_mut() else {
         unreachable!("the configuration on top is an evaluation");
     };
-    let program = programs.get(evaluate.program);
+    let term_stack = term_stacks.get(evaluate.term_stack);
 
     while evaluate.pc < evaluate.end {
         let pc = evaluate.pc;
         evaluate.pc += 1;
-        match &program.instructions[pc as usize] {
+        match &term_stack.instructions[pc as usize] {
             Instruction::Variable(position) => {
                 // Safety: the value is stored in the container on the next line.
                 let value = unsafe { write_terms.protect(&subterm(&write_terms[evaluate.base..], position)) };
@@ -450,17 +453,17 @@ fn run_program<'p>(
                     arity: *arity,
                 };
             }
-            Instruction::Hole(hole) => match *hole {},
+            Instruction::Hook(hook) => match *hook {},
         }
     }
 
-    // The value of the program replaces the arguments of the matched term.
+    // The value of the term stack replaces the arguments of the matched term.
     let base = evaluate.base;
     write_configs.pop();
     let value = write_terms
         .pop()
-        .expect("a program has a value")
-        .expect("the value of a program is present");
+        .expect("a term stack has a value")
+        .expect("the value of a term stack is present");
     write_terms.truncate(base);
     write_terms.push(Some(value));
     Step::Continue
@@ -471,7 +474,7 @@ fn run_program<'p>(
 enum Head<'a> {
     /// The symbol of the [Config::Construct] on top of the configurations.
     Construct,
-    /// The symbol of an application in a program that is running.
+    /// The symbol of an application in a term stack that is being evaluated.
     Symbol(&'a DataFunctionSymbol),
 }
 
@@ -483,7 +486,7 @@ fn match_redex<E: Enumerator>(context: &mut RewriteContext<'_, E>, head: Head<'_
     let RewriteContext {
         stack,
         metrics,
-        programs,
+        term_stacks,
         ..
     } = context;
     stack.configs.write(|write_configs| {
@@ -509,10 +512,14 @@ fn match_redex<E: Enumerator>(context: &mut RewriteContext<'_, E>, head: Head<'_
                     debug_trace!("rewrite {} using rule {}", symbol, announcement.rule);
                     metrics.rule_applied(&announcement.rule);
 
-                    // The right-hand side runs on top of the arguments, which its variables refer
+                    // The right-hand side is evaluated on top of the arguments, which its variables refer
                     // to, and replaces them by its value.
-                    let block = programs.get(annotation.program).blocks[0];
-                    write_configs.push(Config::Evaluate(Evaluate::new(annotation.program, block, first)));
+                    let block = term_stacks.get(annotation.right_hand_side).blocks[0];
+                    write_configs.push(Config::Evaluate(Evaluate::new(
+                        annotation.right_hand_side,
+                        block,
+                        first,
+                    )));
                 }
                 None => {
                     // No rule applies, so the redex is a normal form, which is only constructed
@@ -774,7 +781,7 @@ impl AnnouncementInnermost {
         AnnouncementInnermost {
             conditions: extend_conditions(rule),
             equivalence_classes: derive_equivalence_classes(rule),
-            rhs_stack: TermStack::new(rule),
+            rhs_stack: TermStack::from_rule(rule),
         }
     }
 }
