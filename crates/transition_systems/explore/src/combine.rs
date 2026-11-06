@@ -1,6 +1,6 @@
-use std::cell::RefCell;
 use std::fmt;
 use std::marker::PhantomData;
+use std::sync::Arc;
 
 use hashbrown::HashMap;
 use itertools::Itertools;
@@ -8,7 +8,10 @@ use log::info;
 use rustc_hash::FxBuildHasher;
 use streaming_iterator::StreamingIterator;
 
-use merc_collections::IndexedSet;
+use merc_aterm::ATerm;
+use merc_aterm::ATermList;
+use merc_aterm::ATermSend;
+use merc_aterm::Term;
 use merc_collections::Odometer;
 use merc_collections::VecBag;
 use merc_data::DataExpression;
@@ -220,8 +223,8 @@ where
 
 /// Computes the parallel composition like [`combine_lts_parallel`], for LTSs in the binary LTS format.
 ///
-/// The arguments of their actions are terms that cannot be shared between threads, so they are interned by an
-/// [`ActionArguments`] table first and restored in the result. The state labels of the LTSs are not used.
+/// The arguments of their actions are terms that cannot be shared between threads, so the actions are converted to
+/// [`SendAction`]s first and converted back in the result. The state labels of the LTSs are not used.
 ///
 /// # Errors
 ///
@@ -234,45 +237,83 @@ pub fn combine_lts_actions_parallel<S: StateLabels>(
     threads: usize,
     timing: &Timing,
 ) -> Result<LabelledTransitionSystem<LtsMultiAction<LtsAction>>, MercError> {
-    let arguments = RefCell::new(ActionArguments::default());
     let parallel_composition = parallel_composition
         .into_iter()
         .map(|lts| {
             lts.with_state_labels(())
-                .relabel(|label| Ok(arguments.borrow_mut().intern(&label)))
+                .relabel(|label| Ok(SendAction::from_multi_action(&label)))
         })
         .collect::<Result<Vec<_>, _>>()?;
 
     let mut builder = MutexLtsBuilder::new(LtsBuilderMem::new(Vec::new(), Vec::new()));
     let result = combine_lts_parallel(&mut builder, parallel_composition, hide, allow, comm, threads, timing)?;
 
-    let arguments = arguments.into_inner();
-    result.relabel(|label| Ok(arguments.restore(&label)))
+    result.relabel(|label| Ok(SendAction::to_multi_action(&label)))
 }
 
-/// An [`LtsAction`] whose arguments are replaced by their index in an [`ActionArguments`] table.
+/// An [`LtsAction`] whose arguments are stored as a single sendable term list, so that it can be shared between
+/// threads.
 ///
-/// Composition only compares the arguments of actions for equality, which interning preserves. Unlike the terms in
-/// the arguments of an [`LtsAction`], this label can be shared between threads.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct InternedAction {
+/// Terms are maximally shared, so comparing the argument lists is as cheap as comparing integers. Cloning only
+/// increments a reference count, instead of protecting the term again.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SendAction {
     label: String,
-    arguments: usize,
+    arguments: Arc<ATermSend>,
 }
 
-impl fmt::Display for InternedAction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}#{}", self.label, self.arguments)
+impl SendAction {
+    /// Creates an action with the given label and arguments.
+    pub fn new(label: String, arguments: &[DataExpression]) -> Self {
+        let arguments: ATerm = ATermList::<DataExpression>::from_double_iter(arguments.iter().cloned()).into();
+        SendAction {
+            label,
+            arguments: Arc::new(ATermSend::from(arguments)),
+        }
+    }
+
+    /// Returns the [`LtsAction`] with the same label and arguments.
+    pub fn to_action(&self) -> LtsAction {
+        let arguments = ATermList::<DataExpression>::from(self.arguments.protect());
+        LtsAction::new(self.label.clone(), arguments.iter().collect())
+    }
+
+    /// Returns the multi-action in which every action is converted to a [`SendAction`].
+    pub fn from_multi_action(multi_action: &LtsMultiAction<LtsAction>) -> LtsMultiAction<SendAction> {
+        LtsMultiAction::new(
+            multi_action
+                .actions()
+                .iter()
+                .map(|action| SendAction::new(action.label().to_owned(), action.arguments()))
+                .collect(),
+        )
+    }
+
+    /// Returns the multi-action in which every action is converted back to an [`LtsAction`].
+    pub fn to_multi_action(multi_action: &LtsMultiAction<SendAction>) -> LtsMultiAction<LtsAction> {
+        LtsMultiAction::new(multi_action.actions().iter().map(SendAction::to_action).collect())
     }
 }
 
-impl TransitionLabel for InternedAction {
+impl fmt::Display for SendAction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.to_action(), f)
+    }
+}
+
+impl fmt::Debug for SendAction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.to_action(), f)
+    }
+}
+
+impl TransitionLabel for SendAction {
     fn is_tau_label(&self) -> bool {
         false
     }
 
     fn tau_label() -> Self {
-        panic!("InternedAction does not support tau labels. Use LtsMultiAction for that.")
+        panic!("SendAction does not support tau labels. Use LtsMultiAction for that.")
     }
 
     fn matches_label(&self, label: &str) -> bool {
@@ -280,66 +321,20 @@ impl TransitionLabel for InternedAction {
     }
 
     fn from_index(i: usize) -> Self {
-        InternedAction {
-            label: LtsAction::from_index(i).label().to_owned(),
-            arguments: 0,
-        }
+        SendAction::new(LtsAction::from_index(i).label().to_owned(), &[])
     }
 }
 
-impl CombineLabel for InternedAction {
+impl CombineLabel for SendAction {
     fn comm_args_compatible(&self, other: &Self) -> bool {
         self.arguments == other.arguments
     }
 
     fn from_comm(label: String, representative: &Self) -> Self {
-        InternedAction {
+        SendAction {
             label,
-            arguments: representative.arguments,
+            arguments: representative.arguments.clone(),
         }
-    }
-}
-
-/// Interns the arguments of [`LtsAction`]s, see [`InternedAction`].
-#[derive(Default)]
-pub struct ActionArguments {
-    arguments: IndexedSet<Vec<DataExpression>>,
-}
-
-impl ActionArguments {
-    /// Returns the multi-action in which the arguments of every action are interned.
-    pub fn intern(&mut self, multi_action: &LtsMultiAction<LtsAction>) -> LtsMultiAction<InternedAction> {
-        LtsMultiAction::new(
-            multi_action
-                .actions()
-                .iter()
-                .map(|action| InternedAction {
-                    label: action.label().to_owned(),
-                    arguments: *self.arguments.insert(action.arguments().to_vec()).0,
-                })
-                .collect(),
-        )
-    }
-
-    /// Returns the multi-action in which the arguments of every action are restored.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the arguments were not interned by this table.
-    pub fn restore(&self, multi_action: &LtsMultiAction<InternedAction>) -> LtsMultiAction<LtsAction> {
-        LtsMultiAction::new(
-            multi_action
-                .actions()
-                .iter()
-                .map(|action| {
-                    let arguments = self
-                        .arguments
-                        .get_by_index(action.arguments)
-                        .expect("The arguments must be interned by this table");
-                    LtsAction::new(action.label.clone(), arguments.clone())
-                })
-                .collect(),
-        )
     }
 }
 
@@ -946,12 +941,11 @@ mod tests {
     use merc_syntax::parse_comm_expr_set;
     use merc_utilities::random_test;
 
-    use super::ActionArguments;
     use super::CombineLabel;
     use super::CombinedLabels;
     use super::ComposedLts;
-    use super::InternedAction;
     use super::Odometer;
+    use super::SendAction;
     use super::ParallelTransition;
     use super::ParallelTransitions;
     use super::SortedLtsMultiAction;
@@ -1172,10 +1166,10 @@ mod tests {
         );
     }
 
-    /// Interning keeps exactly the actions with equal arguments compatible for communication, and restoring returns
-    /// the original actions.
+    /// Exactly the actions with equal arguments are compatible for communication, and converting back returns the
+    /// original actions.
     #[test]
-    fn action_arguments_intern_and_restore() {
+    fn send_action_conversion() {
         let single = |label: &str, argument: &str| {
             LtsMultiAction::new(VecBag::from_vec(vec![LtsAction::new(
                 label.to_owned(),
@@ -1184,18 +1178,18 @@ mod tests {
         };
         let (a_one, b_one, b_two) = (single("a", "1"), single("b", "1"), single("b", "f(2)"));
 
-        let mut arguments = ActionArguments::default();
-        let interned: Vec<LtsMultiAction<InternedAction>> = [&a_one, &b_one, &b_two]
+        let converted: Vec<LtsMultiAction<SendAction>> = [&a_one, &b_one, &b_two]
             .iter()
-            .map(|action| arguments.intern(action))
+            .map(|action| SendAction::from_multi_action(action))
             .collect();
-        let action = |i: usize| interned[i].actions().iter().next().unwrap();
+        let action = |i: usize| converted[i].actions().iter().next().unwrap();
 
         assert!(action(0).comm_args_compatible(action(1)));
         assert!(!action(1).comm_args_compatible(action(2)));
         assert!(action(0).matches_label("a") && action(2).matches_label("b"));
-        for (original, interned) in [&a_one, &b_one, &b_two].into_iter().zip(&interned) {
-            assert_eq!(&arguments.restore(interned), original);
+        assert_eq!(SendAction::from_multi_action(&b_two), converted[2]);
+        for (original, converted) in [&a_one, &b_one, &b_two].into_iter().zip(&converted) {
+            assert_eq!(&SendAction::to_multi_action(converted), original);
         }
     }
 

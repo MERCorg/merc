@@ -487,6 +487,32 @@ impl Drop for ATermSend {
     }
 }
 
+impl Hash for ATermSend {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.term.hash(state)
+    }
+}
+
+impl PartialEq for ATermSend {
+    fn eq(&self, other: &Self) -> bool {
+        self.term.eq(&other.term)
+    }
+}
+
+impl Eq for ATermSend {}
+
+impl PartialOrd for ATermSend {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ATermSend {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.term.cmp(&other.term)
+    }
+}
+
 impl<'a, 'b> Term<'a, 'b> for ATermSend
 where
     'b: 'a,
