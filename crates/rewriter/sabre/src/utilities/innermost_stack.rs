@@ -11,7 +11,7 @@ use merc_data::DataExpressionRef;
 use merc_data::DataFunctionSymbolRef;
 use merc_utilities::debug_trace;
 
-use crate::utilities::DataPositionIndexed;
+use crate::subject::subterm;
 
 use super::Instruction;
 use super::TermStack;
@@ -129,23 +129,32 @@ impl InnermostStack {
     /// stack for its arguments, which the instructions of the arguments fill: a variable
     /// directly, and a constant, an application or a binder by a configuration, which runs once
     /// the arguments of the application or the binder are in place.
+    ///
+    /// The variables are the arguments of the redex, which are the `arity` terms on top of the
+    /// stack, and are removed afterwards. The slots are therefore reserved above them, but the
+    /// configurations get the indices that the slots have once the arguments are removed.
     pub fn integrate(
         write_configs: &mut ProtectedWriteGuard<'_, '_, Vec<Config<'_>>>,
         write_terms: &mut ProtectedWriteGuard<'_, '_, Vec<Option<DataExpressionRef<'_>>>>,
         rhs_stack: &TermStack,
-        term: &DataExpressionRef<'_>,
+        arity: usize,
         result_index: usize,
     ) {
         debug_trace!("\t applied stack: {}", rhs_stack);
+
+        let base = write_terms.len() - arity;
+        // Where the slot at `index` is while the arguments are still on the stack.
+        let current = |index: usize| if index >= base { index + arity } else { index };
 
         // The slots that the remaining instructions fill, the next one on top.
         let mut slots = vec![result_index];
         for instruction in rhs_stack.block(0).iter().rev() {
             let index = slots.pop().expect("every instruction has a slot for its value");
-            let arity = match instruction {
+            let reserved = match instruction {
                 Instruction::Variable(position) => {
-                    // Safety: term is stored in the container on the same line.
-                    write_terms[index] = Some(unsafe { write_terms.protect(&term.get_data_position(position)) }.into());
+                    // Safety: the value is stored in the container on the next line.
+                    let value = unsafe { write_terms.protect(&subterm(&write_terms[base..base + arity], position)) };
+                    write_terms[current(index)] = Some(value.into());
                     0
                 }
                 Instruction::Term(value) => {
@@ -174,10 +183,13 @@ impl InnermostStack {
                 Instruction::Hole(hole) => match *hole {},
             };
 
-            let top_of_stack = write_terms.len();
-            write_terms.resize(top_of_stack + arity, None);
-            slots.extend(top_of_stack..top_of_stack + arity);
+            let length = write_terms.len();
+            write_terms.resize(length + reserved, None);
+            let top_of_stack = length - arity;
+            slots.extend(top_of_stack..top_of_stack + reserved);
         }
+
+        write_terms.drain(base..base + arity);
     }
 
     /// Indicate that the given symbol with arity can be constructed at the given index.

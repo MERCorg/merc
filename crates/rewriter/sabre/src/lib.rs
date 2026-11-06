@@ -8,6 +8,7 @@ mod quantifier;
 mod rewrite_specification;
 mod sabre_rewriter;
 mod set_automaton;
+mod subject;
 
 pub mod matching;
 pub mod test_utility;
