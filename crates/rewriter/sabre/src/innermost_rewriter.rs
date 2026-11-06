@@ -5,9 +5,7 @@ use merc_data::DataAbstraction;
 use merc_data::DataApplication;
 use merc_data::DataExpression;
 use merc_data::DataExpressionKind;
-use merc_data::DataExpressionRef;
 use merc_data::DataVariable;
-use merc_data::is_data_machine_number;
 
 use crate::Enumerator;
 use crate::NoQuantifierEnumerator;
@@ -24,11 +22,11 @@ use crate::matching::conditions::extend_conditions;
 use crate::matching::nonlinear::EquivalenceClass;
 use crate::matching::nonlinear::check_equivalence_classes;
 use crate::matching::nonlinear::derive_equivalence_classes;
+use crate::set_automaton::MatchAnnouncement;
 use crate::set_automaton::MatchResult;
 use crate::set_automaton::SetAutomaton;
-use crate::set_automaton::machine_number_symbol;
+use crate::subject::Subject;
 use crate::utilities::Config;
-use crate::utilities::DataPositionIndexed;
 use crate::utilities::EmptySubstitution;
 use crate::utilities::InnermostStack;
 use crate::utilities::RewriteSubstitution;
@@ -51,8 +49,12 @@ impl<E: Enumerator> RewriteEngine for InnermostRewriter<E> {
 enum Step {
     Continue,
 
-    /// Find a match for the constructed term, and place the result at the index.
-    Match(DataExpression, usize),
+    /// Find a match for the redex of the [Config::Construct] on top, whose `arity` arguments are
+    /// on top of the term stack, and place the result at `index`.
+    Match {
+        arity: usize,
+        index: usize,
+    },
 
     /// Rewrite a binder of the input term under `sigma`, and place the result at the index.
     SubjectBinder(DataAbstraction, usize),
@@ -253,6 +255,15 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
 
         let stack = &mut *context.stack;
         let step = stack.configs.write(|write_configs| {
+            // A construct stays on the stack while its redex is matched, which keeps its symbol
+            // protected; its arguments are already the terms on top.
+            if let Some(Config::Construct { arity, index, .. }) = write_configs.last() {
+                return Step::Match {
+                    arity: *arity,
+                    index: *index,
+                };
+            }
+
             let config = write_configs
                 .pop()
                 .expect("The stack always ends with a Return configuration");
@@ -305,21 +316,8 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
                     }
                     Step::Continue
                 }
-                Config::Construct { symbol, arity, index } => {
-                    // Take the last arity arguments.
-                    let length = write_terms.len();
-
-                    let arguments = &write_terms[length - arity..];
-
-                    let term: DataExpression = if arguments.is_empty() {
-                        symbol.protect().into()
-                    } else {
-                        DataApplication::with_iter(&symbol, arguments.len(), arguments.iter().flatten()).into()
-                    };
-
-                    // Remove the arguments from the stack.
-                    write_terms.drain(length - arity..);
-                    Step::Match(term, index)
+                Config::Construct { .. } => {
+                    unreachable!("a construct is matched before it is taken from the stack")
                 }
                 Config::Binder {
                     template: binder,
@@ -376,49 +374,55 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
                     write_terms[index] = Some(unsafe { write_terms.protect(&value) }.into());
                 });
             }
-            Step::Match(term, index) => {
+            Step::Match { arity, index } => {
                 let automaton = context.automaton;
-                match find_match(context, automaton, &term.copy()) {
-                    Some(MatchResult::Native(result)) => {
-                        debug_trace!("native rewrite {} => {}", term, result);
+                let found = find_match(context, automaton, arity);
+                let RewriteContext { stack, metrics, .. } = context;
+                stack.configs.write(|write_configs| {
+                    let Some(Config::Construct { symbol, .. }) = write_configs.pop() else {
+                        unreachable!("the redex is that of the construct on top of the stack");
+                    };
 
-                        context.stack.terms.write(|write_terms| {
-                            // Safety: result is stored in the container on the same line.
-                            write_terms[index] = Some(unsafe { write_terms.protect(&result) }.into());
-                        });
-                        context.metrics.native_applied(&term.data_function_symbol());
-                    }
-                    Some(MatchResult::Rule(announcement, annotation)) => {
-                        debug_trace!(
-                            "rewrite {} => {} using rule {}",
-                            term,
-                            annotation.rhs_stack.evaluate(&term),
-                            announcement.rule
-                        );
+                    stack.terms.write(|write_terms| {
+                        let first = write_terms.len() - arity;
+                        match found {
+                            Some(MatchResult::Native(result)) => {
+                                debug_trace!("native rewrite {} => {}", symbol, result);
+                                metrics.native_applied(&symbol);
 
-                        // Reacquire the write access and add the matching RHSStack.
-                        let stack = &mut *context.stack;
-                        stack.terms.write(|write_terms| {
-                            stack.configs.write(|write_configs| {
+                                // Safety: result is stored in the container on the same line.
+                                write_terms[index] = Some(unsafe { write_terms.protect(&result) }.into());
+                                write_terms.drain(first..);
+                            }
+                            Some(MatchResult::Rule(announcement, annotation)) => {
+                                debug_trace!("rewrite {} using rule {}", symbol, announcement.rule);
+                                metrics.rule_applied(&announcement.rule);
+
                                 InnermostStack::integrate(
                                     write_configs,
                                     write_terms,
                                     &annotation.rhs_stack,
-                                    &term.copy(),
+                                    arity,
                                     index,
-                                )
-                            })
-                        });
-                        context.metrics.rule_applied(&announcement.rule);
-                    }
-                    None => {
-                        // Add the term on the stack.
-                        context.stack.terms.write(|write_terms| {
-                            // Safety: term is stored in the container on the same line.
-                            write_terms[index] = Some(unsafe { write_terms.protect(&term) }.into());
-                        });
-                    }
-                }
+                                );
+                            }
+                            None => {
+                                // No rule applies, so the redex is a normal form, which is only
+                                // constructed now.
+                                let term: DataExpression = if arity == 0 {
+                                    symbol.protect().into()
+                                } else {
+                                    DataApplication::with_iter(&symbol, arity, write_terms[first..].iter().flatten())
+                                        .into()
+                                };
+
+                                // Safety: term is stored in the container on the same line.
+                                write_terms[index] = Some(unsafe { write_terms.protect(&term) }.into());
+                                write_terms.drain(first..);
+                            }
+                        }
+                    })
+                });
             }
             Step::Return(result) => return result,
         }
@@ -476,8 +480,8 @@ impl<E: Enumerator> BinderRewriter for RewriteContext<'_, E> {
     }
 }
 
-/// Use the APMA to find a match for the given term: either a rewrite rule,
-/// or — when the term's head symbol is a machine-word operation — the
+/// Uses the automaton to find a match for the redex of the [Config::Construct] on top of the
+/// stack: either a rewrite rule, or — when its head symbol is a machine-word operation — the
 /// natively-evaluated result.
 ///
 /// The automaton is passed separately from the context, so that the match it returns does not
@@ -485,72 +489,149 @@ impl<E: Enumerator> BinderRewriter for RewriteContext<'_, E> {
 fn find_match<'a, E: Enumerator>(
     context: &mut RewriteContext<'_, E>,
     automaton: &'a SetAutomaton<AnnouncementInnermost>,
-    t: &DataExpressionRef<'_>,
+    arity: usize,
 ) -> Option<MatchResult<'a, AnnouncementInnermost>> {
-    // Start at the initial state
-    let mut state_index = 0;
+    // The redex is read from the term stack, which checking conditions rewrites on. The walk
+    // therefore stops at a rule with conditions, which are checked outside of it, and continues
+    // after that rule when they do not hold.
+    let mut cursor = Cursor {
+        state: 0,
+        announcement: 0,
+    };
     loop {
-        let state = &automaton.states()[state_index];
-
-        // Get the symbol at the position state.label; a variable there matches no pattern.
-        context.metrics.symbol_compared();
-        let pos = t.get_data_position(state.label());
-
-        // A machine number carries no function symbol, so it is matched under
-        // the shared stand-in symbol the automaton reserves for them.
-        let operation_id = if is_data_machine_number(&pos) {
-            machine_number_symbol().operation_id()
-        } else {
-            pos.try_data_function_symbol()?.operation_id()
-        };
-
-        // Get the transition for the label and check if there is a pattern match
-        {
-            let transition = automaton.get_transition(state_index, operation_id)?;
-
-            // The very first transition observes the term's own head symbol
-            // (state 0's label is always the root position ε). That is the
-            // only point at which `native` refers to the term being matched
-            // as a whole, rather than to some other subterm the automaton
-            // happens to inspect while narrowing down candidate rules.
-            if state_index == 0
-                && let Some(op) = transition.native
-            {
-                return op.evaluate(t.data_arguments()).map(MatchResult::Native);
-            }
-
-            for (announcement, annotation) in &transition.announcements {
-                if check_equivalence_classes(t, &annotation.equivalence_classes)
-                    && check_conditions(context, annotation, t)
-                {
-                    // We found a matching pattern
+        let metrics = &mut *context.metrics;
+        match with_redex(context.stack, arity, |subject| {
+            walk(automaton, subject, metrics, cursor)
+        }) {
+            Walk::Done(result) => return result,
+            Walk::Conditional {
+                announcement,
+                annotation,
+                next,
+            } => {
+                if check_conditions(context, annotation, arity) {
                     return Some(MatchResult::Rule(announcement, annotation));
                 }
+                cursor = next;
             }
-
-            // If there is no pattern match we check if the transition has a destination state
-            if transition.destinations.is_empty() {
-                // If there is no destination state there is no pattern match
-                return None;
-            }
-
-            state_index = transition.destinations.first().unwrap().1;
         }
     }
 }
 
+/// Where [walk] continues: at a state, from one of the announcements of its transition.
+#[derive(Clone, Copy)]
+struct Cursor {
+    state: usize,
+    announcement: usize,
+}
+
+/// Where [walk] stops.
+enum Walk<'a> {
+    /// The redex matches this rule, or is natively evaluated, or nothing matches.
+    Done(Option<MatchResult<'a, AnnouncementInnermost>>),
+    /// The redex matches this rule if its conditions hold; otherwise the walk continues at `next`.
+    Conditional {
+        announcement: &'a MatchAnnouncement,
+        annotation: &'a AnnouncementInnermost,
+        next: Cursor,
+    },
+}
+
+/// Walks the automaton for `subject` from `cursor`, up to the first rule that matches it
+/// without conditions, or the first rule with conditions.
+fn walk<'a>(
+    automaton: &'a SetAutomaton<AnnouncementInnermost>,
+    subject: &Subject<'_>,
+    metrics: &mut RewriteMetrics,
+    mut cursor: Cursor,
+) -> Walk<'a> {
+    loop {
+        let state = &automaton.states()[cursor.state];
+
+        // A state that the walk continues at has been compared already.
+        if cursor.announcement == 0 {
+            metrics.symbol_compared();
+        }
+
+        // A variable at the position of the label matches no pattern.
+        let Some(transition) = subject
+            .operation_at(state.label())
+            .and_then(|operation| automaton.get_transition(cursor.state, operation))
+        else {
+            return Walk::Done(None);
+        };
+
+        // The very first transition observes the redex's own head symbol (state 0's label is
+        // always the root position ε). That is the only point at which `native` refers to
+        // the redex as a whole, rather than to some other subterm the automaton happens to
+        // inspect while narrowing down candidate rules.
+        if cursor.state == 0
+            && let Some(op) = transition.native
+        {
+            return Walk::Done(op.evaluate(subject.arguments()).map(MatchResult::Native));
+        }
+
+        for (index, (announcement, annotation)) in transition.announcements.iter().enumerate().skip(cursor.announcement)
+        {
+            if check_equivalence_classes(subject, &annotation.equivalence_classes) {
+                if annotation.conditions.is_empty() {
+                    return Walk::Done(Some(MatchResult::Rule(announcement, annotation)));
+                }
+                return Walk::Conditional {
+                    announcement,
+                    annotation,
+                    next: Cursor {
+                        state: cursor.state,
+                        announcement: index + 1,
+                    },
+                };
+            }
+        }
+
+        // Without a destination state there is no match.
+        let Some((_, destination)) = transition.destinations.first() else {
+            return Walk::Done(None);
+        };
+        cursor = Cursor {
+            state: *destination,
+            announcement: 0,
+        };
+    }
+}
+
+/// Calls `f` with the redex of the [Config::Construct] on top of the stack.
+fn with_redex<R, F>(stack: &InnermostStack, arity: usize, f: F) -> R
+where
+    F: FnOnce(&Subject<'_>) -> R,
+{
+    let read_configs = stack.configs.read();
+    let Some(Config::Construct { symbol, .. }) = read_configs.last() else {
+        unreachable!("the redex belongs to the construct on top of the stack");
+    };
+    let read_terms = stack.terms.read();
+    f(&Subject::Arguments(
+        symbol.copy(),
+        &read_terms[read_terms.len() - arity..],
+    ))
+}
+
 /// Checks whether the condition holds for given match announcement.
 ///
-/// The condition sides are built from the matched subterms, which are already substituted
+/// The condition sides are built from the arguments of the redex, which are already substituted
 /// normal forms, so the nested normalisations must not apply the substitution a second time.
 fn check_conditions<E: Enumerator>(
     context: &mut RewriteContext<'_, E>,
     announcement: &AnnouncementInnermost,
-    t: &DataExpressionRef<'_>,
+    arity: usize,
 ) -> bool {
     for c in &announcement.conditions {
-        let rhs: DataExpression = c.rhs_term_stack.evaluate_with(t, context.builder);
-        let lhs: DataExpression = c.lhs_term_stack.evaluate_with(t, context.builder);
+        let builder = &mut *context.builder;
+        let (lhs, rhs) = with_redex(context.stack, arity, |subject| {
+            (
+                c.lhs_term_stack.instantiate(subject, builder),
+                c.rhs_term_stack.instantiate(subject, builder),
+            )
+        });
 
         // Syntactically equal sides have the same normal form, so neither needs normalising.
         if lhs == rhs {

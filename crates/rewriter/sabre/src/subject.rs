@@ -1,7 +1,5 @@
 #![forbid(unsafe_code)]
 
-use merc_data::DataApplication;
-use merc_data::DataExpression;
 use merc_data::DataExpressionRef;
 use merc_data::DataFunctionSymbolRef;
 use merc_data::is_data_machine_number;
@@ -60,17 +58,6 @@ impl<'a> Subject<'a> {
             Some(term.try_data_function_symbol()?.operation_id())
         }
     }
-
-    /// Returns the subject as a term, constructing it if needed.
-    pub fn to_term(&self) -> DataExpression {
-        match self {
-            Subject::Term(term) => term.protect(),
-            Subject::Arguments(symbol, []) => symbol.protect().into(),
-            Subject::Arguments(symbol, arguments) => {
-                DataApplication::with_iter(symbol, arguments.len(), arguments.iter().flatten()).into()
-            }
-        }
-    }
 }
 
 impl<'b> DataPositionIndexed<'b> for Subject<'b> {
@@ -84,17 +71,27 @@ impl<'b> DataPositionIndexed<'b> for Subject<'b> {
     fn get_data_position(&'b self, position: &DataPosition) -> Self::Target<'b> {
         match self {
             Subject::Term(term) => term.get_data_position(position),
-            Subject::Arguments(..) => {
-                let [first, rest @ ..] = position.indices() else {
-                    panic!("the root of a subject given by its arguments is not a term");
-                };
-
-                let mut result = self.argument(*first - 1);
-                for index in rest {
-                    result = result.data_arg(*index - 1); // Positions are 1 indexed.
-                }
-                result
-            }
+            Subject::Arguments(_, arguments) => subterm(arguments, position),
         }
     }
+}
+
+/// Returns the subterm at `position` of a term with the given arguments, which must not be the
+/// root.
+pub(crate) fn subterm<'a>(
+    arguments: &'a [Option<DataExpressionRef<'a>>],
+    position: &DataPosition,
+) -> DataExpressionRef<'a> {
+    let [first, rest @ ..] = position.indices() else {
+        panic!("the root of a term given by its arguments is not a term");
+    };
+
+    let mut result = arguments[*first - 1] // Positions are 1 indexed.
+        .as_ref()
+        .expect("the argument at a position is present")
+        .copy();
+    for index in rest {
+        result = result.data_arg(*index - 1);
+    }
+    result
 }

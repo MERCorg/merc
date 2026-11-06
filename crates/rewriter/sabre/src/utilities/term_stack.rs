@@ -19,6 +19,7 @@ use merc_data::is_data_variable;
 
 use crate::Rule;
 use crate::set_automaton::free_variables;
+use crate::subject::Subject;
 
 use super::DataPosition;
 use super::DataPositionIndexed;
@@ -161,7 +162,11 @@ impl TermStack {
         term: &'b T,
         builder: &mut TermStackBuilder,
     ) -> DataExpression {
-        let term = DataExpressionRef::from(term.copy());
+        self.instantiate(&Subject::Term(&DataExpressionRef::from(term.copy())), builder)
+    }
+
+    /// Instantiates the term for the subterms of `subject`.
+    pub(crate) fn instantiate(&self, subject: &Subject<'_>, builder: &mut TermStackBuilder) -> DataExpression {
         builder.values.write(|values| values.clear());
 
         // Each instruction takes a guard of its own, since what a guard protects must still be in
@@ -169,7 +174,7 @@ impl TermStack {
         for instruction in self.block(0) {
             builder.values.write(|values| {
                 let (value, arity): (DataExpression, usize) = match instruction {
-                    Instruction::Variable(position) => (term.get_data_position(position).protect(), 0),
+                    Instruction::Variable(position) => (subject.get_data_position(position).protect(), 0),
                     Instruction::Term(term) => (term.clone(), 0),
                     Instruction::Apply { symbol, arity } => {
                         let first = values.len() - arity;
