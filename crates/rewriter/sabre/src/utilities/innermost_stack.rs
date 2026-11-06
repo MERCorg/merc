@@ -27,49 +27,58 @@ pub struct InnermostStack {
 
 #[derive(Hash, Eq, PartialEq, Ord, PartialOrd, Debug)]
 pub enum Config<'a> {
-    /// Rewrite the top of the stack and put result at the given index.
-    Rewrite(usize),
-    /// Constructs function symbol with given arity at the given index.
-    Construct(DataFunctionSymbolRef<'a>, usize, usize),
-    /// A concrete term to be placed at the current position in the stack.
-    Term(DataExpressionRef<'a>, usize),
-    /// Instantiates the binder `b`, given as `lambda x0, .., xn . b` over its free variables
-    /// `x0, .., xn`, with the given number of values for them on top of the stack, and places
-    /// the result at the given index.
-    Binder(DataExpressionRef<'a>, usize, usize),
-    /// Yields the given index as returned term.
-    Return(),
+    /// Rewrite the top of the stack and put result at `index`.
+    Rewrite { index: usize },
+    /// Constructs `symbol` applied to the `arity` terms on top of the stack, and puts its normal
+    /// form at `index`.
+    Construct {
+        symbol: DataFunctionSymbolRef<'a>,
+        arity: usize,
+        index: usize,
+    },
+    /// A concrete term to be placed at `index`.
+    Term { term: DataExpressionRef<'a>, index: usize },
+    /// Instantiates the binder `b`, given as the `template` `lambda x0, .., xn . b` over its free
+    /// variables `x0, .., xn`, with the `arity` values for them on top of the stack, and places
+    /// the result at `index`.
+    Binder {
+        template: DataExpressionRef<'a>,
+        arity: usize,
+        index: usize,
+    },
+    /// Yields the term on top of the stack as returned term.
+    Return,
 }
 
 impl Markable for Config<'_> {
     fn mark(&self, marker: &mut Marker<'_>) {
         match self {
-            Config::Construct(t, _, _) => t.mark(marker),
-            Config::Term(t, _) | Config::Binder(t, _, _) => t.mark(marker),
-            Config::Rewrite(_) | Config::Return() => {}
+            Config::Construct { symbol, .. } => symbol.mark(marker),
+            Config::Term { term: t, .. } | Config::Binder { template: t, .. } => t.mark(marker),
+            Config::Rewrite { .. } | Config::Return => {}
         }
     }
 
     fn contains_term(&self, term: &ATermRef<'_>) -> bool {
         match self {
-            Config::Construct(t, _, _) => t.contains_term(term),
-            Config::Term(t, _) | Config::Binder(t, _, _) => t.contains_term(term),
-            Config::Rewrite(_) | Config::Return() => false,
+            Config::Construct { symbol, .. } => symbol.contains_term(term),
+            Config::Term { term: t, .. } | Config::Binder { template: t, .. } => t.contains_term(term),
+            Config::Rewrite { .. } | Config::Return => false,
         }
     }
 
     fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
         match self {
-            Config::Construct(t, _, _) => t.contains_symbol(symbol),
-            Config::Term(t, _) | Config::Binder(t, _, _) => t.contains_symbol(symbol),
-            Config::Rewrite(_) | Config::Return() => false,
+            Config::Construct { symbol: s, .. } => s.contains_symbol(symbol),
+            Config::Term { term: t, .. } | Config::Binder { template: t, .. } => t.contains_symbol(symbol),
+            Config::Rewrite { .. } | Config::Return => false,
         }
     }
 
     fn len(&self) -> usize {
         match self {
-            Config::Construct(_, _, _) | Config::Term(_, _) | Config::Binder(_, _, _) => 1,
-            Config::Rewrite(_) | Config::Return() => 0,
+            Config::Construct { .. } | Config::Term { .. } | Config::Binder { .. } => 1,
+            Config::Rewrite { .. } | Config::Return => 0,
         }
     }
 }
@@ -97,17 +106,17 @@ unsafe impl Transmutable for Config<'static> {
 impl fmt::Display for Config<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Config::Rewrite(result) => write!(f, "Rewrite({result})"),
-            Config::Construct(symbol, arity, result) => {
-                write!(f, "Construct({symbol}, {arity}, {result})")
+            Config::Rewrite { index } => write!(f, "Rewrite({index})"),
+            Config::Construct { symbol, arity, index } => {
+                write!(f, "Construct({symbol}, {arity}, {index})")
             }
-            Config::Term(term, result) => {
-                write!(f, "Term({term}, {result})")
+            Config::Term { term, index } => {
+                write!(f, "Term({term}, {index})")
             }
-            Config::Binder(binder, arity, result) => {
-                write!(f, "Binder({binder}, {arity}, {result})")
+            Config::Binder { template, arity, index } => {
+                write!(f, "Binder({template}, {arity}, {index})")
             }
-            Config::Return() => write!(f, "Return()"),
+            Config::Return => write!(f, "Return"),
         }
     }
 }
@@ -142,7 +151,10 @@ impl InnermostStack {
                 Instruction::Term(value) => {
                     // Safety: value is pushed into the container on the next line.
                     let value = unsafe { write_configs.protect(value) };
-                    write_configs.push(Config::Term(value.into(), index));
+                    write_configs.push(Config::Term {
+                        term: value.into(),
+                        index,
+                    });
                     0
                 }
                 Instruction::Apply { symbol, arity } => {
@@ -152,7 +164,11 @@ impl InnermostStack {
                 Instruction::Binder { template, arity } => {
                     // Safety: template is pushed into the container on the next line.
                     let template = unsafe { write_configs.protect(template) };
-                    write_configs.push(Config::Binder(template.into(), *arity, index));
+                    write_configs.push(Config::Binder {
+                        template: template.into(),
+                        arity: *arity,
+                        index,
+                    });
                     *arity
                 }
                 Instruction::Hole(hole) => match *hole {},
@@ -173,7 +189,11 @@ impl InnermostStack {
     ) {
         // Safety: symbol is pushed into the container on the next line.
         let symbol = unsafe { write_configs.protect(&symbol) };
-        write_configs.push(Config::Construct(symbol.into(), arity, index));
+        write_configs.push(Config::Construct {
+            symbol: symbol.into(),
+            arity,
+            index,
+        });
     }
 
     /// Indicate that the term must be rewritten and its result must be placed at the given index.
@@ -185,7 +205,7 @@ impl InnermostStack {
     ) {
         // Safety: term is pushed into the container two lines below.
         let term = unsafe { write_terms.protect(&term) };
-        write_configs.push(Config::Rewrite(index));
+        write_configs.push(Config::Rewrite { index });
         write_terms.push(Some(term.into()));
     }
 }
