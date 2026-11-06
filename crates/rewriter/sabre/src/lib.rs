@@ -15,6 +15,7 @@ pub mod utilities;
 
 pub use innermost_rewriter::AnnouncementInnermost;
 pub use innermost_rewriter::InnermostRewriter;
+pub use metrics::RewriteMetrics;
 pub use naive_rewriter::NaiveRewriter;
 pub use quantifier::Enumerator;
 pub use quantifier::NoQuantifierEnumerator;
@@ -22,7 +23,6 @@ pub use rewrite_specification::Condition;
 pub use rewrite_specification::RewriteSpecification;
 pub use rewrite_specification::Rule;
 pub use sabre_rewriter::RewriteEngine;
-pub use sabre_rewriter::RewritingStatistics;
 pub use sabre_rewriter::SabreRewriter;
 pub use set_automaton::SetAutomaton;
 pub use set_automaton::is_supported_rule;
