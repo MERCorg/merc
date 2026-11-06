@@ -1,7 +1,9 @@
 use std::fmt;
 
+use hashbrown::HashMap;
 use itertools::Itertools;
 use log::info;
+use rustc_hash::FxBuildHasher;
 use streaming_iterator::StreamingIterator;
 
 use merc_collections::IndexedSet;
@@ -143,8 +145,10 @@ pub fn combine_lts<L: LTS<Label = LtsMultiAction<A>>, A: CombineLabel, B: LtsBui
         1,
     );
 
-    // Pre-sort the allow set for efficient matching.
-    let sorted_allow: Vec<SortedMultiActionLabel> = allow.iter().map(SortedMultiActionLabel::new).collect();
+    // The labels of the parallel transitions, computed once for every combination of labels.
+    let mut labels = CombinedLabels::new(&parallel_composition, hide, allow, comm);
+    // Reusable buffer for the (LTS index, label index) pairs of a parallel transition.
+    let mut key: Vec<(usize, LabelIndex)> = Vec::new();
 
     // The working set of states that must still be explored.
     let mut working: Vec<StateRef> = vec![initial_ref];
@@ -175,27 +179,18 @@ pub fn combine_lts<L: LTS<Label = LtsMultiAction<A>>, A: CombineLabel, B: LtsBui
                     break;
                 };
 
-                // Build the combined multi-action alpha = alpha_{j_0} | ... | alpha_{j_m}.
-                let mut actions = VecBag::new();
-                for (k, &lts_idx) in transition.subset_indices.iter().enumerate() {
-                    let label_idx = transition.labels[k];
-                    let label = &parallel_composition[lts_idx].labels()[label_idx];
-                    for action in label.actions() {
-                        actions.insert(action.clone());
-                    }
-                }
-                let multi_action = LtsMultiAction::new(actions);
-
-                // Apply communication: alpha = gamma_C(alpha).
-                let multi_action = communicate(comm, multi_action);
-
-                // Check allow: alpha in A ∪ {tau}.
-                if !is_allowed(&sorted_allow, &SortedLtsMultiAction::new(&multi_action)) {
+                // Compute tau_I(gamma_C(alpha_{j_0} | ... | alpha_{j_m})), or skip it when it is not allowed.
+                key.clear();
+                key.extend(
+                    transition
+                        .subset_indices
+                        .iter()
+                        .copied()
+                        .zip(transition.labels.iter().copied()),
+                );
+                let Some(multi_action) = labels.label(&key) else {
                     continue;
-                }
-
-                // Apply hide: alpha = tau_I(alpha).
-                let multi_action = hide_action(hide, multi_action);
+                };
 
                 // Convert the target vector into raw indices for the discovered set.
                 target_raw.clear();
@@ -203,12 +198,9 @@ pub fn combine_lts<L: LTS<Label = LtsMultiAction<A>>, A: CombineLabel, B: LtsBui
 
                 let (target_ref, is_new) = discovered.insert_with(&target_raw, &mut forest_context);
                 let to = StateIndex::new(target_ref.index());
-                dedup.add(
-                    StateIndex::new(current.index()),
-                    &multi_action,
-                    to,
-                    |from, label, to| builder.add_transition(from, label, to),
-                )?;
+                dedup.add(StateIndex::new(current.index()), multi_action, to, |from, label, to| {
+                    builder.add_transition(from, label, to)
+                })?;
 
                 if is_new {
                     working.push(target_ref);
@@ -326,14 +318,91 @@ impl ActionArguments {
     }
 }
 
-/// Applies the communication operator $\gamma_C$ to a multi-action.
+/// Computes the labels of parallel transitions, i.e. $\tau_I(\gamma_C(\alpha_{j_0} | \cdots | \alpha_{j_m}))$ when
+/// it is allowed by $A$, where LTS $j_k$ takes a transition labelled $\alpha_{j_k}$.
+///
+/// This label only depends on the label indices taken by the participating LTSs, so it is computed once for every
+/// combination of (LTS, label index) pairs. A combination is only stored when it occurs in a parallel transition, so
+/// there are at most as many entries as generated parallel transitions, and in practice far fewer.
+struct CombinedLabels<'a, L: LTS> {
+    lts_list: &'a [L],
+    hide: &'a [String],
+    allow: Vec<SortedMultiActionLabel>,
+    comm: &'a [CommExpr],
+
+    /// The label for every combination of (LTS index, label index) pairs, or `None` if it is not allowed.
+    cache: HashMap<Vec<(usize, LabelIndex)>, Option<L::Label>, FxBuildHasher>,
+}
+
+impl<'a, L: LTS<Label = LtsMultiAction<A>>, A: CombineLabel> CombinedLabels<'a, L> {
+    fn new(lts_list: &'a [L], hide: &'a [String], allow: &[MultiActionLabel], comm: &'a [CommExpr]) -> Self {
+        Self {
+            lts_list,
+            hide,
+            // Pre-sort the allow set for efficient matching.
+            allow: allow.iter().map(SortedMultiActionLabel::new).collect(),
+            comm,
+            cache: HashMap::default(),
+        }
+    }
+
+    /// Returns the label of the parallel transition in which the LTSs take the labels of the given (LTS index, label
+    /// index) pairs, in increasing order of LTS index, or `None` if it is not allowed.
+    fn label(&mut self, key: &[(usize, LabelIndex)]) -> Option<&LtsMultiAction<A>> {
+        let Self {
+            lts_list,
+            hide,
+            allow,
+            comm,
+            cache,
+        } = self;
+        cache
+            .entry_ref(key)
+            .or_insert_with(|| combined_label(lts_list, key, hide, allow, comm))
+            .as_ref()
+    }
+
+    /// Returns the number of distinct combinations of labels seen so far.
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.cache.len()
+    }
+}
+
+/// Returns $\tau_I(\gamma_C(\alpha))$, where $\alpha$ is the multi-action of the given (LTS index, label index) pairs,
+/// or `None` if $\gamma_C(\alpha)$ is not allowed.
+fn combined_label<L: LTS<Label = LtsMultiAction<A>>, A: CombineLabel>(
+    lts_list: &[L],
+    labels: &[(usize, LabelIndex)],
+    hide: &[String],
+    allow: &[SortedMultiActionLabel],
+    comm: &[CommExpr],
+) -> Option<LtsMultiAction<A>> {
+    // Apply communication to alpha = alpha_{j_0} | ... | alpha_{j_m}.
+    let multi_action = communicate(
+        comm,
+        labels
+            .iter()
+            .flat_map(|&(lts_idx, label_idx)| lts_list[lts_idx].labels()[label_idx].actions())
+            .cloned()
+            .collect(),
+    );
+
+    // Check allow: alpha in A ∪ {tau}.
+    if !is_allowed(allow, &SortedLtsMultiAction::new(&multi_action)) {
+        return None;
+    }
+
+    // Apply hide: alpha = tau_I(alpha).
+    Some(hide_action(hide, multi_action))
+}
+
+/// Applies the communication operator $\gamma_C$ to the multi-action consisting of `actions`.
 ///
 /// For each communication expression $a_1 | \cdots | a_n \rightarrow c$ in $C$,
 /// repeatedly finds matching sub-multisets of actions (with equal arguments)
 /// and replaces them with the result action $c$.
-fn communicate<L: CombineLabel>(comm: &[CommExpr], action: LtsMultiAction<L>) -> LtsMultiAction<L> {
-    let mut actions = action.into_actions().to_vec();
-
+fn communicate<L: CombineLabel>(comm: &[CommExpr], mut actions: Vec<L>) -> LtsMultiAction<L> {
     for expr in comm {
         // Try to find a matching sub-multiset for this communication expression.
         while let Some(replacement) = find_communication_match(&actions, expr) {
@@ -770,23 +839,57 @@ impl<'a, L: LTS> StreamingIterator for ParallelTransitionIter<'_, 'a, L> {
 mod tests {
     use merc_collections::VecBag;
     use merc_data::DataExpression;
+    use merc_lts::LabelIndex;
+    use merc_lts::LabelledTransitionSystem;
     use merc_lts::LtsAction;
     use merc_lts::LtsMultiAction;
     use merc_lts::SimpleAction;
+    use merc_lts::StateIndex;
     use merc_syntax::CommExpr;
     use merc_syntax::MultiActionLabel;
     use merc_syntax::Span;
     use merc_syntax::respan;
 
     use merc_lts::TransitionLabel;
+    use merc_syntax::parse_action_names;
+    use merc_syntax::parse_allow_action_names;
+    use merc_syntax::parse_comm_expr_set;
 
     use super::ActionArguments;
     use super::CombineLabel;
+    use super::CombinedLabels;
     use super::InternedAction;
     use super::SortedLtsMultiAction;
     use super::SortedMultiActionLabel;
     use super::find_communication_match;
     use super::is_allowed;
+
+    type TestLts = LabelledTransitionSystem<LtsMultiAction<SimpleAction>>;
+
+    /// An LTS with the given labels after tau (label index 0), in which the transitions are (from, label index, to).
+    fn make_lts(labels: &[&str], num_of_states: usize, transitions: &[(usize, usize, usize)]) -> TestLts {
+        let labels = std::iter::once(LtsMultiAction::tau_label())
+            .chain(labels.iter().map(|label| LtsMultiAction::from_string(label).unwrap()))
+            .collect();
+        LabelledTransitionSystem::new(
+            StateIndex::new(0),
+            Some(num_of_states),
+            || {
+                transitions
+                    .iter()
+                    .map(|&(from, label, to)| (StateIndex::new(from), LabelIndex::new(label), StateIndex::new(to)))
+            },
+            labels,
+        )
+    }
+
+    /// The (LTS index, label index) pairs as a key of [`CombinedLabels`].
+    fn key(pairs: &[(usize, usize)]) -> Vec<(usize, LabelIndex)> {
+        pairs
+            .iter()
+            .map(|&(lts, label)| (lts, LabelIndex::new(label)))
+            .collect()
+    }
 
     fn simple(label: &str, args: &[&str]) -> SimpleAction {
         SimpleAction::new(label.to_owned(), args.iter().map(|s| s.to_string()).collect())
@@ -921,5 +1024,44 @@ mod tests {
         for (original, interned) in [&a_one, &b_one, &b_two].into_iter().zip(&interned) {
             assert_eq!(&arguments.restore(interned), original);
         }
+    }
+
+    /// Equal label indices in different LTSs must not share a cache entry.
+    #[test]
+    fn combined_labels_distinguishes_ltss() {
+        let ltss = vec![make_lts(&["a"], 2, &[(0, 1, 1)]), make_lts(&["b"], 2, &[(0, 1, 1)])];
+        let allow = parse_allow_action_names("{a, a|b}").unwrap();
+        let mut labels = CombinedLabels::new(&ltss, &[], &allow, &[]);
+
+        assert_eq!(
+            labels.label(&key(&[(0, 1)])),
+            Some(&LtsMultiAction::from_string("a").unwrap())
+        );
+        assert_eq!(labels.label(&key(&[(1, 1)])), None);
+        assert_eq!(
+            labels.label(&key(&[(0, 1), (1, 1)])),
+            Some(&LtsMultiAction::from_string("a|b").unwrap())
+        );
+        assert_eq!(labels.len(), 3);
+    }
+
+    /// Labels that are not allowed are cached as well, and a combination is only computed once.
+    #[test]
+    fn combined_labels_caches_blocked_combinations() {
+        let ltss = vec![make_lts(&["a", "b"], 1, &[]), make_lts(&["b"], 1, &[])];
+        let comm = parse_comm_expr_set("{a|b -> c}").unwrap();
+        let allow = parse_allow_action_names("{c}").unwrap();
+        let hide = parse_action_names("{c}").unwrap();
+        let mut labels = CombinedLabels::new(&ltss, &hide, &allow, &comm);
+
+        for _ in 0..2 {
+            // b|b is not allowed, a|b communicates to c, which is allowed and hidden.
+            assert_eq!(labels.label(&key(&[(0, 2), (1, 1)])), None);
+            assert_eq!(
+                labels.label(&key(&[(0, 1), (1, 1)])),
+                Some(&LtsMultiAction::tau_label())
+            );
+        }
+        assert_eq!(labels.len(), 2);
     }
 }

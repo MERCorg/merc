@@ -9,9 +9,12 @@ use merc_collections::VecBag;
 use merc_io::temp_dir;
 use merc_io::traced_command;
 use merc_lts::LTS;
+use merc_lts::LabelIndex;
+use merc_lts::LabelledTransitionSystem;
 use merc_lts::LtsAction;
 use merc_lts::LtsBuilderMem;
 use merc_lts::LtsMultiAction;
+use merc_lts::SimpleAction;
 use merc_lts::StateIndex;
 use merc_lts::TransitionLabel;
 use merc_lts::random_lts;
@@ -22,6 +25,9 @@ use merc_reduction::compare_lts;
 use merc_syntax::CommExpr;
 use merc_syntax::MultiActionLabel;
 use merc_syntax::Span;
+use merc_syntax::parse_action_names;
+use merc_syntax::parse_allow_action_names;
+use merc_syntax::parse_comm_expr_set;
 use merc_syntax::respan;
 use merc_utilities::Timing;
 use merc_utilities::random_test;
@@ -40,6 +46,64 @@ fn random_multi_action<R: rand::Rng>(rng: &mut R, actions: &[String], max_size: 
         .map(|name| respan(Span::default(), name.clone()))
         .collect::<Vec<_>>();
     MultiActionLabel::new(selected_actions)
+}
+
+/// An LTS with the given labels after tau (label index 0), in which the transitions are (from, label index, to).
+fn make_lts(
+    labels: &[&str],
+    num_of_states: usize,
+    transitions: &[(usize, usize, usize)],
+) -> LabelledTransitionSystem<LtsMultiAction<SimpleAction>> {
+    let labels = std::iter::once(LtsMultiAction::tau_label())
+        .chain(labels.iter().map(|label| LtsMultiAction::from_string(label).unwrap()))
+        .collect();
+    LabelledTransitionSystem::new(
+        StateIndex::new(0),
+        Some(num_of_states),
+        || {
+            transitions
+                .iter()
+                .map(|&(from, label, to)| (StateIndex::new(from), LabelIndex::new(label), StateIndex::new(to)))
+        },
+        labels,
+    )
+}
+
+#[test]
+fn test_combine_communication_allow_and_hide() {
+    // The first LTS does a and then c or e, the second does b. The combination a|b is reachable from two states of
+    // the composition, so its cached label is used twice.
+    let ltss = vec![
+        make_lts(&["a", "c", "e"], 2, &[(0, 1, 1), (1, 2, 0), (1, 3, 0)]),
+        make_lts(&["b"], 1, &[(0, 1, 0)]),
+    ];
+
+    // a and b only occur in the communication d; e is not allowed and c is hidden.
+    let comm = parse_comm_expr_set("{a|b -> d}").unwrap();
+    let allow = parse_allow_action_names("{d, c}").unwrap();
+    let hide = parse_action_names("{c}").unwrap();
+
+    let mut builder = LtsBuilderMem::new(Vec::new(), Vec::new());
+    combine_lts(&mut builder, ltss, &hide, &allow, &comm, &Timing::new()).unwrap();
+    let result = &builder.finish(StateIndex::new(0), false);
+
+    let transitions = result
+        .iter_states()
+        .flat_map(|s| {
+            result
+                .outgoing_transitions(s)
+                .map(move |t| (s.value(), result.labels()[t.label].to_string(), t.to.value()))
+        })
+        .sorted()
+        .collect::<Vec<_>>();
+    assert_eq!(result.num_of_states(), 2);
+    assert_eq!(
+        transitions,
+        vec![
+            (0, "d".to_string(), 1),
+            (1, LtsMultiAction::<SimpleAction>::tau_label().to_string(), 0)
+        ]
+    );
 }
 
 #[test]
