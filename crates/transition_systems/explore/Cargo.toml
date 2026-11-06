@@ -16,6 +16,7 @@ metrics = []
 
 [dependencies]
 merc_collections.workspace = true
+merc_data.workspace = true
 merc_io.workspace = true
 merc_lts.workspace = true
 merc_syntax.workspace = true
@@ -26,6 +27,7 @@ clap = { workspace = true, optional = true }
 core_affinity2.workspace = true
 crossbeam-deque.workspace = true
 crossbeam-utils.workspace = true
+hashbrown.workspace = true
 itertools.workspace = true
 log.workspace = true
 quanta.workspace = true

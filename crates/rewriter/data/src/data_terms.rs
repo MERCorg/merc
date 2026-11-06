@@ -17,13 +17,10 @@ thread_local! {
 
 /// Defines default symbols and terms for data elements.
 ///
-/// These mirror the mCRL2 definitions since that is convenient for loading the mCRL2 binary formats.
-/// The set is kept complete on purpose, so some symbols are declared here before anything reads
-/// them; those carry an `allow(dead_code)`.
-///
-/// All `Symbol` and `ATerm` fields are wrapped in `ManuallyDrop` so that their destructors never
-/// run at thread exit: a term or symbol must never be dropped after its owning thread-local term
-/// pool has already been torn down, and thread-local destruction order is unspecified.
+/// All `Symbol` and `ATerm` fields are wrapped in `ManuallyDrop` so that their
+/// destructors never run at thread exit: a term or symbol must never be dropped
+/// after its owning thread-local term pool has already been torn down, and
+/// thread-local destruction order is unspecified.
 pub(crate) struct DataSymbols {
     // Sorts
     pub basic_sort_symbol: ManuallyDrop<Symbol>,

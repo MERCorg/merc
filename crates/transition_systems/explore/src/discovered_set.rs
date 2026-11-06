@@ -133,6 +133,7 @@ where
     T: Copy,
 {
     /// Returns the number of distinct states in the set.
+    #[allow(dead_code)]
     pub(crate) fn len(&self) -> usize {
         self.states.len()
     }
