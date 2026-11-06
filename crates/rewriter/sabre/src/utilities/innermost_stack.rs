@@ -9,76 +9,89 @@ use merc_aterm::Transmutable;
 use merc_aterm::storage::Marker;
 use merc_data::DataExpressionRef;
 use merc_data::DataFunctionSymbolRef;
-use merc_utilities::debug_trace;
 
-use crate::subject::subterm;
+use crate::innermost_rewriter::ProgramId;
+use crate::utilities::Block;
 
-use super::Instruction;
-use super::TermStack;
-
-/// This stack is used to avoid recursion and also to keep track of terms in
-/// normal forms by explicitly representing the rewrites of a right hand
-/// side.
+/// The stacks of the rewriting machine: what to do next, and the terms computed so far.
+///
+/// Every configuration takes its inputs from the top of the term stack and leaves its result
+/// there, so that the terms on the stack are normal forms, apart from the arguments of a redex
+/// whose right-hand side is running.
 #[derive(Default)]
-pub struct InnermostStack {
+pub(crate) struct InnermostStack {
     pub configs: Protected<Vec<Config<'static>>>,
     pub terms: Protected<Vec<Option<DataExpressionRef<'static>>>>,
 }
 
-#[derive(Hash, Eq, PartialEq, Ord, PartialOrd, Debug)]
-pub enum Config<'a> {
-    /// Rewrite the top of the stack and put result at `index`.
-    Rewrite { index: usize },
-    /// Constructs `symbol` applied to the `arity` terms on top of the stack, and puts its normal
-    /// form at `index`.
+/// A configuration of the rewriting machine.
+pub(crate) enum Config<'a> {
+    /// Pushes the normal form of `term`.
+    Rewrite { term: DataExpressionRef<'a> },
+    /// Replaces `symbol` applied to the `arity` terms on top by its normal form.
     Construct {
         symbol: DataFunctionSymbolRef<'a>,
         arity: usize,
-        index: usize,
     },
-    /// A concrete term to be placed at `index`.
-    Term { term: DataExpressionRef<'a>, index: usize },
-    /// Instantiates the binder `b`, given as the `template` `lambda x0, .., xn . b` over its free
-    /// variables `x0, .., xn`, with the `arity` values for them on top of the stack, and places
-    /// the result at `index`.
-    Binder {
-        template: DataExpressionRef<'a>,
-        arity: usize,
-        index: usize,
-    },
-    /// Yields the term on top of the stack as returned term.
+    /// Runs a block of a program, see [Evaluate].
+    Evaluate(Evaluate),
+    /// Pops the normal form of the term being rewritten.
     Return,
+}
+
+/// Runs the instructions `pc..end` of a program, which is one block of it, and replaces the
+/// terms from `base` on by the term it computes.
+///
+/// Its variables are the arguments of the matched term, which are the terms at `base`.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Evaluate {
+    pub program: ProgramId,
+    pub pc: u32,
+    pub end: u32,
+    pub base: usize,
+}
+
+impl Evaluate {
+    /// Runs `block` of `program`.
+    pub fn new(program: ProgramId, block: Block, base: usize) -> Evaluate {
+        Evaluate {
+            program,
+            pc: u32::try_from(block.begin).expect("programs have fewer than 2^32 instructions"),
+            end: u32::try_from(block.end).expect("programs have fewer than 2^32 instructions"),
+            base,
+        }
+    }
 }
 
 impl Markable for Config<'_> {
     fn mark(&self, marker: &mut Marker<'_>) {
         match self {
+            Config::Rewrite { term } => term.mark(marker),
             Config::Construct { symbol, .. } => symbol.mark(marker),
-            Config::Term { term: t, .. } | Config::Binder { template: t, .. } => t.mark(marker),
-            Config::Rewrite { .. } | Config::Return => {}
+            Config::Evaluate(_) | Config::Return => {}
         }
     }
 
     fn contains_term(&self, term: &ATermRef<'_>) -> bool {
         match self {
+            Config::Rewrite { term: t } => t.contains_term(term),
             Config::Construct { symbol, .. } => symbol.contains_term(term),
-            Config::Term { term: t, .. } | Config::Binder { template: t, .. } => t.contains_term(term),
-            Config::Rewrite { .. } | Config::Return => false,
+            Config::Evaluate(_) | Config::Return => false,
         }
     }
 
     fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
         match self {
+            Config::Rewrite { term } => term.contains_symbol(symbol),
             Config::Construct { symbol: s, .. } => s.contains_symbol(symbol),
-            Config::Term { term: t, .. } | Config::Binder { template: t, .. } => t.contains_symbol(symbol),
-            Config::Rewrite { .. } | Config::Return => false,
+            Config::Evaluate(_) | Config::Return => false,
         }
     }
 
     fn len(&self) -> usize {
         match self {
-            Config::Construct { .. } | Config::Term { .. } | Config::Binder { .. } => 1,
-            Config::Rewrite { .. } | Config::Return => 0,
+            Config::Rewrite { .. } | Config::Construct { .. } => 1,
+            Config::Evaluate(_) | Config::Return => 0,
         }
     }
 }
@@ -106,119 +119,57 @@ unsafe impl Transmutable for Config<'static> {
 impl fmt::Display for Config<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Config::Rewrite { index } => write!(f, "Rewrite({index})"),
-            Config::Construct { symbol, arity, index } => {
-                write!(f, "Construct({symbol}, {arity}, {index})")
-            }
-            Config::Term { term, index } => {
-                write!(f, "Term({term}, {index})")
-            }
-            Config::Binder { template, arity, index } => {
-                write!(f, "Binder({template}, {arity}, {index})")
-            }
+            Config::Rewrite { term } => write!(f, "Rewrite({term})"),
+            Config::Construct { symbol, arity } => write!(f, "Construct({symbol}, {arity})"),
+            Config::Evaluate(evaluate) => write!(f, "{evaluate:?}"),
             Config::Return => write!(f, "Return"),
         }
     }
 }
 
 impl InnermostStack {
-    /// Updates the InnermostStack to integrate the rhs_stack instructions.
-    ///
-    /// The program is the term in post-order, so in reverse it reaches every subterm before its
-    /// arguments, and those from the last to the first. An application gets slots on top of the
-    /// stack for its arguments, which the instructions of the arguments fill: a variable
-    /// directly, and a constant, an application or a binder by a configuration, which runs once
-    /// the arguments of the application or the binder are in place.
-    ///
-    /// The variables are the arguments of the redex, which are the `arity` terms on top of the
-    /// stack, and are removed afterwards. The slots are therefore reserved above them, but the
-    /// configurations get the indices that the slots have once the arguments are removed.
-    pub fn integrate(
-        write_configs: &mut ProtectedWriteGuard<'_, '_, Vec<Config<'_>>>,
-        write_terms: &mut ProtectedWriteGuard<'_, '_, Vec<Option<DataExpressionRef<'_>>>>,
-        rhs_stack: &TermStack,
-        arity: usize,
-        result_index: usize,
-    ) {
-        debug_trace!("\t applied stack: {}", rhs_stack);
-
-        let base = write_terms.len() - arity;
-        // Where the slot at `index` is while the arguments are still on the stack.
-        let current = |index: usize| if index >= base { index + arity } else { index };
-
-        // The slots that the remaining instructions fill, the next one on top.
-        let mut slots = vec![result_index];
-        for instruction in rhs_stack.block(0).iter().rev() {
-            let index = slots.pop().expect("every instruction has a slot for its value");
-            let reserved = match instruction {
-                Instruction::Variable(position) => {
-                    // Safety: the value is stored in the container on the next line.
-                    let value = unsafe { write_terms.protect(&subterm(&write_terms[base..base + arity], position)) };
-                    write_terms[current(index)] = Some(value.into());
-                    0
-                }
-                Instruction::Term(value) => {
-                    // Safety: value is pushed into the container on the next line.
-                    let value = unsafe { write_configs.protect(value) };
-                    write_configs.push(Config::Term {
-                        term: value.into(),
-                        index,
-                    });
-                    0
-                }
-                Instruction::Apply { symbol, arity } => {
-                    InnermostStack::add_result(write_configs, symbol.copy(), *arity, index);
-                    *arity
-                }
-                Instruction::Binder { template, arity } => {
-                    // Safety: template is pushed into the container on the next line.
-                    let template = unsafe { write_configs.protect(template) };
-                    write_configs.push(Config::Binder {
-                        template: template.into(),
-                        arity: *arity,
-                        index,
-                    });
-                    *arity
-                }
-                Instruction::Hole(hole) => match *hole {},
-            };
-
-            let length = write_terms.len();
-            write_terms.resize(length + reserved, None);
-            let top_of_stack = length - arity;
-            slots.extend(top_of_stack..top_of_stack + reserved);
-        }
-
-        write_terms.drain(base..base + arity);
+    /// Pushes the configuration that rewrites `term`.
+    pub fn add_rewrite(write_configs: &mut ProtectedWriteGuard<'_, '_, Vec<Config<'_>>>, term: &DataExpressionRef<'_>) {
+        // Safety: term is pushed into the container on the next line.
+        let term = unsafe { write_configs.protect(term) };
+        write_configs.push(Config::Rewrite { term: term.into() });
     }
 
-    /// Indicate that the given symbol with arity can be constructed at the given index.
-    pub fn add_result(
+    /// Pushes the configuration that replaces `symbol` applied to the `arity` terms on top by
+    /// its normal form.
+    pub fn add_construct(
         write_configs: &mut ProtectedWriteGuard<'_, '_, Vec<Config<'_>>>,
-        symbol: DataFunctionSymbolRef<'_>,
+        symbol: &DataFunctionSymbolRef<'_>,
         arity: usize,
-        index: usize,
     ) {
         // Safety: symbol is pushed into the container on the next line.
-        let symbol = unsafe { write_configs.protect(&symbol) };
+        let symbol = unsafe { write_configs.protect(symbol) };
         write_configs.push(Config::Construct {
             symbol: symbol.into(),
             arity,
-            index,
         });
     }
 
-    /// Indicate that the term must be rewritten and its result must be placed at the given index.
-    pub fn add_rewrite(
-        write_configs: &mut ProtectedWriteGuard<'_, '_, Vec<Config<'_>>>,
+    /// Pushes `value` onto the term stack.
+    pub fn push_value(
         write_terms: &mut ProtectedWriteGuard<'_, '_, Vec<Option<DataExpressionRef<'_>>>>,
-        term: DataExpressionRef<'_>,
-        index: usize,
+        value: &DataExpressionRef<'_>,
     ) {
-        // Safety: term is pushed into the container two lines below.
-        let term = unsafe { write_terms.protect(&term) };
-        write_configs.push(Config::Rewrite { index });
-        write_terms.push(Some(term.into()));
+        // Safety: value is pushed into the container on the next line.
+        let value = unsafe { write_terms.protect(value) };
+        write_terms.push(Some(value.into()));
+    }
+
+    /// Replaces the terms from `first` on by `value`.
+    pub fn replace_values(
+        write_terms: &mut ProtectedWriteGuard<'_, '_, Vec<Option<DataExpressionRef<'_>>>>,
+        first: usize,
+        value: &DataExpressionRef<'_>,
+    ) {
+        // Safety: value is pushed into the container below, before the guard is dropped.
+        let value = unsafe { write_terms.protect(value) };
+        write_terms.truncate(first);
+        write_terms.push(Some(value.into()));
     }
 }
 
