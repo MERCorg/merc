@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 use ahash::HashMap;
 use ahash::HashMapExt;
+use itertools::Itertools;
 use merc_aterm::Protected;
 use merc_data::DataApplication;
 use merc_data::DataExpression;
@@ -616,18 +617,42 @@ fn rewrite_bound<R: RewriteEngine>(
 /// the result, each holding one element from every list in order. An empty
 /// `lists` yields a single empty combination — the identity of the product,
 /// which is what an arity-0 constructor needs.
-pub(crate) fn cartesian_product(lists: &[Vec<DataExpression>]) -> Vec<Vec<DataExpression>> {
-    let mut result: Vec<Vec<DataExpression>> = vec![Vec::new()];
-    for list in lists {
-        let mut next = Vec::with_capacity(result.len() * list.len());
-        for prefix in &result {
-            for element in list {
-                let mut combination = prefix.clone();
-                combination.push(element.clone());
-                next.push(combination);
-            }
-        }
-        result = next;
+pub(crate) fn cartesian_product(lists: &[Vec<DataExpression>]) -> impl Iterator<Item = Vec<DataExpression>> + '_ {
+    lists.iter().map(|list| list.iter().cloned()).multi_cartesian_product()
+}
+
+#[cfg(test)]
+mod tests {
+    use merc_data::DataExpression;
+
+    use super::cartesian_product;
+
+    #[test]
+    fn test_cartesian_product_of_no_lists_is_one_empty_combination() {
+        let combinations: Vec<_> = cartesian_product(&[]).collect();
+        assert_eq!(combinations, vec![Vec::<DataExpression>::new()]);
     }
-    result
+
+    #[test]
+    fn test_cartesian_product_with_an_empty_list_is_empty() {
+        let t = DataExpression::bool_literal(true);
+        assert_eq!(cartesian_product(&[vec![t], Vec::new()]).count(), 0);
+    }
+
+    #[test]
+    fn test_cartesian_product_is_ordered_by_last_list_fastest() {
+        let t = DataExpression::bool_literal(true);
+        let f = DataExpression::bool_literal(false);
+        let combinations: Vec<_> =
+            cartesian_product(&[vec![t.clone(), f.clone()], vec![t.clone(), f.clone()]]).collect();
+        assert_eq!(
+            combinations,
+            vec![
+                vec![t.clone(), t.clone()],
+                vec![t.clone(), f.clone()],
+                vec![f.clone(), t.clone()],
+                vec![f.clone(), f.clone()],
+            ]
+        );
+    }
 }
