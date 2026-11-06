@@ -1,4 +1,6 @@
+use std::cell::RefCell;
 use std::fmt;
+use std::marker::PhantomData;
 
 use hashbrown::HashMap;
 use itertools::Itertools;
@@ -7,27 +9,37 @@ use rustc_hash::FxBuildHasher;
 use streaming_iterator::StreamingIterator;
 
 use merc_collections::IndexedSet;
+use merc_collections::Odometer;
 use merc_collections::VecBag;
 use merc_data::DataExpression;
 use merc_io::TimeProgress;
+use merc_lts::ConcurrentLtsBuilder;
 use merc_lts::LTS;
 use merc_lts::LabelIndex;
+use merc_lts::LabelledTransitionSystem;
 use merc_lts::LtsAction;
 use merc_lts::LtsBuilder;
+use merc_lts::LtsBuilderMem;
 use merc_lts::LtsMultiAction;
+use merc_lts::MutexLtsBuilder;
 use merc_lts::PerStateDedup;
 use merc_lts::SimpleAction;
 use merc_lts::StateIndex;
-use merc_lts::Transition;
+use merc_lts::StateLabels;
 use merc_lts::TransitionLabel;
 use merc_syntax::CommExpr;
 use merc_syntax::MultiActionLabel;
 use merc_utilities::MercError;
+use merc_utilities::ShardedCounter;
 use merc_utilities::Timing;
 
-use crate::DiscoveredSet;
-use crate::SequenceForestContext;
-use crate::StateRef;
+use crate::ExplorationStrategy;
+use crate::LPS;
+use crate::StateEffect;
+use crate::Summand;
+use crate::configure_rayon_thread_pool;
+use crate::explore;
+use crate::explore_parallel;
 
 /// The trait for labels used in the composition operator.
 pub trait CombineLabel: TransitionLabel + Ord {
@@ -65,7 +77,7 @@ impl CombineLabel for LtsAction {
 /// Computes the parallel composition hide(H, allow(A, comm(C, L1 || ... || Ln))).
 ///
 /// The `builder` is used to construct the resulting LTS, which can also be
-/// stored immediately in a file.
+/// stored immediately in a file. Returns the result of [`LtsBuilder::finish`].
 ///
 /// # Errors
 ///
@@ -81,62 +93,14 @@ pub fn combine_lts<L: LTS<Label = LtsMultiAction<A>>, A: CombineLabel, B: LtsBui
     allow: &[MultiActionLabel],
     comm: &[CommExpr],
     timing: &Timing,
-) -> Result<(), MercError> {
+) -> Result<B::LTS, MercError> {
+    check_arguments(&parallel_composition, allow, comm)?;
+    let lps = ComposedLts::new(&parallel_composition, hide, allow, comm);
+
     // Two different combinations of underlying transitions (e.g. from different LTSs in the
     // composition) can reduce to the same (label, successor) pair for a given state once hiding,
     // allow, and communication are applied. So deduplicate then,
     let mut dedup = PerStateDedup::new();
-
-    if parallel_composition.is_empty() {
-        return Err("At least one LTS is required for composition.".into());
-    }
-
-    if allow.iter().any(|allow| allow.is_tau_label()) {
-        return Err("Allow set cannot contain the tau action.".into());
-    }
-
-    if comm.iter().any(|comm| comm.from.is_tau_label()) {
-        return Err("Communication expressions cannot have tau actions on the left-hand side.".into());
-    }
-
-    for (i, comm_i) in comm.iter().enumerate() {
-        if comm_i.from.actions.len() < 2 {
-            return Err(format!(
-                "Communication expressions must have at least two actions on the left-hand side, but {comm_i} does not."
-            )
-            .into());
-        }
-
-        // The left hand side of a communication cannot overlap with any other communication's left hand side. This is the definition used in mCRL2,
-        // for example a|b -> a is a valid communication expression.
-        for (j, comm_j) in comm.iter().enumerate() {
-            if i != j && comm_i.from.actions.iter().any(|a| comm_j.from.actions.contains(a)) {
-                return Err(format!(
-                    "Communication expressions cannot have overlapping left-hand sides, i.e. {comm_i} and {comm_j}."
-                )
-                .into());
-            }
-        }
-
-        // The right hand side of a communication cannot be in another communication's left hand side.
-        for (j, comm_j) in comm.iter().enumerate() {
-            if i != j && comm_j.from.actions.contains(&comm_i.to) {
-                return Err(
-                    format!("Communication expressions cannot have right-hand side in another communication's left-hand side, i.e. {comm_i} and {comm_j}.").into(),
-                );
-            }
-        }
-    }
-
-    // Keep track of the discovered states in the combined LTS. State vectors
-    // are stored as maximally shared sequences of raw `usize` indices in the
-    // discovered set; we convert to/from `StateIndex` at the boundary.
-    let discovered: DiscoveredSet<usize> = DiscoveredSet::new();
-    let initial_vector: Vec<usize> = parallel_composition
-        .iter()
-        .map(|lts| lts.initial_state_index().value())
-        .collect();
-    let (initial_ref, _) = discovered.insert(&initial_vector);
 
     let progress = TimeProgress::new(
         |(states, transitions): (usize, usize)| {
@@ -145,84 +109,145 @@ pub fn combine_lts<L: LTS<Label = LtsMultiAction<A>>, A: CombineLabel, B: LtsBui
         1,
     );
 
-    // The labels of the parallel transitions, computed once for every combination of labels.
-    let mut labels = CombinedLabels::new(&parallel_composition, hide, allow, comm);
-    // Reusable buffer for the (LTS index, label index) pairs of a parallel transition.
-    let mut key: Vec<(usize, LabelIndex)> = Vec::new();
-
-    // The working set of states that must still be explored.
-    let mut working: Vec<StateRef> = vec![initial_ref];
-    let mut iter_context = ParallelTransitionContext::new();
-
-    // Reusable buffers for reconstructing the current state vector from the
-    // discovered set and for building target vectors prior to insertion.
-    let mut current_state_raw: Vec<usize> = Vec::new();
-    let mut current_state_vector: Vec<StateIndex> = Vec::new();
-    let mut target_raw: Vec<usize> = Vec::new();
-    // Reused interning scratch buffers, avoiding a reallocation per inserted
-    // state. This loop is single-threaded, so one context suffices.
-    let mut forest_context = SequenceForestContext::new();
-
-    timing.measure("compose", || -> Result<(), MercError> {
-        while let Some(current) = working.pop() {
-            // Reconstruct the current state vector from the discovered set.
-            let found = discovered.get_into(current, &mut current_state_raw);
-            debug_assert!(found, "StateRef from working set must be valid");
-            current_state_vector.clear();
-            current_state_vector.extend(current_state_raw.iter().copied().map(StateIndex::new));
-
-            // Loop over all subsets of LTSs and their outgoing transitions in the current state vector.
-            let mut iter = ParallelTransitionIter::new(&mut iter_context, &parallel_composition, &current_state_vector);
-            loop {
-                iter.advance();
-                let Some(transition) = iter.get() else {
-                    break;
-                };
-
-                // Compute tau_I(gamma_C(alpha_{j_0} | ... | alpha_{j_m})), or skip it when it is not allowed.
-                key.clear();
-                key.extend(
-                    transition
-                        .subset_indices
-                        .iter()
-                        .copied()
-                        .zip(transition.labels.iter().copied()),
-                );
-                let Some(multi_action) = labels.label(&key) else {
-                    continue;
-                };
-
-                // Convert the target vector into raw indices for the discovered set.
-                target_raw.clear();
-                target_raw.extend(transition.target.iter().map(|s| s.value()));
-
-                let (target_ref, is_new) = discovered.insert_with(&target_raw, &mut forest_context);
-                let to = StateIndex::new(target_ref.index());
-                dedup.add(StateIndex::new(current.index()), multi_action, to, |from, label, to| {
-                    builder.add_transition(from, label, to)
-                })?;
-
-                if is_new {
-                    working.push(target_ref);
-                }
+    let mut num_of_states = 0;
+    let initial = explore(
+        &lps,
+        ExplorationStrategy::Dfs,
+        timing,
+        &mut (&mut *builder, &mut dedup),
+        |(builder, dedup), _state, _info| {
+            num_of_states += 1;
+            if num_of_states % 1024 == 0 {
+                progress.print((num_of_states, builder.num_of_transitions() + dedup.len()));
             }
-
-            progress.print((discovered.len(), builder.num_of_transitions() + dedup.len()));
-        }
-
-        Ok(())
-    })?;
+            Ok(())
+        },
+        |(builder, dedup), from, label, to| {
+            dedup.add(from, label, to, |from, label, to| {
+                builder.add_transition(from, label, to)
+            })
+        },
+    )?;
 
     dedup.flush(|from, label, to| builder.add_transition(from, label, to))?;
 
     info!(
         "Composition complete: {} states, {} transitions",
-        discovered.len(),
-        builder.num_of_transitions()
+        num_of_states,
+        builder.num_of_transitions(),
     );
 
-    builder.finish(StateIndex::new(initial_ref.index()))?;
-    Ok(())
+    builder.require_num_of_states(num_of_states);
+    builder.finish(initial)
+}
+
+/// Computes the parallel composition like [`combine_lts`], using `threads` worker threads.
+///
+/// The states of the result are numbered sparsely, i.e. there can be indices without transitions that are not
+/// reachable from the initial state.
+///
+/// # Errors
+///
+/// See [`combine_lts`].
+pub fn combine_lts_parallel<L, A, B>(
+    builder: &mut B,
+    parallel_composition: Vec<L>,
+    hide: &[String],
+    allow: &[MultiActionLabel],
+    comm: &[CommExpr],
+    threads: usize,
+    timing: &Timing,
+) -> Result<B::LTS, MercError>
+where
+    L: LTS<Label = LtsMultiAction<A>> + Sync,
+    A: CombineLabel + Send + Sync,
+    B: ConcurrentLtsBuilder<L::Label>,
+{
+    check_arguments(&parallel_composition, allow, comm)?;
+
+    let lps = ComposedLts::new(&parallel_composition, hide, allow, comm);
+    let pool = configure_rayon_thread_pool(threads, false)?;
+
+    let builder_ref: &B = builder;
+    let states = ShardedCounter::new();
+    let transitions = ShardedCounter::new();
+    let progress = TimeProgress::new(
+        |(states, transitions): (usize, usize)| {
+            info!("Explored {states} states, {transitions} transitions...");
+        },
+        1,
+    );
+
+    // Forwards a deduplicated transition into the shared builder, see [`combine_lts`].
+    let flush_one = |from, label: &L::Label, to| {
+        transitions.increment();
+        builder_ref.add_transition_shared(from, label, to)
+    };
+
+    let initial = timing.measure("explore", || -> Result<_, MercError> {
+        pool.install(|| {
+            // Every worker deduplicates the transitions of the states that it explores.
+            let (initial, locals) = explore_parallel(
+                &lps,
+                || (PerStateDedup::new(), 0usize),
+                |(_, num_of_states), _state, _info| {
+                    states.increment();
+                    *num_of_states += 1;
+                    if *num_of_states % 1024 == 0 && progress.is_due() {
+                        progress.print((states.get() as usize, transitions.get() as usize));
+                    }
+                    Ok(())
+                },
+                |(dedup, _), from, label, to| dedup.add(from, label, to, flush_one),
+            )?;
+
+            for (mut dedup, _) in locals {
+                dedup.flush(flush_one)?;
+            }
+            Ok(initial)
+        })
+    })?;
+
+    let num_of_states = states.get() as usize;
+    info!(
+        "Composition complete: {num_of_states} states, {} transitions",
+        transitions.get()
+    );
+
+    builder.require_num_of_states(num_of_states);
+    builder.finish(initial)
+}
+
+/// Computes the parallel composition like [`combine_lts_parallel`], for LTSs in the binary LTS format.
+///
+/// The arguments of their actions are terms that cannot be shared between threads, so they are interned by an
+/// [`ActionArguments`] table first and restored in the result. The state labels of the LTSs are not used.
+///
+/// # Errors
+///
+/// See [`combine_lts`].
+pub fn combine_lts_actions_parallel<S: StateLabels>(
+    parallel_composition: Vec<LabelledTransitionSystem<LtsMultiAction<LtsAction>, S>>,
+    hide: &[String],
+    allow: &[MultiActionLabel],
+    comm: &[CommExpr],
+    threads: usize,
+    timing: &Timing,
+) -> Result<LabelledTransitionSystem<LtsMultiAction<LtsAction>>, MercError> {
+    let arguments = RefCell::new(ActionArguments::default());
+    let parallel_composition = parallel_composition
+        .into_iter()
+        .map(|lts| {
+            lts.with_state_labels(())
+                .relabel(|label| Ok(arguments.borrow_mut().intern(&label)))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut builder = MutexLtsBuilder::new(LtsBuilderMem::new(Vec::new(), Vec::new()));
+    let result = combine_lts_parallel(&mut builder, parallel_composition, hide, allow, comm, threads, timing)?;
+
+    let arguments = arguments.into_inner();
+    result.relabel(|label| Ok(arguments.restore(&label)))
 }
 
 /// An [`LtsAction`] whose arguments are replaced by their index in an [`ActionArguments`] table.
@@ -316,6 +341,344 @@ impl ActionArguments {
                 .collect(),
         )
     }
+}
+
+/// Checks the arguments of [`combine_lts`], see its documentation.
+fn check_arguments<L>(
+    parallel_composition: &[L],
+    allow: &[MultiActionLabel],
+    comm: &[CommExpr],
+) -> Result<(), MercError> {
+    if parallel_composition.is_empty() {
+        return Err("At least one LTS is required for composition.".into());
+    }
+
+    if allow.iter().any(|allow| allow.is_tau_label()) {
+        return Err("Allow set cannot contain the tau action.".into());
+    }
+
+    check_communications(comm)
+}
+
+/// Checks the restrictions on the communication expressions that [`combine_lts`] documents.
+fn check_communications(comm: &[CommExpr]) -> Result<(), MercError> {
+    for (i, comm_i) in comm.iter().enumerate() {
+        if comm_i.from.is_tau_label() {
+            return Err("Communication expressions cannot have tau actions on the left-hand side.".into());
+        }
+
+        if comm_i.from.actions.len() < 2 {
+            return Err(format!(
+                "Communication expressions must have at least two actions on the left-hand side, but {comm_i} does not."
+            )
+            .into());
+        }
+
+        for comm_j in comm
+            .iter()
+            .enumerate()
+            .filter(|&(j, _)| j != i)
+            .map(|(_, comm_j)| comm_j)
+        {
+            // The left hand side of a communication cannot overlap with any other communication's left hand side. This
+            // is the definition used in mCRL2, for example a|b -> a is a valid communication expression.
+            if comm_i.from.actions.iter().any(|a| comm_j.from.actions.contains(a)) {
+                return Err(format!(
+                    "Communication expressions cannot have overlapping left-hand sides, i.e. {comm_i} and {comm_j}."
+                )
+                .into());
+            }
+
+            // The right hand side of a communication cannot be in another communication's left hand side.
+            if comm_j.from.actions.contains(&comm_i.to) {
+                return Err(
+                    format!("Communication expressions cannot have right-hand side in another communication's left-hand side, i.e. {comm_i} and {comm_j}.").into(),
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// The parallel composition hide(H, allow(A, comm(C, L1 || ... || Ln))) as an [`LPS`], so that it can be explored by
+/// [`explore`] and [`crate::explore_parallel`].
+///
+/// The state vector consists of one state per LTS. There is one summand for every non-empty subset of the LTSs, which
+/// takes one transition in each LTS of the subset simultaneously and leaves the other LTSs unchanged.
+struct ComposedLts<'a, L> {
+    lts_list: &'a [L],
+    hide: &'a [String],
+    allow: &'a [MultiActionLabel],
+    comm: &'a [CommExpr],
+
+    /// For every LTS and label index, whether the label can be part of an allowed multi-action, see
+    /// [`usable_action_names`]. Transitions with other labels are never combined.
+    usable_labels: Vec<Vec<bool>>,
+
+    summands: Vec<ComposedSummand<'a, L>>,
+}
+
+impl<'a, L: LTS<Label = LtsMultiAction<A>>, A: CombineLabel> ComposedLts<'a, L> {
+    fn new(lts_list: &'a [L], hide: &'a [String], allow: &'a [MultiActionLabel], comm: &'a [CommExpr]) -> Self {
+        let usable_names = usable_action_names(allow, comm);
+        let is_usable = |label: &L::Label| {
+            label
+                .actions()
+                .iter()
+                .all(|action| usable_names.iter().any(|name| action.matches_label(name)))
+        };
+
+        Self {
+            lts_list,
+            hide,
+            allow,
+            comm,
+            usable_labels: lts_list
+                .iter()
+                .map(|lts| lts.labels().iter().map(is_usable).collect())
+                .collect(),
+            summands: non_empty_subsets(lts_list.len())
+                .into_iter()
+                .map(|components| ComposedSummand {
+                    components,
+                    lts: PhantomData,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl<'a, L: LTS<Label = LtsMultiAction<A>>, A: CombineLabel> LPS for ComposedLts<'a, L> {
+    type Value = usize;
+    type Label = LtsMultiAction<A>;
+    type StateInfo = ();
+    type Summand = ComposedSummand<'a, L>;
+
+    fn initial_state(&self) -> Vec<usize> {
+        self.lts_list
+            .iter()
+            .map(|lts| lts.initial_state_index().value())
+            .collect()
+    }
+
+    fn summands(&self) -> &[Self::Summand] {
+        &self.summands
+    }
+
+    fn create_context(&self) -> ComposedContext<'a, L> {
+        ComposedContext {
+            labels: CombinedLabels::new(self.lts_list, self.hide, self.allow, self.comm),
+            choices: vec![Vec::new(); self.lts_list.len()],
+            odometer: Odometer::new(),
+            transition: ParallelTransition::default(),
+        }
+    }
+
+    fn prepare<'b>(
+        &'b self,
+        context: &mut ComposedContext<'a, L>,
+        state: &'b [usize],
+    ) -> impl Iterator<Item = usize> + 'b {
+        // Collect the usable outgoing transitions of every LTS once, so that the summands can share them.
+        for (i, (lts, choices)) in self.lts_list.iter().zip(&mut context.choices).enumerate() {
+            choices.clear();
+            choices.extend(
+                lts.outgoing_transitions(StateIndex::new(state[i]))
+                    .filter(|transition| self.usable_labels[i][transition.label])
+                    .map(|transition| (transition.label, transition.to.value())),
+            );
+        }
+
+        // A summand in which an LTS cannot move has no parallel transitions, see [`ParallelTransitions::new`].
+        0..self.summands.len()
+    }
+
+    fn state_info(&self, _state: &[usize], _context: &ComposedContext<'a, L>) {}
+}
+
+/// The summand of a [`ComposedLts`] in which the LTSs in `components` take a transition simultaneously.
+struct ComposedSummand<'a, L> {
+    /// The indices of the LTSs that move, in increasing order.
+    components: Vec<usize>,
+    lts: PhantomData<&'a [L]>,
+}
+
+/// Returns every non-empty subset of `0..n` as a list in increasing order. The subsets are ordered like the binary
+/// numbers 1 to 2^n - 1, in which element 0 is the least significant bit.
+fn non_empty_subsets(n: usize) -> Vec<Vec<usize>> {
+    let mut odometer = Odometer::new();
+    odometer.reset(std::iter::repeat_n(2, n));
+
+    let mut subsets = Vec::new();
+    while odometer.increment().is_some() {
+        // The last digit changes fastest, so it corresponds to element 0.
+        subsets.push(odometer.digits().iter().rev().positions(|&digit| digit == 1).collect());
+    }
+    subsets
+}
+
+impl<'a, L: LTS<Label = LtsMultiAction<A>>, A: CombineLabel> Summand for ComposedSummand<'a, L> {
+    type Value = usize;
+    type Label = LtsMultiAction<A>;
+    type Context = ComposedContext<'a, L>;
+
+    fn enumerate<F>(&self, context: &mut Self::Context, state: &[usize], mut report: F) -> Result<(), MercError>
+    where
+        F: FnMut(&Self::Label, &[usize]) -> Result<(), MercError>,
+    {
+        let ComposedContext {
+            labels,
+            choices,
+            odometer,
+            transition,
+        } = context;
+
+        let mut transitions = ParallelTransitions::new(&self.components, choices, state, odometer, transition);
+        while let Some(transition) = transitions.next() {
+            if let Some(label) = labels.label(&transition.labels) {
+                report(label, &transition.target)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn read_positions(&self) -> &[usize] {
+        &self.components
+    }
+
+    fn effect(&self) -> StateEffect<'_> {
+        StateEffect::Positions(&self.components)
+    }
+}
+
+/// The per-thread enumeration context of a [`ComposedLts`].
+struct ComposedContext<'a, L: LTS> {
+    labels: CombinedLabels<'a, L>,
+
+    /// The usable outgoing (label, target) pairs of every LTS in the current state, filled by [`LPS::prepare`].
+    choices: Vec<Vec<(LabelIndex, usize)>>,
+
+    /// The buffers of [`ParallelTransitions`], kept to avoid allocating them for every summand.
+    odometer: Odometer,
+    transition: ParallelTransition,
+}
+
+/// A transition of a parallel composition before its label is computed.
+#[derive(Default)]
+struct ParallelTransition {
+    /// The (LTS index, label index) pair of every LTS that moves, in increasing order of LTS index.
+    labels: Vec<(usize, LabelIndex)>,
+    /// The state of every LTS after the transition.
+    target: Vec<usize>,
+}
+
+/// The parallel transitions in which every LTS in `components` takes one of its `choices`, and the other LTSs stay in
+/// their state.
+///
+/// This is a [`StreamingIterator`] that updates a single [`ParallelTransition`] in place, changing only the LTSs whose
+/// choice changed.
+struct ParallelTransitions<'c> {
+    components: &'c [usize],
+    choices: &'c [Vec<(LabelIndex, usize)>],
+    /// The current choice of every LTS in `components`.
+    odometer: &'c mut Odometer,
+    transition: &'c mut ParallelTransition,
+    position: Position,
+}
+
+#[derive(Clone, Copy)]
+enum Position {
+    Start,
+    At,
+    Done,
+}
+
+impl<'c> ParallelTransitions<'c> {
+    /// Creates the iterator over the parallel transitions from `state`, where `choices[i]` contains the (label,
+    /// target) pairs of the outgoing transitions of LTS `i`. The `odometer` and `transition` are reused buffers.
+    ///
+    /// There are no parallel transitions when an LTS in `components` has no choices.
+    fn new(
+        components: &'c [usize],
+        choices: &'c [Vec<(LabelIndex, usize)>],
+        state: &[usize],
+        odometer: &'c mut Odometer,
+        transition: &'c mut ParallelTransition,
+    ) -> Self {
+        let position = if odometer.reset(components.iter().map(|&i| choices[i].len())) {
+            transition.labels.clear();
+            transition
+                .labels
+                .extend(components.iter().map(|&i| (i, LabelIndex::new(0))));
+            transition.target.clear();
+            transition.target.extend_from_slice(state);
+            Position::Start
+        } else {
+            Position::Done
+        };
+
+        Self {
+            components,
+            choices,
+            odometer,
+            transition,
+            position,
+        }
+    }
+
+    /// Updates the transition for the components from position `first` onwards to their current choice.
+    fn update_from(&mut self, first: usize) {
+        for (k, &i) in self.components.iter().enumerate().skip(first) {
+            let (label, to) = self.choices[i][self.odometer.digits()[k]];
+            self.transition.labels[k] = (i, label);
+            self.transition.target[i] = to;
+        }
+    }
+}
+
+impl StreamingIterator for ParallelTransitions<'_> {
+    type Item = ParallelTransition;
+
+    fn advance(&mut self) {
+        let changed = match self.position {
+            Position::Start => Some(0),
+            Position::At => self.odometer.increment(),
+            Position::Done => None,
+        };
+        self.position = match changed {
+            Some(first) => {
+                self.update_from(first);
+                Position::At
+            }
+            None => Position::Done,
+        };
+    }
+
+    fn get(&self) -> Option<&ParallelTransition> {
+        matches!(self.position, Position::At).then_some(&*self.transition)
+    }
+}
+
+/// Returns the action names that can occur in a multi-action allowed by `allow` after applying `comm`.
+///
+/// These are the names in `allow`, and the names on the left-hand side of a communication whose result is such a name.
+/// A multi-action containing any other name is not allowed, whatever it is combined with: communication only replaces
+/// names on its left-hand side by its result.
+fn usable_action_names(allow: &[MultiActionLabel], comm: &[CommExpr]) -> Vec<String> {
+    let mut names: Vec<String> = allow
+        .iter()
+        .flat_map(|label| label.actions.iter().map(|name| name.node.clone()))
+        .collect();
+    // The result of a communication cannot occur on the left-hand side of another, so one pass suffices.
+    for expr in comm {
+        if names.contains(&expr.to.node) {
+            names.extend(expr.from.actions.iter().map(|name| name.node.clone()));
+        }
+    }
+    names.sort_unstable();
+    names.dedup();
+    names
 }
 
 /// Computes the labels of parallel transitions, i.e. $\tau_I(\gamma_C(\alpha_{j_0} | \cdots | \alpha_{j_m}))$ when
@@ -504,49 +867,6 @@ fn hide_action<L: CombineLabel>(hide: &[String], mut action: LtsMultiAction<L>) 
     action
 }
 
-/// Reusable scratch buffers for iterating the cartesian product of the active LTSs.
-///
-/// Holding these buffers in a long-lived context avoids re-allocating per
-/// iteration.
-struct CartesianProductContext {
-    /// The length of each factor.
-    lengths: Vec<usize>,
-    /// Current index into each factor.
-    indices: Vec<usize>,
-}
-
-impl CartesianProductContext {
-    /// Creates a fresh context with empty buffers.
-    pub(crate) fn new() -> Self {
-        Self {
-            lengths: Vec::new(),
-            indices: Vec::new(),
-        }
-    }
-
-    /// Advances the element by one step.
-    ///
-    /// Returns `Some(i)` where `i` is the leftmost position that was
-    /// incremented (all positions to its right were reset to 0). Returns
-    /// `None` when the product is exhausted.
-    fn advance_element(&mut self) -> Option<usize> {
-        for i in (0..self.indices.len()).rev() {
-            self.indices[i] += 1;
-            if self.indices[i] < self.lengths[i] {
-                return Some(i);
-            }
-            self.indices[i] = 0;
-        }
-        None
-    }
-}
-
-impl Default for CartesianProductContext {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// A multi-action label with action names sorted, for proper multiset
 /// comparison with [`SortedLtsMultiAction`].
 struct SortedMultiActionLabel {
@@ -600,269 +920,48 @@ impl<'a, L: TransitionLabel> SortedLtsMultiAction<'a, L> {
     }
 }
 
-/// The output of a parallel transition step: label indices from participating
-/// LTSs and the combined target state vector.
-struct ParallelTransition {
-    /// Indices of LTSs participating in this transition's subset.
-    pub subset_indices: Vec<usize>,
-    /// Label indices from each participating LTS in the current subset.
-    pub labels: Vec<LabelIndex>,
-    /// Target state vector: for LTSs in the subset, the transition target;
-    /// for others, the current state is retained.
-    pub target: Vec<StateIndex>,
-}
-
-/// Reusable scratch buffers for [`ParallelTransitionIter`].
-///
-/// Holding these buffers in a long-lived context avoids re-allocating per
-/// source state during a single `combine_lts` invocation.
-struct ParallelTransitionContext {
-    /// Indices of LTSs participating in the current subset.
-    subset_indices: Vec<usize>,
-    /// Snapshot of the current source state vector (one state per LTS).
-    base_target: Vec<StateIndex>,
-    /// Current transition for each LTS in `subset_indices`, in the same order.
-    current: Vec<Transition>,
-    /// Cartesian product context tracking the current offset and length for
-    /// each LTS in `subset_indices`, in the same order.
-    cartesian_product_context: CartesianProductContext,
-    /// Output buffer surfaced via `StreamingIterator::get`.
-    result: ParallelTransition,
-}
-
-impl ParallelTransitionContext {
-    /// Creates a fresh context with empty buffers.
-    pub(crate) fn new() -> Self {
-        Self {
-            subset_indices: Vec::new(),
-            base_target: Vec::new(),
-            current: Vec::new(),
-            cartesian_product_context: CartesianProductContext::new(),
-            result: ParallelTransition {
-                subset_indices: Vec::new(),
-                labels: Vec::new(),
-                target: Vec::new(),
-            },
-        }
-    }
-}
-
-impl Default for ParallelTransitionContext {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// A streaming iterator that lazily enumerates all parallel transitions from a
-/// given state vector across multiple LTSs.
-///
-/// For each non-empty subset $J \subseteq \{0, \ldots, n-1\}$ of LTSs,
-/// enumerates the Cartesian product of outgoing transitions from the LTSs in
-/// $J$ without materialising all outgoing transitions ahead of time. Internal
-/// buffers live in a [`ParallelTransitionContext`] that can be reused across
-/// many source states.
-struct ParallelTransitionIter<'ctx, 'a, L: LTS> {
-    ctx: &'ctx mut ParallelTransitionContext,
-    lts_list: &'a [L],
-    /// Current subset bitmask (1 to 2^n - 1).
-    current_subset: usize,
-    /// Upper bound for subset enumeration (2^n).
-    max_subset: usize,
-    done: bool,
-    started: bool,
-}
-
-impl<'ctx, 'a, L: LTS> ParallelTransitionIter<'ctx, 'a, L> {
-    /// Creates a new iterator over parallel transitions for the given LTSs
-    /// and current state vector, reusing the buffers held in `ctx`.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `lts_list` has `usize::BITS` or more elements, since subsets
-    /// are enumerated as a `usize` bitmask, or if `lts_list` and
-    /// `current_states` differ in length.
-    pub(crate) fn new(
-        ctx: &'ctx mut ParallelTransitionContext,
-        lts_list: &'a [L],
-        current_states: &[StateIndex],
-    ) -> Self {
-        assert!(
-            lts_list.len() < usize::BITS as usize,
-            "Number of LTSs exceeds maximum supported for subset enumeration"
-        );
-        assert_eq!(
-            lts_list.len(),
-            current_states.len(),
-            "LTS slice and state vector must have the same length"
-        );
-
-        // Reset all reusable buffers while keeping their allocated capacity.
-        ctx.subset_indices.clear();
-        ctx.current.clear();
-        ctx.cartesian_product_context.indices.clear();
-        ctx.cartesian_product_context.lengths.clear();
-
-        ctx.base_target.clear();
-        ctx.base_target.extend_from_slice(current_states);
-
-        ctx.result.subset_indices.clear();
-        ctx.result.labels.clear();
-        ctx.result.target.clear();
-        ctx.result.target.extend_from_slice(current_states);
-
-        Self {
-            ctx,
-            lts_list,
-            current_subset: 1,
-            max_subset: 1usize << lts_list.len(),
-            done: false,
-            started: false,
-        }
-    }
-
-    /// Sets up the Cartesian product context and initial transitions for the
-    /// current subset bitmask.
-    ///
-    /// Returns `true` if the subset has a non-empty Cartesian product (every
-    /// participating LTS has at least one outgoing transition from its
-    /// current state).
-    fn setup_subset(&mut self) -> bool {
-        let ctx = &mut *self.ctx;
-        ctx.subset_indices.clear();
-        ctx.current.clear();
-        ctx.cartesian_product_context.indices.clear();
-        ctx.cartesian_product_context.lengths.clear();
-
-        for i in 0..self.lts_list.len() {
-            if self.current_subset & (1 << i) != 0 {
-                let state = ctx.base_target[i];
-                let mut iter = self.lts_list[i].outgoing_transitions(state);
-                let Some(first) = iter.next() else {
-                    return false;
-                };
-                let len = 1 + iter.count();
-                ctx.subset_indices.push(i);
-                ctx.current.push(first);
-                ctx.cartesian_product_context.indices.push(0);
-                ctx.cartesian_product_context.lengths.push(len);
-            }
-        }
-        true
-    }
-
-    /// Advances the Cartesian product odometer for the current subset.
-    ///
-    /// Returns `true` if a new combination is available; `false` if the
-    /// subset is exhausted.
-    fn advance_product(&mut self) -> bool {
-        let ctx = &mut *self.ctx;
-        // Advance the shared odometer; get the leftmost position that changed.
-        // All positions to its right were reset to 0.
-        let Some(changed_from) = ctx.cartesian_product_context.advance_element() else {
-            return false;
-        };
-        // Re-fetch transitions only for the positions whose offset changed.
-        for k in changed_from..ctx.subset_indices.len() {
-            let lts_idx = ctx.subset_indices[k];
-            let state = ctx.base_target[lts_idx];
-            let offset = ctx.cartesian_product_context.indices[k];
-            ctx.current[k] = self.lts_list[lts_idx]
-                .outgoing_transitions(state)
-                .nth(offset)
-                .expect("Offset is within the iterator's exact length");
-        }
-        true
-    }
-
-    /// Materialises the next result into the context's output buffer.
-    fn fill_result(&mut self) {
-        let ctx = &mut *self.ctx;
-        let subset = &ctx.subset_indices;
-        let current = &ctx.current;
-        let base = &ctx.base_target;
-        let result = &mut ctx.result;
-
-        result.subset_indices.clear();
-        result.subset_indices.extend_from_slice(subset);
-        result.labels.clear();
-        result.target.clear();
-        result.target.extend_from_slice(base);
-
-        for (k, &lts_idx) in subset.iter().enumerate() {
-            let t = &current[k];
-            result.labels.push(t.label);
-            result.target[lts_idx] = t.to;
-        }
-    }
-}
-
-impl<'a, L: LTS> StreamingIterator for ParallelTransitionIter<'_, 'a, L> {
-    type Item = ParallelTransition;
-
-    fn advance(&mut self) {
-        if self.done {
-            return;
-        }
-
-        // Try to advance within the current Cartesian product.
-        if self.started {
-            if self.advance_product() {
-                self.fill_result();
-                return;
-            }
-            self.current_subset += 1;
-        }
-        self.started = true;
-
-        // Find the next subset with a non-empty Cartesian product.
-        while self.current_subset < self.max_subset {
-            if self.setup_subset() {
-                self.fill_result();
-                return;
-            }
-            self.current_subset += 1;
-        }
-
-        self.done = true;
-    }
-
-    fn get(&self) -> Option<&Self::Item> {
-        if self.done || !self.started {
-            None
-        } else {
-            Some(&self.ctx.result)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use merc_collections::VecBag;
     use merc_data::DataExpression;
-    use merc_lts::LabelIndex;
-    use merc_lts::LabelledTransitionSystem;
     use merc_lts::LtsAction;
     use merc_lts::LtsMultiAction;
     use merc_lts::SimpleAction;
-    use merc_lts::StateIndex;
     use merc_syntax::CommExpr;
     use merc_syntax::MultiActionLabel;
     use merc_syntax::Span;
     use merc_syntax::respan;
 
+    use itertools::Itertools;
+    use streaming_iterator::StreamingIterator;
+
+    use merc_lts::LTS;
+    use merc_lts::LabelIndex;
+    use merc_lts::LabelledTransitionSystem;
+    use merc_lts::StateIndex;
     use merc_lts::TransitionLabel;
+    use merc_lts::random_lts;
     use merc_syntax::parse_action_names;
     use merc_syntax::parse_allow_action_names;
     use merc_syntax::parse_comm_expr_set;
+    use merc_utilities::random_test;
 
     use super::ActionArguments;
     use super::CombineLabel;
     use super::CombinedLabels;
+    use super::ComposedLts;
     use super::InternedAction;
+    use super::Odometer;
+    use super::ParallelTransition;
+    use super::ParallelTransitions;
     use super::SortedLtsMultiAction;
     use super::SortedMultiActionLabel;
+    use super::combined_label;
     use super::find_communication_match;
     use super::is_allowed;
+    use super::non_empty_subsets;
+    use crate::LPS;
+    use crate::Summand;
 
     type TestLts = LabelledTransitionSystem<LtsMultiAction<SimpleAction>>;
 
@@ -883,12 +982,38 @@ mod tests {
         )
     }
 
+    /// A random LTS with multi-action labels a, b, c, ... and tau.
+    fn random_test_lts(rng: &mut impl rand::Rng, num_of_states: usize, num_of_labels: u32) -> TestLts {
+        random_lts::<String, _>(rng, num_of_states, num_of_labels)
+            .relabel(|label| LtsMultiAction::from_string(&label))
+            .unwrap()
+    }
+
     /// The (LTS index, label index) pairs as a key of [`CombinedLabels`].
     fn key(pairs: &[(usize, usize)]) -> Vec<(usize, LabelIndex)> {
         pairs
             .iter()
             .map(|&(lts, label)| (lts, LabelIndex::new(label)))
             .collect()
+    }
+
+    /// Returns the transitions of `lps` from `state` as (label, target) pairs.
+    fn enumerate_all(
+        lps: &ComposedLts<'_, TestLts>,
+        state: &[usize],
+    ) -> Vec<(LtsMultiAction<SimpleAction>, Vec<usize>)> {
+        let mut context = lps.create_context();
+        let summands: Vec<usize> = lps.prepare(&mut context, state).collect();
+        let mut result = Vec::new();
+        for index in summands {
+            lps.summands()[index]
+                .enumerate(&mut context, state, |label, target| {
+                    result.push((label.clone(), target.to_vec()));
+                    Ok(())
+                })
+                .unwrap();
+        }
+        result
     }
 
     fn simple(label: &str, args: &[&str]) -> SimpleAction {
@@ -999,6 +1124,54 @@ mod tests {
         assert_eq!(result[0], simple("c", &[]));
     }
 
+    /// Only the given components move, the last one fastest, and the other LTSs stay in their state.
+    #[test]
+    fn parallel_transitions_enumerates_choices_of_components() {
+        let choices = vec![
+            vec![(LabelIndex::new(1), 10), (LabelIndex::new(2), 11)],
+            vec![(LabelIndex::new(3), 12)],
+            vec![(LabelIndex::new(4), 13), (LabelIndex::new(5), 14)],
+        ];
+        let (mut odometer, mut transition) = (Odometer::new(), ParallelTransition::default());
+
+        let mut transitions = ParallelTransitions::new(&[0, 2], &choices, &[0, 1, 2], &mut odometer, &mut transition);
+        let mut result = Vec::new();
+        while let Some(transition) = transitions.next() {
+            result.push((transition.labels.clone(), transition.target.clone()));
+        }
+        assert_eq!(
+            result,
+            vec![
+                (key(&[(0, 1), (2, 4)]), vec![10, 1, 13]),
+                (key(&[(0, 1), (2, 5)]), vec![10, 1, 14]),
+                (key(&[(0, 2), (2, 4)]), vec![11, 1, 13]),
+                (key(&[(0, 2), (2, 5)]), vec![11, 1, 14]),
+            ]
+        );
+
+        // An LTS without choices has no parallel transitions.
+        let choices = vec![vec![(LabelIndex::new(1), 10)], vec![]];
+        let mut transitions = ParallelTransitions::new(&[0, 1], &choices, &[0, 1], &mut odometer, &mut transition);
+        assert!(transitions.next().is_none());
+    }
+
+    #[test]
+    fn non_empty_subsets_counts_in_binary() {
+        assert_eq!(non_empty_subsets(0), Vec::<Vec<usize>>::new());
+        assert_eq!(
+            non_empty_subsets(3),
+            vec![
+                vec![0],
+                vec![1],
+                vec![0, 1],
+                vec![2],
+                vec![0, 2],
+                vec![1, 2],
+                vec![0, 1, 2]
+            ]
+        );
+    }
+
     /// Interning keeps exactly the actions with equal arguments compatible for communication, and restoring returns
     /// the original actions.
     #[test]
@@ -1063,5 +1236,66 @@ mod tests {
             );
         }
         assert_eq!(labels.len(), 2);
+    }
+
+    /// The transitions of the composition are exactly the combinations of outgoing transitions, in which every LTS
+    /// either stays or takes a transition, whose label computed without the cache is allowed.
+    #[test]
+    fn random_composition_matches_naive_enumeration() {
+        random_test(100, |rng| {
+            let ltss = vec![
+                random_test_lts(rng, 5, 5),
+                random_test_lts(rng, 5, 5),
+                random_test_lts(rng, 5, 5),
+            ];
+            let comm = parse_comm_expr_set("{a|b -> c}").unwrap();
+            // b is only usable through the communication, and d is not usable.
+            let allow = parse_allow_action_names("{a, c, a|c}").unwrap();
+            let hide = parse_action_names("{a}").unwrap();
+            let sorted_allow: Vec<SortedMultiActionLabel> = allow.iter().map(SortedMultiActionLabel::new).collect();
+            let lps = ComposedLts::new(&ltss, &hide, &allow, &comm);
+
+            for state in ltss.iter().map(|lts| 0..lts.num_of_states()).multi_cartesian_product() {
+                // Every LTS either stays (None) or takes one of its outgoing transitions.
+                let mut expected = Vec::new();
+                let choices: Vec<Vec<Option<(LabelIndex, usize)>>> = ltss
+                    .iter()
+                    .zip(&state)
+                    .map(|(lts, &s)| {
+                        std::iter::once(None)
+                            .chain(
+                                lts.outgoing_transitions(StateIndex::new(s))
+                                    .map(|t| Some((t.label, t.to.value()))),
+                            )
+                            .collect()
+                    })
+                    .collect();
+                for combination in choices
+                    .iter()
+                    .map(|choice| choice.iter().copied())
+                    .multi_cartesian_product()
+                {
+                    let pairs: Vec<(usize, LabelIndex)> = combination
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, choice)| choice.map(|(label, _)| (i, label)))
+                        .collect();
+                    if pairs.is_empty() {
+                        continue;
+                    }
+                    let target = (0..ltss.len())
+                        .map(|i| combination[i].map_or(state[i], |(_, to)| to))
+                        .collect();
+                    if let Some(label) = combined_label(&ltss, &pairs, &hide, &sorted_allow, &comm) {
+                        expected.push((label, target));
+                    }
+                }
+
+                let mut result = enumerate_all(&lps, &state);
+                result.sort();
+                expected.sort();
+                assert_eq!(result, expected);
+            }
+        });
     }
 }
