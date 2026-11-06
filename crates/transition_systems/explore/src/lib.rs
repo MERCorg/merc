@@ -21,6 +21,8 @@ pub use combine::ActionArguments;
 pub use combine::CombineLabel;
 pub use combine::InternedAction;
 pub use combine::combine_lts;
+pub use combine::combine_lts_actions_parallel;
+pub use combine::combine_lts_parallel;
 pub use cpu_topology::CpuTopology;
 pub use cpu_topology::TopologyDetectionConfig;
 pub use explore::ExplorationStrategy;

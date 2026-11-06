@@ -12,14 +12,16 @@ use log::warn;
 
 use merc_data::Mcrl2DataSpecification;
 use merc_explore::combine_lts;
+use merc_explore::combine_lts_actions_parallel;
+use merc_explore::combine_lts_parallel;
 use merc_io::LargeFormatter;
 use merc_lts::GenericLts;
 use merc_lts::LTS;
 use merc_lts::LtsBuilderMem;
 use merc_lts::LtsFormat;
 use merc_lts::LtsMultiAction;
+use merc_lts::MutexLtsBuilder;
 use merc_lts::SimpleAction;
-use merc_lts::StateIndex;
 use merc_lts::apply_lts;
 use merc_lts::apply_lts_pair;
 use merc_lts::guess_lts_format_from_extension;
@@ -705,9 +707,13 @@ fn handle_combine(args: &CombineArgs, timing: &mut Timing) -> Result<(), MercErr
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let mut builder = LtsBuilderMem::new(Vec::new(), Vec::new());
-            combine_lts(&mut builder, lts_list, &hide, &allow, &comm, timing)?;
-            let result = builder.finish(StateIndex::new(0), false);
+            let result = if args.threads > 1 {
+                let mut builder = MutexLtsBuilder::new(LtsBuilderMem::new(Vec::new(), Vec::new()));
+                combine_lts_parallel(&mut builder, lts_list, &hide, &allow, &comm, args.threads, timing)?
+            } else {
+                let mut builder = LtsBuilderMem::new(Vec::new(), Vec::new());
+                combine_lts(&mut builder, lts_list, &hide, &allow, &comm, timing)?
+            };
 
             let result = result.relabel(|label| Ok(label.to_string()))?;
             write_untyped_lts(&result, output_format, args.output.as_deref())?;
@@ -733,9 +739,12 @@ fn handle_combine(args: &CombineArgs, timing: &mut Timing) -> Result<(), MercErr
                 })
                 .collect::<Result<Vec<_>, _>>()?;
 
-            let mut builder = LtsBuilderMem::new(Vec::new(), Vec::new());
-            combine_lts(&mut builder, lts_list, &hide, &allow, &comm, timing)?;
-            let result = builder.finish(StateIndex::new(0), false);
+            let result = if args.threads > 1 {
+                combine_lts_actions_parallel(lts_list, &hide, &allow, &comm, args.threads, timing)?
+            } else {
+                let mut builder = LtsBuilderMem::new(Vec::new(), Vec::new());
+                combine_lts(&mut builder, lts_list, &hide, &allow, &comm, timing)?
+            };
 
             if output_format == LtsFormat::Lts {
                 if data_specs.len() > 1 {
