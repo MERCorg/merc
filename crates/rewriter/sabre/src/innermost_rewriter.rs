@@ -1,10 +1,14 @@
 use std::cell::OnceCell;
+use std::cell::RefCell;
 
+use merc_aterm::ProtectedWriteGuard;
 use merc_data::BinderType;
 use merc_data::DataAbstraction;
 use merc_data::DataApplication;
 use merc_data::DataExpression;
 use merc_data::DataExpressionKind;
+use merc_data::DataExpressionRef;
+use merc_data::DataFunctionSymbol;
 use merc_data::DataVariable;
 
 use crate::Enumerator;
@@ -26,9 +30,12 @@ use crate::set_automaton::MatchAnnouncement;
 use crate::set_automaton::MatchResult;
 use crate::set_automaton::SetAutomaton;
 use crate::subject::Subject;
+use crate::subject::subterm;
 use crate::utilities::Config;
 use crate::utilities::EmptySubstitution;
+use crate::utilities::Evaluate;
 use crate::utilities::InnermostStack;
+use crate::utilities::Instruction;
 use crate::utilities::RewriteSubstitution;
 use crate::utilities::SliceSubstitution;
 use crate::utilities::TermStack;
@@ -45,24 +52,25 @@ impl<E: Enumerator> RewriteEngine for InnermostRewriter<E> {
     }
 }
 
-/// What [rewrite_aux] does after a configuration has been taken from the stack.
-enum Step {
+/// What [rewrite_aux] does next, after the configuration on top has been looked at.
+enum Step<'p> {
     Continue,
 
-    /// Find a match for the redex of the [Config::Construct] on top, whose `arity` arguments are
-    /// on top of the term stack, and place the result at `index`.
+    /// Match the redex on top of the stack, which applies `head` to `arity` arguments.
     Match {
+        head: Head<'p>,
         arity: usize,
-        index: usize,
     },
 
-    /// Rewrite a binder of the input term under `sigma`, and place the result at the index.
-    SubjectBinder(DataAbstraction, usize),
+    /// Rewrite a binder of the input term under `sigma`.
+    SubjectBinder(DataAbstraction),
 
-    /// Rewrite the binder `b` of a right-hand side, given as the template `lambda x0, .., xn .
-    /// b` over its free variables (see [Config::Binder]), under `xi := values[i]`, and place the
-    /// result at the index.
-    RhsBinder(DataAbstraction, Vec<DataExpression>, usize),
+    /// Rewrite the binder `b` of a right-hand side, given as the `template` `lambda x0, .., xn .
+    /// b` over its free variables, under `xi := v_i` for the `arity` terms `v_i` on top.
+    RhsBinder {
+        template: &'p DataAbstraction,
+        arity: usize,
+    },
 
     /// The normal form of the input term.
     Return(DataExpression),
@@ -88,10 +96,13 @@ impl InnermostRewriter<NoQuantifierEnumerator> {
 
 impl<E: Enumerator> InnermostRewriter<E> {
     fn build(spec: &RewriteSpecification, max_entries: Option<usize>, enumerator: E) -> Self {
-        let automaton = SetAutomaton::with_binders(spec, AnnouncementInnermost::new);
+        // The automaton annotates the rules through a shared reference.
+        let programs = RefCell::new(TermStacks::default());
+        let automaton =
+            SetAutomaton::with_binders(spec, |rule| programs.borrow_mut().annotate(rule, TermStack::new(rule)));
 
         InnermostRewriter {
-            machine: RewriteMachine::new(automaton, max_entries, enumerator),
+            machine: RewriteMachine::new(automaton, programs.into_inner(), max_entries, enumerator),
         }
     }
 
@@ -124,8 +135,12 @@ impl<E: Enumerator> InnermostRewriter<E> {
 
 /// The rewriting machine of the [InnermostRewriter]: the automaton of the rules, and the stacks
 /// and caches that rewriting reuses.
+///
+/// The right-hand sides of the rules are programs (see [TermStack]), which the machine runs in
+/// place.
 pub(crate) struct RewriteMachine<E: Enumerator> {
-    automaton: SetAutomaton<AnnouncementInnermost>,
+    automaton: SetAutomaton<Annotation>,
+    programs: TermStacks,
     stack: InnermostStack,
     builder: TermStackBuilder,
     /// Caches condition-side normal forms across the whole computation.
@@ -139,9 +154,15 @@ pub(crate) struct RewriteMachine<E: Enumerator> {
 }
 
 impl<E: Enumerator> RewriteMachine<E> {
-    pub fn new(automaton: SetAutomaton<AnnouncementInnermost>, max_entries: Option<usize>, enumerator: E) -> Self {
+    fn new(
+        automaton: SetAutomaton<Annotation>,
+        programs: TermStacks,
+        max_entries: Option<usize>,
+        enumerator: E,
+    ) -> Self {
         RewriteMachine {
             automaton,
+            programs,
             stack: InnermostStack::default(),
             builder: TermStackBuilder::new(),
             condition_cache: ConditionCache::new(max_entries),
@@ -170,12 +191,50 @@ impl<E: Enumerator> RewriteMachine<E> {
             builder: &mut self.builder,
             metrics: &mut self.metrics,
             automaton: &self.automaton,
+            programs: &self.programs,
             condition_cache: &mut self.condition_cache,
             enumerator: &self.enumerator,
             binders: &mut self.binders,
         };
         rewrite_aux(&mut context, t, sigma)
     }
+}
+
+/// The right-hand sides of the rules of a [RewriteMachine], which [ProgramId]s refer to.
+#[derive(Default)]
+struct TermStacks {
+    stacks: Vec<TermStack>,
+}
+
+/// The index of a right-hand side in [TermStacks]. Only [TermStacks::annotate] makes one, so
+/// it refers to a right-hand side of the machine whose automaton holds it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ProgramId(u32);
+
+impl TermStacks {
+    /// Adds `program`, the right-hand side of `rule`, and returns the annotation of the rule.
+    fn annotate(&mut self, rule: &Rule, program: TermStack) -> Annotation {
+        self.stacks.push(program);
+        Annotation {
+            equivalence_classes: derive_equivalence_classes(rule),
+            conditions: extend_conditions(rule),
+            program: ProgramId(u32::try_from(self.stacks.len() - 1).expect("fewer than 2^32 programs")),
+        }
+    }
+
+    /// Returns the right-hand side that `id` refers to.
+    fn get(&self, id: ProgramId) -> &TermStack {
+        &self.stacks[id.0 as usize]
+    }
+}
+
+/// What the machine needs to apply a rule.
+pub(crate) struct Annotation {
+    /// Positions in the pattern with the same variable, for non-linear patterns
+    pub equivalence_classes: Vec<EquivalenceClass>,
+    pub conditions: Vec<EMACondition>,
+    /// The right-hand side.
+    pub program: ProgramId,
 }
 
 /// The state that rewriting a term needs, borrowed from the [RewriteMachine].
@@ -193,7 +252,8 @@ struct RewriteContext<'a, E: Enumerator> {
     stack: &'a mut InnermostStack,
     builder: &'a mut TermStackBuilder,
     metrics: &'a mut RewriteMetrics,
-    automaton: &'a SetAutomaton<AnnouncementInnermost>,
+    automaton: &'a SetAutomaton<Annotation>,
+    programs: &'a TermStacks,
     condition_cache: &'a mut ConditionCache,
     enumerator: &'a E,
     binders: &'a mut BinderState<E::Frame>,
@@ -203,15 +263,14 @@ struct RewriteContext<'a, E: Enumerator> {
 /// `sigma`.
 ///
 /// Uses a stack of terms and configurations to avoid recursion and to keep track of terms in
-/// normal form without explicit tagging. Each configuration is one of:
-///     - Return: Returns the top of the stack.
-///     - Rewrite { index }: Rewrites the top of the term stack and places the result at the
-///       given index.
-///     - Construct { symbol, arity, index }: Constructs `symbol` applied to the `arity` terms at
-///       the top of the stack and places the result at the given index.
-///     - Term { term, index }: Places a normal form of a right-hand side at the given index.
-///     - Binder { template, arity, index }: Rewrites a binder of a right-hand side, with the
-///       values of its free variables at the top of the stack.
+/// normal form without explicit tagging. Every configuration leaves its result on top of the
+/// term stack:
+///     - Rewrite { term }: Pushes the normal form of `term`, by rewriting its arguments from
+///       left to right and then matching the redex.
+///     - Construct { symbol, arity }: Matches `symbol` applied to the `arity` terms on top, and
+///       replaces them by its normal form.
+///     - Evaluate: Runs a right-hand side in place, with a program counter; see [Evaluate].
+///     - Return: Pops the normal form of the input term.
 ///
 /// Free variables of `input_term` are replaced by their image under `sigma` when they are
 /// reached, which is the point where the substitution is consumed: every term that is
@@ -222,7 +281,7 @@ struct RewriteContext<'a, E: Enumerator> {
 /// which one depends on where it comes from:
 ///     - A binder of the input term is reached through `Rewrite`, while `sigma` is not yet
 ///       consumed for its free variables, so its body is rewritten under `sigma`.
-///     - A binder of a right-hand side is instantiated by `Binder`. Its free variables are
+///     - A binder of a right-hand side is reached by its program. Its free variables are
 ///       variables of the rule, and their values are the normal forms of the matched subterms,
 ///       which are rewritten like any other argument first. These are already substituted, so
 ///       its body is rewritten under the values instead of `sigma`.
@@ -239,214 +298,235 @@ fn rewrite_aux<S: RewriteSubstitution, E: Enumerator>(
     // the first one is reached.
     let sigma_range = OnceCell::new();
 
-    let stack = &mut *context.stack;
-    stack.terms.write(|write_terms| {
-        stack.configs.write(|write_configs| {
-            // Push the result term to the stack.
-            let top_of_stack = write_terms.len();
-            write_configs.push(Config::Return);
-            write_terms.push(None);
-            InnermostStack::add_rewrite(write_configs, write_terms, input_term.copy(), top_of_stack);
-        })
+    context.stack.configs.write(|write_configs| {
+        write_configs.push(Config::Return);
+        InnermostStack::add_rewrite(write_configs, &input_term.copy());
     });
 
     loop {
         debug_trace!("{}", context.stack);
 
+        let programs = context.programs;
         let stack = &mut *context.stack;
         let step = stack.configs.write(|write_configs| {
-            // A construct stays on the stack while its redex is matched, which keeps its symbol
-            // protected; its arguments are already the terms on top.
-            if let Some(Config::Construct { arity, index, .. }) = write_configs.last() {
-                return Step::Match {
-                    arity: *arity,
-                    index: *index,
-                };
-            }
-
-            let config = write_configs
-                .pop()
-                .expect("The stack always ends with a Return configuration");
-            stack.terms.write(|write_terms| match config {
-                Config::Rewrite { index: result } => {
-                    let term = write_terms.pop().unwrap().unwrap();
-
-                    match term.kind() {
-                        // A machine number is a value in normal form; it has no head function
-                        // symbol to decompose, so place it directly at the result index.
-                        DataExpressionKind::MachineNumber(_) => {
-                            // Safety: term is stored in the container on the same line.
-                            write_terms[result] = Some(unsafe { write_terms.protect(&term) }.into());
-                        }
-                        // A binder has no head function symbol either, and is not addressed by
-                        // the set automaton.
-                        DataExpressionKind::Abstraction(binder) => {
-                            return Step::SubjectBinder(binder.protect(), result);
-                        }
-                        DataExpressionKind::Application(_) | DataExpressionKind::FunctionSymbol(_) => {
-                            let symbol = term.data_function_symbol();
-                            let arguments = term.data_arguments();
-
-                            // For all the argument we reserve space on the stack.
-                            let top_of_stack = write_terms.len();
-                            for _ in 0..arguments.len() {
-                                write_terms.push(Default::default());
-                            }
-
-                            // Safety: symbol is stored in the container on the next line.
-                            let symbol = unsafe { write_configs.protect(&symbol) };
-                            InnermostStack::add_result(write_configs, symbol.into(), arguments.len(), result);
-                            for (offset, arg) in arguments.into_iter().enumerate() {
-                                InnermostStack::add_rewrite(write_configs, write_terms, arg, top_of_stack + offset);
-                            }
-                        }
-                        // A variable has no head symbol to match on. It is replaced by its
-                        // image under sigma, which is assumed to be in normal form, so it
-                        // goes straight into the result slot without being constructed.
-                        // Variables outside the domain of sigma are their own normal form.
-                        DataExpressionKind::Variable(variable) => {
-                            let replacement = sigma.get(&variable).unwrap_or_else(|| term.copy());
-
-                            // Safety: replacement is stored in the container on the same line.
-                            write_terms[result] = Some(unsafe { write_terms.protect(&replacement) }.into());
-                        }
-                        DataExpressionKind::WhereClause(_) => {
-                            unimplemented!("rewriting a where clause: {term}")
-                        }
+            stack.terms.write(|write_terms| {
+                match write_configs.last() {
+                    // A construct stays on the stack while its redex is matched, which keeps its
+                    // symbol protected; its arguments are already the terms on top.
+                    Some(Config::Construct { arity, .. }) => {
+                        return Step::Match {
+                            head: Head::Construct,
+                            arity: *arity,
+                        };
                     }
-                    Step::Continue
+                    Some(Config::Evaluate(_)) => return run_program(write_configs, write_terms, programs),
+                    _ => {}
                 }
-                Config::Construct { .. } => {
-                    unreachable!("a construct is matched before it is taken from the stack")
+
+                match write_configs
+                    .pop()
+                    .expect("The stack always ends with a Return configuration")
+                {
+                    Config::Rewrite { term } => decompose(write_configs, write_terms, &term, sigma),
+                    Config::Return => Step::Return(
+                        write_terms
+                            .pop()
+                            .expect("The result should be the last element on the stack")
+                            .expect("The result should be Some")
+                            .protect(),
+                    ),
+                    Config::Construct { .. } | Config::Evaluate(_) => {
+                        unreachable!("these configurations are handled before they are taken from the stack")
+                    }
                 }
-                Config::Binder {
-                    template: binder,
-                    arity,
-                    index,
-                } => {
-                    let length = write_terms.len();
-                    let values: Vec<DataExpression> = write_terms[length - arity..]
-                        .iter()
-                        .flatten()
-                        .map(|value| value.protect())
-                        .collect();
-                    write_terms.drain(length - arity..);
-                    Step::RhsBinder(binder.protect().into(), values, index)
-                }
-                Config::Term { term, index } => {
-                    // A constant carried by a right-hand side (a machine number)
-                    // is already in normal form: place it at its index directly.
-                    // Safety: term is stored in the container on the same line.
-                    write_terms[index] = Some(unsafe { write_terms.protect(&term) }.into());
-                    Step::Continue
-                }
-                Config::Return => Step::Return(
-                    write_terms
-                        .pop()
-                        .expect("The result should be the last element on the stack")
-                        .expect("The result should be Some")
-                        .protect(),
-                ),
             })
         });
 
         match step {
             Step::Continue => {}
-            Step::SubjectBinder(abstraction, index) => {
+            Step::Match { head, arity } => match_redex(context, head, arity),
+            Step::SubjectBinder(abstraction) => {
                 let range = sigma_range.get_or_init(|| sigma.range());
                 let value = rewrite_binder(context, &abstraction, sigma, range);
-
-                context.stack.terms.write(|write_terms| {
-                    // Safety: value is stored in the container on the same line.
-                    write_terms[index] = Some(unsafe { write_terms.protect(&value) }.into());
-                });
+                context
+                    .stack
+                    .terms
+                    .write(|write_terms| InnermostStack::push_value(write_terms, &value.copy()));
             }
-            Step::RhsBinder(template, values, index) => {
+            Step::RhsBinder { template, arity } => {
+                let values: Vec<DataExpression> = context.stack.terms.write(|write_terms| {
+                    let first = write_terms.len() - arity;
+                    let values = write_terms[first..]
+                        .iter()
+                        .flatten()
+                        .map(|value| value.protect())
+                        .collect();
+                    write_terms.truncate(first);
+                    values
+                });
+
                 // The lambda only records which variables the values are for.
                 let variables: Vec<DataVariable> = template.variables().into_iter().collect();
                 let abstraction: DataAbstraction = template.body().protect().into();
 
                 let values = SliceSubstitution::new(&variables, &values);
                 let value = rewrite_binder(context, &abstraction, &values, &values.range());
-
-                context.stack.terms.write(|write_terms| {
-                    // Safety: value is stored in the container on the same line.
-                    write_terms[index] = Some(unsafe { write_terms.protect(&value) }.into());
-                });
-            }
-            Step::Match { arity, index } => {
-                let automaton = context.automaton;
-                let found = find_match(context, automaton, arity);
-                let RewriteContext { stack, metrics, .. } = context;
-                stack.configs.write(|write_configs| {
-                    let Some(Config::Construct { symbol, .. }) = write_configs.pop() else {
-                        unreachable!("the redex is that of the construct on top of the stack");
-                    };
-
-                    stack.terms.write(|write_terms| {
-                        let first = write_terms.len() - arity;
-                        match found {
-                            Some(MatchResult::Native(result)) => {
-                                debug_trace!("native rewrite {} => {}", symbol, result);
-                                metrics.native_applied(&symbol);
-
-                                // Safety: result is stored in the container on the same line.
-                                write_terms[index] = Some(unsafe { write_terms.protect(&result) }.into());
-                                write_terms.drain(first..);
-                            }
-                            Some(MatchResult::Rule(announcement, annotation)) => {
-                                debug_trace!("rewrite {} using rule {}", symbol, announcement.rule);
-                                metrics.rule_applied(&announcement.rule);
-
-                                InnermostStack::integrate(
-                                    write_configs,
-                                    write_terms,
-                                    &annotation.rhs_stack,
-                                    arity,
-                                    index,
-                                );
-                            }
-                            None => {
-                                // No rule applies, so the redex is a normal form, which is only
-                                // constructed now.
-                                let term: DataExpression = if arity == 0 {
-                                    symbol.protect().into()
-                                } else {
-                                    DataApplication::with_iter(&symbol, arity, write_terms[first..].iter().flatten())
-                                        .into()
-                                };
-
-                                // Safety: term is stored in the container on the same line.
-                                write_terms[index] = Some(unsafe { write_terms.protect(&term) }.into());
-                                write_terms.drain(first..);
-                            }
-                        }
-                    })
-                });
+                context
+                    .stack
+                    .terms
+                    .write(|write_terms| InnermostStack::push_value(write_terms, &value.copy()));
             }
             Step::Return(result) => return result,
         }
+    }
+}
 
-        if cfg!(debug_assertions) {
-            let read_configs = context.stack.configs.read();
-            for (index, term) in context.stack.terms.read().iter().enumerate() {
-                if term.is_none() {
-                    debug_assert!(
-                        read_configs.iter().any(|x| {
-                            match x {
-                                Config::Construct { index: result, .. }
-                                | Config::Rewrite { index: result }
-                                | Config::Term { index: result, .. }
-                                | Config::Binder { index: result, .. } => index == *result,
-                                Config::Return => true,
-                            }
-                        }),
-                        "The default term at index {index} is not a result of any operation."
-                    );
-                }
+/// Takes `term` apart, to push its normal form.
+fn decompose<'p, S: RewriteSubstitution>(
+    write_configs: &mut ProtectedWriteGuard<'_, '_, Vec<Config<'_>>>,
+    write_terms: &mut ProtectedWriteGuard<'_, '_, Vec<Option<DataExpressionRef<'_>>>>,
+    term: &DataExpressionRef<'_>,
+    sigma: &S,
+) -> Step<'p> {
+    match term.kind() {
+        // A machine number is a value in normal form, without a head symbol to match.
+        DataExpressionKind::MachineNumber(_) => InnermostStack::push_value(write_terms, term),
+        // A binder has no head function symbol either, and is not addressed by the set automaton.
+        DataExpressionKind::Abstraction(binder) => return Step::SubjectBinder(binder.protect()),
+        DataExpressionKind::Application(_) | DataExpressionKind::FunctionSymbol(_) => {
+            let arity = term.data_arguments().len();
+            InnermostStack::add_construct(write_configs, &term.data_function_symbol(), arity);
+            // The last configuration runs first, so the arguments are pushed from right to left
+            // to be rewritten from left to right.
+            for index in (0..arity).rev() {
+                InnermostStack::add_rewrite(write_configs, &term.data_arg(index));
             }
         }
+        // A variable has no head symbol to match on. It is replaced by its image under sigma,
+        // which is assumed to be in normal form. Variables outside the domain of sigma are their
+        // own normal form.
+        DataExpressionKind::Variable(variable) => match sigma.get(&variable) {
+            Some(replacement) => InnermostStack::push_value(write_terms, &replacement.copy()),
+            None => InnermostStack::push_value(write_terms, term),
+        },
+        DataExpressionKind::WhereClause(_) => {
+            unimplemented!("rewriting a where clause: {term}")
+        }
     }
+    Step::Continue
+}
+
+/// Runs the [Config::Evaluate] on top of the stack until it reaches an instruction that needs
+/// more than the stacks, or its end.
+fn run_program<'p>(
+    write_configs: &mut ProtectedWriteGuard<'_, '_, Vec<Config<'_>>>,
+    write_terms: &mut ProtectedWriteGuard<'_, '_, Vec<Option<DataExpressionRef<'_>>>>,
+    programs: &'p TermStacks,
+) -> Step<'p> {
+    let Some(Config::Evaluate(evaluate)) = write_configs.last_mut() else {
+        unreachable!("the configuration on top is an evaluation");
+    };
+    let program = programs.get(evaluate.program);
+
+    while evaluate.pc < evaluate.end {
+        let pc = evaluate.pc;
+        evaluate.pc += 1;
+        match &program.instructions[pc as usize] {
+            Instruction::Variable(position) => {
+                // Safety: the value is stored in the container on the next line.
+                let value = unsafe { write_terms.protect(&subterm(&write_terms[evaluate.base..], position)) };
+                write_terms.push(Some(value.into()));
+            }
+            Instruction::Term(term) => InnermostStack::push_value(write_terms, &term.copy()),
+            Instruction::Apply { symbol, arity } => {
+                return Step::Match {
+                    head: Head::Symbol(symbol),
+                    arity: *arity,
+                };
+            }
+            Instruction::Binder { template, arity } => {
+                return Step::RhsBinder {
+                    template,
+                    arity: *arity,
+                };
+            }
+            Instruction::Hole(hole) => match *hole {},
+        }
+    }
+
+    // The value of the program replaces the arguments of the matched term.
+    let base = evaluate.base;
+    write_configs.pop();
+    let value = write_terms
+        .pop()
+        .expect("a program has a value")
+        .expect("the value of a program is present");
+    write_terms.truncate(base);
+    write_terms.push(Some(value));
+    Step::Continue
+}
+
+/// The head symbol of the redex on top of the stack, which is applied to the terms on top.
+#[derive(Clone, Copy)]
+enum Head<'a> {
+    /// The symbol of the [Config::Construct] on top of the configurations.
+    Construct,
+    /// The symbol of an application in a program that is running.
+    Symbol(&'a DataFunctionSymbol),
+}
+
+/// Matches the redex on top of the stack, and replaces it by the right-hand side of the rule
+/// that applies, or by its normal form.
+fn match_redex<E: Enumerator>(context: &mut RewriteContext<'_, E>, head: Head<'_>, arity: usize) {
+    let automaton = context.automaton;
+    let found = find_match(context, automaton, head, arity);
+    let RewriteContext {
+        stack,
+        metrics,
+        programs,
+        ..
+    } = context;
+    stack.configs.write(|write_configs| {
+        let symbol = match head {
+            Head::Construct => {
+                let Some(Config::Construct { symbol, .. }) = write_configs.pop() else {
+                    unreachable!("the redex is that of the construct on top of the stack");
+                };
+                symbol
+            }
+            Head::Symbol(symbol) => symbol.copy(),
+        };
+
+        stack.terms.write(|write_terms| {
+            let first = write_terms.len() - arity;
+            match found {
+                Some(MatchResult::Native(result)) => {
+                    debug_trace!("native rewrite {} => {}", symbol, result);
+                    metrics.native_applied(&symbol);
+                    InnermostStack::replace_values(write_terms, first, &result.copy());
+                }
+                Some(MatchResult::Rule(announcement, annotation)) => {
+                    debug_trace!("rewrite {} using rule {}", symbol, announcement.rule);
+                    metrics.rule_applied(&announcement.rule);
+
+                    // The right-hand side runs on top of the arguments, which its variables refer
+                    // to, and replaces them by its value.
+                    let block = programs.get(annotation.program).blocks[0];
+                    write_configs.push(Config::Evaluate(Evaluate::new(annotation.program, block, first)));
+                }
+                None => {
+                    // No rule applies, so the redex is a normal form, which is only constructed
+                    // now.
+                    let term: DataExpression = if arity == 0 {
+                        symbol.protect().into()
+                    } else {
+                        DataApplication::with_iter(&symbol, arity, write_terms[first..].iter().flatten()).into()
+                    };
+                    InnermostStack::replace_values(write_terms, first, &term.copy());
+                }
+            }
+        })
+    });
 }
 
 impl<E: Enumerator> RewriteEngine for RewriteContext<'_, E> {
@@ -480,17 +560,17 @@ impl<E: Enumerator> BinderRewriter for RewriteContext<'_, E> {
     }
 }
 
-/// Uses the automaton to find a match for the redex of the [Config::Construct] on top of the
-/// stack: either a rewrite rule, or — when its head symbol is a machine-word operation — the
-/// natively-evaluated result.
+/// Uses the automaton to find a match for the redex on top of the stack: either a rewrite rule,
+/// or — when its head symbol is a machine-word operation — the natively-evaluated result.
 ///
 /// The automaton is passed separately from the context, so that the match it returns does not
 /// borrow the context.
 fn find_match<'a, E: Enumerator>(
     context: &mut RewriteContext<'_, E>,
-    automaton: &'a SetAutomaton<AnnouncementInnermost>,
+    automaton: &'a SetAutomaton<Annotation>,
+    head: Head<'_>,
     arity: usize,
-) -> Option<MatchResult<'a, AnnouncementInnermost>> {
+) -> Option<MatchResult<'a, Annotation>> {
     // The redex is read from the term stack, which checking conditions rewrites on. The walk
     // therefore stops at a rule with conditions, which are checked outside of it, and continues
     // after that rule when they do not hold.
@@ -500,7 +580,7 @@ fn find_match<'a, E: Enumerator>(
     };
     loop {
         let metrics = &mut *context.metrics;
-        match with_redex(context.stack, arity, |subject| {
+        match with_redex(context.stack, head, arity, |subject| {
             walk(automaton, subject, metrics, cursor)
         }) {
             Walk::Done(result) => return result,
@@ -509,7 +589,7 @@ fn find_match<'a, E: Enumerator>(
                 annotation,
                 next,
             } => {
-                if check_conditions(context, annotation, arity) {
+                if check_conditions(context, &annotation.conditions, head, arity) {
                     return Some(MatchResult::Rule(announcement, annotation));
                 }
                 cursor = next;
@@ -528,11 +608,11 @@ struct Cursor {
 /// Where [walk] stops.
 enum Walk<'a> {
     /// The redex matches this rule, or is natively evaluated, or nothing matches.
-    Done(Option<MatchResult<'a, AnnouncementInnermost>>),
+    Done(Option<MatchResult<'a, Annotation>>),
     /// The redex matches this rule if its conditions hold; otherwise the walk continues at `next`.
     Conditional {
         announcement: &'a MatchAnnouncement,
-        annotation: &'a AnnouncementInnermost,
+        annotation: &'a Annotation,
         next: Cursor,
     },
 }
@@ -540,7 +620,7 @@ enum Walk<'a> {
 /// Walks the automaton for `subject` from `cursor`, up to the first rule that matches it
 /// without conditions, or the first rule with conditions.
 fn walk<'a>(
-    automaton: &'a SetAutomaton<AnnouncementInnermost>,
+    automaton: &'a SetAutomaton<Annotation>,
     subject: &Subject<'_>,
     metrics: &mut RewriteMetrics,
     mut cursor: Cursor,
@@ -599,20 +679,23 @@ fn walk<'a>(
     }
 }
 
-/// Calls `f` with the redex of the [Config::Construct] on top of the stack.
-fn with_redex<R, F>(stack: &InnermostStack, arity: usize, f: F) -> R
+/// Calls `f` with the redex on top of the stack.
+fn with_redex<R, F>(stack: &InnermostStack, head: Head<'_>, arity: usize, f: F) -> R
 where
     F: FnOnce(&Subject<'_>) -> R,
 {
-    let read_configs = stack.configs.read();
-    let Some(Config::Construct { symbol, .. }) = read_configs.last() else {
-        unreachable!("the redex belongs to the construct on top of the stack");
-    };
     let read_terms = stack.terms.read();
-    f(&Subject::Arguments(
-        symbol.copy(),
-        &read_terms[read_terms.len() - arity..],
-    ))
+    let arguments = &read_terms[read_terms.len() - arity..];
+    match head {
+        Head::Construct => {
+            let read_configs = stack.configs.read();
+            let Some(Config::Construct { symbol, .. }) = read_configs.last() else {
+                unreachable!("the redex belongs to the construct on top of the stack");
+            };
+            f(&Subject::Arguments(symbol.copy(), arguments))
+        }
+        Head::Symbol(symbol) => f(&Subject::Arguments(symbol.copy(), arguments)),
+    }
 }
 
 /// Checks whether the condition holds for given match announcement.
@@ -621,12 +704,13 @@ where
 /// normal forms, so the nested normalisations must not apply the substitution a second time.
 fn check_conditions<E: Enumerator>(
     context: &mut RewriteContext<'_, E>,
-    announcement: &AnnouncementInnermost,
+    conditions: &[EMACondition],
+    head: Head<'_>,
     arity: usize,
 ) -> bool {
-    for c in &announcement.conditions {
+    for c in conditions {
         let builder = &mut *context.builder;
-        let (lhs, rhs) = with_redex(context.stack, arity, |subject| {
+        let (lhs, rhs) = with_redex(context.stack, head, arity, |subject| {
             (
                 c.lhs_term_stack.instantiate(subject, builder),
                 c.rhs_term_stack.instantiate(subject, builder),
