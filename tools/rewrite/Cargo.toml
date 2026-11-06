@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+# Prints the metrics of every rewrite, see `merc_sabre::RewriteMetrics`.
+metrics = ["merc_sabre/metrics"]
+
 [dependencies]
 merc_aterm.workspace = true
 merc_data.workspace = true
