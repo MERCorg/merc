@@ -10,14 +10,14 @@ use merc_aterm::storage::Marker;
 use merc_data::DataExpressionRef;
 use merc_data::DataFunctionSymbolRef;
 
-use crate::innermost_rewriter::ProgramId;
+use crate::innermost_rewriter::TermStackId;
 use crate::utilities::Block;
 
 /// The stacks of the rewriting machine: what to do next, and the terms computed so far.
 ///
 /// Every configuration takes its inputs from the top of the term stack and leaves its result
 /// there, so that the terms on the stack are normal forms, apart from the arguments of a redex
-/// whose right-hand side is running.
+/// whose right-hand side is being evaluated.
 #[derive(Default)]
 pub(crate) struct InnermostStack {
     pub configs: Protected<Vec<Config<'static>>>,
@@ -33,31 +33,31 @@ pub(crate) enum Config<'a> {
         symbol: DataFunctionSymbolRef<'a>,
         arity: usize,
     },
-    /// Runs a block of a program, see [Evaluate].
+    /// Evaluates a block of a term stack, see [Evaluate].
     Evaluate(Evaluate),
     /// Pops the normal form of the term being rewritten.
     Return,
 }
 
-/// Runs the instructions `pc..end` of a program, which is one block of it, and replaces the
+/// Evaluates the instructions `pc..end` of a term stack, which are one block of it, and replaces the
 /// terms from `base` on by the term it computes.
 ///
 /// Its variables are the arguments of the matched term, which are the terms at `base`.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Evaluate {
-    pub program: ProgramId,
+    pub term_stack: TermStackId,
     pub pc: u32,
     pub end: u32,
     pub base: usize,
 }
 
 impl Evaluate {
-    /// Runs `block` of `program`.
-    pub fn new(program: ProgramId, block: Block, base: usize) -> Evaluate {
+    /// Evaluates `block` of `term_stack`.
+    pub fn new(term_stack: TermStackId, block: Block, base: usize) -> Evaluate {
         Evaluate {
-            program,
-            pc: u32::try_from(block.begin).expect("programs have fewer than 2^32 instructions"),
-            end: u32::try_from(block.end).expect("programs have fewer than 2^32 instructions"),
+            term_stack,
+            pc: u32::try_from(block.begin).expect("term stacks have fewer than 2^32 instructions"),
+            end: u32::try_from(block.end).expect("term stacks have fewer than 2^32 instructions"),
             base,
         }
     }

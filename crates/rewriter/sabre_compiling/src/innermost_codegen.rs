@@ -345,7 +345,7 @@ pub fn generate(spec: &RewriteSpecification, source_dir: &Path) -> Result<(), Me
 /// `formatter`, prefixing every variable name with `prefix`. Returns the name
 /// of the variable holding the final result.
 ///
-/// Runs the program of the term stack on a stack of variable names: every
+/// Evaluates block 0 of the term stack on a stack of variable names: every
 /// instruction declares one variable, and an application takes the last
 /// `arity` names as its arguments.
 ///
@@ -418,7 +418,7 @@ fn generate_rewrite_term_stack_impl(
             Instruction::Binder { .. } => {
                 unreachable!("SetAutomaton::new keeps no rule with a binder in its right-hand side")
             }
-            Instruction::Hole(hole) => match *hole {},
+            Instruction::Hook(hook) => match *hook {},
         }
         stack.push(name);
     }
