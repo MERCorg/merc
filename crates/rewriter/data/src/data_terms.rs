@@ -195,6 +195,11 @@ impl DataSymbols {
         term.get_head_symbol() == self.basic_sort_symbol.copy()
     }
 
+    /// Returns true iff the given term is a structured (`SortStruct`) sort.
+    pub(crate) fn is_structured_sort<'a, 'b, T: Term<'a, 'b>>(&self, term: &'b T) -> bool {
+        term.get_head_symbol() == self.structured_sort_symbol.copy()
+    }
+
     /// Returns true iff the given term is a function (`SortArrow`) sort.
     pub(crate) fn is_function_sort<'a, 'b, T: Term<'a, 'b>>(&self, term: &'b T) -> bool {
         term.get_head_symbol() == self.function_sort_symbol.copy()
@@ -223,14 +228,20 @@ impl DataSymbols {
 
 // Helper functions to access the DATA_SYMBOLS thread local storage.
 
-/// See [DataSymbols::is_sort_expression].
-pub(crate) fn is_sort_expression<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
+/// Returns true iff the given term is any sort expression (basic, arrow, container, structured, or
+/// untyped).
+pub fn is_sort_expression<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
     DATA_SYMBOLS.with_borrow(|ds| ds.is_sort_expression(term))
 }
 
-/// See [DataSymbols::is_basic_sort].
-pub(crate) fn is_basic_sort<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
+/// Returns true iff the given term is a basic (`SortId`) sort.
+pub fn is_basic_sort<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
     DATA_SYMBOLS.with_borrow(|ds| ds.is_basic_sort(term))
+}
+
+/// Returns true iff the given term is a structured (`SortStruct`) sort.
+pub fn is_structured_sort<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
+    DATA_SYMBOLS.with_borrow(|ds| ds.is_structured_sort(term))
 }
 
 /// Returns true iff the given term is a function (`SortArrow`) sort.
