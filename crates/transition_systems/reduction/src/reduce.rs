@@ -11,6 +11,7 @@ use crate::quotient_lts_naive;
 use crate::quotient_lts_weak;
 use crate::strong_bisim_sigref;
 use crate::strong_bisim_sigref_naive;
+use crate::weak_bisim_sigref_inductive;
 use crate::weak_bisim_sigref_inductive_naive;
 use crate::weak_bisim_sigref_naive;
 use crate::weak_bisimulation;
@@ -31,11 +32,16 @@ pub enum Equivalence {
     WeakBisimParallelDivergencePreserving,
     /// A signature based weak bisimulation algorithm that uses inductive signatures.
     WeakBisimSigref,
+    /// A naive signature based weak bisimulation algorithm that uses inductive signatures, without dirty state tracking.
+    WeakBisimSigrefInductiveNaive,
     /// A naive signature based weak bisimulation algorithm.
     WeakBisimSigrefNaive,
     /// A signature based weak bisimulation algorithm that uses inductive signatures and preserves divergence.
     #[cfg_attr(feature = "clap", clap(alias = "dp-weak-bisim-sigref"))]
     WeakBisimSigrefDivergencePreserving,
+    /// A naive signature based weak bisimulation algorithm that uses inductive signatures and preserves divergence, without dirty state tracking.
+    #[cfg_attr(feature = "clap", clap(alias = "dp-weak-bisim-sigref-inductive-naive"))]
+    WeakBisimSigrefInductiveNaiveDivergencePreserving,
     /// A naive signature based weak bisimulation algorithm that preserves divergence.
     #[cfg_attr(feature = "clap", clap(alias = "dp-weak-bisim-sigref-naive"))]
     WeakBisimSigrefNaiveDivergencePreserving,
@@ -84,6 +90,10 @@ pub fn reduce_lts<L: LTS>(
             timing.measure("quotient", || quotient_lts_weak(&lts, &partition, false))
         }
         Equivalence::WeakBisimSigref => {
+            let (lts, _, partition) = weak_bisim_sigref_inductive(lts, state, preprocess, false, timing);
+            timing.measure("quotient", || quotient_lts_weak(&lts, &partition, true))
+        }
+        Equivalence::WeakBisimSigrefInductiveNaive => {
             let (lts, _, partition) = weak_bisim_sigref_inductive_naive(lts, state, preprocess, false, timing);
             timing.measure("quotient", || quotient_lts_weak(&lts, &partition, true))
         }
@@ -92,6 +102,10 @@ pub fn reduce_lts<L: LTS>(
             timing.measure("quotient", || quotient_lts_weak(&lts, &partition, true))
         }
         Equivalence::WeakBisimSigrefDivergencePreserving => {
+            let (lts, _, partition) = weak_bisim_sigref_inductive(lts, state, preprocess, true, timing);
+            timing.measure("quotient", || quotient_lts_weak(&lts, &partition, false))
+        }
+        Equivalence::WeakBisimSigrefInductiveNaiveDivergencePreserving => {
             let (lts, _, partition) = weak_bisim_sigref_inductive_naive(lts, state, preprocess, true, timing);
             timing.measure("quotient", || quotient_lts_weak(&lts, &partition, false))
         }

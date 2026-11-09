@@ -12,6 +12,7 @@ use crate::branching_bisim_sigref_naive;
 use crate::strong_bisim_sigref;
 use crate::strong_bisim_sigref_naive;
 use crate::strong_bisim_sigref_naive_with_counterexample;
+use crate::weak_bisim_sigref_inductive;
 use crate::weak_bisim_sigref_inductive_naive;
 use crate::weak_bisim_sigref_naive;
 use crate::weak_bisimulation;
@@ -80,6 +81,11 @@ pub fn compare_lts<L: LTS>(
         }
         Equivalence::WeakBisimSigref => {
             let (lts, rhs_initial, partition) =
+                weak_bisim_sigref_inductive(merged, rhs_initial, preprocess, false, timing);
+            partition.block_number(lts.initial_state_index()) == partition.block_number(rhs_initial)
+        }
+        Equivalence::WeakBisimSigrefInductiveNaive => {
+            let (lts, rhs_initial, partition) =
                 weak_bisim_sigref_inductive_naive(merged, rhs_initial, preprocess, false, timing);
             partition.block_number(lts.initial_state_index()) == partition.block_number(rhs_initial)
         }
@@ -88,6 +94,11 @@ pub fn compare_lts<L: LTS>(
             partition.block_number(lts.initial_state_index()) == partition.block_number(rhs_initial)
         }
         Equivalence::WeakBisimSigrefDivergencePreserving => {
+            let (lts, rhs_initial, partition) =
+                weak_bisim_sigref_inductive(merged, rhs_initial, preprocess, true, timing);
+            partition.block_number(lts.initial_state_index()) == partition.block_number(rhs_initial)
+        }
+        Equivalence::WeakBisimSigrefInductiveNaiveDivergencePreserving => {
             let (lts, rhs_initial, partition) =
                 weak_bisim_sigref_inductive_naive(merged, rhs_initial, preprocess, true, timing);
             partition.block_number(lts.initial_state_index()) == partition.block_number(rhs_initial)
