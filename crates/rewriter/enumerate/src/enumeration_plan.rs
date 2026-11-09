@@ -393,6 +393,7 @@ fn detect_recursive_sorts(grouped: &[Vec<ConstructorPlan>]) -> Vec<bool> {
 #[cfg(test)]
 mod tests {
     use merc_aterm::Term;
+    use merc_lowering::lower_data_specification;
     use merc_syntax::UntypedDataSpecification;
     use merc_typecheck::DataSpecification;
 
@@ -404,7 +405,7 @@ mod tests {
     fn lower(source: &str) -> merc_data::Mcrl2DataSpecification {
         let untyped = UntypedDataSpecification::parse(source).unwrap();
         let data_spec = DataSpecification::from_untyped(untyped).unwrap();
-        data_spec.lower_data_specification()
+        lower_data_specification(&data_spec)
     }
 
     fn plan_for<'a>(

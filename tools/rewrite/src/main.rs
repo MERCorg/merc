@@ -11,8 +11,13 @@ use log::info;
 use log::warn;
 
 use merc_data::DataExpression;
+use merc_formula::FormulaType;
+use merc_formula::ModalSpecification;
+use merc_lowering::lower_data_specification;
+use merc_lowering::lower_expression;
 use merc_pbes::PbesSpecification;
 use merc_pres::PresSpecification;
+use merc_process::ProcessSpecification;
 use merc_rec_tests::load_rec_from_file;
 use merc_rewrite::Rewriter;
 use merc_rewrite::rewrite_rec;
@@ -30,10 +35,7 @@ use merc_tools::Version;
 use merc_tools::VersionFlag;
 use merc_tools::report_error;
 use merc_typecheck::DataSpecification;
-use merc_typecheck::FormulaType;
-use merc_typecheck::ModalSpecification;
 use merc_typecheck::NumberEncoding;
-use merc_typecheck::ProcessSpecification;
 use merc_unsafety::print_allocator_metrics;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
@@ -281,11 +283,12 @@ fn load_data_specification(
 fn typecheck_expression(spec: &mut DataSpecification, text: &str) -> Result<DataExpression, MercError> {
     let expr = DataExpr::parse(text)?;
 
-    spec.typecheck_expression(&expr).map_err(|err| {
+    let typed = spec.typecheck_expression(&expr).map_err(|err| {
         let mut sources = SourceMap::new();
         sources.add_text("<expression>", text.to_string());
         MercError::from(err.render(&sources))
-    })
+    })?;
+    Ok(lower_expression(spec, &typed))
 }
 
 fn handle_command(commands: Option<Commands>, timing: &Timing) -> Result<(), MercError> {
@@ -340,7 +343,7 @@ fn run_rewrite(args: RewriteArgs, timing: &Timing) -> Result<(), MercError> {
                 terms.push(typecheck_expression(&mut data_spec, text)?);
             }
 
-            let mcrl2_spec = data_spec.lower_data_specification();
+            let mcrl2_spec = lower_data_specification(&data_spec);
             let spec = RewriteSpecification::from_data_specification(&mcrl2_spec);
             info!("Loaded {} rewrite rule(s)", spec.rewrite_rules().len());
 
@@ -477,7 +480,7 @@ fn run_check(args: CheckArgs) -> Result<(), MercError> {
     }
 
     if show_all || args.lowered {
-        let mcrl2_spec = data_spec.lower_data_specification();
+        let mcrl2_spec = lower_data_specification(&data_spec);
 
         println!("=== Lowered ===\n");
         println!("{mcrl2_spec}");

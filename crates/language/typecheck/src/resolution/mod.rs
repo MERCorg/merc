@@ -6,6 +6,7 @@ mod normalize;
 mod variable_resolution;
 
 pub(crate) use alias::*;
+#[cfg_attr(not(feature = "internal"), allow(unused_imports))]
 pub(crate) use anonymous_struct::*;
 pub(crate) use name_resolution::*;
 pub(crate) use non_empty::*;

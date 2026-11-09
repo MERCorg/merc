@@ -835,6 +835,7 @@ dependencies = [
  "merc_aterm",
  "merc_collections",
  "merc_data",
+ "merc_lowering",
  "merc_syntax",
  "merc_tools",
  "merc_typecheck",
@@ -984,6 +985,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "merc_formula"
+version = "2.0.0"
+dependencies = [
+ "log",
+ "merc_syntax",
+ "merc_typecheck",
+ "merc_utilities",
+ "thiserror",
+]
+
+[[package]]
 name = "merc_io"
 version = "3.0.0"
 dependencies = [
@@ -994,6 +1006,15 @@ dependencies = [
  "regex",
  "streaming-iterator",
  "tempfile",
+]
+
+[[package]]
+name = "merc_lowering"
+version = "2.0.0"
+dependencies = [
+ "merc_data",
+ "merc_syntax",
+ "merc_typecheck",
 ]
 
 [[package]]
@@ -1186,9 +1207,7 @@ version = "2.0.0"
 dependencies = [
  "ena",
  "log",
- "merc_aterm",
  "merc_collections",
- "merc_data",
  "merc_syntax",
  "merc_utilities",
  "rustc-hash 2.1.3",
@@ -1235,12 +1254,12 @@ dependencies = [
  "itertools",
  "log",
  "merc_collections",
+ "merc_formula",
  "merc_io",
  "merc_lts",
  "merc_macros",
  "merc_symbolic",
  "merc_syntax",
- "merc_typecheck",
  "merc_utilities",
  "oxidd",
  "oxidd-core",

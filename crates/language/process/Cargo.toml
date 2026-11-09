@@ -1,0 +1,25 @@
+[package]
+name = "merc_process"
+readme = "README.md"
+
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+merc_syntax.workspace = true
+merc_typecheck = { workspace = true, features = ["internal"] }
+
+[dev-dependencies]
+rand.workspace = true
+test-case.workspace = true
+
+merc_utilities.workspace = true
+
+[lints]
+workspace = true

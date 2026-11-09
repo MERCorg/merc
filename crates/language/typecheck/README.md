@@ -9,9 +9,9 @@ operators, and inserts the implicit coercions the surface language leaves out
 (such as reading a natural number where a real number is expected).
 
 Type checking runs as a pipeline of phases — sort resolution, desugaring,
-signature building, constraint-based sort inference, then lowering to the
-aterm representation used by the rest of merc (`merc_data`, `merc_sabre`,
-`merc_explore`). For the full design — the query-based architecture, the sort
+signature building, then constraint-based sort inference. Lowering the result
+to the aterm representation used by the rest of merc (`merc_data`,
+`merc_sabre`, `merc_explore`) is done by the separate `merc_lowering` crate. For the full design — the query-based architecture, the sort
 lattice, and the ranked backtracking search that drives inference — see the
 [Type Checking](https://MERCorg.github.io/merc/developer/typechecking/) page
 on the documentation site.
@@ -21,10 +21,11 @@ on the documentation site.
 The entry point is `DataSpecification::from_untyped`, which takes an
 `UntypedDataSpecification` (produced by `merc_syntax`) and returns a type
 checked specification, or a `WellTypedError` describing the first problem
-found. Calling `lower_data_specification` on the result produces the
+found. `merc_lowering::lower_data_specification` turns the result into the
 `merc_data::Mcrl2DataSpecification` (aterm, fully typed) consumed by rewriting.
 
 ```rust
+use merc_lowering::lower_data_specification;
 use merc_syntax::UntypedDataSpecification;
 use merc_typecheck::DataSpecification;
 
@@ -37,7 +38,7 @@ let untyped = UntypedDataSpecification::parse(
 .unwrap();
 
 let spec = DataSpecification::from_untyped(untyped).unwrap();
-let lowered = spec.lower_data_specification();
+let lowered = lower_data_specification(&spec);
 ```
 
 `DataSpecification::typing_info` (and its per-equation counterpart,
@@ -47,32 +48,12 @@ id, so a consumer such as an editor integration can look up hover text or a
 go-to-definition target by byte offset via `TypingInfo::at_offset` without
 needing to know anything about how inference numbers its nodes internally.
 
-### Process and PBES specifications
+### Other specifications
 
-`ProcessSpecification::from_untyped` extends `DataSpecification` to also check a
-whole `UntypedProcessSpecification`. Before checking runs,
-`ProcessSpecification` disambiguates the specification to undo a handful of
-grammar-level ambiguities mCRL2's concrete syntax has between the process
-algebra and the data language — `.`, `+`, and `||` all lex the same in both, and
-a single-action `hide`/`block`/`allow` application can appear in the same
-ambiguous position. `ProcessSpecification::typing_info` exposes the same
-span-keyed `TypingInfo` as `DataSpecification`, merged over every checked
-process-body expression.
-
-A related grammar quirk survives disambiguation rather than being undone by it: a process
-reference with no arguments and no parentheses (`proc P = a . P;`'s recursive `P`) is not parsed
-as `ProcessExprKind::Id` — that variant requires parentheses, even empty ones (`P()`). A bare `P`
-instead falls through to the same `Action` rule a real action instantiation uses, landing as
-`ProcessExprKind::Action`. Type checking resolves this by looking such a name up against both the
-declared action names and the declared process names (`check_action_or_process`); an `act` and a
-`proc` are never allowed to share a name in the first place (`ActionAndProcessConflict`), so this
-never resolves a genuine action-vs-process ambiguity — only an arity overload within whichever one
-of the two the name actually belongs to.
-
-`PbesSpecification::from_untyped` similarly extends `DataSpecification` to check
-a whole PBES This covers *sorts and names* only; PBES well-formedness properties
-such as monotonicity or alternation depth are a separate semantic analysis and
-are out of scope here.
+The process specifications, state formulas, and PBES/PRES specifications that embed data
+expressions are checked by their own crates, `merc_process`, `merc_formula`, `merc_pbes`, and
+`merc_pres`, on top of a `DataSpecification`. These build on the scoped checking and variable
+resolution building blocks this crate exposes behind the (unstable) `internal` feature.
 
 ## Safety
 

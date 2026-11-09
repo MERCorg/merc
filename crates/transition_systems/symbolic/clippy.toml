@@ -1,0 +1,3 @@
+# The manager reference of an oxidd function hashes and compares by the address of its store, so
+# the interior mutability of the store does not affect the hash of a function used as a key.
+ignore-interior-mutability = ["oxidd_manager_index::manager::ManagerRef"]

@@ -10,8 +10,8 @@ rust-version.workspace = true
 version.workspace = true
 
 [features]
-# Exposes the building blocks used by specification checkers in other crates, such as
-# `merc_pbes` and `merc_pres`, as `merc_typecheck::internal`. These are not a stable interface.
+# Exposes the building blocks used by specification type checkers in other
+# crates.
 internal = []
 
 [dependencies]
@@ -20,9 +20,7 @@ log.workspace = true
 rustc-hash.workspace = true
 thiserror.workspace = true
 
-merc_aterm.workspace = true
 merc_collections.workspace = true
-merc_data.workspace = true
 merc_syntax.workspace = true
 merc_utilities.workspace = true
 

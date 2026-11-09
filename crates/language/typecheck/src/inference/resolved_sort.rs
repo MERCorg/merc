@@ -26,7 +26,7 @@ pub type ResolvedSortId = TagIndex<usize, ResolvedSortTag>;
 /// rather than by value, so a `ResolvedSort` is small and structural equality
 /// coincides with id equality.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub(crate) enum ResolvedSort {
+pub enum ResolvedSort {
     /// The sort with a single element, used internally for the result of an
     /// action. It has no surface syntax, which is why it is a variant here
     /// rather than a member of [merc_syntax::Sort].
@@ -54,6 +54,7 @@ pub(crate) enum ResolvedSort {
 /// agrees contributes nothing), two equal non-`Equal` orderings agree, and a
 /// `Less`/`Greater` clash — or either side being incomparable — makes the
 /// whole comparison incomparable.
+#[cfg_attr(not(feature = "internal"), allow(dead_code))]
 fn combine(lhs: Option<Ordering>, rhs: Option<Ordering>) -> Option<Ordering> {
     match (lhs?, rhs?) {
         (Ordering::Equal, other) | (other, Ordering::Equal) => Some(other),
@@ -133,6 +134,7 @@ impl fmt::Display for DisplaySortContext<'_> {
 
 /// Orders the primitive sorts by the number-sort hierarchy. Distinct sorts that
 /// are not both numbers are incomparable.
+#[cfg_attr(not(feature = "internal"), allow(dead_code))]
 fn primitive_partial_cmp(lhs: Sort, rhs: Sort) -> Option<Ordering> {
     if lhs == rhs {
         Some(Ordering::Equal)
@@ -144,7 +146,7 @@ fn primitive_partial_cmp(lhs: Sort, rhs: Sort) -> Option<Ordering> {
 }
 
 /// Panics: neither `Unit` nor `TypeVar` ever denotes a data-expression's own resolved sort..
-pub(crate) fn unreachable_not_a_value_sort(variant: &str) -> ! {
+pub fn unreachable_not_a_value_sort(variant: &str) -> ! {
     unreachable!("{variant} never denotes a data-expression's own resolved sort")
 }
 
@@ -198,10 +200,10 @@ fn meet_op(lhs: ComplexSort, rhs: ComplexSort) -> Option<ComplexSort> {
 /// distinct sort is stored once.
 ///
 /// The primitive sorts are interned eagerly and returned by the `*_sort`
-/// accessors; every other sort is created on demand through [SortInterner::generic],
-/// [SortInterner::function] and [SortInterner::def].
+/// accessors; every other sort is created on demand through `SortInterner::generic`,
+/// `SortInterner::function` and `SortInterner::def`.
 #[derive(Clone)]
-pub(crate) struct SortInterner {
+pub struct SortInterner {
     arena: Vec<ResolvedSort>,
     dedup: HashMap<ResolvedSort, ResolvedSortId>,
 
@@ -286,7 +288,7 @@ impl SortInterner {
     /// The id must have been produced by this same interner; ids from a
     /// different [SortInterner] index into an unrelated arena and would return a
     /// wrong sort or panic.
-    pub(crate) fn get(&self, id: ResolvedSortId) -> &ResolvedSort {
+    pub fn get(&self, id: ResolvedSortId) -> &ResolvedSort {
         debug_assert!(
             *id < self.arena.len(),
             "id {id:?} does not originate from this interner"
@@ -309,7 +311,7 @@ impl SortInterner {
         self.pos_sort
     }
 
-    pub(crate) fn nat_sort(&self) -> ResolvedSortId {
+    pub fn nat_sort(&self) -> ResolvedSortId {
         self.nat_sort
     }
 
@@ -332,7 +334,8 @@ impl SortInterner {
     /// [SortInterner::is_materializable] before treating a comparison as an
     /// accepted typing — this method alone says nothing about whether
     /// lowering can actually build the corresponding term.
-    pub(crate) fn partial_cmp(&self, lhs: ResolvedSortId, rhs: ResolvedSortId) -> Option<Ordering> {
+    #[cfg_attr(not(feature = "internal"), allow(dead_code))]
+    pub fn partial_cmp(&self, lhs: ResolvedSortId, rhs: ResolvedSortId) -> Option<Ordering> {
         if lhs == rhs {
             return Some(Ordering::Equal);
         }
@@ -587,7 +590,7 @@ impl SortInterner {
     }
 
     /// Whether there is actually a coercion of `from` to `to` in the language.
-    pub(crate) fn is_materializable(&self, from: ResolvedSortId, to: ResolvedSortId) -> bool {
+    pub fn is_materializable(&self, from: ResolvedSortId, to: ResolvedSortId) -> bool {
         if from == to {
             return true;
         }

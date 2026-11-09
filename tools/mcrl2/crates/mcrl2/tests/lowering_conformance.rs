@@ -1,7 +1,7 @@
 //! Lowering conformance tests.
 //!
 //! For each test spec the pipeline is:
-//!   1. Parse with `merc_typecheck` → lower → `Mcrl2DataSpecification`
+//!   1. Parse with `merc_typecheck` → lower with `merc_lowering` → `Mcrl2DataSpecification`
 //!      (pure-Rust `merc_aterm` terms, serialised `OpIdNoIndex` form).
 //!   2. Parse the same text with mCRL2's own C++ type-checker via
 //!      `DataSpecification::from_string`; its `user_defined_*` accessors return
@@ -28,6 +28,7 @@ use mcrl2::DataSpecification;
 use mcrl2::merc_aterm_to_mcrl2;
 use merc_aterm::Term as MercTerm;
 use merc_data::Mcrl2DataSpecification;
+use merc_lowering::lower_data_specification;
 use merc_syntax::SourceMap;
 use merc_syntax::UntypedDataSpecification;
 use merc_typecheck::DataSpecification as TypecheckedSpec;
@@ -40,7 +41,7 @@ fn lower(text: &str) -> Mcrl2DataSpecification {
     let untyped = UntypedDataSpecification::parse(text).expect("merc parse failed");
     let typed = TypecheckedSpec::from_untyped_with(untyped, NumberEncoding::MachineWord, &mut SourceMap::new())
         .expect("merc typecheck failed");
-    typed.lower_data_specification()
+    lower_data_specification(&typed)
 }
 
 /// Convert a merc term into the shared C++ aterm pool and return its address.
