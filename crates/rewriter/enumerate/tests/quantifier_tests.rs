@@ -199,19 +199,6 @@ fn test_quantifiers_over_structs_and_lists() {
     assert_rewrites_to(spec, "forall y: T. y in [t]", "true");
 }
 
-/// A trivial predicate over a non-enumerable sort is decided by the rewriter
-/// alone, without enumerating the bound variable.
-#[test]
-#[ignore = "Set(Bool) applies function values such as `@false_`, which needs higher-order matching"]
-fn test_trivial_quantifiers_over_set() {
-    let spec = "sort A = Set(Bool);";
-
-    assert_rewrites_to(spec, "exists x: Set(Bool). x == x", "true");
-    assert_rewrites_to(spec, "forall x: Set(Bool). x == x", "true");
-    assert_rewrites_to(spec, "exists x: Set(Bool). x != x", "false");
-    assert_rewrites_to(spec, "forall x: Set(Bool). x != x", "false");
-}
-
 /// Substituting `y` for `x` in `g`'s body must not capture `g`'s own bound
 /// `y`, which would turn `x != y` into `y != y` and make `f` false.
 #[test]
