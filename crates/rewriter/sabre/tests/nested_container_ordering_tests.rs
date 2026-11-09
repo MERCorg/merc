@@ -2,6 +2,7 @@
 //! `FSet` and `FBag` use internally to keep their element lists canonically
 //! sorted (see `crates/syntax/spec/comparison.mcrl2`).
 //!
+use merc_lowering::lower_data_specification;
 use merc_sabre::InnermostRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
@@ -20,7 +21,7 @@ fn rewrite(expr: &str, sort: &str) -> String {
     let untyped = UntypedDataSpecification::parse(&text).expect("the specification should parse");
     let spec = DataSpecification::from_untyped(untyped)
         .unwrap_or_else(|error| panic!("should type check `{expr}`: {error:?}"));
-    let lowered = spec.lower_data_specification();
+    let lowered = lower_data_specification(&spec);
 
     let query = lowered
         .equations()

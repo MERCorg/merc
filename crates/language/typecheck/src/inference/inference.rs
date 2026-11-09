@@ -40,10 +40,10 @@ use crate::query_sort_of_equation_var;
 use crate::resolve_sort;
 
 /// A unique type for expression nodes within a single equation.
-pub(crate) struct ExprTag;
+pub struct ExprTag;
 
 /// Identifies an expression node of one equation.
-pub(crate) type ExprId = TagIndex<usize, ExprTag>;
+pub type ExprId = TagIndex<usize, ExprTag>;
 
 /// Calls `f` on every direct sub-expression of the lowered `expr` that gets an [ExprId] of its
 /// own, in canonical order: an application's arguments before its function, a container literal's
@@ -56,9 +56,9 @@ pub(crate) type ExprId = TagIndex<usize, ExprTag>;
 /// order. Constraint generation, lowering, `typing_info` and the typed display all walk the tree
 /// in this same order, so a node's id is never stored, only recomputed. Being a pure function of
 /// tree *shape*, the numbering of a template's own generic equation and of a ground clone of it
-/// agree, which is how [`crate::specialize_template_typing`]'s substituted `sorts`/`names` line
+/// agree, which is how `specialize_template_typing`'s substituted `sorts`/`names` line
 /// up with a later, independent lowering of the instantiated equation.
-pub(crate) fn for_each_expr_child<'a, F: FnMut(&'a DataExpr)>(expr: &'a DataExpr, mut f: F) {
+pub fn for_each_expr_child<'a, F: FnMut(&'a DataExpr)>(expr: &'a DataExpr, mut f: F) {
     match &expr.node {
         DataExprKind::Application { function, arguments } => {
             arguments.iter().for_each(&mut f);
@@ -137,7 +137,7 @@ pub(crate) fn subtree_sizes<'a, I: IntoIterator<Item = &'a DataExpr>>(roots: I) 
 
 /// What a name (`Id` node) in an equation resolved to.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum NameTarget {
+pub enum NameTarget {
     /// A variable in scope: an equation `var`-block variable, a
     /// process/PBES/PRES parameter or global, or a binder of the expression
     /// itself.
@@ -154,11 +154,11 @@ pub(crate) enum NameTarget {
 /// expression. Every input that type checks is fully inferred; there is no
 /// partially-typed outcome.
 #[derive(Debug)]
-pub(crate) struct EquationTyping {
+pub struct EquationTyping {
     /// The inferred sort of every expression node, indexed by [ExprId].
-    pub(crate) sorts: Vec<ResolvedSortId>,
+    pub sorts: Vec<ResolvedSortId>,
     /// The resolution of every name, keyed by the [ExprId] of its `Id` node.
-    pub(crate) names: HashMap<ExprId, NameTarget>,
+    pub names: HashMap<ExprId, NameTarget>,
 }
 
 /// The errors of sort inference. `Clone` so a failure can be stored in

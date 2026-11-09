@@ -246,7 +246,7 @@ where
 /// Applies `f` to every binder sort (lambda, quantifier and set/bag
 /// comprehension variables) inside a data expression.
 ///
-/// `pub(crate)`: also used by [`crate::process`] to resolve the binder sorts of a process-body
+/// `pub(crate)`: also used by `merc_process` (through `crate::checking`) to resolve the binder sorts of a process-body
 /// expression (an action argument, a condition, …) — such an expression never goes through
 /// [apply_sorts_in_spec] itself, since it doesn't live in the data specification that walks.
 pub(crate) fn apply_sorts_in_data_expr<E, F>(expr: &mut DataExpr, f: &mut F) -> Result<(), E>
@@ -277,7 +277,7 @@ where
 /// Rewrites every `Reference` node of `sort` to `Resolved(name, SortId)` using
 /// the sort-name index built by [resolve_sort_ids], or fails on an undeclared name.
 ///
-/// `pub(crate)`: also used by [`crate::process`] to resolve an `act`/`proc`/`glob` sort
+/// `pub(crate)`: also used by `merc_process` (through `crate::checking`) to resolve an `act`/`proc`/`glob` sort
 /// expression, which never goes through [resolve_sort_ids] itself (that only ever runs over the
 /// data specification).
 pub(crate) fn resolve_sort_id(

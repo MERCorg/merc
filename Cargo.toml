@@ -53,8 +53,11 @@ members = [
     "crates/transition_systems/vpg",
     "crates/transition_systems/vpg/benchmarks",
 
+    "crates/language/formula",
+    "crates/language/lowering",
     "crates/language/pbes",
     "crates/language/pres",
+    "crates/language/process",
     "crates/language/syntax",
     "crates/language/typecheck",
 
@@ -173,6 +176,9 @@ merc_syntax = { version = "3.0", path = "crates/language/syntax" }
 merc_typecheck = { version = "2.0", path = "crates/language/typecheck" }
 merc_pbes = { version = "2.0", path = "crates/language/pbes" }
 merc_pres = { version = "2.0", path = "crates/language/pres" }
+merc_process = { version = "2.0", path = "crates/language/process" }
+merc_formula = { version = "2.0", path = "crates/language/formula" }
+merc_lowering = { version = "2.0", path = "crates/language/lowering" }
 
 # Vendored libraries
 merc_pest_consume = { version = "2.1", git = "https://github.com/MERCorg/pest_consume" }

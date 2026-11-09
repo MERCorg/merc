@@ -10,6 +10,6 @@ pub(crate) fn is_basic_sort_name(name: &str) -> bool {
 
 /// Whether `name` uses the reserved `@`-prefix convention every system-generated
 /// constructor/mapping/sort declaration.
-pub(crate) fn is_system_generated_name(name: &str) -> bool {
+pub fn is_system_generated_name(name: &str) -> bool {
     name.starts_with('@')
 }
