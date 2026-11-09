@@ -345,7 +345,7 @@ pub fn generate(spec: &RewriteSpecification, source_dir: &Path) -> Result<(), Me
 /// `formatter`, prefixing every variable name with `prefix`. Returns the name
 /// of the variable holding the final result.
 ///
-/// Evaluates block 0 of the term stack on a stack of variable names: every
+/// Evaluates the term stack on a stack of variable names: every
 /// instruction declares one variable, and an application takes the last
 /// `arity` names as its arguments.
 ///
@@ -365,7 +365,7 @@ fn generate_rewrite_term_stack_impl(
     positions: &mut HashSet<DataPosition>,
 ) -> Result<String, MercError> {
     let mut stack: Vec<String> = Vec::new();
-    for (index, instruction) in term_stack.block(0).iter().enumerate() {
+    for (index, instruction) in term_stack.instructions.iter().enumerate() {
         let name = format!("{prefix}var_{index}");
         match instruction {
             Instruction::Variable(position) => {
