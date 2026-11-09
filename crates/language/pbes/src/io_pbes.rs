@@ -39,9 +39,10 @@ pub fn write_pbes<W: Write>(pbes: &Pbes, writer: W) -> Result<(), MercError> {
     writer.flush()
 }
 
-/// The layout follows `pbes/source/io.cpp` of mCRL2: a marker, the data specification, the global
-/// variables, the equations and the initial state. Each equation is written as three consecutive
-/// terms instead of one, so the equations are a count followed by these triples.
+/// The layout is a marker, the data specification, the global variables, the
+/// equations and the initial state. Each equation is written as three
+/// consecutive terms instead of one, so the equations are a count followed by
+/// these triples.
 impl ATermStreamable for Pbes {
     fn write<W: ATermWrite>(&self, writer: &mut W) -> Result<(), MercError> {
         writer.write_aterm(&pbes_marker())?;

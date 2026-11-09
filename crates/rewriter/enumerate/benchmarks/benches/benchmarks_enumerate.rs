@@ -21,6 +21,7 @@ use merc_enumerate::EnumerationPlans;
 use merc_enumerate::Enumerator;
 use merc_enumerate::EnumeratorFrame;
 use merc_enumerate::FreshVariableGenerator;
+use merc_lowering::lower_data_specification;
 use merc_sabre::InnermostRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
@@ -43,7 +44,7 @@ const PRELUDE: &str = "
 fn lower(source: &str) -> Mcrl2DataSpecification {
     let untyped = UntypedDataSpecification::parse(source).unwrap();
     let data_spec = DataSpecification::from_untyped(untyped).unwrap();
-    data_spec.lower_data_specification()
+    lower_data_specification(&data_spec)
 }
 
 fn d_sort() -> SortExpression {

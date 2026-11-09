@@ -386,16 +386,13 @@ fn test_reference_to_a_built_in_sort_now_resolves_to_a_system_defined_node() {
 
 #[test]
 #[cfg_attr(miri, ignore)] // Test is too slow under miri
-fn test_typecheck_expression_with_typing_returns_a_typing_over_the_expression() {
+fn test_typecheck_expression_returns_a_typing_over_the_expression() {
     let untyped = UntypedDataSpecification::parse("map f: Nat;").expect("the specification should parse");
     let mut spec = DataSpecification::from_untyped(untyped).expect("the specification should type check");
     let expr = DataExpr::parse("1 + 1").expect("the expression should parse");
 
-    let (lowered, info) = spec
-        .typecheck_expression_with_typing(&expr)
-        .expect("'1 + 1' should type check");
-    // The lowered aterm form prints in prefix notation.
-    assert_eq!(lowered.to_string(), "+(@c1, @c1)");
+    let typed = spec.typecheck_expression(&expr).expect("'1 + 1' should type check");
+    let info = typed.typing_info();
 
     // Same tie-break as the equation case: hovering the operator resolves to its concrete
     // system-defined overload (see test_hovering_a_numeric_operator_resolves_to_its_system_mapping).

@@ -9,6 +9,9 @@ use log::info;
 use log::warn;
 use merc_collections::ByteCompressedVec;
 use merc_collections::IndexedSet;
+use merc_formula::FormulaType;
+use merc_formula::ModalEquationSystem;
+use merc_formula::ModalSpecification;
 use merc_io::TimeProgress;
 use merc_lts::LTS;
 use merc_lts::LabelledTransitionSystem;
@@ -31,9 +34,6 @@ use merc_syntax::Traverse;
 use merc_syntax::UntypedStateFrmSpec;
 use merc_syntax::fresh_state_var_generator;
 use merc_syntax::respan;
-use merc_typecheck::FormulaType;
-use merc_typecheck::ModalEquationSystem;
-use merc_typecheck::ModalSpecification;
 use merc_utilities::FreshNameGenerator;
 use merc_utilities::MercError;
 use merc_utilities::Span;
@@ -47,7 +47,7 @@ use crate::compute_reachable;
 /// Type checks `spec` (first desugaring regular-expression modalities) and translates it against
 /// `lts` into a parity game. `spec`'s own `act` declarations are optional: with none, every action
 /// is accepted as a "simple action" — a plain LTS label, matched structurally rather than typed —
-/// see [`merc_typecheck::ModalSpecification`].
+/// see [`merc_formula::ModalSpecification`].
 pub fn translate(
     lts: &LabelledTransitionSystem<String>,
     mut spec: UntypedStateFrmSpec,
@@ -104,8 +104,8 @@ pub fn translate(
 
 /// Produces a warning for each label that is used in the formula but does not correspond to any label in the LTS.
 pub fn warn_unknown_action_labels(equation_system: &ModalEquationSystem, labels: &[MultiAction]) {
-    for i in 0..equation_system.len() {
-        warn_unknown_action_labels_in(equation_system.equation(i).body(), labels);
+    for equation in equation_system.iter() {
+        warn_unknown_action_labels_in(equation.body(), labels);
     }
 }
 

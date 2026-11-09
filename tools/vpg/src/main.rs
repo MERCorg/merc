@@ -571,7 +571,7 @@ fn handle_translate(args: &TranslateArgs) -> Result<(), MercError> {
 
     // `translate` type checks the formula itself, with or without `act`/data declarations: a
     // formula with none is checked leniently, as "simple actions" (see
-    // `merc_typecheck::ModalSpecification`).
+    // `merc_formula::ModalSpecification`).
     let formula_spec = UntypedStateFrmSpec::parse(&read_to_string(&args.formula_filename).map_err(|e| {
         MercError::from(format!(
             "Could not open formula file '{}': {}",
@@ -621,7 +621,7 @@ fn handle_translate_vpg(cli: &Cli, args: &TranslateVpgArgs) -> Result<(), MercEr
 
     // `translate_vpg` type checks the formula itself, with or without `act`/data declarations: a
     // formula with none is checked leniently, as "simple actions" (see
-    // `merc_typecheck::ModalSpecification`).
+    // `merc_formula::ModalSpecification`).
     let formula_spec = UntypedStateFrmSpec::parse(&read_to_string(&args.formula_filename).map_err(|e| {
         MercError::from(format!(
             "Could not open formula file '{}': {}",

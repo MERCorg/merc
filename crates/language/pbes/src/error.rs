@@ -4,12 +4,13 @@ use merc_syntax::Span;
 use merc_typecheck::InferenceError;
 use merc_typecheck::WellTypedError;
 
-/// An error type checking a whole equation system, such as a PBES or a PRES: a global variable,
-/// equation, or `init` declaration that doesn't type check, on top of everything
-/// [`WellTypedError`]/[`InferenceError`] already cover for the data-specification subtree.
+/// An error type checking a whole equation system, such as a PBES or a PRES: a
+/// global variable, equation, or `init` declaration that doesn't type check, on
+/// top of everything [`WellTypedError`]/[`InferenceError`] already cover for
+/// the data-specification subtree.
 ///
-/// `#[non_exhaustive]`, as [`merc_typecheck::ProcessError`]: more variants may be added, so a caller
-/// matching on this needs a catch-all arm.
+/// More variants may be added, so a caller matching on this needs a catch-all
+/// arm.
 #[non_exhaustive]
 #[derive(Debug, thiserror::Error)]
 pub enum EquationSystemError {

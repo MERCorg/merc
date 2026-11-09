@@ -44,7 +44,7 @@ ignore = [
     "RUSTSEC-2026-0371", # zvariant_macros is unmaintained; used in slint
     "RUSTSEC-2026-0192", # ttf-parser is unmaintained; used in femtovg and slint
     "RUSTSEC-2026-0206", # rustybuzz is unmaintained, used by slint
-
+    "RUSTSEC-2026-0441", # pin-utils is unmaintained; used in slint
 ]
 
 # This section is considered when running `cargo deny check licenses`

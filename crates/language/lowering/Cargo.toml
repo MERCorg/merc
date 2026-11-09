@@ -1,0 +1,18 @@
+[package]
+name = "merc_lowering"
+readme = "README.md"
+
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+merc_data.workspace = true
+merc_syntax.workspace = true
+merc_typecheck = { workspace = true, features = ["internal"] }
+
+[lints]
+workspace = true
