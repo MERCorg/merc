@@ -1230,6 +1230,7 @@ dependencies = [
  "hashbrown 0.17.1",
  "itertools 0.15.0",
  "log",
+ "merc_aterm",
  "merc_collections",
  "merc_data",
  "merc_io",
