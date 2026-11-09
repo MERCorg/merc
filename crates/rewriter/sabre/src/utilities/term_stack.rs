@@ -40,38 +40,22 @@ use super::post_order;
 /// where `@1` pushes the subterm at position 1 of the matched term, the value of `x`, and `h/1`
 /// replaces the value on top by `h` applied to it.
 ///
-/// # Hooks and blocks
+/// # Hooks
 ///
 /// A compiler built on top of this one can compile some subterms differently, through the
 /// `replace` of [TermStack::new]. It can put a hook of type `H` in place of a subterm: an
 /// instruction that whoever evaluates the term stack interprets. The default `H` has no values,
-/// so a plain term stack has no hooks. It can also *defer* a term: compile it into a block of its
-/// own, after the instructions of the term itself. Block 0 builds the term, and the deferred
-/// blocks follow it; a hook can refer to a deferred block, to be evaluated later or not at all.
-///
-/// Replacing every `h(t)` by a hook for a block that builds `t` compiles the
-/// right-hand side of `f(x) = g(h(x), x)` to
+/// so a plain term stack has no hooks. Replacing every `h(t)` by a hook compiles the right-hand
+/// side of `f(x) = g(h(x), x)` to
 ///
 /// ```text
-/// 0:  Hook(1)  @1  g/2
-/// 1:  @1
+/// Hook  @1  g/2
 /// ```
-///
-/// where block 0 builds the term with the hook in place of `h(x)`, and block 1 builds `x`, for
-/// whoever evaluates the hook to use.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TermStack<H = Infallible> {
     pub instructions: Vec<Instruction<H>>,
-    /// The blocks of `instructions`, in which they are consecutive. Block 0 builds the term
-    /// itself, and is followed by the deferred blocks in the order in which they were deferred.
-    pub blocks: Vec<Block>,
-}
-
-/// The instructions `begin..end` of a [TermStack], which build one term (see [TermStack]).
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Block {
-    pub begin: usize,
-    pub end: usize,
+    /// Whether one of the instructions is a hook.
+    hooks: bool,
 }
 
 /// An instruction of a [TermStack], which pushes one value.
@@ -92,27 +76,9 @@ pub enum Instruction<H> {
 
 /// An item of what [TermStack::new] compiles in place of a subterm.
 pub enum Replacement<H> {
-    /// A term, compiled in this block.
+    /// A term, compiled in place.
     Term(DataExpression),
     Hook(H),
-}
-
-/// The terms deferred to blocks of their own while compiling, see [TermStack::new].
-#[derive(Default)]
-pub struct Deferred {
-    terms: Vec<DataExpression>,
-}
-
-impl Deferred {
-    /// Defers `term` to a block of its own and returns the index of that block: block 0 is the
-    /// term being compiled, so the first deferred term is block 1.
-    ///
-    /// The block is compiled after the blocks before it, with the same `replace`, which is also asked
-    /// about the root of the block, so it must not defer a term to itself.
-    pub fn defer(&mut self, term: DataExpression) -> usize {
-        self.terms.push(term);
-        self.terms.len()
-    }
 }
 
 impl TermStack {
@@ -126,7 +92,7 @@ impl TermStack {
     /// A binder is opaque: its values are its free variables, which are taken from the left-hand
     /// side like any other variable.
     pub fn from_term(term: &DataExpressionRef, var_map: &HashMap<DataVariable, DataPosition>) -> TermStack {
-        Self::new(term, var_map, |_, _| None)
+        Self::new(term, var_map, |_| None)
     }
 
     /// Instantiates the term for the subterms of `term`.
@@ -150,7 +116,7 @@ impl TermStack {
 
         // Each instruction takes a guard of its own, since what a guard protects must still be in
         // its container when the guard is dropped, and an application removes its arguments.
-        for instruction in self.block(0) {
+        for instruction in &self.instructions {
             builder.values.write(|values| {
                 let (value, arity): (DataExpression, usize) = match instruction {
                     Instruction::Variable(position) => (subject.get_data_position(position).protect(), 0),
@@ -215,100 +181,81 @@ impl<H> TermStack<H> {
     ///
     /// `replace` is asked about every subterm before it is compiled, including variables. It
     /// returns `None` to compile the subterm as usual, or the pieces compiled in its place, in
-    /// order, which together must leave one value on the stack as the subterm would. With
-    /// [Deferred::defer] it can compile any term into a block of its own, which its hooks can refer
-    /// to by the index that `defer` returns. See [TermStack] for an example.
+    /// order, which together must leave one value on the stack as the subterm would. See
+    /// [TermStack] for an example.
     pub fn new<C>(term: &DataExpressionRef, var_map: &HashMap<DataVariable, DataPosition>, mut replace: C) -> Self
     where
-        C: FnMut(&DataExpressionRef<'_>, &mut Deferred) -> Option<Vec<Replacement<H>>>,
+        C: FnMut(&DataExpressionRef<'_>) -> Option<Vec<Replacement<H>>>,
     {
         let mut instructions = Vec::new();
-        let mut blocks = Vec::new();
-        let mut deferred = Deferred::default();
+        let mut hooks = false;
 
-        let mut next = Some(term.protect());
-        while let Some(root) = next {
-            let begin = instructions.len();
-            post_order(
-                root,
-                |term: DataExpression, expansion| {
-                    if let Some(replacement) = replace(&term.copy(), &mut deferred) {
-                        for item in replacement {
-                            match item {
-                                Replacement::Term(term) => expansion.visit(term),
-                                Replacement::Hook(hook) => expansion.emit(Instruction::Hook(hook)),
+        post_order(
+            term.protect(),
+            |term: DataExpression, expansion| {
+                if let Some(replacement) = replace(&term.copy()) {
+                    for item in replacement {
+                        match item {
+                            Replacement::Term(term) => expansion.visit(term),
+                            Replacement::Hook(hook) => {
+                                hooks = true;
+                                expansion.emit(Instruction::Hook(hook));
                             }
-                        }
-                        return;
-                    }
-
-                    match term.kind() {
-                        DataExpressionKind::Variable(variable) => {
-                            let position = var_map
-                                .get(&variable.protect())
-                                .expect("All variables in the right hand side must occur in the left hand side");
-                            expansion.emit(Instruction::Variable(position.clone()));
-                        }
-                        DataExpressionKind::MachineNumber(_) => {
-                            // A machine number is a constant without a head symbol to apply.
-                            // Right-hand sides contain them whenever numeric literals are lowered
-                            // with `NumberEncoding::MachineWord`.
-                            expansion.emit(Instruction::Term(term.clone()));
-                        }
-                        DataExpressionKind::Abstraction(_) => {
-                            // Closing the binder over its free variables records which variables
-                            // the values are for, so they need not be computed again for every
-                            // instance.
-                            let free: Vec<DataVariable> = free_variables(&term).collect();
-                            let template = DataAbstraction::new(BinderType::Lambda, &free, term.clone());
-                            let arity = free.len();
-                            for variable in free {
-                                expansion.visit(variable.into());
-                            }
-                            expansion.emit(Instruction::Binder { template, arity });
-                        }
-                        DataExpressionKind::Application(_) | DataExpressionKind::FunctionSymbol(_) => {
-                            let arguments = term.data_arguments();
-                            let arity = arguments.len();
-                            for argument in arguments {
-                                expansion.visit(argument.protect());
-                            }
-                            expansion.emit(Instruction::Apply {
-                                symbol: term.data_function_symbol().protect(),
-                                arity,
-                            });
-                        }
-                        DataExpressionKind::WhereClause(_) => {
-                            unreachable!("is_supported_rule keeps no rule with a where clause in its right-hand side")
                         }
                     }
-                },
-                |instruction| instructions.push(instruction),
-            );
-            blocks.push(Block {
-                begin,
-                end: instructions.len(),
-            });
+                    return;
+                }
 
-            // The deferred terms are compiled in the order they were requested, so that block
-            // `i` is the `i`-th of them.
-            next = deferred.terms.get(blocks.len() - 1).cloned();
-        }
+                match term.kind() {
+                    DataExpressionKind::Variable(variable) => {
+                        let position = var_map
+                            .get(&variable.protect())
+                            .expect("All variables in the right hand side must occur in the left hand side");
+                        expansion.emit(Instruction::Variable(position.clone()));
+                    }
+                    DataExpressionKind::MachineNumber(_) => {
+                        // A machine number is a constant without a head symbol to apply.
+                        // Right-hand sides contain them whenever numeric literals are lowered
+                        // with `NumberEncoding::MachineWord`.
+                        expansion.emit(Instruction::Term(term.clone()));
+                    }
+                    DataExpressionKind::Abstraction(_) => {
+                        // Closing the binder over its free variables records which variables
+                        // the values are for, so they need not be computed again for every
+                        // instance.
+                        let free: Vec<DataVariable> = free_variables(&term).collect();
+                        let template = DataAbstraction::new(BinderType::Lambda, &free, term.clone());
+                        let arity = free.len();
+                        for variable in free {
+                            expansion.visit(variable.into());
+                        }
+                        expansion.emit(Instruction::Binder { template, arity });
+                    }
+                    DataExpressionKind::Application(_) | DataExpressionKind::FunctionSymbol(_) => {
+                        let arguments = term.data_arguments();
+                        let arity = arguments.len();
+                        for argument in arguments {
+                            expansion.visit(argument.protect());
+                        }
+                        expansion.emit(Instruction::Apply {
+                            symbol: term.data_function_symbol().protect(),
+                            arity,
+                        });
+                    }
+                    DataExpressionKind::WhereClause(_) => {
+                        unreachable!("is_supported_rule keeps no rule with a where clause in its right-hand side")
+                    }
+                }
+            },
+            |instruction| instructions.push(instruction),
+        );
 
-        TermStack { instructions, blocks }
-    }
-
-    /// Returns the instructions of block `block`.
-    pub fn block(&self, block: usize) -> &[Instruction<H>] {
-        let Block { begin, end } = self.blocks[block];
-        &self.instructions[begin..end]
+        TermStack { instructions, hooks }
     }
 
     /// Returns true iff the term stack has a hook.
     pub fn has_hooks(&self) -> bool {
-        self.instructions
-            .iter()
-            .any(|instruction| matches!(instruction, Instruction::Hook(_)))
+        self.hooks
     }
 
     /// Returns the positions of the variables, once per occurrence.
@@ -320,20 +267,25 @@ impl<H> TermStack<H> {
     }
 }
 
+impl<H> Default for TermStack<H> {
+    fn default() -> Self {
+        TermStack {
+            instructions: Vec::new(),
+            hooks: false,
+        }
+    }
+}
+
 impl<H: fmt::Debug> fmt::Display for TermStack<H> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for block in 0..self.blocks.len() {
-            write!(f, "{block}:")?;
-            for instruction in self.block(block) {
-                match instruction {
-                    Instruction::Variable(position) => write!(f, " @{position}")?,
-                    Instruction::Term(term) => write!(f, " {term}")?,
-                    Instruction::Apply { symbol, arity } => write!(f, " {symbol}/{arity}")?,
-                    Instruction::Binder { template, arity } => write!(f, " ({template})/{arity}")?,
-                    Instruction::Hook(hook) => write!(f, " {hook:?}")?,
-                }
+        for instruction in &self.instructions {
+            match instruction {
+                Instruction::Variable(position) => write!(f, " @{position}")?,
+                Instruction::Term(term) => write!(f, " {term}")?,
+                Instruction::Apply { symbol, arity } => write!(f, " {symbol}/{arity}")?,
+                Instruction::Binder { template, arity } => write!(f, " ({template})/{arity}")?,
+                Instruction::Hook(hook) => write!(f, " {hook:?}")?,
             }
-            writeln!(f)?;
         }
         Ok(())
     }
@@ -483,14 +435,13 @@ mod tests {
     }
 
     #[test]
-    fn test_replace_puts_hooks_and_blocks() {
+    fn test_replace_puts_hooks() {
         let rule = create_rewrite_rule("f(x)", "g(h(x), x)", &["x"]).unwrap();
         let h = DataFunctionSymbol::new("h");
 
-        // Every h(t) becomes a hook for a block that builds t.
-        let stack = TermStack::new(&rule.rhs.copy(), &create_var_map(&rule.lhs), |term, deferred| {
+        let stack = TermStack::new(&rule.rhs.copy(), &create_var_map(&rule.lhs), |term| {
             (is_data_application(term) && term.data_function_symbol().copy() == h.copy())
-                .then(|| vec![Replacement::Hook(deferred.defer(term.data_arg(0).protect()))])
+                .then(|| vec![Replacement::Hook(1)])
         });
 
         let x = Instruction::Variable(DataPosition::new(&[1]));
@@ -498,9 +449,8 @@ mod tests {
             symbol: DataFunctionSymbol::new("g"),
             arity: 2,
         };
-        assert_eq!(stack.block(0), [Instruction::Hook(1), x.clone(), g]);
-        assert_eq!(stack.block(1), [x]);
-        assert_eq!(stack.blocks.len(), 2);
+        assert_eq!(stack.instructions, [Instruction::Hook(1), x, g]);
+        assert!(stack.has_hooks());
     }
 
     #[test]

@@ -5,8 +5,10 @@ mod innermost_rewriter;
 mod metrics;
 mod naive_rewriter;
 mod quantifier;
+mod rewrite_machine;
 mod rewrite_specification;
 mod sabre_rewriter;
+mod scheduler;
 mod set_automaton;
 mod subject;
 
