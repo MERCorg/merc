@@ -1363,7 +1363,9 @@ dependencies = [
 name = "merc_lowering"
 version = "3.0.0"
 dependencies = [
+ "merc_aterm",
  "merc_data",
+ "merc_number",
  "merc_syntax",
  "merc_typecheck",
 ]

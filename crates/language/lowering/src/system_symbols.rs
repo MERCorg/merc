@@ -16,6 +16,8 @@ pub const C_DUB: &str = "@cDub";
 pub const C_NAT: &str = "@cNat";
 /// `@cInt: Nat -> Int`, embeds a `Nat` into `Int` (`int.mcrl2`, `int64.mcrl2`).
 pub const C_INT: &str = "@cInt";
+/// `@cNeg: Pos -> Int`, the negation of a `Pos` (`int.mcrl2`, `int64.mcrl2`).
+pub const C_NEG: &str = "@cNeg";
 /// `@cReal: Int # Pos -> Real`, the fraction of an `Int` and a `Pos` (`real.mcrl2`, `real64.mcrl2`).
 pub const C_REAL: &str = "@cReal";
 /// `Pos2Nat: Pos -> Nat`, embeds a `Pos` into `Nat` in the machine-word encoding, which has no
@@ -134,6 +136,13 @@ pub fn c_int() -> DataFunctionSymbol {
     cached(|s| &s.c_int)
 }
 
+/// See [C_NEG]. Lowering never builds it, a negative literal is `-` applied to a `Pos`, so it is
+/// only recognised when raising.
+#[cfg(test)]
+fn c_neg() -> DataFunctionSymbol {
+    DataFunctionSymbol::with_signature(C_NEG, &[SortExpression::pos()], &SortExpression::int())
+}
+
 /// See [C_REAL].
 pub fn c_real() -> DataFunctionSymbol {
     cached(|s| &s.c_real)
@@ -244,6 +253,7 @@ mod tests {
     use super::c_dub;
     use super::c_int;
     use super::c_nat;
+    use super::c_neg;
     use super::c_real;
     use super::c0;
     use super::c1;
@@ -302,6 +312,7 @@ mod tests {
         assert_declared(c_dub(), &[spec!(POS)]);
         assert_declared(c_nat(), &[spec!(NAT)]);
         assert_declared(c_int(), &[spec!(INT), spec!(INT64)]);
+        assert_declared(c_neg(), &[spec!(INT), spec!(INT64)]);
         assert_declared(c_real(), &[spec!(REAL), spec!(REAL64)]);
         assert_declared(pos2nat(), &[spec!(NAT), spec!(NAT64)]);
         assert_declared(most_significant_digit(), &[spec!(POS64)]);
