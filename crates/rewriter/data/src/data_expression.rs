@@ -411,7 +411,7 @@ mod inner {
         /// Assumes the term is an integer term, which is guaranteed by the constructor
         /// and [`is_data_machine_number`]. The cast reinterprets the stored `i64` bit
         /// pattern as `u64`, recovering values in `[0, 2^64-1]`.
-        pub(crate) fn value(&self) -> u64 {
+        pub fn value(&self) -> u64 {
             Into::<ATermIntRef<'_>>::into(self.term.copy()).value() as u64
         }
     }
