@@ -55,6 +55,7 @@ members = [
 
     "crates/language/formula",
     "crates/language/lowering",
+    "crates/language/lps",
     "crates/language/pbes",
     "crates/language/pres",
     "crates/language/process",
@@ -63,6 +64,7 @@ members = [
 
     "crates/xtask",
     
+    "tools/lps",
     "tools/lts",
     "tools/rewrite",
     "tools/sym",
@@ -179,6 +181,7 @@ merc_pres = { version = "2.0", path = "crates/language/pres" }
 merc_process = { version = "2.0", path = "crates/language/process" }
 merc_formula = { version = "2.0", path = "crates/language/formula" }
 merc_lowering = { version = "2.0", path = "crates/language/lowering" }
+merc_lps = { version = "2.0", path = "crates/language/lps" }
 
 # Vendored libraries
 merc_pest_consume = { version = "2.1", git = "https://github.com/MERCorg/pest_consume" }

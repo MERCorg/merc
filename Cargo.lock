@@ -1066,6 +1066,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
+name = "merc-lps-native"
+version = "2.0.0"
+dependencies = [
+ "clap",
+ "env_logger",
+ "log",
+ "merc_explore",
+ "merc_lps",
+ "merc_lts",
+ "merc_symbolic",
+ "merc_tools",
+ "merc_unsafety",
+ "merc_utilities",
+ "oxidd",
+]
+
+[[package]]
 name = "merc-lts"
 version = "2.0.0"
 dependencies = [
@@ -1274,9 +1291,40 @@ dependencies = [
 name = "merc_lowering"
 version = "2.0.0"
 dependencies = [
+ "merc_aterm",
  "merc_data",
+ "merc_number",
  "merc_syntax",
  "merc_typecheck",
+ "merc_utilities",
+ "test-case",
+]
+
+[[package]]
+name = "merc_lps"
+version = "2.0.0"
+dependencies = [
+ "ahash",
+ "delegate",
+ "itertools 0.15.0",
+ "log",
+ "merc_aterm",
+ "merc_data",
+ "merc_enumerate",
+ "merc_explore",
+ "merc_io",
+ "merc_lowering",
+ "merc_lts",
+ "merc_macros",
+ "merc_sabre",
+ "merc_symbolic",
+ "merc_syntax",
+ "merc_typecheck",
+ "merc_unsafety",
+ "merc_utilities",
+ "oxidd",
+ "rayon",
+ "test-case",
 ]
 
 [[package]]
@@ -1448,6 +1496,7 @@ name = "merc_sabre"
 version = "3.0.0"
 dependencies = [
  "ahash",
+ "clap",
  "env_logger",
  "html-escape",
  "itertools 0.15.0",
