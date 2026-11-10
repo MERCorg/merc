@@ -3,17 +3,14 @@ use std::fmt;
 use merc_aterm::ATermRef;
 use merc_aterm::Markable;
 use merc_aterm::Protected;
-use merc_aterm::ProtectedWriteGuard;
 use merc_aterm::SymbolRef;
 use merc_aterm::Transmutable;
 use merc_aterm::storage::Marker;
 use merc_data::DataExpressionRef;
 use merc_data::DataFunctionSymbolRef;
 
-use crate::rewrite_machine::TermStackId;
-use crate::scheduler::Scheduler;
-use crate::subject::subterm;
-use crate::utilities::DataPosition;
+use super::Scheduler;
+use super::TermStackId;
 
 /// The stacks of the rewriting machine: what to do next, and the terms computed so far.
 ///
@@ -33,12 +30,6 @@ impl<S: Scheduler> Default for InnermostStack<S> {
         }
     }
 }
-
-/// Write access to the configurations of an [InnermostStack].
-pub(crate) type WriteConfigs<'g, 'e, 'a, S> = ProtectedWriteGuard<'g, 'e, Vec<Config<'a, S>>>;
-
-/// Write access to the terms of an [InnermostStack].
-pub(crate) type WriteTerms<'g, 'e, 'a> = ProtectedWriteGuard<'g, 'e, Vec<Option<DataExpressionRef<'a>>>>;
 
 /// A configuration of the rewriting machine.
 pub(crate) enum Config<'a, S: Scheduler> {
@@ -142,52 +133,6 @@ impl<S: Scheduler> fmt::Display for Config<'_, S> {
             Config::Return => write!(f, "Return"),
         }
     }
-}
-
-impl<S: Scheduler> InnermostStack<S> {
-    /// Pushes the configuration that rewrites `term`.
-    pub fn add_rewrite(write_configs: &mut WriteConfigs<'_, '_, '_, S>, term: &DataExpressionRef<'_>) {
-        // SAFETY: term is pushed into the container on the next line.
-        let term = unsafe { write_configs.protect(term) };
-        write_configs.push(Config::Rewrite { term: term.into() });
-    }
-
-    /// Pushes the configuration that replaces `symbol` applied to the `arity` terms on top by
-    /// its normal form.
-    pub fn add_construct(
-        write_configs: &mut WriteConfigs<'_, '_, '_, S>,
-        symbol: &DataFunctionSymbolRef<'_>,
-        arity: usize,
-    ) {
-        // SAFETY: symbol is pushed into the container on the next line.
-        let symbol = unsafe { write_configs.protect(symbol) };
-        write_configs.push(Config::Construct {
-            symbol: symbol.into(),
-            arity,
-        });
-    }
-}
-
-/// Pushes `value` onto the term stack.
-pub(crate) fn push_value(write_terms: &mut WriteTerms<'_, '_, '_>, value: &DataExpressionRef<'_>) {
-    // SAFETY: value is pushed into the container on the next line.
-    let value = unsafe { write_terms.protect(value) };
-    write_terms.push(Some(value.into()));
-}
-
-/// Pushes the subterm at `position` of the arguments at `base` onto the term stack.
-pub(crate) fn push_argument(write_terms: &mut WriteTerms<'_, '_, '_>, base: usize, position: &DataPosition) {
-    // SAFETY: the value is pushed into the container on the next line.
-    let value = unsafe { write_terms.protect(&subterm(&write_terms[base..], position)) };
-    write_terms.push(Some(value.into()));
-}
-
-/// Replaces the terms from `first` on by `value`.
-pub(crate) fn replace_values(write_terms: &mut WriteTerms<'_, '_, '_>, first: usize, value: &DataExpressionRef<'_>) {
-    // SAFETY: value is pushed into the container below, before the guard is dropped.
-    let value = unsafe { write_terms.protect(value) };
-    write_terms.truncate(first);
-    write_terms.push(Some(value.into()));
 }
 
 impl<S: Scheduler> fmt::Display for InnermostStack<S> {
