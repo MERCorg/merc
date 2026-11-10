@@ -57,18 +57,17 @@ pub struct DeadlockSummand {
 
 /// A linear process specification (LPS): a single process whose body is a choice between summands,
 /// each of which performs at most one multi-action before continuing as the process itself.
-///
-/// Unlike the term representation of the mCRL2 toolset, only the data expressions are terms; the
-/// structure around them is plain Rust. Stochastic linear processes are not supported.
 #[derive(Clone)]
 pub struct LinearProcessSpecification {
     pub data_specification: Mcrl2DataSpecification,
     pub action_labels: Vec<ActionLabel>,
+
     /// Variables that may occur free in the process, standing for arbitrary values.
     pub global_variables: Vec<DataVariable>,
     pub process_parameters: Vec<DataVariable>,
     pub action_summands: Vec<ActionSummand>,
     pub deadlock_summands: Vec<DeadlockSummand>,
+
     /// The initial value of every process parameter, parallel to [`Self::process_parameters`].
     pub initial_state: Vec<DataExpression>,
 }
@@ -76,9 +75,11 @@ pub struct LinearProcessSpecification {
 impl fmt::Display for ActionLabel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.name.value())?;
+
         if !self.sorts.is_empty() {
             write!(f, ": {}", self.sorts.iter().format(" # "))?;
         }
+
         Ok(())
     }
 }
@@ -86,9 +87,11 @@ impl fmt::Display for ActionLabel {
 impl fmt::Display for Action {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.label.name.value())?;
+
         if !self.arguments.is_empty() {
             write!(f, "({})", self.arguments.iter().map(Pretty::from).format(", "))?;
         }
+
         Ok(())
     }
 }
@@ -100,6 +103,7 @@ impl fmt::Display for MultiAction {
         } else {
             write!(f, "{}", self.actions.iter().format(" | "))?;
         }
+
         write!(f, "{}", Time(self.time.as_ref()))
     }
 }
@@ -141,6 +145,7 @@ impl fmt::Display for LinearProcessSpecification {
             })
             .chain(self.deadlock_summands.iter().map(DeadlockSummand::to_string))
             .collect::<Vec<_>>();
+
         if summands.is_empty() {
             writeln!(f, "    delta;")?;
         } else {
@@ -155,11 +160,6 @@ impl fmt::Display for LinearProcessSpecification {
     }
 }
 
-/// Returns true iff `value` is the parameter itself, i.e. the parameter keeps its value.
-pub(crate) fn is_parameter(parameter: &DataVariable, value: &DataExpression) -> bool {
-    DataExpression::from(parameter.clone()) == *value
-}
-
 /// An action summand `sum d: D. c -> a . P(x = e)`, which shows only the parameters that change.
 struct SummandWithParameters<'a> {
     summand: &'a ActionSummand,
@@ -172,7 +172,7 @@ impl fmt::Display for SummandWithParameters<'_> {
             .parameters
             .iter()
             .zip(&self.summand.next_state)
-            .filter(|(parameter, value)| !is_parameter(parameter, value))
+            .filter(|(parameter, value)| DataExpression::from((*parameter).clone()) != **value)
             .format_with(", ", |(parameter, value), f| {
                 f(&format_args!("{} = {}", parameter.name(), Pretty::from(value)))
             });
