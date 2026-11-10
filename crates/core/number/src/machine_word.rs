@@ -4,40 +4,7 @@ use num::BigUint;
 use num::integer::Roots;
 
 /// Number of bits in a machine word; also the shift amount for one digit.
-const WORD_BITS: u32 = 64;
-
-/// A stack-allocated 192-bit (three-word) unsigned integer
-type TripleWord = Uint<24>;
-
-/// Extracts the least-significant 64 bits of a [`BigUint`].
-fn truncate_u64(value: &BigUint) -> u64 {
-    value.iter_u64_digits().next().unwrap_or(0)
-}
-
-/// Interprets `(hi, lo)` as the 128-bit number `hi * 2^64 + lo`.
-fn double_word(hi: u64, lo: u64) -> u128 {
-    ((hi as u128) << WORD_BITS) | lo as u128
-}
-
-/// Builds `d0 * 2^(64*(n-1)) + ... + d_{n-1}` from most-significant-first
-/// digits as a [`BigUint`].
-fn big_from_digits(digits: &[u64]) -> BigUint {
-    let mut result = BigUint::ZERO;
-    for &digit in digits {
-        result = (result << WORD_BITS) + digit;
-    }
-    result
-}
-
-/// Builds `d0 * 2^128 + d1 * 2^64 + d2` from most-significant-first digits as
-/// a stack-allocated [`TripleWord`].
-fn triple_word(d0: u64, d1: u64, d2: u64) -> TripleWord {
-    let mut bytes = [0u8; 24];
-    bytes[0..8].copy_from_slice(&d0.to_be_bytes());
-    bytes[8..16].copy_from_slice(&d1.to_be_bytes());
-    bytes[16..24].copy_from_slice(&d2.to_be_bytes());
-    TripleWord::from_be_bytes(bytes)
-}
+pub const MACHINEWORD_BITS: u32 = 64;
 
 // Word constants
 
@@ -133,12 +100,12 @@ pub fn times_with_carry_word(n1: u64, n2: u64, n3: u64) -> u64 {
 
 /// The high 64 bits of `n1 * n2`.
 pub fn times_overflow_word(n1: u64, n2: u64) -> u64 {
-    ((n1 as u128 * n2 as u128) >> WORD_BITS) as u64
+    ((n1 as u128 * n2 as u128) >> MACHINEWORD_BITS) as u64
 }
 
 /// The high 64 bits of `n1 * n2 + n3`.
 pub fn times_with_carry_overflow_word(n1: u64, n2: u64, n3: u64) -> u64 {
-    ((n1 as u128 * n2 as u128 + n3 as u128) >> WORD_BITS) as u64
+    ((n1 as u128 * n2 as u128 + n3 as u128) >> MACHINEWORD_BITS) as u64
 }
 
 /// `n1 - n2` modulo `2^64`.
@@ -167,7 +134,7 @@ pub fn sqrt_word(n: u64) -> u64 {
 pub fn shift_right(bit: bool, n: u64) -> u64 {
     let shifted = n >> 1;
     if bit {
-        shifted | (1u64 << (WORD_BITS - 1))
+        shifted | (1u64 << (MACHINEWORD_BITS - 1))
     } else {
         shifted
     }
@@ -215,7 +182,7 @@ pub fn sqrt_tripleword(n1: u64, n2: u64, n3: u64) -> u64 {
 
 /// Most-significant word of the square root of `2^128 * n1 + 2^64 * n2 + n3`.
 pub fn sqrt_tripleword_overflow(n1: u64, n2: u64, n3: u64) -> u64 {
-    truncate_u64(&(big_from_digits(&[n1, n2, n3]).sqrt() >> WORD_BITS))
+    truncate_u64(&(big_from_digits(&[n1, n2, n3]).sqrt() >> MACHINEWORD_BITS))
 }
 
 /// Least-significant word of the square root of
@@ -227,7 +194,40 @@ pub fn sqrt_quadrupleword(n1: u64, n2: u64, n3: u64, n4: u64) -> u64 {
 /// Most-significant word of the square root of
 /// `2^192 * n1 + 2^128 * n2 + 2^64 * n3 + n4`.
 pub fn sqrt_quadrupleword_overflow(n1: u64, n2: u64, n3: u64, n4: u64) -> u64 {
-    truncate_u64(&(big_from_digits(&[n1, n2, n3, n4]).sqrt() >> WORD_BITS))
+    truncate_u64(&(big_from_digits(&[n1, n2, n3, n4]).sqrt() >> MACHINEWORD_BITS))
+}
+
+/// A stack-allocated 192-bit (three-word) unsigned integer
+type TripleWord = Uint<24>;
+
+/// Extracts the least-significant 64 bits of a [`BigUint`].
+fn truncate_u64(value: &BigUint) -> u64 {
+    value.iter_u64_digits().next().unwrap_or(0)
+}
+
+/// Interprets `(hi, lo)` as the 128-bit number `hi * 2^64 + lo`.
+fn double_word(hi: u64, lo: u64) -> u128 {
+    ((hi as u128) << MACHINEWORD_BITS) | lo as u128
+}
+
+/// Builds `d0 * 2^(64*(n-1)) + ... + d_{n-1}` from most-significant-first
+/// digits as a [`BigUint`].
+fn big_from_digits(digits: &[u64]) -> BigUint {
+    let mut result = BigUint::ZERO;
+    for &digit in digits {
+        result = (result << MACHINEWORD_BITS) + digit;
+    }
+    result
+}
+
+/// Builds `d0 * 2^128 + d1 * 2^64 + d2` from most-significant-first digits as
+/// a stack-allocated [`TripleWord`].
+fn triple_word(d0: u64, d1: u64, d2: u64) -> TripleWord {
+    let mut bytes = [0u8; 24];
+    bytes[0..8].copy_from_slice(&d0.to_be_bytes());
+    bytes[8..16].copy_from_slice(&d1.to_be_bytes());
+    bytes[16..24].copy_from_slice(&d2.to_be_bytes());
+    TripleWord::from_be_bytes(bytes)
 }
 
 #[cfg(test)]
@@ -347,7 +347,7 @@ mod tests {
 
     /// The digit base `2^64` as a binary big-integer.
     fn base() -> BigUint {
-        one() << WORD_BITS
+        one() << MACHINEWORD_BITS
     }
 
     #[test]

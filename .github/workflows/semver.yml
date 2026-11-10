@@ -33,4 +33,4 @@ jobs:
       uses: obi1kenobi/cargo-semver-checks-action@v2
       with:
         feature-group: default-features
-        exclude: benchmarks_aterm, benchmarks_symbolic, benchmarks_vpg, benchmarks_sharedmutex, benchmarks_unsafety, benchmarks_utilities, benchmarks_lts, merc-rewrite, merc-lts, merc-pbes, merc_pbes, merc-pres, merc_pres, merc-lps, merc-sym, merc_rec-tests, merc_tools, merc_sabre-compiling, merc_sabre-ffi, merc_symbolic, merc_vpg, merc_typecheck, merc_enumerate
+        exclude: benchmarks_aterm, benchmarks_symbolic, benchmarks_vpg, benchmarks_sharedmutex, benchmarks_unsafety, benchmarks_utilities, benchmarks_lts, merc-rewrite, merc-lts, merc-pbes, merc_pbes, merc-pres, merc_pres, merc-lps, merc-lps-native, merc_lps, merc-sym, merc_rec-tests, merc_tools, merc_sabre-compiling, merc_sabre-ffi, merc_symbolic, merc_vpg, merc_typecheck, merc_enumerate

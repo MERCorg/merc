@@ -1,0 +1,47 @@
+[package]
+name = "merc_lps"
+description = "Linear process specifications of the mCRL2 toolset, and reading and writing them in its .lps format."
+readme = "README.md"
+
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[features]
+# Enables additional metrics.
+metrics = ["merc_explore/metrics", "merc_symbolic/metrics"]
+
+# Derives the `clap::ValueEnum` trait.
+clap = ["merc_sabre/clap"]
+
+[dependencies]
+ahash.workspace = true
+delegate.workspace = true
+itertools.workspace = true
+log.workspace = true
+oxidd.workspace = true
+rayon.workspace = true
+
+merc_aterm.workspace = true
+merc_data.workspace = true
+merc_enumerate.workspace = true
+merc_explore = { workspace = true, features = ["clap"] }
+merc_io.workspace = true
+merc_lowering.workspace = true
+merc_lts = { workspace = true, features = ["clap"] }
+merc_macros.workspace = true
+merc_sabre.workspace = true
+merc_symbolic = { workspace = true, features = ["clap"] }
+merc_syntax.workspace = true
+merc_typecheck.workspace = true
+merc_unsafety.workspace = true
+merc_utilities.workspace = true
+
+[dev-dependencies]
+test-case.workspace = true
+
+[lints]
+workspace = true

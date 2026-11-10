@@ -21,6 +21,7 @@ use merc_aterm::Transmutable;
 use merc_aterm::storage::Marker;
 use merc_collections::VecBag;
 use merc_data::DataExpression;
+use merc_data::SortExpression;
 use merc_data::is_undefined_real;
 use merc_data::undefined_real;
 use merc_macros::merc_derive_terms;
@@ -168,7 +169,7 @@ impl LtsMultiAction<LtsAction> {
             .map(|action| -> Result<MCRL2Action, MercError> {
                 let label_term = MCRL2ActionLabel::new(
                     ATermString::new(&action.label).copy(),
-                    ATermList::<DataExpression>::empty(),
+                    ATermList::<SortExpression>::empty(),
                 );
 
                 let arguments_term = ATermList::<DataExpression>::from_double_iter(action.arguments.iter().cloned());
@@ -281,10 +282,10 @@ mod inner {
     }
 
     impl MCRL2ActionLabel {
-        /// Constructs a new action label with the given name and arguments.
+        /// Constructs a new action label with the given name and sorts.
         #[merc_ignore]
-        pub fn new(name: ATermStringRef<'_>, args: ATermList<DataExpression>) -> Self {
-            let args: &[ATermRef<'_>] = &[name.into(), args.copy()];
+        pub fn new(name: ATermStringRef<'_>, sorts: ATermList<SortExpression>) -> Self {
+            let args: &[ATermRef<'_>] = &[name.into(), sorts.copy()];
             let term = ATerm::with_args(&Symbol::new("ActId", 2), args);
             MCRL2ActionLabel { term: term.protect() }
         }
@@ -292,6 +293,11 @@ mod inner {
         /// Obtain the name of the action label.
         pub fn name(&self) -> ATermStringRef<'_> {
             self.term.arg(0).into()
+        }
+
+        /// Obtain the sorts of the arguments of the action label.
+        pub fn sorts(&self) -> ATermList<SortExpression> {
+            self.term.arg(1).into()
         }
     }
 }

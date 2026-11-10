@@ -14,12 +14,11 @@ mod visitor;
 
 // Explicit pub(crate) re-exports.
 pub(crate) use data_terms::DATA_SYMBOLS;
-pub(crate) use data_terms::is_basic_sort;
 pub(crate) use data_terms::is_data_equation;
 pub(crate) use data_terms::is_data_expression;
 pub(crate) use data_terms::is_data_whr_decl;
 pub(crate) use data_terms::is_sort_alias;
-pub(crate) use data_terms::is_sort_expression;
+pub use data_terms::is_sort_expression;
 
 // Public API
 pub use booleans::BoolConnective;
@@ -49,6 +48,7 @@ pub use data_expression::MachineNumber;
 pub use data_expression::MachineNumberRef;
 pub use data_expression::to_untyped_data_expression;
 pub use data_specification::Mcrl2DataSpecification;
+pub use data_terms::is_basic_sort;
 pub use data_terms::is_container_sort;
 pub use data_terms::is_data_application;
 pub use data_terms::is_data_binder;
@@ -57,6 +57,7 @@ pub use data_terms::is_data_machine_number;
 pub use data_terms::is_data_variable;
 pub use data_terms::is_data_where_clause;
 pub use data_terms::is_function_sort;
+pub use data_terms::is_structured_sort;
 pub use machine_word_evaluation::MachineWordOp;
 pub use machine_word_evaluation::try_evaluate_machine_word;
 pub use sort_terms::BasicSort;

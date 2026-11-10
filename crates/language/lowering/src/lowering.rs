@@ -19,6 +19,7 @@ use merc_data::SortAlias;
 use merc_data::SortArrow;
 use merc_data::SortCons;
 use merc_data::SortExpression as DataSortExpression;
+use merc_number::MACHINEWORD_BITS;
 use merc_syntax::BagElement;
 use merc_syntax::ComplexSort;
 use merc_syntax::DataExpr;
@@ -44,6 +45,35 @@ use merc_typecheck::internal::instantiate_used_templates;
 use merc_typecheck::internal::is_system_generated_name;
 use merc_typecheck::internal::unreachable_not_a_value_sort;
 
+
+/// Converts an inferred, interned sort into the aterm `SortExpression` the
+/// binary format uses: `Primitive`/`Generic`/`Function` recurse structurally
+/// onto `BasicSort`/`SortCons`/`SortArrow`, and `Def` resolves to its declared
+/// name via [TypeCheckContext::sort_display_name] — a user sort or a
+/// system-internal one alike, both declared in `spec`, or a synthesized
+/// placeholder as a last resort: a nominal sort's identity *is* its declared
+/// name for the binary schema.
+pub(crate) fn lower_sort(
+    ctx: &TypeCheckContext,
+    spec: &UntypedDataSpecification,
+    id: ResolvedSortId,
+) -> DataSortExpression {
+    match ctx.sorts.get(id) {
+        ResolvedSort::Unit => unreachable_not_a_value_sort("Unit"),
+        ResolvedSort::Primitive(sort) => BasicSort::new(sort.name()).into(),
+        ResolvedSort::Container { op, subsort } => {
+            SortCons::new(container_kind(*op), lower_sort(ctx, spec, *subsort)).into()
+        }
+        ResolvedSort::Function { domain, range } => {
+            let domain: Vec<DataSortExpression> = domain.iter().map(|&sort| lower_sort(ctx, spec, sort)).collect();
+            SortArrow::new(&domain, &lower_sort(ctx, spec, *range)).into()
+        }
+        ResolvedSort::Def(def) => BasicSort::new(ctx.sort_display_name(spec, *def).as_ref()).into(),
+        ResolvedSort::TypeVar(_) => unreachable_not_a_value_sort("Var"),
+    }
+}
+
+
 /// The merc_data container kind for a [ComplexSort]; the two enums are kept
 /// separate because `merc_data` sits below `merc_syntax` in the dependency
 /// layering and cannot name it directly.
@@ -55,6 +85,16 @@ fn container_kind(op: ComplexSort) -> ContainerSortKind {
         ComplexSort::FBag => ContainerSortKind::FBag,
         ComplexSort::Bag => ContainerSortKind::Bag,
     }
+}
+
+/// Widens `term` from `from` to `to` in the number lattice, composing
+/// [widen_one_step] as many times as needed.
+fn numeric_coerce(mut term: DataExpression, from: Sort, to: Sort, encoding: NumberEncoding) -> DataExpression {
+    let mut current = from;
+    while current != to {
+        (term, current) = widen_one_step(term, current, encoding);
+    }
+    term
 }
 
 /// Widens `term` one step up the number lattice (`Pos <= Nat <= Int <= Real`),
@@ -90,15 +130,6 @@ fn widen_one_step(term: DataExpression, from: Sort, encoding: NumberEncoding) ->
     }
 }
 
-/// Widens `term` from `from` to `to` in the number lattice, composing
-/// [widen_one_step] as many times as needed.
-fn numeric_coerce(mut term: DataExpression, from: Sort, to: Sort, encoding: NumberEncoding) -> DataExpression {
-    let mut current = from;
-    while current != to {
-        (term, current) = widen_one_step(term, current, encoding);
-    }
-    term
-}
 
 /// Widens `term`, an `FSet(element)`/`FBag(element)`, to `Set(element)`/
 /// `Bag(element)` via the constructor `@set(@false_, term)` /
@@ -121,42 +152,6 @@ fn container_coerce(term: DataExpression, op: ComplexSort, element: DataSortExpr
             unreachable!("only FSet and FBag widen to another container")
         }
     }
-}
-
-/// Converts an inferred, interned sort into the aterm `SortExpression` the
-/// binary format uses: `Primitive`/`Generic`/`Function` recurse structurally
-/// onto `BasicSort`/`SortCons`/`SortArrow`, and `Def` resolves to its declared
-/// name via [TypeCheckContext::sort_display_name] — a user sort or a
-/// system-internal one alike, both declared in `spec`, or a synthesized
-/// placeholder as a last resort: a nominal sort's identity *is* its declared
-/// name for the binary schema.
-#[allow(dead_code)]
-pub(crate) fn lower_sort(
-    ctx: &TypeCheckContext,
-    spec: &UntypedDataSpecification,
-    id: ResolvedSortId,
-) -> DataSortExpression {
-    match ctx.sorts.get(id) {
-        ResolvedSort::Unit => unreachable_not_a_value_sort("Unit"),
-        ResolvedSort::Primitive(sort) => BasicSort::new(sort.name()).into(),
-        ResolvedSort::Container { op, subsort } => {
-            SortCons::new(container_kind(*op), lower_sort(ctx, spec, *subsort)).into()
-        }
-        ResolvedSort::Function { domain, range } => {
-            let domain: Vec<DataSortExpression> = domain.iter().map(|&sort| lower_sort(ctx, spec, sort)).collect();
-            SortArrow::new(&domain, &lower_sort(ctx, spec, *range)).into()
-        }
-        ResolvedSort::Def(def) => BasicSort::new(ctx.sort_display_name(spec, *def).as_ref()).into(),
-        ResolvedSort::TypeVar(_) => unreachable_not_a_value_sort("Var"),
-    }
-}
-
-/// Number of bits in one machine-word digit; the digit base is `2^WORD_BITS`.
-const WORD_BITS: usize = 64;
-
-/// Builds the machine-number term for a single `@word` digit.
-fn machine_number(value: u64) -> DataExpression {
-    MachineNumber::new(value).into()
 }
 
 /// The binary digits of a non-negative decimal literal, least-significant
@@ -209,7 +204,7 @@ fn decimal_words_lsb_first(decimal: &str) -> Vec<u64> {
     let bits = decimal_bits_lsb_first(decimal);
 
     let mut words: Vec<u64> = bits
-        .chunks(WORD_BITS)
+        .chunks(MACHINEWORD_BITS as usize)
         .map(|chunk| {
             let mut word = 0u64;
             for (i, &bit) in chunk.iter().enumerate() {
@@ -238,9 +233,9 @@ fn digit_chain_literal(decimal: &str, leading: DataFunctionSymbol, concat: DataF
 
     let mut digits = words.iter().rev();
     let most = *digits.next().expect("there is always at least one digit");
-    let mut term: DataExpression = DataApplication::with_args(&leading, &[machine_number(most)]).into();
+    let mut term: DataExpression = DataApplication::with_args(&leading, &[MachineNumber::new(most)]).into();
     for &word in digits {
-        term = DataApplication::with_args(&concat, &[term, machine_number(word)]).into();
+        term = DataApplication::with_args(&concat, &[term, MachineNumber::new(word).into()]).into();
     }
     term
 }
