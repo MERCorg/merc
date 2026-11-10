@@ -1,0 +1,32 @@
+[package]
+name = "merc-lps-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "merc-lps-native"
+path = "src/main.rs"
+# Avoid a rustdoc output filename collision with the `merc_lps` library crate.
+doc = false
+
+[features]
+metrics = ["merc_lps/metrics"]
+
+[dependencies]
+merc_explore = { workspace = true, features = ["clap"] }
+merc_lps = { workspace = true, features = ["clap"] }
+merc_lts = { workspace = true, features = ["clap"] }
+merc_symbolic = { workspace = true, features = ["clap"] }
+merc_tools.workspace = true
+merc_unsafety.workspace = true
+merc_utilities.workspace = true
+oxidd.workspace = true
+
+clap.workspace = true
+env_logger.workspace = true
+log.workspace = true
+
+[lints]
+workspace = true
