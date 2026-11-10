@@ -12,7 +12,7 @@ use merc_data::SortExpression;
 use merc_data::is_function_sort;
 
 /// Generates an arbitrary element of a sort, following the representative generator of mCRL2.
-struct RepresentativeGenerator<'a> {
+pub struct RepresentativeGenerator<'a> {
     specification: &'a Mcrl2DataSpecification,
 
     /// Cache of previously computed representatives for each sort.
@@ -20,14 +20,14 @@ struct RepresentativeGenerator<'a> {
 }
 
 impl<'a> RepresentativeGenerator<'a> {
-    fn new(specification: &'a Mcrl2DataSpecification) -> Self {
+    pub fn new(specification: &'a Mcrl2DataSpecification) -> Self {
         RepresentativeGenerator {
             specification,
             cache: HashMap::new(),
         }
     }
 
-    fn representative(&mut self, sort: &SortExpression) -> Option<DataExpression> {
+    pub fn representative(&mut self, sort: &SortExpression) -> Option<DataExpression> {
         self.find(sort, &mut HashSet::new())
     }
 
