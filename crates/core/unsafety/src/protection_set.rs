@@ -2,7 +2,6 @@ use std::fmt;
 use std::hash::Hash;
 use std::mem::ManuallyDrop;
 use std::ops::Deref;
-use std::ops::Index;
 
 use merc_utilities::GenerationCounter;
 use merc_utilities::GenerationalIndex;
@@ -157,8 +156,34 @@ impl<T> ProtectionSet<T> {
         );
     }
 
+    /// Returns the object protected by the given index.
+    ///
+    /// # Safety
+    ///
+    /// The index must have been returned by [`Self::protect`] on this set, and
+    /// must not have been passed to [`Self::unprotect`] since. Only builds with
+    /// debug assertions detect a violation, by panicking; for performance,
+    /// release builds do not check this.
+    pub unsafe fn get(&self, index: ProtectionIndex) -> &T {
+        let idx = self.generation_counter.get_index(index.0);
+        debug_assert!(
+            !self.freelist_iter().any(|free_idx| free_idx == idx),
+            "Attempting to index free spot {}",
+            index,
+        );
+        // SAFETY: By the precondition this slot holds an object.
+        unsafe { &self.roots[idx].object }
+    }
+
     /// Replaces the object at the given index with the new object.
-    pub fn replace(&mut self, index: ProtectionIndex, object: T) {
+    ///
+    /// # Safety
+    ///
+    /// The index must have been returned by [`Self::protect`] on this set, and
+    /// must not have been passed to [`Self::unprotect`] since. Only builds with
+    /// debug assertions detect a violation, by panicking; for performance,
+    /// release builds do not check this, and a stale index corrupts the freelist.
+    pub unsafe fn replace(&mut self, index: ProtectionIndex, object: T) {
         let index = self.generation_counter.get_index(index.0);
 
         debug_assert!(
@@ -238,23 +263,6 @@ impl<T> Drop for ProtectionSet<T> {
                 ManuallyDrop::drop(&mut root.object);
             }
         }
-    }
-}
-
-impl<T> Index<ProtectionIndex> for ProtectionSet<T> {
-    type Output = T;
-
-    fn index(&self, index: ProtectionIndex) -> &Self::Output {
-        // Panics in debug builds when the generation is stale, i.e., the slot was freed
-        // (and possibly reused) after the index was issued.
-        let idx = self.generation_counter.get_index(index.0);
-        debug_assert!(
-            !self.freelist_iter().any(|free_idx| free_idx == idx),
-            "Attempting to index free spot {}",
-            index,
-        );
-        // SAFETY: The generational index ensures this slot was not freed after the index was issued.
-        unsafe { &self.roots[idx].object }
     }
 }
 
@@ -363,7 +371,8 @@ mod tests {
 
             // Unprotect a number of roots.
             for index in 0..2500 {
-                assert!(protection_set[indices[index]] <= 1000);
+                // SAFETY: this index has not been unprotected yet.
+                assert!(unsafe { *protection_set.get(indices[index]) } <= 1000);
                 // SAFETY: each recorded index is protected exactly once and is
                 // unprotected only here, so there is no double-unprotect.
                 unsafe {
@@ -409,9 +418,10 @@ mod tests {
         assert!(set.contains_root(idx1));
         assert!(set.contains_root(idx2));
 
-        // Test indexing
-        assert_eq!(set[idx1], "value1");
-        assert_eq!(set[idx2], "value2");
+        // Test lookup
+        // SAFETY: `idx1` and `idx2` are currently protected.
+        assert_eq!(unsafe { set.get(idx1) }, "value1");
+        assert_eq!(unsafe { set.get(idx2) }, "value2");
 
         // Test unprotect
         // SAFETY: `idx1` is currently protected and is unprotected only once.
@@ -423,7 +433,8 @@ mod tests {
 
         // Re-use freed slot
         let idx3 = set.protect(String::from("value3"));
-        assert_eq!(set[idx3], "value3");
+        // SAFETY: `idx3` is currently protected.
+        assert_eq!(unsafe { set.get(idx3) }, "value3");
     }
 }
 
@@ -472,10 +483,13 @@ mod verification {
         let idx = ps.protect(v1);
         assert_eq!(ps.len(), 1);
         assert!(ps.contains_root(idx));
-        assert_eq!(ps[idx], v1);
+        // SAFETY: `idx` is currently protected, and stays so until `unprotect` below.
+        assert_eq!(unsafe { *ps.get(idx) }, v1);
 
-        ps.replace(idx, v2);
-        assert_eq!(ps[idx], v2);
+        // SAFETY: as above.
+        unsafe { ps.replace(idx, v2) };
+        // SAFETY: as above.
+        assert_eq!(unsafe { *ps.get(idx) }, v2);
 
         // SAFETY: `idx` is currently protected and is unprotected only once.
         unsafe {
@@ -505,6 +519,7 @@ mod verification {
 
         assert!(ps.contains_root(i2));
         assert!(!ps.contains_root(i1));
-        assert_eq!(ps[i2], v2);
+        // SAFETY: `i2` is currently protected.
+        assert_eq!(unsafe { *ps.get(i2) }, v2);
     }
 }
