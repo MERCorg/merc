@@ -73,7 +73,13 @@ impl<E: Enumerator> InnermostRewriter<E> {
         });
 
         InnermostRewriter {
-            machine: RewriteMachine::new(automaton, term_stacks.into_inner(), InnermostScheduler, max_entries, enumerator),
+            machine: RewriteMachine::new(
+                automaton,
+                term_stacks.into_inner(),
+                InnermostScheduler,
+                max_entries,
+                enumerator,
+            ),
         }
     }
 
