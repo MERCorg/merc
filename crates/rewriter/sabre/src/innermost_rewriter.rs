@@ -1,6 +1,8 @@
 use std::cell::RefCell;
+use std::convert::Infallible;
 
 use merc_data::DataExpression;
+use merc_data::DataExpressionRef;
 
 use crate::Enumerator;
 use crate::NoQuantifierEnumerator;
@@ -13,17 +15,23 @@ use crate::matching::conditions::EMACondition;
 use crate::matching::conditions::extend_conditions;
 use crate::matching::nonlinear::EquivalenceClass;
 use crate::matching::nonlinear::derive_equivalence_classes;
-use crate::rewrite_machine::Innermost;
+use crate::rewrite_machine::Annotation;
+use crate::rewrite_machine::MachineView;
+use crate::rewrite_machine::Resumed;
 use crate::rewrite_machine::RewriteMachine;
+use crate::rewrite_machine::Scheduler;
+use crate::rewrite_machine::TermStackId;
 use crate::rewrite_machine::TermStacks;
+use crate::set_automaton::MatchResult;
 use crate::set_automaton::SetAutomaton;
+use crate::utilities::DataPosition;
 use crate::utilities::EmptySubstitution;
 use crate::utilities::RewriteSubstitution;
 use crate::utilities::TermStack;
 
 /// Innermost Adaptive Pattern Matching Automaton (APMA) rewrite engine.
 pub struct InnermostRewriter<E: Enumerator = NoQuantifierEnumerator> {
-    machine: RewriteMachine<E, Innermost>,
+    machine: RewriteMachine<E, InnermostScheduler>,
 }
 
 impl<E: Enumerator> RewriteEngine for InnermostRewriter<E> {
@@ -65,7 +73,7 @@ impl<E: Enumerator> InnermostRewriter<E> {
         });
 
         InnermostRewriter {
-            machine: RewriteMachine::new(automaton, term_stacks.into_inner(), Innermost, max_entries, enumerator),
+            machine: RewriteMachine::new(automaton, term_stacks.into_inner(), InnermostScheduler, max_entries, enumerator),
         }
     }
 
@@ -112,5 +120,53 @@ impl AnnouncementInnermost {
             equivalence_classes: derive_equivalence_classes(rule),
             rhs_stack: TermStack::from_rule(rule),
         }
+    }
+}
+
+/// The scheduler of the [crate::InnermostRewriter]: every argument is rewritten first, and the
+/// variables of a right-hand side are the arguments on the stack.
+pub(crate) struct InnermostScheduler;
+
+impl Scheduler for InnermostScheduler {
+    type Hook = Infallible;
+    type Continuation = Infallible;
+    type Scope = ();
+    type State = ();
+
+    #[inline(always)]
+    fn decompose(&self, _machine: &mut MachineView<'_, '_, '_, Self>, _term: &DataExpressionRef<'_>) -> bool {
+        false
+    }
+
+    #[inline(always)]
+    fn enter(&self, _machine: &mut MachineView<'_, '_, '_, Self>, _right_hand_side: TermStackId, _arity: usize) {}
+
+    #[inline(always)]
+    fn variable(&self, machine: &mut MachineView<'_, '_, '_, Self>, _scope: (), base: usize, position: &DataPosition) {
+        machine.stacks.push_argument(base, position);
+    }
+
+    #[inline(always)]
+    fn leave(&self, _machine: &mut MachineView<'_, '_, '_, Self>, _scope: ()) {}
+
+    fn hook(&self, _machine: &mut MachineView<'_, '_, '_, Self>, hook: &Infallible, _scope: ()) {
+        match *hook {}
+    }
+
+    fn resume<'s>(
+        &'s self,
+        _machine: &mut MachineView<'_, '_, '_, Self>,
+        continuation: Infallible,
+    ) -> Resumed<'s, Infallible> {
+        match continuation {}
+    }
+
+    fn matched(
+        &self,
+        _machine: &mut MachineView<'_, '_, '_, Self>,
+        continuation: Infallible,
+        _found: Option<MatchResult<'_, Annotation>>,
+    ) {
+        match continuation {}
     }
 }
