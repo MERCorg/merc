@@ -22,6 +22,13 @@ Assume the change has a bug and try to find it, in this order of importance:
 - **Concurrency** — reason through interleavings explicitly; ask whether a loom test covers the new interleaving, not just whether tests pass.
 - **Performance claims** — "should be faster" is not evidence. Require a criterion baseline comparison (`benchmark` skill) before endorsing any performance-motivated change; be prepared to report that the optimization does not measurably help.
 - **Tests** — do the added tests actually fail without the fix? A test that passes on both sides of the change verifies nothing.
+- **Design**, against the `write-code` skill — these are findings in this repository, not style preferences, but each one names the existing item or the concrete caller that makes it a problem:
+  - *Duplication*: a helper, collection, traversal or conversion that already exists in `merc_utilities`, `merc_collections`, `merc_aterm`, `merc_io`, `merc_tools` or the crate itself. Grep for it and cite it.
+  - *Traversals*: a recursive function over terms or syntax trees where a visitor, `fold` or `TermBuilder` exists (a deep term overflows the stack), or a traversal that visits a shared subterm once per path.
+  - *Terms*: protecting in a hot loop where a `..Ref` suffices, structural or string comparison where term equality is pointer equality, hand-written conversions instead of `merc_derive_terms`, chains of `is_*` checks instead of matching on `kind()`.
+  - *Indices*: raw `usize` where a `TagIndex` exists, casts between index types, an id whose validity is only a convention.
+  - *API*: items that are `pub` without a user outside the crate, positional `usize`/`bool` parameters that a named type would make unmistakable, names that describe the implementation instead of the concept, logic in a tool that belongs in a library crate.
+  - *Scope*: speculative abstractions, placeholders, unrelated edits and new dependencies.
 - **Comments and documentation** — judge what a comment adds over the code beside it:
   - It must describe the code as it now stands, not how it got there. Development history ("previously this used a HashMap", "changed to fix the borrow checker", "added in the refactor"), narration of the change, and TODO-style apologies do not belong in the source; that belongs in the commit message.
   - At item level, prefer a concise functional description: what the operation does, plus the preconditions it expects and the postconditions it guarantees (including panics and error cases). Do not restate the signature or paraphrase the body.
@@ -33,7 +40,7 @@ Assume the change has a bug and try to find it, in this order of importance:
 
 When the author (including the user) asserts "this is safe because X" or "callers never pass Y", check it: grep the callers, read the invariant, run the test. Run the relevant checks (`check` skill) rather than predicting they pass. A claim you did not verify is reported as unverified, not as fact.
 
-Where the `rust-analyzer` and `repowise` MCP servers are connected, prefer them over grep for the questions they answer precisely: `rust-analyzer` for go-to-definition, find-references, and type/diagnostic queries; `repowise` for callers, dependency/blast-radius, and change-risk across the whole codebase. Their output is still a claim to check against the actual code, not a substitute for reading it.
+Where a language server or code-index tool is connected, prefer it over grep for definitions, references and callers. Its output is still a claim to check against the actual code, not a substitute for reading it.
 
 ### Step 4: Demonstrate each defect with a failing test
 
@@ -44,6 +51,8 @@ Prefer a randomized test (`merc_utilities::random_test`, seed reproducible via `
 - **Logic bugs** — add a `#[test]` in the affected crate encoding the failure scenario, and show it failing: `cargo nextest run -p <crate> <test-name>` (or `cargo test`).
 - **Undefined behaviour in unsafe code** — write a test that exercises the suspect path and run it under miri with the CI flags: `MIRIFLAGS="-Zmiri-disable-isolation --cfg chacha20_force_soft" cargo +nightly miri test -p <crate> <test-name>`. A miri error report is proof; quote it.
 - **Data races / interleaving bugs** — write a loom test in the crate's loom-gated tests and run it with `RUSTFLAGS="--cfg loom" cargo test --release <test-name>`.
+
+Put the test where the repository would keep it: in the `#[cfg(test)]` module or the existing `tests/*.rs` file that covers the code, not in a new file per finding. Do not add binary fixtures, a compile-fail harness or a test that drives a tool as a subprocess to demonstrate a defect that a library-level test can show.
 
 The same test becomes the regression test committed alongside the fix — do not delete it after demonstrating the failure. If you cannot make the defect fail in a test, report the finding as *plausible but not demonstrated*, never as confirmed.
 
@@ -61,5 +70,5 @@ These are measured weaknesses of LLM review, not hypotheticals — guard against
 
 - **Hallucinated claims.** Don't assert how a library, API, or an unfamiliar part of the codebase behaves from memory. Read the actual source or grep the definition before citing behavior as fact; a fluent, confident claim that turns out to be fabricated is worse than no finding.
 - **Self-review bias.** Reviewing your own earlier output measurably under-catches: it's easy to re-derive the reasoning that justified the code instead of checking whether that reasoning was right. Treat "I remember why I wrote it this way" as a claim to verify, not evidence — read the diff as if someone else wrote it (Step 1), and prefer a separate context (an agent given the `.agents/agents/review-adversary.md` role) over self-certifying when one is available.
-- **Overcorrection.** Flagging code as violating a requirement or convention needs the actual requirement text or a test, not a paraphrase of "what it should do" — elaborate, checklist-style scrutiny measurably increases false positives. A finding still needs the demonstrated failure from Step 4.
+- **Overcorrection.** Flagging code as violating a requirement or convention needs the actual requirement text or a test, not a paraphrase of "what it should do" — elaborate, checklist-style scrutiny measurably increases false positives. A correctness finding still needs the demonstrated failure from Step 4; a design finding needs the citation that Step 2 asks for (the existing item it duplicates, the convention in `AGENTS.md` or the `write-code` skill that it breaks).
 - **Rationalization over verification.** A well-written explanation is not evidence. If a claim — yours or the author's — has no command or tool output behind it, say plainly that it is unverified rather than dressing it in confident prose.

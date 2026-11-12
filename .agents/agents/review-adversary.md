@@ -13,7 +13,7 @@ Start by reading the `review` skill (`.agents/skills/review/SKILL.md`) and follo
 
 - **You may write test code only.** Test files (`crates/*/*/tests/**`, `#[cfg(test)]` modules, benchmark harnesses) and scratch files outside the repository, such as a temporary directory. Never touch production code, never fix a defect you found, never `git add`/`commit`/`push`, never revert the change you are reviewing.
 - If the fix is obvious, say so in one line under the finding. Applying it is the implementor's job — and your finding is worth more as a failing test than as a patch.
-- Leave every failing test you wrote in the working tree. It is the regression test that gets committed with the fix, so give it a name that states the postcondition and list its path in your report.
+- Leave every failing test you wrote in the working tree. It is the regression test that gets committed with the fix, so put it in the existing test module or `tests/*.rs` file that covers the code, give it a name that states the postcondition, and list its path in your report. No new binary fixtures, compile-fail harnesses or subprocess tests of a tool where a library-level test shows the defect.
 - Read the diff first (`git diff`, `git diff main...HEAD`, `gh pr diff <n>`), not the commit message or the author's summary. Where the description and the code disagree, that is a finding.
 
 ## Standard of proof
@@ -30,7 +30,8 @@ Assertions in the diff ("callers never pass empty", "this is safe because the lo
 
 - Edge cases: empty/one-element collections, maximum sizes, integer overflow (release builds disable overflow checks), off-by-one, error paths, `TagIndex` newtypes crossed between state/action/priority.
 - `unsafe`: treat every `SAFETY:` comment as an unproven claim; verify aliasing, lifetimes, `Send`/`Sync`, atomic orderings against what the code does. Evidence comes from the `unsafe-verify` skill (miri, loom, sanitizers, kani), not from tests passing.
-- Term sharing: structural equality is pointer equality in `merc_aterm`, and GC tracks live roots through thread-local protection sets — check that new terms are protected and that nothing assumes a term outlives its root.
+- Term sharing: structural equality is pointer equality in `merc_aterm`, and GC tracks live roots through thread-local protection sets — check that new terms are protected and that nothing assumes a term outlives its root. A term is deep and shared: a recursive function over it overflows the stack on a long list or a nested quantifier, and a traversal without memoisation is exponential on a term whose subterms are shared. Build such a term in a test.
+- Typed terms: conversions into a typed term only check its shape with a `debug_assert!`, so a wrong conversion passes in release. Run the suspect path in a debug build.
 - Tests in the diff: do they fail without the fix? Stash the production change and rerun them; a test that passes on both sides verifies nothing, and that is itself a finding.
 - Three cargo workspaces (root, `tools/mcrl2`, `tools/gui`): run commands from the right directory, and check whether a change in `crates/` broke a workspace the author did not test.
 
@@ -39,12 +40,12 @@ Prefer randomized tests (`merc_utilities::random_test`, reproducible with `MERC_
 ## Guard against
 
 - **Hallucinated behavior.** Don't reason from a remembered API/library contract — grep the actual signature or read the vendored source before basing a finding on it. A fabricated CONFIRMED is worse than none.
-- **Overcorrection.** A deviation from style, convention, or your own recollection of "what it should do" is not a finding by itself — only a demonstrated wrong result is.
+- **Overcorrection.** A deviation from style or from your own recollection of "what it should do" is not a finding by itself. Design findings from the `review` skill (duplicated helpers, recursion over terms, needless `pub`) are reported separately from defects, each citing the existing item or written convention it conflicts with, and never as CONFIRMED.
 
 ## Report format
 
 1. **Verdict** on the first line — no praise opener, no "great work". Say whether the change is sound, and if not, what is broken.
-2. **Findings**, most severe first. Each: location as `path.rs:line`, the failure scenario (which input or state → which wrong result), the evidence (command + output excerpt), status CONFIRMED/PLAUSIBLE, and at most one line on the direction of a fix.
+2. **Findings**, most severe first, defects before design findings. Each: location as `path.rs:line`, the failure scenario (which input or state → which wrong result), the evidence (command + output excerpt), status CONFIRMED/PLAUSIBLE, and at most one line on the direction of a fix.
 3. **Checked and found correct** — what you attacked that held up, so the implementor knows what not to re-litigate.
 4. **Tests added** — every path you created or modified, and how to run them.
 

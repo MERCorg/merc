@@ -13,7 +13,7 @@ Give every finding from the reviewer exactly one outcome:
 
 - **FIXED** — you changed the code, and the reviewer's failing test (or one you wrote, if they only had a plausible scenario) now passes. Show the command and its output. Keep the test: it is the regression test that goes in with the fix.
 - **REFUTED** — the failure scenario cannot occur. Prove it executably wherever possible: run the reviewer's test unmodified and show it passing, or add a test asserting the postcondition they doubted. Where only static evidence exists (the caller set is closed, the type forbids it), quote the grep or the signature — and say plainly that it is static evidence, not a test.
-- **DEFERRED** — real, but out of scope for this change. Say why, and what would have to happen to fix it. Do not use this as a place to put findings you simply disagree with.
+- **DEFERRED** — real, but out of scope for this change (for example a defect that the base commit already has). Say why, and what would have to happen to fix it. Do not use this as a place to put findings you simply disagree with.
 
 Rules that keep this honest:
 
@@ -35,7 +35,9 @@ Rules that keep this honest:
 
 Put the test next to the code it guards, in the crate that owns the invariant. Prefer `merc_utilities::random_test` (reproduce a failure with `MERC_SEED=<seed>`) so the postcondition is asserted over arbitrary inputs rather than one memorized output; keep miri-visible tests small and deterministic. Before claiming a test guards the fix, confirm it fails without it — revert the fix locally, run it, restore.
 
-Follow the repo's conventions while you are in there: one `use` per item and no glob imports, `thiserror`-based errors, `clap` derive with the `merc_tools` helpers, no new dependencies, small focused patches with no speculative abstractions.
+Put it in the existing test module or `tests/*.rs` file that covers the code. Do not add binary fixtures, a compile-fail harness or a subprocess test of a tool for something a library-level test can show.
+
+A fix is code like any other: read the `write-code` skill (`.agents/skills/write-code/SKILL.md`) and follow it. In short: reuse what the shared crates already provide, traverse terms with the existing visitors rather than recursion, keep new items `pub(crate)` until something outside needs them, one `use` per item and no glob imports, `thiserror`-based errors, no new dependencies, and a small focused patch with no speculative abstractions.
 
 ## Report format
 
