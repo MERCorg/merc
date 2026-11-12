@@ -2,6 +2,7 @@
 
 mod binder;
 mod innermost_rewriter;
+mod jitty;
 mod metrics;
 mod naive_rewriter;
 mod quantifier;
@@ -17,6 +18,7 @@ pub mod utilities;
 
 pub use innermost_rewriter::AnnouncementInnermost;
 pub use innermost_rewriter::InnermostRewriter;
+pub use jitty::JittyRewriter;
 pub use metrics::RewriteMetrics;
 pub use naive_rewriter::NaiveRewriter;
 pub use quantifier::Enumerator;
