@@ -31,7 +31,7 @@ use crate::binding::SingleSubstitution;
 /// `vars`, rewritten to its residual form in place. `rest` is *not* searched
 /// but still has each eliminated variable's binding substituted in. This is
 /// useful for summands for example. Returns the variables that were not
-/// eliminated, in `vars` order.
+/// eliminated, in `vars` order, and the eliminated variables with their values.
 ///
 /// `condition` must already be in normal form, so that the `e` of a matched
 /// equation can be substituted without rewriting it again.
@@ -41,7 +41,7 @@ pub fn simplify_one_point<R: RewriteEngine>(
     vars: &[DataVariable],
     condition: &mut DataExpression,
     rest: &mut [DataExpression],
-) -> Vec<DataVariable> {
+) -> (Vec<DataVariable>, Vec<(DataVariable, DataExpression)>) {
     let mut arena = BindingArena::default();
     arena.chain.write(|guard| {
         let (remaining_vars, residual, bindings) =
@@ -64,7 +64,7 @@ pub fn simplify_one_point<R: RewriteEngine>(
             *term = rewriter.rewrite_with(term, &substitution);
         }
 
-        remaining_vars
+        (remaining_vars, eliminated.into_iter().zip(values).collect())
     })
 }
 
