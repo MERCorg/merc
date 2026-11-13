@@ -3,6 +3,7 @@ use std::fmt;
 
 use merc_explore::LPS;
 use merc_explore::Summand;
+use merc_utilities::MercError;
 use merc_utilities::ShardedCounter;
 
 use crate::control_flow::CfgSummand;
@@ -20,9 +21,10 @@ use crate::transformations::TransformedLps;
 /// cannot hold in the current state, mirroring how a PBES in SRF form only
 /// explores the summands belonging to its current equation.
 ///
-/// Pruning never changes the explored transition system: a dropped summand has a
-/// guard that is false in the current state and would have produced no
-/// transitions anyway.
+/// Pruning never changes the explored transition system: a summand is only
+/// dropped in a state in which a conjunct `d == c` of its guard is false, since
+/// the analysis showed that the value of `d` is in another location than `c`,
+/// so it would have produced no transitions anyway.
 pub struct CfgLinearProcessSpecification {
     /// The underlying explicit LPS that performs the actual enumeration.
     inner: ExplicitLinearProcessSpecification,
@@ -52,8 +54,12 @@ struct SummandCfgCounters {
 
 impl CfgLinearProcessSpecification {
     /// Builds the explicit LPS and runs the control flow graph analysis on top.
-    pub fn new(lps: TransformedLps) -> Self {
-        let inner = ExplicitLinearProcessSpecification::new(lps);
+    ///
+    /// # Errors
+    ///
+    /// Fails when the explicit LPS cannot be built, see [ExplicitLinearProcessSpecification::new].
+    pub fn new(lps: TransformedLps) -> Result<Self, MercError> {
+        let inner = ExplicitLinearProcessSpecification::new(lps)?;
 
         // Both closures below need the context, while `summands` borrows the terms of another one.
         let terms = inner.create_context();
@@ -62,6 +68,7 @@ impl CfgLinearProcessSpecification {
             .iter()
             .enumerate()
             .map(|(index, summand)| CfgSummand {
+                summation_variables: terms.summation_variables(index),
                 condition: terms.condition(index),
                 writes: summand
                     .write_indices()
@@ -72,9 +79,15 @@ impl CfgLinearProcessSpecification {
             })
             .collect();
 
+        let initial_state: Vec<_> = inner
+            .initial_state()
+            .into_iter()
+            .map(|value| inner.value(value))
+            .collect();
         let context = RefCell::new(inner.create_context());
         let graph = ControlFlowGraph::new(
             &inner.parameters(),
+            &initial_state,
             &summands,
             |term| context.borrow_mut().rewrite_closed(term),
             |value| inner.intern_normal_form(&mut context.borrow_mut(), value),
@@ -84,11 +97,11 @@ impl CfgLinearProcessSpecification {
             .collect();
         drop(summands);
 
-        Self {
+        Ok(Self {
             inner,
             graph,
             summand_metrics,
-        }
+        })
     }
 
     /// Returns the process parameter indices identified as control flow
@@ -231,33 +244,28 @@ impl LPS for CfgLinearProcessSpecification {
 
     fn prepare<'a>(
         &'a self,
-        context: &mut ExplicitContext,
+        _context: &mut ExplicitContext,
         state: &'a [Self::Value],
     ) -> impl Iterator<Item = usize> + 'a {
-        // Stage the per-state substitution in the enumeration backend; the
-        // unfiltered summand list returned by the explicit LPS is discarded in
-        // favour of the control-flow-filtered one below.
-        let _staged = self.inner.prepare(context, state);
-
         // The returned iterator borrows `state` directly and reads the control
         // flow values on demand, avoiding a per-state allocation.
         let control_flow_parameters = self.graph.control_flow_parameters();
-        #[cfg(feature = "metrics")]
-        let summand_metrics = &self.summand_metrics;
-
         (0..self.inner.summands().len()).filter(move |&index| {
-            // A summand can fire only if the current state's value at every
-            // control flow parameter it constrains matches that edge's source
-            // location; an edge with no source location (`None`) departs from
-            // every location and never disqualifies the summand.
+            // A summand is pruned when the current state's value at a
+            // control flow parameter is in another location than the one that
+            // its guard requires. A value that is not a location term is never
+            // excluded.
             let selected = self.graph.edges(index).iter().all(|edge| {
-                edge.source
-                    .is_none_or(|source| state[control_flow_parameters[edge.position]] == source)
+                edge.source.is_none_or(|source| {
+                    self.graph
+                        .location(edge.position, &state[control_flow_parameters[edge.position]])
+                        .is_none_or(|location| location == source)
+                })
             });
 
             #[cfg(feature = "metrics")]
             {
-                let counters = &summand_metrics[index];
+                let counters = &self.summand_metrics[index];
                 if selected {
                     counters.selected.increment();
                 } else {
