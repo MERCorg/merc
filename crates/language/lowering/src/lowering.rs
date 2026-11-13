@@ -43,23 +43,16 @@ use merc_typecheck::internal::context;
 use merc_typecheck::internal::expression_typing;
 use merc_typecheck::internal::instantiate_used_templates;
 use merc_typecheck::internal::is_system_generated_name;
-use merc_typecheck::internal::unreachable_not_a_value_sort;
 
-
-/// Converts an inferred, interned sort into the aterm `SortExpression` the
-/// binary format uses: `Primitive`/`Generic`/`Function` recurse structurally
-/// onto `BasicSort`/`SortCons`/`SortArrow`, and `Def` resolves to its declared
-/// name via [TypeCheckContext::sort_display_name] — a user sort or a
-/// system-internal one alike, both declared in `spec`, or a synthesized
-/// placeholder as a last resort: a nominal sort's identity *is* its declared
-/// name for the binary schema.
+/// Converts an inferred, interned sort into the [`merc_data::DataSortExpression`] the
+/// binary format uses.
 pub(crate) fn lower_sort(
     ctx: &TypeCheckContext,
     spec: &UntypedDataSpecification,
     id: ResolvedSortId,
 ) -> DataSortExpression {
     match ctx.sorts.get(id) {
-        ResolvedSort::Unit => unreachable_not_a_value_sort("Unit"),
+        ResolvedSort::Unit => unreachable!("Unit never denotes a data-expression's own resolved sort"),
         ResolvedSort::Primitive(sort) => BasicSort::new(sort.name()).into(),
         ResolvedSort::Container { op, subsort } => {
             SortCons::new(container_kind(*op), lower_sort(ctx, spec, *subsort)).into()
@@ -69,16 +62,13 @@ pub(crate) fn lower_sort(
             SortArrow::new(&domain, &lower_sort(ctx, spec, *range)).into()
         }
         ResolvedSort::Def(def) => BasicSort::new(ctx.sort_display_name(spec, *def).as_ref()).into(),
-        ResolvedSort::TypeVar(_) => unreachable_not_a_value_sort("Var"),
+        ResolvedSort::TypeVar(_) => unreachable!("Var never denotes a data-expression's own resolved sort"),
     }
 }
 
-
-/// The merc_data container kind for a [ComplexSort]; the two enums are kept
-/// separate because `merc_data` sits below `merc_syntax` in the dependency
-/// layering and cannot name it directly.
-fn container_kind(op: ComplexSort) -> ContainerSortKind {
-    match op {
+/// The merc_data container kind for a [ComplexSort].
+fn container_kind(operator: ComplexSort) -> ContainerSortKind {
+    match operator {
         ComplexSort::List => ContainerSortKind::List,
         ComplexSort::Set => ContainerSortKind::Set,
         ComplexSort::FSet => ContainerSortKind::FSet,
@@ -91,27 +81,28 @@ fn container_kind(op: ComplexSort) -> ContainerSortKind {
 /// [widen_one_step] as many times as needed.
 fn numeric_coerce(mut term: DataExpression, from: Sort, to: Sort, encoding: NumberEncoding) -> DataExpression {
     let mut current = from;
+
     while current != to {
         (term, current) = widen_one_step(term, current, encoding);
     }
+
     term
 }
 
-/// Widens `term` one step up the number lattice (`Pos <= Nat <= Int <= Real`),
-/// returning the wrapped term and its new sort. The coercion is the explicit
-/// constructor chain, not a named `Pos2Nat`/… conversion function — those are
-/// rewrite rules that reduce to exactly these constructor applications
-/// (`nat.mcrl2`/`int.mcrl2`/`real.mcrl2`). Steps compose for a non-adjacent
-/// pair (e.g. `Pos -> Real` becomes `@cReal(@cInt(@cNat(x)), @c1)`, not a
-/// single `Pos2Real` call).
+/// Widens one step up the number lattice (`Pos <= Nat <= Int <= Real`),
+/// returning the wrapped term and its new sort.
+///
+/// # Details
+///
+/// The coercion is the explicit constructor chain, not a named `Pos2Nat` etc
+/// conversion function, so we get @cReal(@cInt(@cNat(x)), @c1) for a `Pos ->
+/// Real` coercion, for example.
 fn widen_one_step(term: DataExpression, from: Sort, encoding: NumberEncoding) -> (DataExpression, Sort) {
     match from {
         Sort::Pos => {
             // The binary encoding embeds a `Pos` into `Nat` with the `@cNat`
-            // constructor. The machine-word encoding has no such constructor —
-            // a `Nat` digit chain is headed by `@most_significant_digitNat` —
-            // so it uses the `Pos2Nat` mapping, whose equations in
-            // `nat64.mcrl2` rewrite it onto the corresponding digit chain.
+            // constructor. The machine-word encoding has no such constructor,
+            // it uses the `Pos2Nat` mapping instead.
             let convert = match encoding {
                 NumberEncoding::Binary => system_symbols::c_nat(),
                 NumberEncoding::MachineWord => system_symbols::pos2nat(),
@@ -130,12 +121,12 @@ fn widen_one_step(term: DataExpression, from: Sort, encoding: NumberEncoding) ->
     }
 }
 
-
-/// Widens `term`, an `FSet(element)`/`FBag(element)`, to `Set(element)`/
-/// `Bag(element)` via the constructor `@set(@false_, term)` /
-/// `@bag(@zero_, term)` — not a call to `@setfset`/`@bagfbag`, which are
-/// rewrite-system-only operators (`set.mcrl2` itself notes `@setfset`
-/// "should not be part of the rewrite system").
+/// Widens an the FSet/FBag to Set and Bag respectively.
+///
+/// # Details
+///
+/// The widening is done by applying the appropriate constructor (`@set` for
+/// `FSet` and `@bag` for `FBag`) with the default empty element.
 fn container_coerce(term: DataExpression, op: ComplexSort, element: DataSortExpression) -> DataExpression {
     match op {
         ComplexSort::FSet => DataApplication::with_args(
@@ -155,25 +146,31 @@ fn container_coerce(term: DataExpression, op: ComplexSort, element: DataSortExpr
 }
 
 /// The binary digits of a non-negative decimal literal, least-significant
-/// first, computed by repeated long division by two on the decimal digits
-/// (so arbitrarily large literals need no fixed-width integer type). The
-/// last element is always `true`: a positive number's leading bit is set by
-/// definition, and `"0"` is never passed in (see [pos_literal]).
+/// first. The last element is `true`, and `"0"` has no bits.
 fn decimal_bits_lsb_first(decimal: &str) -> Vec<bool> {
-    let mut digits: Vec<u8> = decimal.bytes().map(|b| b - b'0').collect();
+    debug_assert!(!decimal.is_empty(), "decimal literal must not be empty");
+
+    let mut digits: Vec<u8> = decimal
+        .chars()
+        .map(|c| c.to_digit(10).expect("a decimal literal only contains digits") as u8)
+        .collect();
     let mut bits = Vec::new();
+
     while !(digits.len() == 1 && digits[0] == 0) {
         let mut remainder = 0u8;
+
         for digit in &mut digits {
             let value = remainder * 10 + *digit;
             *digit = value / 2;
             remainder = value % 2;
         }
+
         bits.push(remainder == 1);
         while digits.len() > 1 && digits[0] == 0 {
             digits.remove(0);
         }
     }
+
     bits
 }
 
