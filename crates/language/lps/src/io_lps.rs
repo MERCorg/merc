@@ -54,7 +54,7 @@ pub fn write_lps<W: Write>(lps: &LinearProcessSpecification, writer: W) -> Resul
 }
 
 /// The LPS binary encoding that the mCRL2 toolset also uses.
-/// 
+///
 /// Terms are written as is, and containers that are not terms as a count
 /// followed by their elements. The linear process is its parameters, its action
 /// summands and its deadlock summands. An action summand is its distribution,
@@ -141,19 +141,16 @@ impl ATermStreamable for LinearProcessSpecification {
                 .collect::<Result<Vec<_>, _>>()?;
             let time = read_time(next_term(reader, "time")?)?;
 
-            let mut next_state: Vec<DataExpression> =
-                process_parameters.iter().cloned().map(DataExpression::from).collect();
-            let mut assigned = vec![false; process_parameters.len()];
+            let mut next_state: Vec<Option<DataExpression>> = vec![None; process_parameters.len()];
             for assignment in list_elements(&next_term(reader, "assignments")?, "assignments")? {
                 let assignment = DataWhrDecl::try_from_term(assignment)?;
                 let (variable, value) = (assignment.variable().protect(), assignment.expression().protect());
                 let index = *parameter_index
                     .get(&variable)
                     .ok_or_else(|| format!("Assignment to {variable}, which is not a process parameter"))?;
-                if std::mem::replace(&mut assigned[index], true) {
+                if next_state[index].replace(value).is_some() {
                     return Err(format!("Process parameter {variable} is assigned twice in a summand").into());
                 }
-                next_state[index] = value;
             }
 
             action_summands.push(ActionSummand {
@@ -198,20 +195,19 @@ impl ATermStreamable for LinearProcessSpecification {
     }
 }
 
-/// The assignments `x := e` of a summand, including the ones that keep the parameter unchanged.
-fn assignments_term(lps: &LinearProcessSpecification, next_state: &[DataExpression]) -> ATerm {
+/// The assignments `x := e` of a summand, for the parameters that it assigns.
+fn assignments_term(lps: &LinearProcessSpecification, next_state: &[Option<DataExpression>]) -> ATerm {
     debug_assert_eq!(
         next_state.len(),
         lps.process_parameters.len(),
-        "The next state must have a value for every process parameter in the LPS"
+        "The next state must have an entry for every process parameter in the LPS"
     );
 
     ATermList::from_double_iter(
         lps.process_parameters
             .iter()
-            .cloned()
-            .zip(next_state.iter().cloned())
-            .map(|(parameter, value)| DataWhrDecl::new(parameter, value)),
+            .zip(next_state)
+            .filter_map(|(parameter, value)| Some(DataWhrDecl::new(parameter.clone(), value.clone()?))),
     )
     .into()
 }
