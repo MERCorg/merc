@@ -148,8 +148,8 @@ struct ExploreArgs {
     #[arg(long, value_enum, default_value_t = CachingStrategy::None)]
     caching: CachingStrategy,
 
-    /// Number of worker threads used for exploration.
-    #[arg(long, default_value_t = 1)]
+    /// Number of worker threads, taken from the global `--threads`.
+    #[arg(skip)]
     threads: usize,
 
     /// Pin each worker thread round-robin to the available CPU cores.
@@ -392,7 +392,13 @@ struct SolveArgs {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
+    let threads = cli.oxidd.threads();
+    match &mut cli.commands {
+        Some(Commands::ExploreExplicit(args)) => args.explore.threads = threads,
+        Some(Commands::Solve(args)) => args.explore.threads = threads,
+        _ => {}
+    }
 
     env_logger::Builder::new()
         .filter_level(cli.verbosity.log_level_filter())
@@ -440,11 +446,23 @@ fn handle_command(cli: &Cli, timing: &Timing) -> Result<(), MercError> {
 impl InputArgs {
     /// Loads the PBES in the explicitly chosen format, or the binary PBES format
     /// when no format is given, without any preprocessing.
+    ///
+    /// Counter-example equations are always removed, also with `--no-preprocess`:
+    /// none of the tools can produce a counter-example, and parameter
+    /// unification does not apply to these equations, so leaving them in breaks
+    /// exploration.
     fn load(&self, timing: &Timing) -> Result<Pbes, MercError> {
-        timing.measure("load PBES", || match self.format.unwrap_or(PbesFormat::Pbes) {
+        let mut pbes = timing.measure("load PBES", || match self.format.unwrap_or(PbesFormat::Pbes) {
             PbesFormat::Pbes => Pbes::from_file(&self.filename),
             PbesFormat::Text => Pbes::from_text_file(&self.filename),
-        })
+        })?;
+
+        if pbes.has_counter_example_information() {
+            warn!("The PBES contains counter-example information, which is not supported; removing it");
+            timing.measure("remove counter-example information", || pbes.remove_counterexample_info())?;
+        }
+
+        Ok(pbes)
     }
 
     /// Reads the PBES, then, unless `preprocess` is false, puts it through the
