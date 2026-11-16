@@ -187,37 +187,42 @@ where
         builder_ref.add_transition_shared(from, label, to)
     };
 
-    let initial = timing.measure("explore", || -> Result<_, MercError> {
+    let (initial, max_state) = timing.measure("explore", || -> Result<_, MercError> {
         pool.install(|| {
             // Every worker deduplicates the transitions of the states that it explores.
             let (initial, locals) = explore_parallel(
                 &lps,
-                || (PerStateDedup::new(), 0usize),
-                |(_, num_of_states), _state, _info| {
+                || (PerStateDedup::new(), 0usize, 0usize),
+                |(_, num_of_states, max_state), state, _info| {
                     states.increment();
                     *num_of_states += 1;
+                    *max_state = (*max_state).max(state.value());
                     if *num_of_states % 1024 == 0 && progress.is_due() {
                         progress.print((states.get() as usize, transitions.get() as usize));
                     }
                     Ok(())
                 },
-                |(dedup, _), from, label, to| dedup.add(from, label, to, flush_one),
+                |(dedup, _, _), from, label, to| dedup.add(from, label, to, flush_one),
             )?;
 
-            for (mut dedup, _) in locals {
+            // Every discovered state is explored, so this bounds the source and target of every transition.
+            let mut max_state = initial.value();
+            for (mut dedup, _, local_max) in locals {
                 dedup.flush(flush_one)?;
+                max_state = max_state.max(local_max);
             }
-            Ok(initial)
+            Ok((initial, max_state))
         })
     })?;
 
-    let num_of_states = states.get() as usize;
     info!(
-        "Composition complete: {num_of_states} states, {} transitions",
+        "Composition complete: {} states, {} transitions",
+        states.get(),
         transitions.get()
     );
 
-    builder.require_num_of_states(num_of_states);
+    // The state indices are sparse, so the number of states is determined by the largest index.
+    builder.require_num_of_states(max_state + 1);
     builder.finish(initial)
 }
 
