@@ -4,6 +4,7 @@
 //! numbers and in `exp` on machine words.
 
 use merc_data::DataExpression;
+use merc_lowering::lower_data_specification;
 use merc_sabre::InnermostRewriter;
 use merc_sabre::JittyRewriter;
 use merc_sabre::RewriteEngine;
@@ -17,9 +18,8 @@ use merc_typecheck::NumberEncoding;
 /// `b: Bool`, and the term `b`, lowered under `encoding`.
 fn lower(spec: &str, goal: &str, encoding: NumberEncoding) -> (RewriteSpecification, DataExpression) {
     let untyped = UntypedDataSpecification::parse(&format!("{spec}\nmap b: Bool;\neqn b = {goal};")).unwrap();
-    let lowered = DataSpecification::from_untyped_with(untyped, encoding, &mut SourceMap::new())
-        .unwrap()
-        .lower_data_specification();
+    let data_spec = DataSpecification::from_untyped_with(untyped, encoding, &mut SourceMap::new()).unwrap();
+    let lowered = lower_data_specification(&data_spec);
     let b = lowered
         .equations()
         .iter()

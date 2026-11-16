@@ -28,6 +28,8 @@ use crate::utilities::DataPosition;
 /// if(false, x, y) = y
 /// ```
 ///
+/// [Innermost]: crate::innermost_rewriter::InnermostScheduler
+///
 /// The [Innermost] scheduler changes nothing about what the machine does. The right-hand side of
 /// `f` is evaluated from the inside out, as `n == 0`, `0`, `f(n - 1)` and `if`. Rewriting `f(0)`
 /// therefore applies the rule of `f` again for `f(0 - 1)` before it reaches `if`, and so on

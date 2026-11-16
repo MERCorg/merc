@@ -63,7 +63,7 @@ impl InnermostRewriter<NoQuantifierEnumerator> {
 }
 
 impl<E: Enumerator> InnermostRewriter<E> {
-    /// The innermost rewriter is the rewriting machine with the [Innermost] scheduler: every
+    /// The innermost rewriter is the rewriting machine with the [InnermostScheduler]: every
     /// symbol is eager.
     fn build(spec: &RewriteSpecification, max_entries: Option<usize>, enumerator: E) -> Self {
         // The automaton annotates the rules through a shared reference.

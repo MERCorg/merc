@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 use std::fmt;
+use std::ops::ControlFlow;
 
 use ahash::AHashMap;
 use bitvec::vec::BitVec;
@@ -8,6 +9,8 @@ use merc_data::DataExpressionKind;
 use merc_data::DataExpressionRef;
 use merc_data::DataFunctionSymbolRef;
 use merc_data::DataVariableRef;
+use merc_data::visit_data_expr;
+use merc_utilities::Step;
 
 use crate::Rule;
 use crate::set_automaton::free_variables;
@@ -189,10 +192,8 @@ pub(crate) fn needed_arguments(rule: &Rule, arity: usize) -> ArgumentSet {
             continue;
         };
 
-        let mut lhs_count = Occurrences::default();
-        lhs_count.count(&lhs, &variable, false);
-        let mut rhs_count = Occurrences::default();
-        rhs_count.count(&rule.rhs.copy(), &variable, false);
+        let lhs_count = Occurrences::of(&lhs, &variable);
+        let rhs_count = Occurrences::of(&rule.rhs.copy(), &variable);
 
         if lhs_count.total > 1
             || condition_variables.iter().any(|condition| condition.copy() == variable)
@@ -209,35 +210,42 @@ pub(crate) fn needed_arguments(rule: &Rule, arity: usize) -> ArgumentSet {
 /// The free occurrences of a variable in a term.
 #[derive(Default)]
 struct Occurrences {
+    /// Counted up to two, since [needed_arguments] only asks whether there is more than one.
     total: usize,
     /// Whether one of them is inside a binder.
     under_binder: bool,
 }
 
 impl Occurrences {
-    fn count(&mut self, term: &DataExpressionRef<'_>, variable: &DataVariableRef<'_>, in_binder: bool) {
-        match term.kind() {
-            DataExpressionKind::Variable(occurrence) => {
-                if occurrence == *variable {
-                    self.total += 1;
-                    self.under_binder |= in_binder;
-                }
-            }
-            DataExpressionKind::Application(_) => {
-                for argument in term.data_arguments() {
-                    self.count(&argument, variable, in_binder);
+    fn of(term: &DataExpressionRef<'_>, variable: &DataVariableRef<'_>) -> Occurrences {
+        let mut occurrences = Occurrences::default();
+
+        // The context is whether the node is inside a binder.
+        let _: Option<()> = visit_data_expr(term, false, |expr, in_binder| match expr.kind() {
+            DataExpressionKind::Variable(occurrence) if occurrence == *variable => {
+                occurrences.total += 1;
+                occurrences.under_binder |= in_binder;
+                if occurrences.total > 1 {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(Step::Prune)
                 }
             }
             DataExpressionKind::Abstraction(abstraction) => {
                 // A binder of the same variable shadows it.
-                if !abstraction.variables().iter().any(|bound| bound.copy() == *variable) {
-                    self.count(&abstraction.body(), variable, true);
+                if abstraction.variables().iter().any(|bound| bound.copy() == *variable) {
+                    ControlFlow::Continue(Step::Prune)
+                } else {
+                    ControlFlow::Continue(Step::Into(true))
                 }
             }
-            DataExpressionKind::FunctionSymbol(_)
-            | DataExpressionKind::MachineNumber(_)
-            | DataExpressionKind::WhereClause(_) => {}
-        }
+            // Conservatively treat every occurrence below a where clause as bound, even in a body
+            // whose declarations shadow the variable.
+            DataExpressionKind::WhereClause(_) => ControlFlow::Continue(Step::Into(true)),
+            _ => ControlFlow::Continue(Step::Into(in_binder)),
+        });
+
+        occurrences
     }
 }
 
