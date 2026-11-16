@@ -1,0 +1,30 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="{{ name }}" Manufacturer="{{ maintainer }}" Version="{{ version }}" UpgradeCode="{{ upgrade_code }}" Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="{{ name }}" />
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentGroupRef Id="Files" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="Files" Directory="INSTALLFOLDER">
+      {% for file in files %}
+      <Component>
+        <File Source="{{ file }}" KeyPath="yes" />
+      </Component>
+      {% endfor %}
+
+      <!-- Adds the installation directory to the system PATH. -->
+      <Component Id="Path">
+        <RegistryValue Root="HKLM" Key="Software\{{ name }}" Name="InstallFolder" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+        <Environment Id="PATH" Name="PATH" Value="[INSTALLFOLDER]" Permanent="no" Part="last" Action="set" System="yes" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

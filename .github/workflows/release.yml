@@ -7,7 +7,7 @@ on:
   push:
     tags:
       - 'v[0-9]+.[0-9]+**'
-      
+
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
@@ -19,8 +19,14 @@ jobs:
   test:
     strategy:
       fail-fast: false
-      matrix:      
-        os: [ubuntu-latest, macos-latest, windows-latest]
+      matrix:
+        include:
+          - os: ubuntu-latest
+            installers: --installer deb --installer rpm
+          - os: macos-latest
+            installers: --installer dmg
+          - os: windows-latest
+            installers: --installer msi
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -37,6 +43,14 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libfontconfig1-dev libfreetype6-dev
 
+    # WiX v7 and later require accepting the OSMF EULA, so stay on v6 for now.
+    - name: Install WiX toolset
+      if: matrix.os == 'windows-latest'
+      shell: bash
+      run: |
+        dotnet tool install --global wix --version 6.0.2
+        echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
     - name: Install stable rust
       uses: dtolnay/rust-toolchain@stable
 
@@ -49,18 +63,154 @@ jobs:
         submodules: true
 
     - name: Run package task
-      run: cargo xtask package
-      env:        
+      run: cargo xtask package ${{ matrix.installers }}
+      env:
         RUSTC_WRAPPER: sccache
 
-    - name: Upload package artifact
+    - name: Upload portable artifact
       uses: actions/upload-artifact@v7
       with:
-        name: package-${{ matrix.os }}
+        name: portable-${{ matrix.os }}
         path: package
         if-no-files-found: warn
 
+    - name: Upload installer artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: installer-${{ matrix.os }}
+        path: |
+          installers
+          !installers/*.wxs
+        if-no-files-found: error
+
     - name: Run tool tests
       run: cargo xtask test-tools package/
-      env:        
+      env:
         RUSTC_WRAPPER: sccache
+
+  # The install-* jobs install the packages on a clean system and check that every tool starts.
+  install-deb:
+    needs: test
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+
+    steps:
+    - name: Download installer artifact
+      uses: actions/download-artifact@v8
+      with:
+        name: installer-ubuntu-latest
+
+    - name: Install package
+      run: |
+        apt-get update
+        apt-get install -y ./merc_*.deb
+
+    - name: Check installed tools
+      run: |
+        for tool in merc-lts merc-rewrite merc-vpg merc-sym merc-pbes merc-lps merc-ltsgraph; do
+          echo "::group::$tool"
+          "$tool" --version
+          echo "::endgroup::"
+        done
+        test -f /opt/merc/bin/kahypar.ini
+
+    - name: Remove package
+      run: |
+        apt-get remove -y merc
+        test ! -e /usr/bin/merc-lts
+
+  install-rpm:
+    needs: test
+    runs-on: ubuntu-latest
+    container: fedora:latest
+
+    steps:
+    - name: Download installer artifact
+      uses: actions/download-artifact@v8
+      with:
+        name: installer-ubuntu-latest
+
+    - name: Install package
+      run: dnf install -y ./merc-*.rpm
+
+    - name: Check installed tools
+      run: |
+        for tool in merc-lts merc-rewrite merc-vpg merc-sym merc-pbes merc-lps merc-ltsgraph; do
+          echo "::group::$tool"
+          "$tool" --version
+          echo "::endgroup::"
+        done
+        test -f /opt/merc/bin/kahypar.ini
+
+    - name: Remove package
+      run: |
+        dnf remove -y merc
+        test ! -e /usr/bin/merc-lts
+
+  install-dmg:
+    needs: test
+    runs-on: macos-latest
+
+    steps:
+    - name: Download installer artifact
+      uses: actions/download-artifact@v8
+      with:
+        name: installer-macos-latest
+
+    - name: Mount disk image and check tools
+      run: |
+        hdiutil attach -nobrowse -readonly -mountpoint /Volumes/merc merc-*.dmg
+        for tool in merc-lts merc-rewrite merc-vpg merc-sym merc-pbes merc-lps merc-ltsgraph; do
+          echo "::group::$tool"
+          "/Volumes/merc/$tool" --version
+          echo "::endgroup::"
+        done
+        test -f /Volumes/merc/kahypar.ini
+        hdiutil detach /Volumes/merc
+
+  install-msi:
+    needs: test
+    runs-on: windows-latest
+
+    steps:
+    - name: Download installer artifact
+      uses: actions/download-artifact@v8
+      with:
+        name: installer-windows-latest
+
+    - name: Install package
+      shell: pwsh
+      run: |
+        $msi = (Get-ChildItem merc-*.msi).FullName
+        $process = Start-Process msiexec.exe -Wait -PassThru -ArgumentList '/i', "`"$msi`"", '/qn', '/l*v', 'install.log'
+        if ($process.ExitCode -ne 0) {
+          Get-Content install.log -Tail 50
+          exit $process.ExitCode
+        }
+
+    - name: Check installed tools
+      shell: pwsh
+      run: |
+        $installDir = (Get-ItemProperty 'HKLM:\Software\merc').InstallFolder.TrimEnd('\')
+        Write-Output "Installed in $installDir"
+
+        # The installer must add the installation directory to the system PATH.
+        $path = [Environment]::GetEnvironmentVariable('PATH', 'Machine').Split(';') | ForEach-Object { $_.TrimEnd('\') }
+        if ($path -notcontains $installDir) { throw "$installDir was not added to the system PATH" }
+
+        foreach ($tool in 'merc-lts', 'merc-rewrite', 'merc-vpg', 'merc-sym', 'merc-pbes', 'merc-lps', 'merc-ltsgraph') {
+          Write-Output "::group::$tool"
+          & (Join-Path $installDir "$tool.exe") --version
+          if ($LASTEXITCODE -ne 0) { throw "$tool --version failed" }
+          Write-Output "::endgroup::"
+        }
+
+        if (-not (Test-Path (Join-Path $installDir 'kahypar.ini'))) { throw 'kahypar.ini is missing' }
+
+    - name: Uninstall package
+      shell: pwsh
+      run: |
+        $msi = (Get-ChildItem merc-*.msi).FullName
+        $process = Start-Process msiexec.exe -Wait -PassThru -ArgumentList '/x', "`"$msi`"", '/qn'
+        if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+        if (Test-Path 'HKLM:\Software\merc') { throw 'Registry key was not removed' }
