@@ -65,6 +65,23 @@ pub struct PermutedSummand<P: LPS> {
     identity: bool,
 }
 
+// The auto trait gives `Arc<P>: Sync` only for `P: Send + Sync`, since a thread holding `&Arc<P>`
+// could clone it and drop the last reference, and thereby `P`, on that thread.
+//
+// SAFETY: the `Arc`s of the inner LPS are only cloned in `PermutedLps::new`, into the summands that
+// the `PermutedLps` owns, and are never handed out: sharing a `PermutedLps` or one of its summands
+// only gives other threads a `&P`, which `P: Sync` allows. So the inner LPS is only dropped where the
+// `PermutedLps` is, which (by the auto trait, through `Arc<P>`) can only move to another thread when
+// `P` is `Send`. The other fields are plain data. This makes `PermutedLps` shareable for an inner LPS
+// that is `Sync` but thread-affine, such as one backed by mCRL2.
+//
+// This relies on the `Arc` never escaping: `PermutedSummand` must not implement `Clone`, and no
+// method may return the `Arc` itself (only `&P`, as `inner` does).
+unsafe impl<P: LPS + Sync> Sync for PermutedLps<P> {}
+
+// SAFETY: see `PermutedLps`.
+unsafe impl<P: LPS + Sync> Sync for PermutedSummand<P> {}
+
 /// Per-thread scratch buffers for driving a [`PermutedLps`].
 pub struct PermutedContext<P: LPS> {
     /// The context of the wrapped LPS.
