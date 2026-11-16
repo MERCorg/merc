@@ -3,12 +3,18 @@ name = "xtask"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+homepage.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+ar.workspace = true
 clap.workspace = true
 duct.workspace = true
+flate2.workspace = true
 glob.workspace = true
+rpm.workspace = true
+tar.workspace = true
+upon.workspace = true
 which.workspace = true
 
 [lints]

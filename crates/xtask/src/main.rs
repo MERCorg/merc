@@ -50,6 +50,10 @@ enum Commands {
 
         #[arg(long)]
         no_mcrl2: bool,
+
+        /// Installers to create from the package, can be given multiple times.
+        #[arg(long, value_enum)]
+        installer: Vec<package::Installer>,
     },
     /// Runs `cargo publish --dry-run` for every library crate, in dependency order.
     Publish,
@@ -65,7 +69,11 @@ fn main() -> Result<ExitCode, Box<dyn Error>> {
         Commands::AddressSanitizer { args } => sanitizer::address_sanitizer(args)?,
         Commands::ThreadSanitizer { args } => sanitizer::thread_sanitizer(args)?,
         Commands::DiscoverTests => discover_tests::discover_tests()?,
-        Commands::Package { no_gui, no_mcrl2 } => package::package(!no_mcrl2, !no_gui)?,
+        Commands::Package {
+            no_gui,
+            no_mcrl2,
+            installer,
+        } => package::package(!no_mcrl2, !no_gui, &installer)?,
         Commands::Publish => publish::publish_crates()?,
         Commands::TestTools { directory } => tool_testing::test_tools(directory.as_path())?,
     }

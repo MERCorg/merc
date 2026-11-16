@@ -1,0 +1,11 @@
+Package: {{ name }}
+Version: {{ version }}
+Architecture: {{ arch }}
+Maintainer: {{ maintainer }}
+Installed-Size: {{ installed_size }}
+Depends: {{ depends }}
+Section: science
+Priority: optional
+Homepage: {{ homepage }}
+Description: {{ summary }}
+ {{ description }}
