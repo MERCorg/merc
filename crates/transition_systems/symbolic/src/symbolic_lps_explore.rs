@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
@@ -17,6 +18,7 @@ use oxidd::ldd::RelationMeta;
 use oxidd::ldd::Value;
 use streaming_iterator::StreamingIterator;
 
+use crate::GroupLearner;
 use crate::ReadWritePattern;
 use crate::SummandGrouping;
 use crate::SymbolicLPS;
@@ -293,6 +295,18 @@ impl<L: LPS> SymbolicLPS for SymbolicLps<L> {
             labels: IndexedSet::new(),
         }
     }
+
+    fn group_learner<'a>(
+        &'a self,
+        context: &'a mut SymbolicContext<L>,
+        storage: &'a LDDManagerRef,
+    ) -> Option<Box<dyn GroupLearner + 'a>> {
+        Some(Box::new(SequentialLearner {
+            groups: &self.groups,
+            context: RefCell::new(context),
+            storage,
+        }))
+    }
 }
 
 /// A group of summands of a [`SymbolicLps`], encoded as a single short-vector LDD
@@ -370,6 +384,40 @@ impl<L: LPS> TransitionGroup for SymbolicLpsGroup<L> {
             projection.clone()
         };
 
+        self.relation = self.learn_relation(context, storage, &proj, self.relation.clone())?;
+        if cached {
+            // Only extend the domain once every projection above was enumerated successfully,
+            // otherwise a failed learning call would hide the states it never reached.
+            self.domain = self.domain.union(&projection)?;
+        }
+        Ok(())
+    }
+
+    fn projection(&self) -> Option<&LDDFunction> {
+        Some(&self.project_ldd)
+    }
+
+    fn domain(&self) -> Option<&LDDFunction> {
+        Some(&self.domain)
+    }
+
+    fn set_learned(&mut self, relation: LDDFunction, domain: LDDFunction) {
+        self.relation = relation;
+        self.domain = domain;
+    }
+}
+
+impl<L: LPS> SymbolicLpsGroup<L> {
+    /// Returns `relation` extended with the transitions of this group from the projected states
+    /// `proj`, enumerated with `context`.
+    fn learn_relation(
+        &self,
+        context: &mut SymbolicContext<L>,
+        storage: &LDDManagerRef,
+        proj: &LDDFunction,
+        mut relation: LDDFunction,
+    ) -> Result<LDDFunction, MercError> {
+
         // Borrow the backend and the interning as disjoint fields so the
         // enumeration callback can grow the interning while the backend call is
         // in progress.
@@ -394,14 +442,10 @@ impl<L: LPS> TransitionGroup for SymbolicLpsGroup<L> {
         // Reusable interleaved short vector for the relation singletons.
         let mut interleaved: Vec<Value> = vec![0; vector_len];
 
-        // Accumulate into a local relation so the enumeration callback does not
-        // have to borrow `self`.
-        let mut relation = self.relation.clone();
-
         // Reused buffer for the summands of this group that fire from the current state.
         let mut applicable: Vec<usize> = Vec::with_capacity(self.indices.len());
 
-        let mut states = iter(&proj);
+        let mut states = iter(proj);
         while let Some(short_state) = states.next() {
             debug_assert_eq!(
                 short_state.len(),
@@ -460,13 +504,22 @@ impl<L: LPS> TransitionGroup for SymbolicLpsGroup<L> {
             }
         }
 
-        self.relation = relation;
-        if cached {
-            // Only extend the domain once every projection above was enumerated successfully,
-            // otherwise a failed learning call would hide the states it never reached.
-            self.domain = self.domain.union(&projection)?;
-        }
-        Ok(())
+        Ok(relation)
+    }
+}
+
+/// The [`GroupLearner`] of a [`SymbolicLps`], which learns on the calling thread with its context.
+struct SequentialLearner<'a, L: LPS> {
+    groups: &'a [SymbolicLpsGroup<L>],
+    context: RefCell<&'a mut SymbolicContext<L>>,
+    storage: &'a LDDManagerRef,
+}
+
+impl<L: LPS> GroupLearner for SequentialLearner<'_, L> {
+    fn learn(&self, group: usize, projected: &LDDFunction) -> Result<LDDFunction, MercError> {
+        let group = &self.groups[group];
+        let mut context = self.context.borrow_mut();
+        group.learn_relation(&mut context, self.storage, projected, group.relation.clone())
     }
 }
 

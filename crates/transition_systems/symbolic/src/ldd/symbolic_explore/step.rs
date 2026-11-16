@@ -15,7 +15,6 @@ use oxidd::ManagerRef;
 use oxidd::WorkerPool;
 use oxidd::ldd::LDDFunction;
 use oxidd::ldd::LDDManagerRef;
-use oxidd::ldd::LearnOps;
 
 use merc_io::TimeProgress;
 use merc_utilities::MercError;
@@ -344,8 +343,7 @@ fn step_parallel_groups<L: SymbolicLPS>(
                             if new.is_empty() {
                                 return Ok(vec![None]);
                             }
-                            let transitions = storage
-                                .with_manager_shared(|manager| learner.learn(&LearnOps::parallel(manager), i, new))?;
+                            let transitions = learner.learn(i, new)?;
                             let relation = current[i].0.union(&transitions)?;
                             let domain = if cached {
                                 domain.union(projection)?
