@@ -206,8 +206,10 @@ pub enum SummandGrouping {
 impl SummandGrouping {
     /// Computes the transition groups for the summands with the given read/write `patterns`.
     ///
-    /// The result is a partition of `0..patterns.len()`; every group is sorted and non-empty. Fails
-    /// when a [`SummandGrouping::Custom`] grouping is not such a partition.
+    /// The result is a partition of `0..patterns.len()`; every group is non-empty and lists its
+    /// summands in their input order. The named strategies order the groups by their first summand;
+    /// a [`SummandGrouping::Custom`] grouping keeps the given order of the groups. Fails when a
+    /// [`SummandGrouping::Custom`] grouping is not such a partition.
     pub fn compute(&self, patterns: &[ReadWritePattern]) -> Result<Vec<Vec<usize>>, MercError> {
         match self {
             SummandGrouping::None => Ok((0..patterns.len()).map(|i| vec![i]).collect()),
@@ -216,8 +218,8 @@ impl SummandGrouping {
             SummandGrouping::Custom(groups) => {
                 validate_partition(groups, patterns.len())?;
 
-                // A `Custom` grouping can also be built directly, so sort here rather than relying on
-                // the parser having done it.
+                // A `Custom` grouping can also be built directly, so restore the input order of the
+                // summands here rather than relying on the parser having done it.
                 let mut groups = groups.clone();
                 for group in &mut groups {
                     group.sort_unstable();
@@ -231,8 +233,8 @@ impl SummandGrouping {
 impl FromStr for SummandGrouping {
     type Err = MercError;
 
-    /// Parses the mCRL2 `--groups` argument: one of the named strategies, or a user defined list of
-    /// groups separated by semicolons, e.g. `0; 1 3 4; 2 5`.
+    /// Parses the summand grouping: one of the named strategies, or a user
+    /// defined list of groups separated by semicolons, e.g. `0; 1 3 4; 2 5`.
     fn from_str(text: &str) -> Result<Self, MercError> {
         match text.trim() {
             "none" => Ok(SummandGrouping::None),
@@ -452,13 +454,14 @@ mod tests {
 
     #[test]
     fn test_grouping_none() {
+        // One group per summand, in summand order.
         let groups = SummandGrouping::None.compute(&patterns()).unwrap();
         assert_eq!(groups, vec![vec![0], vec![1], vec![2], vec![3]]);
     }
 
     #[test]
     fn test_grouping_simple() {
-        // Only the summands with the identical pattern `rw-` are joined.
+        // Only the summands with the identical pattern `rw-` are joined; groups by first summand.
         let groups = SummandGrouping::Simple.compute(&patterns()).unwrap();
         assert_eq!(groups, vec![vec![0, 3], vec![1], vec![2]]);
     }
