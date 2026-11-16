@@ -181,8 +181,8 @@ struct ExploreExplicitArgs {
     #[arg(long)]
     control_flow: bool,
 
-    /// Number of worker threads used for exploration.
-    #[arg(long, default_value_t = 1)]
+    /// Number of worker threads, taken from the global `--threads`.
+    #[arg(skip)]
     threads: usize,
 
     /// Pin each worker thread round-robin to the available CPU cores.
@@ -191,7 +191,11 @@ struct ExploreExplicitArgs {
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
+    let threads = cli.oxidd.threads();
+    if let Some(Commands::ExploreExplicit(args)) = &mut cli.commands {
+        args.threads = threads;
+    }
 
     env_logger::Builder::new()
         .filter_level(cli.verbosity.log_level_filter())

@@ -262,6 +262,13 @@ pub struct PbesContext {
 
 impl PbesLps {
     pub fn new(mut pbes: Pbes) -> Result<Self, MercError> {
+        // `unify_parameters` keeps the original parameters of counter-example
+        // equations, which breaks the assumption below that every equation
+        // shares the parameters of the first one.
+        if pbes.has_counter_example_information() {
+            return Err("The PBES contains counter-example equations; remove them first, see `Pbes::remove_counterexample_info`".into());
+        }
+
         pbes.unify_parameters(UNIFY_IGNORE_CE_EQUATIONS, UNIFY_RESET_PARAMETERS)?;
 
         let equations = pbes.equations();
