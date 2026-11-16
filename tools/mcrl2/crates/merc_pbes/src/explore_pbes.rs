@@ -4,6 +4,9 @@ use std::iter;
 use std::ops::Range;
 use std::sync::Arc;
 
+#[cfg(debug_assertions)]
+use itertools::Itertools;
+
 use mcrl2::_aterm;
 use mcrl2::ATermStringRef;
 use mcrl2::DataExpression;
@@ -278,6 +281,32 @@ impl PbesLps {
         }
 
         let num_params = equations[0].variable().parameters().len();
+
+        // State vectors are indexed by the parameters of the first equation, and
+        // substitution uses its parameter variables for every equation, so all
+        // equations must have exactly this parameter list after unification.
+        #[cfg(debug_assertions)]
+        {
+            let first: Vec<DataVariable> = equations[0].variable().parameters().iter().collect();
+            for eq in &equations[1..] {
+                let params: Vec<DataVariable> = eq.variable().parameters().iter().collect();
+                debug_assert_eq!(
+                    params.len(),
+                    num_params,
+                    "equation {} has {} parameters after unification, but the first equation has {num_params}",
+                    eq.variable().name(),
+                    params.len(),
+                );
+                debug_assert!(
+                    params == first,
+                    "equation {} has parameters [{}] after unification, but the first equation has [{}]",
+                    eq.variable().name(),
+                    params.iter().format(", "),
+                    first.iter().format(", "),
+                );
+            }
+        }
+
         let is_mu: Vec<bool> = equations.iter().map(|e| e.is_mu()).collect();
         let priorities = compute_priorities(&is_mu);
 
