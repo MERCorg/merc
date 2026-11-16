@@ -35,6 +35,7 @@ delegate.workspace = true
 itertools.workspace = true
 log.workspace = true
 oxidd-core.workspace = true
+parking_lot.workspace = true
 oxidd-dump.workspace = true
 oxidd-reorder.workspace = true
 oxidd-rules-bdd.workspace = true

@@ -33,6 +33,30 @@ pub trait SymbolicLPS {
     /// per reachability run and must outlive every learning call.
     fn create_context(&self) -> <Self::Group as TransitionGroup>::Context;
 
+    /// Returns a learner for the transition groups that learns with `context`, for strategies that
+    /// learn inside another operation such as saturation, or `None` when the relations are fixed.
+    /// It is only used on the calling thread.
+    ///
+    /// The learner borrows the groups and the context, so the learned transitions are handed back
+    /// to the groups with [`TransitionGroup::set_learned`] after it is dropped.
+    fn group_learner<'a>(
+        &'a self,
+        _context: &'a mut <Self::Group as TransitionGroup>::Context,
+        _storage: &'a LDDManagerRef,
+    ) -> Option<Box<dyn GroupLearner + 'a>> {
+        None
+    }
+
+    /// Like [`Self::group_learner`], but for a learner that can be used from every worker of the
+    /// manager, also concurrently; `None` when the groups cannot be learned that way.
+    fn parallel_group_learner<'a>(
+        &'a self,
+        _context: &'a mut <Self::Group as TransitionGroup>::Context,
+        _storage: &'a LDDManagerRef,
+    ) -> Option<Box<dyn GroupLearner + Sync + 'a>> {
+        None
+    }
+
     /// Computes the dependency graph from the read/write indices of each transition group.
     fn dependency_graph(&self) -> DependencyGraph {
         let relations = self
@@ -48,6 +72,16 @@ pub trait SymbolicLPS {
 
         DependencyGraph::new(relations)
     }
+}
+
+/// Learns the transitions of the transition groups of a [`SymbolicLPS`] for projected states, see
+/// [`SymbolicLPS::group_learner`].
+pub trait GroupLearner {
+    /// Returns the transitions of group `group` from the projected states `projected`, which are
+    /// short vectors over the read indices of the group, in the layout of its relation.
+    ///
+    /// Can be called from inside saturation, on any worker of the manager's pool.
+    fn learn(&self, group: usize, projected: &LDDFunction) -> Result<LDDFunction, MercError>;
 }
 
 /// A single LDD-based transition group for a set of summands (short vector encoding).
@@ -85,6 +119,35 @@ pub trait TransitionGroup: fmt::Debug {
         todo: &LDDFunction,
         cached: bool,
     ) -> Result<(), MercError>;
+
+    /// Like [Self::learn_successors], where `projection` is the projection of `todo` with
+    /// [Self::projection] if it was already computed (for example for all groups in parallel).
+    fn learn_successors_projected(
+        &mut self,
+        context: &mut Self::Context,
+        manager: &LDDManagerRef,
+        todo: &LDDFunction,
+        projection: Option<LDDFunction>,
+        cached: bool,
+    ) -> Result<(), MercError> {
+        let _ = projection;
+        self.learn_successors(context, manager, todo, cached)
+    }
+
+    /// The projection meta that selects the read indices of a full state, for a group that learns
+    /// its relation with a [`GroupLearner`]; `None` for a group with a fixed relation.
+    fn projection(&self) -> Option<&LDDFunction> {
+        None
+    }
+
+    /// The projected states whose transitions are in the relation, for a group that learns.
+    fn domain(&self) -> Option<&LDDFunction> {
+        None
+    }
+
+    /// Replaces the relation and the domain by ones that were learned with a [`GroupLearner`],
+    /// which contain the previous ones. Ignored by a group with a fixed relation.
+    fn set_learned(&mut self, _relation: LDDFunction, _domain: LDDFunction) {}
 }
 
 /// A short vector transition relation for a group of summands.
