@@ -18,7 +18,6 @@ use merc_utilities::MercError;
 use crate::SummandGroupBdd;
 use crate::SymbolicLtsBdd;
 use crate::compute_vars_bdd;
-use crate::variable_rename_reverse;
 
 /// Computes the symbolic quotient of the given partition.
 ///
@@ -49,20 +48,18 @@ pub fn quotient_symbolic<L: TransitionLabel>(
         .collect();
 
     // P_source(s, b) = P(s', b)[s' <- s]
-    let s_prime_to_s_pairs: Vec<(VarNo, VarNo)> = lts
-        .state_variables()
-        .iter()
-        .zip(lts.next_state_variables().iter())
-        .map(|(s, s_prime)| (*s_prime, *s))
-        .collect();
-    let partition_source = variable_rename_reverse(manager_ref, partition, &s_prime_to_s_pairs)?;
+    //
+    // This uses a general substitution rather than a level-based renaming, since the variable
+    // order (e.g. after `refine_bisimulation` reordered the manager) need not place every s
+    // directly above its s'.
+    let (state_vars_bdds, state_vars_bdd) = compute_vars_bdd(manager_ref, lts.state_variables())?;
+    let partition_source = partition.substitute(&Subst::new(lts.next_state_variables(), &state_vars_bdds))?;
 
     // P_target(s', b') = P(s', b)[b <- b']
     let (next_block_vars_bdd, _) = compute_vars_bdd(manager_ref, &next_block_vars)?;
     let partition_target = partition.substitute(&Subst::new(block_vars, &next_block_vars_bdd))?;
 
     // Cubes to quantify over.
-    let (_, state_vars_bdd) = compute_vars_bdd(manager_ref, lts.state_variables())?;
     let (_, next_state_vars_bdd) = compute_vars_bdd(manager_ref, lts.next_state_variables())?;
 
     // States_q(b) = ∃ s. states(s) ∧ P_source(s, b)
