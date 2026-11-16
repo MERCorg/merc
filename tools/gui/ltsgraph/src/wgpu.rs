@@ -9,8 +9,12 @@ pub async fn init_wgpu() -> Result<(wgpu::Device, wgpu::Queue), MercError> {
         .await
         .map_err(|e| MercError::from(format!("Cannot find a suitable adapter: {e}")))?;
 
+    // The vello compute pipeline needs more resources than the conservative default limits provide.
     adapter
-        .request_device(&wgpu::DeviceDescriptor::default())
+        .request_device(&wgpu::DeviceDescriptor {
+            required_limits: adapter.limits(),
+            ..Default::default()
+        })
         .await
         .map_err(|e| MercError::from(format!("Failed to create device: {e}")))
 }

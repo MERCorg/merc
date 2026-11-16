@@ -59,6 +59,46 @@ impl TextCache {
         buffer.shape_until_scroll(&mut self.font_system, true);
     }
 
+    /// Returns the vector outline of the buffer (without bitmap glyphs), with the origin at the top left of the text.
+    pub(crate) fn outline(&mut self, buffer: &Buffer) -> kurbo::BezPath {
+        let mut path = kurbo::BezPath::new();
+        let point = |x: f32, y: f32| kurbo::Point::new(x as f64, y as f64);
+
+        for run in buffer.layout_runs() {
+            for glyph in run.glyphs.iter() {
+                let physical_glyph = glyph.physical((0., 0.), 1.0);
+                let Some(outline) = self
+                    .swash_cache
+                    .get_outline_commands(&mut self.font_system, physical_glyph.cache_key)
+                else {
+                    continue;
+                };
+
+                let mut glyph_path = kurbo::BezPath::new();
+                for command in outline {
+                    match *command {
+                        cosmic_text::Command::MoveTo(p0) => glyph_path.move_to(point(p0.x, p0.y)),
+                        cosmic_text::Command::LineTo(p0) => glyph_path.line_to(point(p0.x, p0.y)),
+                        cosmic_text::Command::CurveTo(p0, p1, p2) => {
+                            glyph_path.curve_to(point(p0.x, p0.y), point(p1.x, p1.y), point(p2.x, p2.y))
+                        }
+                        cosmic_text::Command::QuadTo(p0, p1) => {
+                            glyph_path.quad_to(point(p0.x, p0.y), point(p1.x, p1.y))
+                        }
+                        cosmic_text::Command::Close => glyph_path.close_path(),
+                    }
+                }
+
+                // Glyph outlines are y-up, while the layout is y-down.
+                let transform = kurbo::Affine::translate((physical_glyph.x as f64, physical_glyph.y as f64))
+                    * kurbo::Affine::scale_non_uniform(1.0, -1.0);
+                path.extend((transform * glyph_path).elements().iter().copied());
+            }
+        }
+
+        path
+    }
+
     /// Draw the given cached text at the given location.
     pub(crate) fn draw(&mut self, buffer: &Buffer, pixmap: &mut PixmapMut, transform: Transform) {
         let paint = tiny_skia::Paint::default();

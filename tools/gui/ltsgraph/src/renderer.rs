@@ -14,6 +14,8 @@ use wgpu::TextureUsages;
 use merc_lts::LabelledTransitionSystem;
 use merc_ltsgraph_lib::FemtovgRenderer;
 use merc_ltsgraph_lib::SkiaRenderer;
+use merc_ltsgraph_lib::VelloCpuRenderer;
+use merc_ltsgraph_lib::VelloRenderer;
 use merc_ltsgraph_lib::Viewer;
 use merc_utilities::MercError;
 
@@ -24,6 +26,17 @@ pub enum ViewerType {
     Cpu,
     /// Uses `femtovg` to render the graph on the GPU, with wgpu.
     Gpu,
+    /// Uses `vello_cpu` to render the graph on the CPU.
+    VelloCpu,
+    /// Uses `vello` to render the graph on the GPU, with wgpu.
+    VelloGpu,
+}
+
+impl ViewerType {
+    /// Returns true iff this viewer renders using wgpu.
+    pub fn requires_wgpu(&self) -> bool {
+        matches!(self, ViewerType::Gpu | ViewerType::VelloGpu)
+    }
 }
 
 /// Settings controlling how the graph is drawn for a single frame.
@@ -50,12 +63,21 @@ struct FemtovgInfo {
     buffer: Arc<wgpu::Buffer>,
 }
 
-/// Encapsulates the CPU (tiny-skia) and GPU (femtovg via wgpu) rendering paths.
+/// Local information required for the vello GPU renderer.
+struct VelloInfo {
+    renderer: VelloRenderer,
+    texture: wgpu::Texture,
+    buffer: Arc<wgpu::Buffer>,
+}
+
+/// Encapsulates the CPU (tiny-skia, vello_cpu) and GPU (femtovg, vello via wgpu) rendering paths.
 pub struct Renderer {
     viewer_type: ViewerType,
     wgpu: Option<(wgpu::Device, wgpu::Queue)>,
     skia_renderer: Option<SkiaRenderer>,
+    vello_cpu_renderer: Option<VelloCpuRenderer>,
     femtovg_info: Option<FemtovgInfo>,
+    vello_info: Option<VelloInfo>,
     pixel_buffer: SharedPixelBuffer<Rgba8Pixel>,
 }
 
@@ -70,39 +92,61 @@ impl Renderer {
             viewer_type,
             wgpu,
             skia_renderer: None,
+            vello_cpu_renderer: None,
             femtovg_info: None,
+            vello_info: None,
             pixel_buffer: SharedPixelBuffer::<Rgba8Pixel>::new(width, height),
         }
     }
 
-    /// Recreate the backend renderers for the given LTS.
+    /// Recreate the backend renderer for the given LTS.
     pub fn reload(
         &mut self,
         lts: Arc<LabelledTransitionSystem<String>>,
         settings: &RenderSettings,
     ) -> Result<(), MercError> {
-        self.skia_renderer = Some(SkiaRenderer::new(lts.clone()));
+        match self.viewer_type {
+            ViewerType::Cpu => self.skia_renderer = Some(SkiaRenderer::new(lts)),
+            ViewerType::VelloCpu => self.vello_cpu_renderer = Some(VelloCpuRenderer::new(lts)),
+            ViewerType::Gpu => {
+                let (device, queue) = self
+                    .wgpu
+                    .as_ref()
+                    .ok_or("GPU rendering requires wgpu to be initialized")?;
 
-        self.femtovg_info = if let Some((device, queue)) = &self.wgpu {
-            // Ensure that we embed one font that can be used, since on Windows there are no default fonts.
-            let text_context = TextContext::default();
-            text_context.add_font_mem(include_bytes!("../data/NotoSans-Regular.ttf") as &[u8])?;
+                // Ensure that we embed one font that can be used, since on Windows there are no default fonts.
+                let text_context = TextContext::default();
+                text_context.add_font_mem(include_bytes!("../data/NotoSans-Regular.ttf") as &[u8])?;
 
-            let gpu_renderer = WGPURenderer::new(device.clone(), queue.clone());
-            let canvas = Canvas::new_with_text_context(gpu_renderer, text_context)?;
+                let gpu_renderer = WGPURenderer::new(device.clone(), queue.clone());
+                let canvas = Canvas::new_with_text_context(gpu_renderer, text_context)?;
 
-            let texture = create_texture(device, settings.width, settings.height);
-            let buffer = Arc::new(create_buffer(device, settings.width, settings.height));
+                let texture = create_texture(device, settings.width, settings.height);
+                let buffer = Arc::new(create_buffer(device, settings.width, settings.height));
 
-            Some(FemtovgInfo {
-                renderer: FemtovgRenderer::new(lts),
-                canvas,
-                texture,
-                buffer,
-            })
-        } else {
-            None
-        };
+                self.femtovg_info = Some(FemtovgInfo {
+                    renderer: FemtovgRenderer::new(lts),
+                    canvas,
+                    texture,
+                    buffer,
+                });
+            }
+            ViewerType::VelloGpu => {
+                let (device, _) = self
+                    .wgpu
+                    .as_ref()
+                    .ok_or("GPU rendering requires wgpu to be initialized")?;
+
+                let renderer = VelloRenderer::new(lts, device)
+                    .map_err(|e| MercError::from(format!("Failed to create the vello renderer: {e}")))?;
+
+                self.vello_info = Some(VelloInfo {
+                    renderer,
+                    texture: create_vello_texture(device, settings.width, settings.height),
+                    buffer: Arc::new(create_buffer(device, settings.width, settings.height)),
+                });
+            }
+        }
 
         Ok(())
     }
@@ -117,6 +161,8 @@ impl Renderer {
         match self.viewer_type {
             ViewerType::Cpu => self.render_cpu(viewer, settings, output),
             ViewerType::Gpu => self.render_gpu(viewer, settings, output),
+            ViewerType::VelloCpu => self.render_vello_cpu(viewer, settings, output),
+            ViewerType::VelloGpu => self.render_vello_gpu(viewer, settings, output),
         }
     }
 
@@ -191,63 +237,146 @@ impl Renderer {
             .flush_to_output(&femtovg_info.texture)
             .ok_or("Failed to flush the output")?;
 
-        // Copy the texture to a buffer such that it can be mapped on the CPU
-        let copy = femtovg_info.texture.as_image_copy();
+        read_back(
+            device,
+            queue,
+            Some(render_buffer),
+            &femtovg_info.texture,
+            &femtovg_info.buffer,
+            output,
+        )
+    }
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("ltsgraph canvas encoder"),
-        });
+    fn render_vello_cpu(
+        &mut self,
+        viewer: &mut Viewer,
+        settings: &RenderSettings,
+        output: &CanvasOutput,
+    ) -> Result<(), MercError> {
+        let Some(vello_cpu_renderer) = &mut self.vello_cpu_renderer else {
+            return Ok(());
+        };
 
-        encoder.copy_texture_to_buffer(
-            copy,
-            wgpu::TexelCopyBufferInfo {
-                buffer: &femtovg_info.buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(align_up(settings.width, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * 4),
-                    rows_per_image: Some(settings.height),
-                },
-            },
-            wgpu::Extent3d {
-                width: femtovg_info.texture.width(),
-                height: femtovg_info.texture.height(),
-                depth_or_array_layers: 1,
-            },
+        let pixels = vello_cpu_renderer.render(
+            viewer,
+            settings.draw_action_labels,
+            settings.state_radius,
+            settings.view_x,
+            settings.view_y,
+            settings.width,
+            settings.height,
+            settings.zoom_level,
+            settings.label_text_size,
         );
 
-        queue.submit([render_buffer, encoder.finish()]);
-
-        let buffer = femtovg_info.buffer.clone();
-        let output = output.clone();
-        let width = settings.width;
-        let height = settings.height;
-        femtovg_info
-            .buffer
-            .slice(..)
-            .map_async(wgpu::MapMode::Read, move |result| {
-                if result.is_ok() {
-                    // wgpu requires each copied row to be padded to COPY_BYTES_PER_ROW_ALIGNMENT, so the
-                    // mapped buffer has a padded stride. Repack into a tightly packed RGBA8 buffer; copying
-                    // it as-is would skew the image whenever the width is not a multiple of the alignment.
-                    if let Ok(mapped) = buffer.slice(..).get_mapped_range() {
-                        let packed = repack_padded_rows(&mapped, width, height);
-                        drop(mapped);
-
-                        *output.lock().unwrap() = SharedPixelBuffer::clone_from_slice(&packed, width, height);
-
-                        buffer.unmap();
-                    }
-                }
-            });
-
-        // Wait for the buffer to be mapped and the data to be copied.
-        device.poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: None,
-        })?;
-
+        // The scene is fully opaque, so the premultiplied output equals the straight alpha output.
+        *output.lock().unwrap() = SharedPixelBuffer::clone_from_slice(pixels, settings.width, settings.height);
         Ok(())
     }
+
+    fn render_vello_gpu(
+        &mut self,
+        viewer: &mut Viewer,
+        settings: &RenderSettings,
+        output: &CanvasOutput,
+    ) -> Result<(), MercError> {
+        let (device, queue) = self
+            .wgpu
+            .as_ref()
+            .expect("GPU rendering requires wgpu to be initialized");
+
+        let Some(vello_info) = &mut self.vello_info else {
+            return Ok(());
+        };
+
+        if vello_info.texture.width() != settings.width || vello_info.texture.height() != settings.height {
+            vello_info.texture = create_vello_texture(device, settings.width, settings.height);
+            vello_info.buffer = Arc::new(create_buffer(device, settings.width, settings.height));
+        }
+
+        let view = vello_info.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        vello_info
+            .renderer
+            .render(
+                device,
+                queue,
+                &view,
+                viewer,
+                settings.draw_action_labels,
+                settings.state_radius,
+                settings.view_x,
+                settings.view_y,
+                settings.width,
+                settings.height,
+                settings.zoom_level,
+                settings.label_text_size,
+            )
+            .map_err(|e| MercError::from(format!("Failed to render with vello: {e}")))?;
+
+        read_back(device, queue, None, &vello_info.texture, &vello_info.buffer, output)
+    }
+}
+
+/// Copies `texture` into `buffer` and waits until the pixels are available in `output`. The optional `commands`
+/// are submitted before the copy.
+fn read_back(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    commands: Option<wgpu::CommandBuffer>,
+    texture: &wgpu::Texture,
+    buffer: &Arc<wgpu::Buffer>,
+    output: &CanvasOutput,
+) -> Result<(), MercError> {
+    let (width, height) = (texture.width(), texture.height());
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("ltsgraph canvas encoder"),
+    });
+
+    encoder.copy_texture_to_buffer(
+        texture.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(align_up(width, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT) * 4),
+                rows_per_image: Some(height),
+            },
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+
+    queue.submit(commands.into_iter().chain([encoder.finish()]));
+
+    let mapped_buffer = buffer.clone();
+    let output = output.clone();
+    buffer.slice(..).map_async(wgpu::MapMode::Read, move |result| {
+        if result.is_ok() {
+            // wgpu requires each copied row to be padded to COPY_BYTES_PER_ROW_ALIGNMENT, so the
+            // mapped buffer has a padded stride. Repack into a tightly packed RGBA8 buffer; copying
+            // it as-is would skew the image whenever the width is not a multiple of the alignment.
+            if let Ok(mapped) = mapped_buffer.slice(..).get_mapped_range() {
+                let packed = repack_padded_rows(&mapped, width, height);
+                drop(mapped);
+
+                *output.lock().unwrap() = SharedPixelBuffer::clone_from_slice(&packed, width, height);
+
+                mapped_buffer.unmap();
+            }
+        }
+    });
+
+    // Wait for the buffer to be mapped and the data to be copied.
+    device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: None,
+    })?;
+
+    Ok(())
 }
 
 /// Aligns a number up to the next multiple of the given alignment.
@@ -286,6 +415,24 @@ fn create_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Textu
     })
 }
 
+/// Vello renders using compute shaders, so it requires a storage texture without sRGB conversion.
+fn create_vello_texture(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Texture {
+    device.create_texture(&TextureDescriptor {
+        label: Some("ltsgraph vello canvas texture"),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: TextureFormat::Rgba8Unorm,
+        usage: TextureUsages::STORAGE_BINDING | TextureUsages::COPY_SRC,
+        view_formats: &[],
+    })
+}
+
 fn create_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("ltsgraph canvas buffer"),
@@ -297,6 +444,18 @@ fn create_buffer(device: &wgpu::Device, width: u32, height: u32) -> wgpu::Buffer
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+
+    use merc_lts::read_aut;
+    use merc_ltsgraph_lib::Viewer;
+    use slint::SharedPixelBuffer;
+
+    use crate::init_wgpu;
+    use crate::renderer::CanvasOutput;
+    use crate::renderer::RenderSettings;
+    use crate::renderer::Renderer;
+    use crate::renderer::ViewerType;
     use crate::renderer::align_up;
     use crate::renderer::repack_padded_rows;
 
@@ -335,5 +494,41 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    #[cfg_attr(miri, ignore)]
+    async fn test_vello_gpu_renders_non_blank_image() {
+        // Skip when no GPU adapter is available, such as on CI.
+        let Ok(wgpu) = init_wgpu().await else {
+            return;
+        };
+
+        let file = include_str!("../../../../examples/lts/abp.aut");
+        let lts = Arc::new(read_aut(file.as_bytes()).unwrap());
+        let mut viewer = Viewer::new(lts.clone());
+
+        let settings = RenderSettings {
+            width: 203,
+            height: 101,
+            state_radius: 5.0,
+            label_text_size: 14.0,
+            draw_action_labels: true,
+            zoom_level: 1.0,
+            ..Default::default()
+        };
+
+        let mut renderer = Renderer::new(ViewerType::VelloGpu, Some(wgpu), settings.width, settings.height);
+        renderer.reload(lts, &settings).unwrap();
+
+        let output: CanvasOutput = Arc::new(Mutex::new(SharedPixelBuffer::new(1, 1)));
+        renderer.render(&mut viewer, &settings, &output).unwrap();
+
+        let image = output.lock().unwrap();
+        assert_eq!((image.width(), image.height()), (203, 101));
+        assert!(
+            image.as_bytes().chunks(4).any(|p| p[0] < 128),
+            "expected some dark pixels"
+        );
     }
 }
