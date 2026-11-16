@@ -402,7 +402,7 @@ fn check_communications(comm: &[CommExpr]) -> Result<(), MercError> {
 }
 
 /// The parallel composition hide(H, allow(A, comm(C, L1 || ... || Ln))) as an [`LPS`], so that it can be explored by
-/// [`crate::explore`].
+/// [`mod@crate::explore`].
 ///
 /// The state vector consists of one state per LTS. There is one summand for every non-empty subset of the LTSs, which
 /// takes one transition in each LTS of the subset simultaneously and leaves the other LTSs unchanged.

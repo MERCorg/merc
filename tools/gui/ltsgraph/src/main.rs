@@ -69,7 +69,7 @@ pub struct Cli {
     #[arg(long)]
     lts_format: Option<LtsFormat>,
 
-    /// Change the viewer to CPU or GPU rendering.
+    /// Change the viewer to CPU or GPU rendering, with either the default or the vello backends.
     #[arg(long, default_value_t = ViewerType::Cpu, value_enum)]
     viewer: ViewerType,
 
@@ -162,7 +162,7 @@ async fn run() -> Result<(), MercError> {
         return Ok(());
     }
 
-    let wgpu = if cli.viewer == ViewerType::Gpu {
+    let wgpu = if cli.viewer.requires_wgpu() {
         // Initialize wgpu for GPU rendering
         Some(init_wgpu().await?)
     } else {
