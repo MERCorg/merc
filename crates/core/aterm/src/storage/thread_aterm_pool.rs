@@ -715,6 +715,7 @@ mod tests {
     use std::thread;
 
     #[test]
+    #[cfg_attr(miri, ignore)] // On Windows the parking_lot uses an unsupported operation.
     fn test_thread_local_protection() {
         merc_utilities::test_logger();
 
