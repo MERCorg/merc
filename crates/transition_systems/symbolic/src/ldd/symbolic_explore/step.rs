@@ -26,6 +26,8 @@ use crate::SatCount;
 use crate::SymbolicLPS;
 use crate::TransitionGroup;
 use crate::ldd_len;
+use crate::parallel_map;
+use crate::parallel_map_reduce;
 
 use super::ExplorationStrategy;
 use super::ReachabilityOptions;
@@ -271,13 +273,14 @@ fn chaining_order<G: TransitionGroup>(groups: &[G]) -> Vec<usize> {
     order
 }
 
-/// A breadth-first step that applies the groups in parallel, like `--parallel-groups` of mCRL2's
-/// lpsreach: every group reads the same `todo`, so the projections of all groups are computed in
-/// parallel, then the groups learn, and then the relational products of all groups and their
-/// unions run as a balanced tree of `join`s.
+/// A breadth-first step that applies the groups in parallel. Every group reads
+/// the same `todo`, so the projections of all groups are computed in parallel,
+/// then the groups learn, and then the relational products of all groups and
+/// their unions run as a balanced tree of `join`s ([`parallel_map_reduce`]).
 ///
-/// The groups learn at the same time through the [`SymbolicLPS::parallel_group_learner`], as
-/// saturation does, or one after another (each in parallel itself) if the backend has none.
+/// The groups learn at the same time through the
+/// [`SymbolicLPS::parallel_group_learner`], as saturation does, or one after
+/// another (each in parallel itself) if the backend has none.
 fn step_parallel_groups<L: SymbolicLPS>(
     storage: &LDDManagerRef,
     lts: &mut L,
@@ -297,28 +300,19 @@ fn step_parallel_groups<L: SymbolicLPS>(
         .iter()
         .map(|g| (g.projection().cloned(), g.domain().cloned()))
         .collect();
-    let projections: Vec<Option<(LDDFunction, LDDFunction)>> = timing.measure("pg_project", || {
+    let projections: Vec<Option<(LDDFunction, LDDFunction)>> = timing.measure("parallel_project", || {
         workers.install(|| {
-            tree::<_, oxidd::util::OutOfMemory>(
-                workers,
-                0,
-                inputs.len(),
-                &|i| {
-                    let (Some(projection_ldd), domain) = &inputs[i] else {
-                        return Ok(vec![None]);
-                    };
-                    let projection = todo.project(projection_ldd)?;
-                    let new = match domain {
-                        Some(domain) if cached => projection.diff(domain)?,
-                        _ => projection.clone(),
-                    };
-                    Ok(vec![Some((projection, new))])
-                },
-                &|mut a: Vec<_>, b| {
-                    a.extend(b);
-                    Ok(a)
-                },
-            )
+            parallel_map(workers, inputs.len(), &|i| -> Result<_, oxidd::util::OutOfMemory> {
+                let (Some(projection_ldd), domain) = &inputs[i] else {
+                    return Ok(None);
+                };
+                let projection = todo.project(projection_ldd)?;
+                let new = match domain {
+                    Some(domain) if cached => projection.diff(domain)?,
+                    _ => projection.clone(),
+                };
+                Ok(Some((projection, new)))
+            })
         })
     })?;
 
@@ -332,31 +326,25 @@ fn step_parallel_groups<L: SymbolicLPS>(
         match lts_ref.parallel_group_learner(context, storage) {
             Some(learner) => Some(timing.measure("pg_learn", || {
                 workers.install(|| {
-                    tree(
-                        workers,
-                        0,
-                        projections.len(),
-                        &|i| -> Result<Vec<Option<(LDDFunction, LDDFunction)>>, MercError> {
-                            let (Some((projection, new)), Some(domain)) = (&projections[i], &current[i].1) else {
-                                return Ok(vec![None]);
-                            };
-                            if new.is_empty() {
-                                return Ok(vec![None]);
-                            }
-                            let transitions = learner.learn(i, new)?;
-                            let relation = current[i].0.union(&transitions)?;
-                            let domain = if cached {
-                                domain.union(projection)?
-                            } else {
-                                domain.clone()
-                            };
-                            Ok(vec![Some((relation, domain))])
-                        },
-                        &|mut a: Vec<_>, b| {
-                            a.extend(b);
-                            Ok(a)
-                        },
-                    )
+                    parallel_map(workers, projections.len(), &|i| -> Result<
+                        Option<(LDDFunction, LDDFunction)>,
+                        MercError,
+                    > {
+                        let (Some((projection, new)), Some(domain)) = (&projections[i], &current[i].1) else {
+                            return Ok(None);
+                        };
+                        if new.is_empty() {
+                            return Ok(None);
+                        }
+                        let transitions = learner.learn(i, new)?;
+                        let relation = current[i].0.union(&transitions)?;
+                        let domain = if cached {
+                            domain.union(projection)?
+                        } else {
+                            domain.clone()
+                        };
+                        Ok(Some((relation, domain)))
+                    })
                 })
             })?),
             None => None,
@@ -388,39 +376,17 @@ fn step_parallel_groups<L: SymbolicLPS>(
         .collect();
     let todo1 = timing.measure("pg_relprod_union", || {
         workers.install(|| {
-            tree(
+            parallel_map_reduce(
                 workers,
-                0,
-                relations.len(),
+                0..relations.len(),
                 &|i| {
                     let (relation, meta) = &relations[i];
                     todo.relational_successors(relation, meta)
                 },
-                &|a: LDDFunction, b| Ok(a.union(&b)?),
+                &|a: LDDFunction, b| a.union(&b),
             )
         })
     })?;
 
     Ok((todo1, empty))
-}
-
-/// Computes `leaf(i)` for every `i` in `start..end` and combines the results with `merge`, as a
-/// balanced tree of `join`s on `workers`. The range must not be empty.
-fn tree<T: Send, E: Send>(
-    workers: &impl WorkerPool,
-    start: usize,
-    end: usize,
-    leaf: &(dyn Fn(usize) -> Result<T, E> + Sync),
-    merge: &(dyn Fn(T, T) -> Result<T, E> + Sync),
-) -> Result<T, E> {
-    debug_assert!(start < end, "the range must not be empty");
-    if end - start == 1 {
-        return leaf(start);
-    }
-    let middle = start + (end - start) / 2;
-    let (a, b) = workers.join(
-        || tree(workers, start, middle, leaf, merge),
-        || tree(workers, middle, end, leaf, merge),
-    );
-    merge(a?, b?)
 }
