@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use itertools::Either;
 
+use merc_unsafety::NoCloneArc;
 use merc_utilities::MercError;
 
 use crate::LPS;
@@ -23,7 +24,7 @@ use crate::Summand;
 /// [`PermutedLps::new`], and passes every state vector through untouched.
 pub struct PermutedLps<P: LPS> {
     /// The wrapped LPS, shared with every summand wrapper.
-    inner: Arc<P>,
+    inner: NoCloneArc<P>,
 
     /// `order[i]` is the position of the inner state vector stored at position `i`, i.e. the
     /// permutation that turns an inner state vector into one of this LPS.
@@ -44,7 +45,7 @@ pub struct PermutedLps<P: LPS> {
 /// state vectors.
 pub struct PermutedSummand<P: LPS> {
     /// The wrapped LPS, shared with [`PermutedLps`].
-    inner: Arc<P>,
+    inner: NoCloneArc<P>,
 
     /// Index of the wrapped summand in `inner.summands()`.
     index: usize,
@@ -64,23 +65,6 @@ pub struct PermutedSummand<P: LPS> {
     /// See [`PermutedLps::identity`].
     identity: bool,
 }
-
-// The auto trait gives `Arc<P>: Sync` only for `P: Send + Sync`, since a thread holding `&Arc<P>`
-// could clone it and drop the last reference, and thereby `P`, on that thread.
-//
-// SAFETY: the `Arc`s of the inner LPS are only cloned in `PermutedLps::new`, into the summands that
-// the `PermutedLps` owns, and are never handed out: sharing a `PermutedLps` or one of its summands
-// only gives other threads a `&P`, which `P: Sync` allows. So the inner LPS is only dropped where the
-// `PermutedLps` is, which (by the auto trait, through `Arc<P>`) can only move to another thread when
-// `P` is `Send`. The other fields are plain data. This makes `PermutedLps` shareable for an inner LPS
-// that is `Sync` but thread-affine, such as one backed by mCRL2.
-//
-// This relies on the `Arc` never escaping: `PermutedSummand` must not implement `Clone`, and no
-// method may return the `Arc` itself (only `&P`, as `inner` does).
-unsafe impl<P: LPS + Sync> Sync for PermutedLps<P> {}
-
-// SAFETY: see `PermutedLps`.
-unsafe impl<P: LPS + Sync> Sync for PermutedSummand<P> {}
 
 /// Per-thread scratch buffers for driving a [`PermutedLps`].
 pub struct PermutedContext<P: LPS> {
@@ -102,7 +86,7 @@ impl<P: LPS> PermutedLps<P> {
     /// [`StateEffect::Opaque`] can only be wrapped by the identity permutation, since its next
     /// states have no fixed positional shape to permute.
     pub fn new(inner: P, order: Vec<usize>) -> Result<Self, MercError> {
-        let inner = Arc::new(inner);
+        let mut inner = NoCloneArc::new(inner);
         let num_positions = inner.initial_state().len();
         validate_permutation(&order, num_positions)?;
 
@@ -110,11 +94,13 @@ impl<P: LPS> PermutedLps<P> {
         let level_of: Arc<[usize]> = inverse_permutation(&order).into();
         let order: Arc<[usize]> = order.into();
 
+        let shares: Vec<NoCloneArc<P>> = (0..inner.summands().len()).map(|_| inner.share()).collect();
         let summands = inner
             .summands()
             .iter()
+            .zip(shares)
             .enumerate()
-            .map(|(index, summand)| {
+            .map(|(index, (summand, share))| {
                 let read_positions = permute_positions(summand.read_positions(), &level_of)
                     .map_err(|error| MercError::from(format!("summand {index}: {error}")))?;
 
@@ -132,7 +118,7 @@ impl<P: LPS> PermutedLps<P> {
                 };
 
                 Ok(PermutedSummand {
-                    inner: Arc::clone(&inner),
+                    inner: share,
                     index,
                     read_positions,
                     effect,
