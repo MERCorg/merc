@@ -402,7 +402,7 @@ fn check_communications(comm: &[CommExpr]) -> Result<(), MercError> {
 }
 
 /// The parallel composition hide(H, allow(A, comm(C, L1 || ... || Ln))) as an [`LPS`], so that it can be explored by
-/// [`explore`] and [`crate::explore_parallel`].
+/// [`crate::explore`].
 ///
 /// The state vector consists of one state per LTS. There is one summand for every non-empty subset of the LTSs, which
 /// takes one transition in each LTS of the subset simultaneously and leaves the other LTSs unchanged.
@@ -950,9 +950,9 @@ mod tests {
     use super::CombinedLabels;
     use super::ComposedLts;
     use super::Odometer;
-    use super::SendAction;
     use super::ParallelTransition;
     use super::ParallelTransitions;
+    use super::SendAction;
     use super::SortedLtsMultiAction;
     use super::SortedMultiActionLabel;
     use super::combined_label;
@@ -1240,6 +1240,7 @@ mod tests {
     /// The transitions of the composition are exactly the combinations of outgoing transitions, in which every LTS
     /// either stays or takes a transition, whose label computed without the cache is allowed.
     #[test]
+    #[cfg_attr(miri, ignore)] // Ignored under Miri due to potential long execution time
     fn random_composition_matches_naive_enumeration() {
         random_test(100, |rng| {
             let ltss = vec![

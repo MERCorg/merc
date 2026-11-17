@@ -80,8 +80,8 @@ impl TypeCheckContext {
         spec.sort_declarations.get(*def).map(|decl| decl.identifier.as_str())
     }
 
-    /// As [`Self::sort_name`], but falls back to a synthesized `@sort_N` placeholder instead of
-    /// `None` when `def` is out of range.
+    /// Displays the sort name, but falls back to a synthesized `@sort_N`
+    /// placeholder instead of `None` when `def` is out of range.
     pub fn sort_display_name<'a>(&'a self, spec: &'a UntypedDataSpecification, def: SortId) -> Cow<'a, str> {
         match self.sort_name(spec, def) {
             Some(name) => Cow::Borrowed(name),

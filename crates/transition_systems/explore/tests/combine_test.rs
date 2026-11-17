@@ -301,6 +301,7 @@ fn test_mcrl2_ltscombine() {
 /// The parallel composition computed with several threads is strongly bisimilar to the one computed with one thread,
 /// and has the same transitions up to the numbering of the states.
 #[test]
+#[cfg_attr(miri, ignore)] // Ignored under Miri because of rayon usage
 fn test_combine_parallel_matches_sequential() {
     random_test(20, |rng| {
         let random_test_lts = |rng: &mut _| {
