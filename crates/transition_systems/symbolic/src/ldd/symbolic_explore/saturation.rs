@@ -290,7 +290,7 @@ impl<'a, G: ?Sized + GroupLearner> OnTheFly<'a, G> {
         let projected = match &state.projection_at_top {
             Some(projection) => set.project(projection)?,
             None if set.is_empty() => return Ok(()),
-            None => set.with_manager_shared(|manager, _| LDDFunction::empty_vector(manager))?,
+            None => set.with_manager_shared(|manager, _| LDDFunction::empty_vector(manager)),
         };
 
         let new = projected.diff(&domain)?;

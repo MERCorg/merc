@@ -88,9 +88,9 @@ dependencies = [
 
 [[package]]
 name = "ar_archive_writer"
-version = "0.5.3"
+version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73cd58deff2140a0a8eae87e417bd01db68a33e148aa93d1e8cd837e55e312b6"
+checksum = "523e5e187fff36fcb8d1d19ccf0ca4ca43ec3d158316057f66dc6f72716bc5ec"
 dependencies = [
  "object",
 ]
@@ -100,12 +100,6 @@ name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
-
-[[package]]
-name = "bitflags"
-version = "1.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
@@ -133,9 +127,9 @@ checksum = "b1b08cb4ecbb540b940016b0a0f35b7e48ab0cc372ab88150c351de4cc469959"
 
 [[package]]
 name = "bumpalo"
-version = "3.20.3"
+version = "3.20.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
+checksum = "87a0cf66fd1eb2fb7b822cb78370d82303750809bc6ba855f3f58e517d3238db"
 
 [[package]]
 name = "cargo-emit"
@@ -145,9 +139,9 @@ checksum = "1582e1c9e755dd6ad6b224dcffb135d199399a4568d454bd89fe515ca8425695"
 
 [[package]]
 name = "cc"
-version = "1.11.0"
+version = "1.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "375989decec1a0fa424442bed520fa12ede43a48475ce8c7417d2c69b32b5f6b"
+checksum = "33ef9e3e8154a45c7a95cff4c1299702106ad94062d7bb85fdc5d3a5afd91d45"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -203,7 +197,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -312,7 +306,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "scratch",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -326,7 +320,7 @@ dependencies = [
  "indexmap",
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -344,7 +338,7 @@ dependencies = [
  "indexmap",
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -383,37 +377,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "defmt"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4a0795ac740cb54d7b3775c9c17345f6aaecf884c01733b39d6017738e0e3e1"
-dependencies = [
- "bitflags 1.3.2",
- "defmt-macros",
-]
-
-[[package]]
-name = "defmt-macros"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "840bb056bd99c495c9188198a258ab787c79f306d864db3e6e8451442d6d8366"
-dependencies = [
- "defmt-parser",
- "proc-macro2",
- "quote",
- "syn 3.0.9",
-]
-
-[[package]]
-name = "defmt-parser"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71958f69fb2de856c5dd51ac9377e986ca1aa5919f931bf5395a807277f889a0"
-dependencies = [
- "thiserror",
-]
-
-[[package]]
 name = "delegate"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -432,7 +395,7 @@ checksum = "2e2b94854e8576378ccda7c8de8a66ed8b4e8acbd2c50ec3418ea6c8aaf4b567"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -502,9 +465,9 @@ checksum = "00d174d5400e5e8fd687ad1049e2f578285fa914201b1af7e8b112a4546bd826"
 
 [[package]]
 name = "errno"
-version = "0.3.14"
+version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
+checksum = "e35d6e78f4cebb90e51d543db8fe41528851d6deeef6ef21ebd4bfdc1e784776"
 dependencies = [
  "libc",
  "windows-sys",
@@ -524,9 +487,9 @@ checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
 name = "fixedbitset"
-version = "0.5.7"
+version = "0.5.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
+checksum = "5905ec755cc8386d7928353e4d356d2be3e89e81e5ca01fe630a1ca4d08dc175"
 
 [[package]]
 name = "foldhash"
@@ -638,7 +601,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 [[package]]
 name = "hugealloc"
 version = "0.1.1"
-source = "git+https://github.com/mlaveaux/oxidd?rev=12fbe5747c55a98faa05613bc5d73a79615744f9#12fbe5747c55a98faa05613bc5d73a79615744f9"
+source = "git+https://github.com/mlaveaux/oxidd?rev=cc845c64658b703bd9e36f85719cb1112de6a0d4#cc845c64658b703bd9e36f85719cb1112de6a0d4"
 dependencies = [
  "allocator-api2 0.2.21",
  "libc",
@@ -672,17 +635,16 @@ dependencies = [
 
 [[package]]
 name = "itoa"
-version = "1.0.18"
+version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
 name = "jiff"
-version = "0.2.39"
+version = "0.2.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ac703058abac89e5c39b0b879dce2b6b14a4ba36600c7e7e3d0c60a6883ef3c"
+checksum = "175dc66334db3b9ab9985bf8b61cfed50dc16d20964bb47f9e479adcae984a7f"
 dependencies = [
- "defmt",
  "jiff-core",
  "jiff-static",
  "log",
@@ -693,19 +655,18 @@ dependencies = [
 
 [[package]]
 name = "jiff-core"
-version = "0.1.2"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aee43309eb53bafb8c36d35d6e444769c8f8e6206a9fbf7546f5db9d7d4a0e93"
+checksum = "e599b80292e597019b8b3e392de3f4bea2959ddfb8c7dff60e035e9e311a2c1b"
 dependencies = [
- "defmt",
  "log",
 ]
 
 [[package]]
 name = "jiff-static"
-version = "0.2.39"
+version = "0.2.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6dc32470c67eb7d0e9ccb74303fa925313dc04cecb1aa048beaa6f391e36a93d"
+checksum = "c7b1af7547d47354bc438d797e3854601bde8f8d185780c5ba4ab27afa54f1ba"
 dependencies = [
  "jiff-core",
  "proc-macro2",
@@ -759,7 +720,7 @@ checksum = "65cd87c9a6d60536580b316ad985726104730a5151c99845f2490428ef91240a"
 [[package]]
 name = "linear-hashtbl"
 version = "0.1.4"
-source = "git+https://github.com/mlaveaux/oxidd?rev=12fbe5747c55a98faa05613bc5d73a79615744f9#12fbe5747c55a98faa05613bc5d73a79615744f9"
+source = "git+https://github.com/mlaveaux/oxidd?rev=cc845c64658b703bd9e36f85719cb1112de6a0d4#cc845c64658b703bd9e36f85719cb1112de6a0d4"
 dependencies = [
  "allocator-api2 0.2.21",
 ]
@@ -802,9 +763,9 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "loom"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "419e0dc8046cb947daa77eb95ae174acfbddb7673b4151f56d1eed8e93fbfaca"
+checksum = "f1611ddbf89dc6ae42cfbd51fc207836140130257646eab8d6d2fb16577db2d2"
 dependencies = [
  "cfg-if",
  "generator",
@@ -852,13 +813,13 @@ version = "1.0.0"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
 name = "mcrl2-sys"
 version = "1.0.0"
-source = "git+https://github.com/MERCorg/mCRL2-sys?rev=e337b2dc8243844f8b40cf2c632417b3ec58c421#e337b2dc8243844f8b40cf2c632417b3ec58c421"
+source = "git+https://github.com/MERCorg/mCRL2-sys?rev=82286b2015bf24a5198ffc76731441a0aea333a9#82286b2015bf24a5198ffc76731441a0aea333a9"
 dependencies = [
  "cargo-emit",
  "cc",
@@ -1066,7 +1027,7 @@ version = "2.0.0"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -1075,6 +1036,7 @@ version = "3.0.0"
 dependencies = [
  "bnum",
  "num",
+ "rand",
 ]
 
 [[package]]
@@ -1117,7 +1079,7 @@ source = "git+https://github.com/MERCorg/pest_consume#3e52337cbc414ae4212eb44546
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -1163,6 +1125,7 @@ dependencies = [
  "merc_lts",
  "merc_number",
  "merc_tools",
+ "merc_unsafety",
  "merc_utilities",
  "oxidd",
  "oxidd-core",
@@ -1170,7 +1133,9 @@ dependencies = [
  "oxidd-reorder",
  "oxidd-rules-bdd",
  "oxidd-rules-ldd",
+ "parking_lot",
  "rand",
+ "rayon",
  "rustc-hash 2.1.3",
  "streaming-iterator",
 ]
@@ -1397,7 +1362,7 @@ dependencies = [
 [[package]]
 name = "oxidd"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=12fbe5747c55a98faa05613bc5d73a79615744f9#12fbe5747c55a98faa05613bc5d73a79615744f9"
+source = "git+https://github.com/mlaveaux/oxidd?rev=cc845c64658b703bd9e36f85719cb1112de6a0d4#cc845c64658b703bd9e36f85719cb1112de6a0d4"
 dependencies = [
  "cfg-if",
  "derive-where",
@@ -1418,7 +1383,7 @@ dependencies = [
 [[package]]
 name = "oxidd-cache"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=12fbe5747c55a98faa05613bc5d73a79615744f9#12fbe5747c55a98faa05613bc5d73a79615744f9"
+source = "git+https://github.com/mlaveaux/oxidd?rev=cc845c64658b703bd9e36f85719cb1112de6a0d4#cc845c64658b703bd9e36f85719cb1112de6a0d4"
 dependencies = [
  "allocator-api2 0.2.21",
  "document-features",
@@ -1430,7 +1395,7 @@ dependencies = [
 [[package]]
 name = "oxidd-core"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=12fbe5747c55a98faa05613bc5d73a79615744f9#12fbe5747c55a98faa05613bc5d73a79615744f9"
+source = "git+https://github.com/mlaveaux/oxidd?rev=cc845c64658b703bd9e36f85719cb1112de6a0d4#cc845c64658b703bd9e36f85719cb1112de6a0d4"
 dependencies = [
  "dashu-int",
  "derive-where",
@@ -1442,18 +1407,18 @@ dependencies = [
 [[package]]
 name = "oxidd-derive"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=12fbe5747c55a98faa05613bc5d73a79615744f9#12fbe5747c55a98faa05613bc5d73a79615744f9"
+source = "git+https://github.com/mlaveaux/oxidd?rev=cc845c64658b703bd9e36f85719cb1112de6a0d4#cc845c64658b703bd9e36f85719cb1112de6a0d4"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
 name = "oxidd-dump"
 version = "0.8.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=12fbe5747c55a98faa05613bc5d73a79615744f9#12fbe5747c55a98faa05613bc5d73a79615744f9"
+source = "git+https://github.com/mlaveaux/oxidd?rev=cc845c64658b703bd9e36f85719cb1112de6a0d4#cc845c64658b703bd9e36f85719cb1112de6a0d4"
 dependencies = [
  "document-features",
  "fixedbitset",
@@ -1466,7 +1431,7 @@ dependencies = [
 [[package]]
 name = "oxidd-manager-index"
 version = "0.13.1"
-source = "git+https://github.com/mlaveaux/oxidd?rev=12fbe5747c55a98faa05613bc5d73a79615744f9#12fbe5747c55a98faa05613bc5d73a79615744f9"
+source = "git+https://github.com/mlaveaux/oxidd?rev=cc845c64658b703bd9e36f85719cb1112de6a0d4#cc845c64658b703bd9e36f85719cb1112de6a0d4"
 dependencies = [
  "allocator-api2 0.2.21",
  "crossbeam-utils",
@@ -1484,7 +1449,7 @@ dependencies = [
 [[package]]
 name = "oxidd-reorder"
 version = "0.8.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=12fbe5747c55a98faa05613bc5d73a79615744f9#12fbe5747c55a98faa05613bc5d73a79615744f9"
+source = "git+https://github.com/mlaveaux/oxidd?rev=cc845c64658b703bd9e36f85719cb1112de6a0d4#cc845c64658b703bd9e36f85719cb1112de6a0d4"
 dependencies = [
  "fixedbitset",
  "oxidd-core",
@@ -1495,7 +1460,7 @@ dependencies = [
 [[package]]
 name = "oxidd-rules-bdd"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=12fbe5747c55a98faa05613bc5d73a79615744f9#12fbe5747c55a98faa05613bc5d73a79615744f9"
+source = "git+https://github.com/mlaveaux/oxidd?rev=cc845c64658b703bd9e36f85719cb1112de6a0d4#cc845c64658b703bd9e36f85719cb1112de6a0d4"
 dependencies = [
  "document-features",
  "fixedbitset",
@@ -1507,7 +1472,7 @@ dependencies = [
 [[package]]
 name = "oxidd-rules-ldd"
 version = "0.8.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=12fbe5747c55a98faa05613bc5d73a79615744f9#12fbe5747c55a98faa05613bc5d73a79615744f9"
+source = "git+https://github.com/mlaveaux/oxidd?rev=cc845c64658b703bd9e36f85719cb1112de6a0d4#cc845c64658b703bd9e36f85719cb1112de6a0d4"
 dependencies = [
  "oxidd-core",
  "oxidd-derive",
@@ -1516,7 +1481,7 @@ dependencies = [
 [[package]]
 name = "oxidd-rules-mtbdd"
 version = "0.8.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=12fbe5747c55a98faa05613bc5d73a79615744f9#12fbe5747c55a98faa05613bc5d73a79615744f9"
+source = "git+https://github.com/mlaveaux/oxidd?rev=cc845c64658b703bd9e36f85719cb1112de6a0d4#cc845c64658b703bd9e36f85719cb1112de6a0d4"
 dependencies = [
  "document-features",
  "fixedbitset",
@@ -1528,7 +1493,7 @@ dependencies = [
 [[package]]
 name = "oxidd-rules-tdd"
 version = "0.8.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=12fbe5747c55a98faa05613bc5d73a79615744f9#12fbe5747c55a98faa05613bc5d73a79615744f9"
+source = "git+https://github.com/mlaveaux/oxidd?rev=cc845c64658b703bd9e36f85719cb1112de6a0d4#cc845c64658b703bd9e36f85719cb1112de6a0d4"
 dependencies = [
  "document-features",
  "oxidd-core",
@@ -1539,7 +1504,7 @@ dependencies = [
 [[package]]
 name = "oxidd-rules-zbdd"
 version = "0.13.0"
-source = "git+https://github.com/mlaveaux/oxidd?rev=12fbe5747c55a98faa05613bc5d73a79615744f9#12fbe5747c55a98faa05613bc5d73a79615744f9"
+source = "git+https://github.com/mlaveaux/oxidd?rev=cc845c64658b703bd9e36f85719cb1112de6a0d4#cc845c64658b703bd9e36f85719cb1112de6a0d4"
 dependencies = [
  "document-features",
  "fixedbitset",
@@ -1573,9 +1538,9 @@ dependencies = [
 
 [[package]]
 name = "pest"
-version = "2.9.5"
+version = "2.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8db75153506001cb36ed924f08cadc862eb3f8c4d0d534139f29074769d7660"
+checksum = "5ec53fd1d256900a9a771bf2720d42cef6f8bc91b4e25065fbd291e3e7222576"
 dependencies = [
  "memchr",
  "pest_stack_guard",
@@ -1584,9 +1549,9 @@ dependencies = [
 
 [[package]]
 name = "pest_derive"
-version = "2.9.5"
+version = "2.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20aa17e11fb35664b67d5214a0afac57a360d231b6ec53d6eba0700b27d933b4"
+checksum = "adcf794fd301ddc20818a6b4de85ed507f4b45300245cec948982e69e12e3bd7"
 dependencies = [
  "pest",
  "pest_generator",
@@ -1594,22 +1559,22 @@ dependencies = [
 
 [[package]]
 name = "pest_generator"
-version = "2.9.5"
+version = "2.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "626ec5afccf44ccbfeb2b232316510bb55b4bf34d891afcb0fb07d2b17d7fe9d"
+checksum = "c3073afae5db334c25dea9fc3e230a4f191e920c1df080cb9c0b37c9ce1dbb41"
 dependencies = [
  "pest",
  "pest_meta",
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
 name = "pest_meta"
-version = "2.9.5"
+version = "2.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3f45b6caa65c1b08186832745159c2529994146340a7bf44168095469720f5d"
+checksum = "7bc7f614b3742541642af1685faaa910bf6333e3cd3729c2cccd118146a57327"
 dependencies = [
  "pest",
 ]
@@ -1743,9 +1708,9 @@ checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
 
 [[package]]
 name = "rand"
-version = "0.10.3"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65c9fb96cbc91e3478eaae79a69fcd3f1ae4ad052e471fe6732fff548984b4af"
+checksum = "8f6fa277c67e6ea590466f04c3fe82cb509f0864fe470643e5570de9514a9b11"
 dependencies = [
  "chacha20",
  "getrandom 0.4.3",
@@ -1764,7 +1729,7 @@ version = "11.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "498cd0dc59d73224351ee52a95fee0f1a617a2eae0e7d9d720cc622c73a54186"
 dependencies = [
- "bitflags 2.13.2",
+ "bitflags",
 ]
 
 [[package]]
@@ -1793,7 +1758,7 @@ version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
- "bitflags 2.13.2",
+ "bitflags",
 ]
 
 [[package]]
@@ -1843,7 +1808,7 @@ version = "1.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5e76742e5294153d4dde1207dbec5bdd81eef6fabdc0d2118babadabfd858aa"
 dependencies = [
- "bitflags 2.13.2",
+ "bitflags",
  "errno",
  "libc",
  "linux-raw-sys",
@@ -1901,7 +1866,7 @@ checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -1988,9 +1953,9 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "smallvec"
-version = "1.16.4"
+version = "1.16.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0d5d4b1981b8bbbb7aed204cae5726d683d5d6ac7e74ec54122ea28f315e7c8"
+checksum = "149309498a5f7334b12ddae0cad8aba81ce785fe91755068867e017cf98fee46"
 
 [[package]]
 name = "sptr"
@@ -2042,9 +2007,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "3.0.9"
+version = "3.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d78c8dee4c7bf0e14673097256fed6142ce9d3b85a408189d07482442145823b"
+checksum = "4ae9ccbea3a7b0b09443036490c8f34a8b1b760fd345e5c0dae0aac718faea79"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2097,7 +2062,7 @@ dependencies = [
  "cfg-if",
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -2108,7 +2073,7 @@ checksum = "802d6165a14df1598b7290a8c546df402940d3cfbe82d15c0fd35de176771693"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
  "test-case-core",
 ]
 
@@ -2129,7 +2094,7 @@ checksum = "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
 ]
 
 [[package]]
@@ -2272,7 +2237,7 @@ dependencies = [
  "bumpalo",
  "proc-macro2",
  "quote",
- "syn 3.0.9",
+ "syn 3.0.10",
  "wasm-bindgen-shared",
 ]
 
@@ -2460,7 +2425,7 @@ version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 dependencies = [
- "bitflags 2.13.2",
+ "bitflags",
 ]
 
 [[package]]

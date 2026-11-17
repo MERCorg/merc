@@ -1,3 +1,9 @@
+[workspace.package]
+edition = "2024"
+license = "BSL-1.0"
+rust-version = "1.91.0"
+version = "1.0.0"
+
 # Add debug information to the release binaries.
 [profile.release]
 lto = "thin"
@@ -18,12 +24,6 @@ members = [
 exclude = [
     "crates/mCRL2-sys",
 ]
-
-[workspace.package]
-edition = "2024"
-license = "BSL-1.0"
-rust-version = "1.91.0"
-version = "1.0.0"
 
 [workspace.dependencies]
 clap = { version = "4.6", features = ["derive"] }
@@ -79,9 +79,9 @@ oxidd = { version = "0.13", features = ["multi-threading"] }
 # mcrl2-sys = { path = "crates/mCRL2-sys" }
 
 [patch.crates-io]
-oxidd = { git = "https://github.com/mlaveaux/oxidd", rev = "12fbe5747c55a98faa05613bc5d73a79615744f9" }
-oxidd-core = { git = "https://github.com/mlaveaux/oxidd", rev = "12fbe5747c55a98faa05613bc5d73a79615744f9" }
-oxidd-dump = { git = "https://github.com/mlaveaux/oxidd", rev = "12fbe5747c55a98faa05613bc5d73a79615744f9" }
-oxidd-reorder = { git = "https://github.com/mlaveaux/oxidd", rev = "12fbe5747c55a98faa05613bc5d73a79615744f9" }
-oxidd-rules-bdd = { git = "https://github.com/mlaveaux/oxidd", rev = "12fbe5747c55a98faa05613bc5d73a79615744f9" }
-oxidd-rules-ldd = { git = "https://github.com/mlaveaux/oxidd", rev = "12fbe5747c55a98faa05613bc5d73a79615744f9" }
+oxidd = { git = "https://github.com/mlaveaux/oxidd", rev = "cc845c64658b703bd9e36f85719cb1112de6a0d4" }
+oxidd-core = { git = "https://github.com/mlaveaux/oxidd", rev = "cc845c64658b703bd9e36f85719cb1112de6a0d4" }
+oxidd-dump = { git = "https://github.com/mlaveaux/oxidd", rev = "cc845c64658b703bd9e36f85719cb1112de6a0d4" }
+oxidd-reorder = { git = "https://github.com/mlaveaux/oxidd", rev = "cc845c64658b703bd9e36f85719cb1112de6a0d4" }
+oxidd-rules-bdd = { git = "https://github.com/mlaveaux/oxidd", rev = "cc845c64658b703bd9e36f85719cb1112de6a0d4" }
+oxidd-rules-ldd = { git = "https://github.com/mlaveaux/oxidd", rev = "cc845c64658b703bd9e36f85719cb1112de6a0d4" }
