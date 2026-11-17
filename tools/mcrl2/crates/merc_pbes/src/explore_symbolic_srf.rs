@@ -70,7 +70,6 @@ pub fn explore_pbes_symbolic_game(
     );
     let lps = PbesSrfLps::new(srf_pbes)?;
     let mut symbolic = SymbolicLps::with_options(storage, lps, encoding)?;
-
     debug!("{symbolic:?}");
 
     // `with_options` wraps the LPS in a `PermutedLps` to realise `--reorder`, so the equation
@@ -94,7 +93,8 @@ pub fn explore_pbes_symbolic_game(
         .expect("detect_deadlocks was requested, so deadlocks must be Some");
 
     let info = symbolic.lps().inner().equation_info();
-    let blocks: Vec<(Value, Player, Priority)> = context.columns()[level]
+    let (columns, _labels) = context.into_interning();
+    let blocks: Vec<(Value, Player, Priority)> = columns[level]
         .iter()
         .map(|(value, &equation)| (*value as Value, info[equation].player, info[equation].priority))
         .collect();

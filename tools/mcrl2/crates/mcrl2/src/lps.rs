@@ -57,6 +57,10 @@ pub struct LinearProcessSpecification {
     _marker: PhantomUnsend,
 }
 
+// SAFETY: the specification is immutable after construction: every `&self` method
+// only reads it.
+unsafe impl Sync for LinearProcessSpecification {}
+
 impl LinearProcessSpecification {
     /// Returns the initial process of the LPS, which is the process that is specified by the initial state.
     pub fn initial_process(&self) -> LinearProcessInitializer {
