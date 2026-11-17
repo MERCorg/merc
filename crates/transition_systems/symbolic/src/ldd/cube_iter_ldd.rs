@@ -240,6 +240,8 @@ mod tests {
 
     use super::*;
 
+    use oxidd::Manager;
+
     use merc_utilities::random_test;
     use oxidd::ManagerRef;
 
@@ -287,7 +289,9 @@ mod tests {
         random_test(30, |rng| {
             for threads in [1, 3] {
                 let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, threads);
-                manager.reserve_levels(10);
+                manager.with_manager_exclusive(|m| {
+                    m.add_vars(10);
+                });
 
                 let set = random_vector_set(rng, 64, 6, 4);
                 let ldd = from_iter(&manager, set.iter());
@@ -321,12 +325,12 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     fn test_iter_empty_vector() {
         let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 2);
-        let ldd = manager.with_manager_shared(|m| LDDFunction::empty_vector(m)).unwrap();
+        let ldd = manager.with_manager_shared(|m| LDDFunction::empty_vector(m));
         let mut vectors = iter(&ldd);
         assert_eq!(vectors.next().map(|v| v.len()), Some(0));
         assert!(vectors.next().is_none());
 
-        let empty = manager.with_manager_shared(|m| LDDFunction::empty_set(m)).unwrap();
+        let empty = manager.with_manager_shared(|m| LDDFunction::empty_set(m));
         assert_eq!(iter(&empty).count(), 0);
 
         let count = iter_par(

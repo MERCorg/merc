@@ -1,3 +1,12 @@
+[workspace.package]
+edition = "2024"
+homepage = "https://mercorg.github.io/merc-website/"
+repository = "https://github.com/MERCorg/merc.git"
+license = "BSL-1.0"
+# This version should not exceed the version supported by kani
+rust-version = "1.91.0"
+version = "3.0.0"
+
 # Add debug information to the release binaries.
 [profile.release]
 lto = "thin"
@@ -59,15 +68,6 @@ members = [
     "tools/sym",
     "tools/vpg",
 ]
-
-[workspace.package]
-edition = "2024"
-homepage = "https://mercorg.github.io/merc-website/"
-repository = "https://github.com/MERCorg/merc.git"
-license = "BSL-1.0"
-# This version should not exceed the version supported by kani
-rust-version = "1.91.0"
-version = "3.0.0"
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "allow", check-cfg = ['cfg(loom)', 'cfg(kani)'] }
@@ -190,9 +190,9 @@ merc_pest_consume = { version = "2.1", git = "https://github.com/MERCorg/pest_co
 
 # Use a local checkout of the oxidd fork until the LDD branch is integrated.
 [patch.crates-io]
-oxidd = { git = "https://github.com/mlaveaux/oxidd", rev = "12fbe5747c55a98faa05613bc5d73a79615744f9" }
-oxidd-core = { git = "https://github.com/mlaveaux/oxidd", rev = "12fbe5747c55a98faa05613bc5d73a79615744f9" }
-oxidd-dump =  { git = "https://github.com/mlaveaux/oxidd", rev = "12fbe5747c55a98faa05613bc5d73a79615744f9" }
-oxidd-reorder = { git = "https://github.com/mlaveaux/oxidd", rev = "12fbe5747c55a98faa05613bc5d73a79615744f9" }
-oxidd-rules-bdd = { git = "https://github.com/mlaveaux/oxidd", rev = "12fbe5747c55a98faa05613bc5d73a79615744f9" }
-oxidd-rules-ldd = { git = "https://github.com/mlaveaux/oxidd", rev = "12fbe5747c55a98faa05613bc5d73a79615744f9" }
+oxidd = { git = "https://github.com/mlaveaux/oxidd", rev = "cc845c64658b703bd9e36f85719cb1112de6a0d4" }
+oxidd-core = { git = "https://github.com/mlaveaux/oxidd", rev = "cc845c64658b703bd9e36f85719cb1112de6a0d4" }
+oxidd-dump = { git = "https://github.com/mlaveaux/oxidd", rev = "cc845c64658b703bd9e36f85719cb1112de6a0d4" }
+oxidd-reorder = { git = "https://github.com/mlaveaux/oxidd", rev = "cc845c64658b703bd9e36f85719cb1112de6a0d4" }
+oxidd-rules-bdd = { git = "https://github.com/mlaveaux/oxidd", rev = "cc845c64658b703bd9e36f85719cb1112de6a0d4" }
+oxidd-rules-ldd = { git = "https://github.com/mlaveaux/oxidd", rev = "cc845c64658b703bd9e36f85719cb1112de6a0d4" }
