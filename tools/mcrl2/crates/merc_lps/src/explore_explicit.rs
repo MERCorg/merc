@@ -456,8 +456,8 @@ pub struct ExplicitLinearProcessSpecification {
     /// builds its own [`LearnSuccessorsContext`] from it.
     lps: LinearProcessSpecification,
 
-    /// Cached process parameter variables in declaration order.
-    process_parameters: Vec<*const _aterm>,
+    /// The process parameters, in declaration order.
+    process_parameters: Vec<DataVariable>,
 
     /// The summands extracted from the LPS.
     summands: Vec<ExplicitSummand>,
@@ -475,18 +475,10 @@ pub struct ExplicitLinearProcessSpecification {
 /// mapping each distinct expression to a dense `usize` used in state vectors.
 type ValueMapping = ConcurrentIndexedSet<DataExpressionRef<'static>>;
 
-// SAFETY: after construction the LPS is immutable except for `value_mapping`,
-// whose backing [`ConcurrentIndexedSet`] is itself thread-safe. The cached
-// `*const _aterm` parameter pointers are stable maximally shared term addresses,
-// and mCRL2 garbage collection is stop-the-world, so no `&self` access can race
-// with collection.
-unsafe impl Sync for ExplicitLinearProcessSpecification {}
-
 impl ExplicitLinearProcessSpecification {
     pub fn new(lps: LinearProcessSpecification) -> Result<Self, MercError> {
         let parameters = lps.parameters();
-        let parameter_terms: Vec<DataVariable> = parameters.to_vec();
-        let process_parameters: Vec<*const _aterm> = parameter_terms.iter().map(|param| param.address()).collect();
+        let process_parameters: Vec<DataVariable> = parameters.to_vec();
         let num_parameters = parameters.len();
 
         // Shared value interning, kept alive as a garbage-collection container
@@ -587,6 +579,9 @@ pub struct ExplicitContext {
     /// Backend used by mCRL2 to perform the enumeration, staged per source
     /// state.
     context: LearnSuccessorsContext,
+
+    /// The addresses of the process parameters, kept alive by the LPS that created this context.
+    parameters: Vec<*const _aterm>,
 
     /// Reusable scratch buffer holding the `*const _aterm` parameter values
     /// resolved from the current source state. Filled during [`LPS::prepare`]
@@ -734,6 +729,7 @@ impl LPS for ExplicitLinearProcessSpecification {
     fn create_context(&self) -> ExplicitContext {
         ExplicitContext {
             context: LearnSuccessorsContext::new(&self.lps),
+            parameters: self.process_parameters.iter().map(|param| param.address()).collect(),
             parameter_values: Vec::with_capacity(self.process_parameters.len()),
             next_state_buf: Vec::new(),
         }
@@ -762,7 +758,7 @@ impl LPS for ExplicitLinearProcessSpecification {
 
         context
             .context
-            .set_assignments(&self.process_parameters, &context.parameter_values);
+            .set_assignments(&context.parameters, &context.parameter_values);
 
         // Every summand is a candidate for every source state.
         0..self.summands.len()

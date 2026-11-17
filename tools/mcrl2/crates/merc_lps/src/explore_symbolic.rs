@@ -55,7 +55,6 @@ pub fn explore_lps_symbolic<F: FnMut(usize, &LDDFunction) -> ControlFlow<()>>(
 ) -> Result<ReachabilityResult, MercError> {
     let lps = ExplicitLinearProcessSpecification::new(lps)?;
     let mut symbolic = SymbolicLps::with_options(storage, lps, encoding)?;
-
     debug!("{symbolic:?}");
 
     let mut context = symbolic.create_context();
@@ -86,7 +85,6 @@ pub fn explore_lps_symbolic_to_sym<F: FnMut(usize, &LDDFunction) -> ControlFlow<
 ) -> Result<(SymbolicLts<LtsMultiAction<LtsAction>>, Option<LDDFunction>), MercError> {
     let lps = ExplicitLinearProcessSpecification::new(lps)?;
     let mut symbolic = SymbolicLps::with_options(storage, lps, encoding)?;
-
     debug!("{symbolic:?}");
 
     let mut context = symbolic.create_context();
@@ -117,8 +115,9 @@ pub fn explore_lps_symbolic_to_sym<F: FnMut(usize, &LDDFunction) -> ControlFlow<
 
     // The values observed for each process parameter, in the dense order the
     // diagrams use, i.e. matching the LDD values stored at that position.
+    let (columns, labels) = context.into_interning();
     let mut parameter_values: Vec<Vec<DataExpression>> = Vec::with_capacity(process_parameters.len());
-    for column in context.columns() {
+    for column in &columns {
         let mut values = Vec::with_capacity(column.len());
         for i in 0..column.len() {
             let index = *column.get_by_index(i).expect("dense index must be present");
@@ -130,7 +129,6 @@ pub fn explore_lps_symbolic_to_sym<F: FnMut(usize, &LDDFunction) -> ControlFlow<
     }
 
     // The action labels observed during exploration, again in dense order.
-    let labels = context.labels();
     let mut action_labels: Vec<LtsMultiAction<LtsAction>> = Vec::with_capacity(labels.len());
     for i in 0..labels.len() {
         let label = labels.get_by_index(i).expect("dense index must be present");

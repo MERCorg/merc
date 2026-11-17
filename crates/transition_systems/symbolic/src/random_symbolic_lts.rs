@@ -133,6 +133,10 @@ struct ExplorationLps {
 
 impl SymbolicLPS for ExplorationLps {
     type Group = SummandGroup;
+    type Learner<'a>
+        = crate::NoLearner
+    where
+        Self: 'a;
 
     fn initial_state(&self) -> &LDDFunction {
         &self.initial_state
