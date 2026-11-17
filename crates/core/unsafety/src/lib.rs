@@ -12,6 +12,7 @@ mod protection_set;
 mod sharded_hashmap;
 mod slice_dst;
 mod stable_pointer_set;
+mod worker_local;
 
 pub(crate) use erasable::*;
 pub(crate) use freelist::*;
@@ -36,3 +37,4 @@ pub use slice_dst::SliceDst;
 pub use slice_dst::repr_c;
 pub use stable_pointer_set::StablePointer;
 pub use stable_pointer_set::StablePointerSet;
+pub use worker_local::WorkerLocal;

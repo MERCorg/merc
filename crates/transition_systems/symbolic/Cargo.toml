@@ -34,6 +34,7 @@ duct.workspace = true
 delegate.workspace = true
 itertools.workspace = true
 log.workspace = true
+merc_unsafety.workspace = true
 oxidd-core.workspace = true
 parking_lot.workspace = true
 oxidd-dump.workspace = true
@@ -43,6 +44,7 @@ oxidd-rules-ldd.workspace = true
 oxidd.workspace = true
 rand.workspace = true
 rustc-hash.workspace = true
+rayon.workspace = true
 streaming-iterator.workspace = true
 which.workspace = true
 

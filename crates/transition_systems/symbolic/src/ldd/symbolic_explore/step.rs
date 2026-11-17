@@ -20,6 +20,7 @@ use merc_io::TimeProgress;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
 
+use crate::GroupLearner;
 use crate::LddDisplay;
 use crate::LddLenCache;
 use crate::SatCount;
@@ -279,7 +280,7 @@ fn chaining_order<G: TransitionGroup>(groups: &[G]) -> Vec<usize> {
 /// their unions run as a balanced tree of `join`s ([`parallel_map_reduce`]).
 ///
 /// The groups learn at the same time through the
-/// [`SymbolicLPS::parallel_group_learner`], as saturation does, or one after
+/// [`SymbolicLPS::group_learner`], as saturation does, or one after
 /// another (each in parallel itself) if the backend has none.
 fn step_parallel_groups<L: SymbolicLPS>(
     storage: &LDDManagerRef,
@@ -323,7 +324,7 @@ fn step_parallel_groups<L: SymbolicLPS>(
             .iter()
             .map(|g| (g.relation().clone(), g.domain().cloned()))
             .collect();
-        match lts_ref.parallel_group_learner(context, storage) {
+        match lts_ref.group_learner(context, storage) {
             Some(learner) => Some(timing.measure("pg_learn", || {
                 workers.install(|| {
                     parallel_map(workers, projections.len(), &|i| -> Result<

@@ -33,9 +33,14 @@ pub trait SymbolicLPS {
     /// per reachability run and must outlive every learning call.
     fn create_context(&self) -> <Self::Group as TransitionGroup>::Context;
 
+    /// The learner returned by [`Self::group_learner`]; [`NoLearner`] when the relations are fixed.
+    type Learner<'a>: GroupLearner + Sync
+    where
+        Self: 'a;
+
     /// Returns a learner for the transition groups that learns with `context`, for strategies that
     /// learn inside another operation such as saturation, or `None` when the relations are fixed.
-    /// It is only used on the calling thread.
+    /// The learner can be used from every worker of the manager, also concurrently.
     ///
     /// The learner borrows the groups and the context, so the learned transitions are handed back
     /// to the groups with [`TransitionGroup::set_learned`] after it is dropped.
@@ -43,17 +48,7 @@ pub trait SymbolicLPS {
         &'a self,
         _context: &'a mut <Self::Group as TransitionGroup>::Context,
         _storage: &'a LDDManagerRef,
-    ) -> Option<Box<dyn GroupLearner + 'a>> {
-        None
-    }
-
-    /// Like [`Self::group_learner`], but for a learner that can be used from every worker of the
-    /// manager, also concurrently; `None` when the groups cannot be learned that way.
-    fn parallel_group_learner<'a>(
-        &'a self,
-        _context: &'a mut <Self::Group as TransitionGroup>::Context,
-        _storage: &'a LDDManagerRef,
-    ) -> Option<Box<dyn GroupLearner + Sync + 'a>> {
+    ) -> Option<Self::Learner<'a>> {
         None
     }
 
@@ -82,6 +77,16 @@ pub trait GroupLearner {
     ///
     /// Can be called from inside saturation, on any worker of the manager's pool.
     fn learn(&self, group: usize, projected: &LDDFunction) -> Result<LDDFunction, MercError>;
+}
+
+/// The [`SymbolicLPS::Learner`] of an LTS whose relations are fixed; it has no values, so
+/// [`SymbolicLPS::group_learner`] can only return `None`.
+pub enum NoLearner {}
+
+impl GroupLearner for NoLearner {
+    fn learn(&self, _group: usize, _projected: &LDDFunction) -> Result<LDDFunction, MercError> {
+        match *self {}
+    }
 }
 
 /// A single LDD-based transition group for a set of summands (short vector encoding).

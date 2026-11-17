@@ -49,10 +49,8 @@ static NEXT_EPOCH: AtomicU32 = AtomicU32::new(0);
 
 /// Performs reachability with saturation, see the module documentation.
 ///
-/// When the LTS offers a learner that can be used from every worker
-/// ([`SymbolicLPS::parallel_group_learner`]), saturation runs on the manager's worker pool and learns
-/// from every worker. Otherwise it runs on the calling thread. Groups with fixed relations are
-/// saturated without learning.
+/// Saturation runs on the manager's worker pool and learns from every worker, with
+/// [`SymbolicLPS::group_learner`]. Groups with fixed relations are saturated without learning.
 ///
 /// One iteration of `on_iteration` is one pass. Learning always caches the domains: without it, a
 /// group would enumerate the same projections at every node.
@@ -144,14 +142,16 @@ fn saturation_pass<L: SymbolicLPS>(
 
     let (result, learned) = {
         let lts: &L = lts;
-        if let Some(learner) = lts.parallel_group_learner(context, storage) {
-            let on_the_fly = OnTheFly::new(&*learner, lts, &events, &groups);
+        // Saturation calls the learner from every worker of the pool.
+        if let Some(learner) = lts.group_learner(context, storage) {
+            let on_the_fly = OnTheFly::new(&learner, lts, &events, &groups);
             let result = states.saturate(&events, epoch, |event, set| on_the_fly.relation_for(event, set));
             (result, Some(on_the_fly.finish()))
-        } else if let Some(learner) = lts.group_learner(context, storage) {
-            let on_the_fly = OnTheFly::new(&*learner, lts, &events, &groups);
-            let result = states.saturate_sequential(&events, epoch, |event, set| on_the_fly.relation_for(event, set));
-            (result, Some(on_the_fly.finish()))
+        } else if groups
+            .iter()
+            .any(|&group| lts.transition_groups()[group].domain().is_some())
+        {
+            return Err("the transition groups are learned, but the LTS offers no group learner for saturation".into());
         } else {
             let relations: Vec<LDDFunction> = groups
                 .iter()
