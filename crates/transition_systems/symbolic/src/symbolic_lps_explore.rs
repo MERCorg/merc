@@ -1,5 +1,4 @@
 use std::fmt;
-use std::rc::Rc;
 
 use log::debug;
 
@@ -7,6 +6,7 @@ use merc_collections::IndexedSet;
 use merc_explore::LPS;
 use merc_explore::PermutedLps;
 use merc_explore::Summand;
+use merc_unsafety::NoCloneArc;
 use merc_unsafety::WorkerLocal;
 use merc_utilities::MercError;
 use oxidd::HasWorkers;
@@ -51,7 +51,7 @@ use crate::transition_group_pattern;
 pub struct SymbolicLps<L: LPS> {
     /// The wrapped `LPS` definition; the single source of summands and the
     /// `prepare`/`enumerate` machinery. Shared immutably with every group.
-    lps: Rc<L>,
+    lps: NoCloneArc<L>,
 
     /// The symbolic transition groups, as determined by the [`SummandGrouping`].
     groups: Vec<SymbolicLpsGroup<L>>,
@@ -185,7 +185,7 @@ impl<L: LPS> SymbolicLps<PermutedLps<L>> {
         // `order[level]` is the state vector position to store at `level` of the diagram, which is
         // realised by permuting the LPS; from here on the positions of `lps` *are* the levels.
         let order = options.order.compute(&patterns, num_positions)?;
-        let lps = Rc::new(PermutedLps::new(lps, order)?);
+        let mut lps = NoCloneArc::new(PermutedLps::new(lps, order)?);
 
         // The patterns of the permuted summands, i.e. the read/write matrix as the diagrams store it.
         let patterns = read_write_patterns(&*lps, num_positions)?;
@@ -238,7 +238,7 @@ impl<L: LPS> SymbolicLps<PermutedLps<L>> {
                 })?;
 
             groups.push(SymbolicLpsGroup {
-                lps: Rc::clone(&lps),
+                lps: lps.share(),
                 indices,
                 read_indices,
                 write_indices,
@@ -350,7 +350,7 @@ where
             unreachable!("the workers were just created");
         };
         Some(ParallelLearner {
-            views: self.groups.iter().map(SymbolicLpsGroup::view).collect(),
+            groups: &self.groups,
             workers,
             interning: Interning { columns, labels },
             storage,
@@ -361,8 +361,9 @@ where
 /// A group of summands of a [`SymbolicLps`], encoded as a single short-vector LDD
 /// transition relation that is learned on the fly during reachability.
 pub struct SymbolicLpsGroup<L: LPS> {
-    /// The wrapped `LPS`, shared immutably with [SymbolicLps].
-    lps: Rc<L>,
+    /// The wrapped `LPS`, shared immutably with [SymbolicLps]. A [`NoCloneArc`], so that the group
+    /// can be shared with the workers of the pool when `L` is `Sync`.
+    lps: NoCloneArc<L>,
 
     /// Indices of the summands in this group within `lps.summands()`, in increasing order.
     indices: Vec<usize>,
@@ -477,33 +478,6 @@ where
     }
 }
 
-/// The immutable view of a [`SymbolicLpsGroup`] that learning one state needs.
-///
-/// The group itself is never shared with the worker pool: it owns an `Rc` to the `LPS` (which is
-/// never `Sync`) and its learned relation. Workers get this decomposed view instead, every field
-/// of which is `Sync` when the underlying `LPS` is — most importantly the plain `&L`, which each
-/// worker reads to create its own enumeration context and to rewrite from.
-struct GroupView<'a, L: LPS> {
-    /// The wrapped `LPS` definition.
-    lps: &'a L,
-
-    /// Indices of the summands in this group within `lps.summands()`, in increasing order.
-    indices: &'a [usize],
-
-    /// Diagram levels read by the group (sorted), which are the state vector positions it reads.
-    read_indices: &'a [Value],
-
-    /// Diagram levels written by the group (sorted), which are the state vector positions it
-    /// writes.
-    write_indices: &'a [Value],
-
-    /// Interleaved short-vector positions of `read_indices`.
-    read_positions: &'a [LevelNo],
-
-    /// Interleaved short-vector positions of `write_indices`.
-    write_positions: &'a [LevelNo],
-}
-
 /// Reusable scratch buffers for learning the successors of one projected state at a time, see
 /// [`SymbolicLpsGroup::learn_successors`].
 ///
@@ -555,25 +529,11 @@ impl<L: LPS> Clone for Interning<'_, L> {
 }
 impl<L: LPS> Copy for Interning<'_, L> {}
 
-impl<L: LPS> GroupView<'_, L> {
+impl<L: LPS> SymbolicLpsGroup<L> {
     /// The length of the relation vectors: the interleaved read and write positions, followed by
     /// the interned action label when the `LPS` has labels.
     fn vector_len(&self) -> usize {
         self.read_indices.len() + self.write_indices.len() + usize::from(L::HAS_LABELS)
-    }
-}
-
-impl<L: LPS> SymbolicLpsGroup<L> {
-    /// Returns the worker-shareable view of this group, see [`GroupView`].
-    fn view(&self) -> GroupView<'_, L> {
-        GroupView {
-            lps: self.lps.as_ref(),
-            indices: &self.indices,
-            read_indices: &self.read_indices,
-            write_indices: &self.write_indices,
-            read_positions: &self.read_positions,
-            write_positions: &self.write_positions,
-        }
     }
 }
 
@@ -586,7 +546,7 @@ impl<L: LPS> SymbolicLpsGroup<L> {
 /// worker pool, so a worker does not run other work of the pool while it holds its enumeration
 /// context. The same routine serves the serial learner and every parallel worker.
 fn learn_one_state<L: LPS>(
-    view: &GroupView<'_, L>,
+    group: &SymbolicLpsGroup<L>,
     scratch: &mut LearnScratch<L>,
     enumerate: &mut <L::Summand as Summand>::Context,
     interning: Interning<'_, L>,
@@ -595,28 +555,29 @@ fn learn_one_state<L: LPS>(
 ) -> Result<(), MercError> {
     debug_assert_eq!(
         short_state.len(),
-        view.read_indices.len(),
+        group.read_indices.len(),
         "Projected state must have one value per read index"
     );
 
     // Overlay the short read values into the full state buffer and the
     // interleaved read positions.
     for (k, &value) in short_state.iter().enumerate() {
-        let position = view.read_indices[k] as usize;
+        let position = group.read_indices[k] as usize;
         scratch.full_state[position] = *interning.columns[position]
             .lock()
             .get_by_index(value as usize)
             .expect("read value must already be interned");
-        scratch.interleaved[view.read_positions[k] as usize] = value;
+        scratch.interleaved[group.read_positions[k] as usize] = value;
     }
 
     // Prepare the backend assignments for this state and collect the summands of this group
     // that may fire from it.
     scratch.applicable.clear();
     scratch.applicable.extend(
-        view.lps
+        group
+            .lps
             .prepare(enumerate, &scratch.full_state)
-            .filter(|i| view.indices.binary_search(i).is_ok()),
+            .filter(|i| group.indices.binary_search(i).is_ok()),
     );
 
     // Enumerate the successors of every applicable summand, building the write side of each
@@ -625,13 +586,13 @@ fn learn_one_state<L: LPS>(
     // A summand that does not write one of the group's write positions leaves it untouched
     // (the [`StateEffect::Positions`] contract), so `next_state` carries the source value
     // there, which the group reads by construction of its read positions.
-    let action_position = view.read_indices.len() + view.write_indices.len();
+    let action_position = group.read_indices.len() + group.write_indices.len();
     for &index in &scratch.applicable {
-        let write_indices = view.write_indices;
-        let write_positions = view.write_positions;
+        let write_indices = &group.write_indices;
+        let write_positions = &group.write_positions;
         let interleaved = &mut scratch.interleaved;
 
-        view.lps.summands()[index].enumerate(enumerate, &scratch.full_state, |label, next_state| {
+        group.lps.summands()[index].enumerate(enumerate, &scratch.full_state, |label, next_state| {
             for (m, &write_index) in write_indices.iter().enumerate() {
                 let position = write_index as usize;
                 let (value, _) = interning.columns[position].lock().insert(next_state[position]);
@@ -650,13 +611,13 @@ fn learn_one_state<L: LPS>(
     Ok(())
 }
 
-/// Learns the relation of the transitions from the projected states `projected` of the group of
-/// `view` on the workers of `storage`, iterating them with [`iter_par`].
+/// Learns the relation of the transitions of `group` from the projected states `projected` on the
+/// workers of `storage`, iterating them with [`iter_par`].
 ///
 /// Every worker uses its own enumeration context from `workers`, created on its first use and kept
 /// for as long as `workers`, and scratch buffers of its own.
 fn learn_relation_parallel<L>(
-    view: &GroupView<'_, L>,
+    group: &SymbolicLpsGroup<L>,
     workers: &WorkerLocal<<L::Summand as Summand>::Context>,
     interning: Interning<'_, L>,
     storage: &LDDManagerRef,
@@ -678,11 +639,11 @@ where
                 None => relation.insert(storage.with_manager_shared(|manager| LDDFunction::empty_set(manager))),
             };
             let scratch =
-                scratch.get_or_insert_with(|| LearnScratch::new(view.lps, view.vector_len(), view.indices.len()));
+                scratch.get_or_insert_with(|| LearnScratch::new(&group.lps, group.vector_len(), group.indices.len()));
             workers.with(
                 rayon::current_thread_index().expect("parallel learning runs on the workers of the pool"),
-                || view.lps.create_context(),
-                |enumerate| learn_one_state(view, scratch, enumerate, interning, relation, short_state),
+                || group.lps.create_context(),
+                |enumerate| learn_one_state(group, scratch, enumerate, interning, relation, short_state),
             )
         },
         |(a, scratch), (b, _)| {
@@ -722,19 +683,13 @@ where
     else {
         unreachable!("the workers were just created");
     };
-    learn_relation_parallel(
-        &group.view(),
-        workers,
-        Interning { columns, labels },
-        storage,
-        projected,
-    )
+    learn_relation_parallel(group, workers, Interning { columns, labels }, storage, projected)
 }
 
 /// The [`GroupLearner`] of a [`SymbolicLps`] that can be used from every worker, with the
 /// enumeration context of that worker. It learns with [`learn_relation_parallel`].
 pub struct ParallelLearner<'a, L: LPS> {
-    views: Vec<GroupView<'a, L>>,
+    groups: &'a [SymbolicLpsGroup<L>],
     workers: &'a WorkerLocal<<L::Summand as Summand>::Context>,
     interning: Interning<'a, L>,
     storage: &'a LDDManagerRef,
@@ -750,7 +705,7 @@ where
         // oxidd does not expose how far the calling operation may still split, so this always
         // iterates in parallel; the pool's split depth bounds the nested splitting.
         learn_relation_parallel(
-            &self.views[group],
+            &self.groups[group],
             self.workers,
             self.interning,
             self.storage,

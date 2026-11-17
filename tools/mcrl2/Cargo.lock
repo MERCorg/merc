@@ -1036,7 +1036,6 @@ version = "3.0.0"
 dependencies = [
  "bnum",
  "num",
- "rand",
 ]
 
 [[package]]

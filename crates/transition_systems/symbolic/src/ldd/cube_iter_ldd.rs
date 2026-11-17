@@ -235,9 +235,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use oxidd::Manager;
-    use oxidd::ManagerRef;
-
     use super::*;
 
     use oxidd::Manager;
