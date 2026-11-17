@@ -101,6 +101,10 @@ struct SylvanLtsWithStates {
 
 impl SymbolicLPS for SylvanLtsWithStates {
     type Group = SylvanTransitionGroup;
+    type Learner<'a>
+        = crate::NoLearner
+    where
+        Self: 'a;
 
     fn initial_state(&self) -> &LDDFunction {
         self.lts.initial_state()
@@ -322,6 +326,10 @@ struct LineLts {
 
 impl SymbolicLPS for LineLts {
     type Group = SylvanTransitionGroup;
+    type Learner<'a>
+        = crate::NoLearner
+    where
+        Self: 'a;
 
     fn initial_state(&self) -> &LDDFunction {
         &self.initial

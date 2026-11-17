@@ -88,6 +88,10 @@ impl SylvanLts {
 
 impl SymbolicLPS for SylvanLts {
     type Group = SylvanTransitionGroup;
+    type Learner<'a>
+        = crate::NoLearner
+    where
+        Self: 'a;
 
     fn initial_state(&self) -> &LDDFunction {
         &self.initial_state
