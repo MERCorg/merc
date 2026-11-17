@@ -55,4 +55,5 @@ jobs:
       run: cargo bench --no-run
       working-directory: tools/gui/
       env:
-        RUSTC_WRAPPER: sccache
+        # sccache does not fall back to an @argfile, and the GUI rustc command line exceeds the Windows limit (os error 206).
+        RUSTC_WRAPPER: ${{ matrix.os != 'windows-latest' && 'sccache' || '' }}

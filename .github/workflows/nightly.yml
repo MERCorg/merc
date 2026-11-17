@@ -81,7 +81,8 @@ jobs:
       run: cargo build --release
       working-directory: tools/gui
       env:        
-        RUSTC_WRAPPER: sccache
+        # sccache does not fall back to an @argfile, and the GUI rustc command line exceeds the Windows limit (os error 206).
+        RUSTC_WRAPPER: ${{ matrix.os != 'windows-latest' && 'sccache' || '' }}
         
     - name: Run tools/gui tests
       run: cargo nextest run --release --no-fail-fast -- --include-ignored
@@ -89,5 +90,6 @@ jobs:
       env:
         RUST_BACKTRACE: full
         RUST_LOG: debug
-        RUSTC_WRAPPER: sccache
+        # sccache does not fall back to an @argfile, and the GUI rustc command line exceeds the Windows limit (os error 206).
+        RUSTC_WRAPPER: ${{ matrix.os != 'windows-latest' && 'sccache' || '' }}
         RUST_MIN_STACK: 104857600
