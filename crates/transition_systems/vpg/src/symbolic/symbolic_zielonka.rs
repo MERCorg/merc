@@ -112,7 +112,7 @@ pub fn solve_symbolic_zielonka(
     allow_early_termination: bool,
 ) -> Result<(Player, SymbolicSolution), MercError> {
     let game = &epg.game;
-    let empty = game.manager().with_manager_shared(LDDFunction::empty_set)?;
+    let empty = game.manager().with_manager_shared(LDDFunction::empty_set);
     let mut winning = [empty.clone(), empty];
     let mut strategy = empty_strategy_pair(game)?;
     let attractor_progress = new_attractor_progress();
@@ -172,7 +172,7 @@ fn new_recursion_progress() -> RecursionProgress {
 /// Some(∅)]` — the accumulator [`SymbolicParityGame::compute_total_graph`] grows in place.
 pub(crate) fn empty_strategy_pair(game: &SymbolicParityGame) -> Result<[Option<LDDFunction>; 2], MercError> {
     if game.compute_strategy() {
-        let empty = game.manager().with_manager_shared(LDDFunction::empty_set)?;
+        let empty = game.manager().with_manager_shared(LDDFunction::empty_set);
         Ok([Some(empty.clone()), Some(empty)])
     } else {
         Ok([None, None])
@@ -319,7 +319,7 @@ fn zielonka_rec(
 
 /// Returns an empty set in the same manager as `game`.
 pub(crate) fn empty_set(game: &SymbolicParityGame) -> Result<LDDFunction, MercError> {
-    Ok(game.manager().with_manager_shared(LDDFunction::empty_set)?)
+    Ok(game.manager().with_manager_shared(LDDFunction::empty_set))
 }
 
 #[cfg(test)]

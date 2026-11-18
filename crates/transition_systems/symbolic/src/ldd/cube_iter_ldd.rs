@@ -161,6 +161,8 @@ impl StreamingIterator for Iter {
 
 #[cfg(test)]
 mod tests {
+    use oxidd::Manager;
+    use oxidd::ManagerRef;
 
     use super::*;
 
@@ -177,7 +179,9 @@ mod tests {
     fn test_random_iter() {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-            manager.reserve_levels(10);
+            manager.with_manager_exclusive(|m| {
+                m.add_vars(10);
+            });
 
             let set = random_vector_set(rng, 32, 10, 10);
             let ldd = from_iter(&manager, set.iter());

@@ -9,6 +9,7 @@ use merc_explore::PermutedLps;
 use merc_explore::Summand;
 use merc_utilities::MercError;
 use oxidd::LevelNo;
+use oxidd::Manager;
 use oxidd::ManagerRef;
 use oxidd::ldd::LDDFunction;
 use oxidd::ldd::LDDManagerRef;
@@ -140,7 +141,9 @@ impl<L: LPS> SymbolicLps<PermutedLps<L>> {
         // The `manager` must have at least `2 * n + 1` levels reserved. The
         // relations interleave a read and a write value per position, followed
         // by the action label.
-        manager.reserve_levels((2 * num_positions + 1) as LevelNo);
+        manager.with_manager_exclusive(|m| {
+            m.add_vars(((2 * num_positions + 1) as LevelNo).saturating_sub(m.num_levels()));
+        });
 
         let patterns = read_write_patterns(&lps, num_positions)?;
         debug!(
@@ -198,8 +201,8 @@ impl<L: LPS> SymbolicLps<PermutedLps<L>> {
                         read_positions,
                         write_positions,
                     } = LDDFunction::relation_meta(m, &read_indices, &write_indices)?;
-                    let relation = LDDFunction::empty_set(m)?;
-                    let domain = LDDFunction::empty_set(m)?;
+                    let relation = LDDFunction::empty_set(m);
+                    let domain = LDDFunction::empty_set(m);
                     Ok((project_ldd, meta, read_positions, write_positions, relation, domain))
                 })?;
 

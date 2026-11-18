@@ -41,8 +41,8 @@ impl<W: BitStreamWrite> BinaryLddWriter<W> {
         // Add the true and false constants
         let mut nodes = IndexedSet::new();
         manager.with_manager_shared(|m| -> Result<(), MercError> {
-            nodes.insert(LDDFunction::empty_set(m)?);
-            nodes.insert(LDDFunction::empty_vector(m)?);
+            nodes.insert(LDDFunction::empty_set(m));
+            nodes.insert(LDDFunction::empty_vector(m));
             Ok(())
         })?;
 
@@ -206,6 +206,7 @@ mod tests {
     use merc_io::BitStreamReader;
     use merc_io::BitStreamWriter;
     use merc_utilities::random_test;
+    use oxidd::Manager;
 
     use crate::LDD_CACHE_CAPACITY;
     use crate::LDD_NODE_CAPACITY;
@@ -219,12 +220,7 @@ mod tests {
     fn test_binary_ldd_stream_terminals() {
         let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
 
-        let terminals = manager.with_manager_shared(|m| {
-            [
-                LDDFunction::empty_set(m).unwrap(),
-                LDDFunction::empty_vector(m).unwrap(),
-            ]
-        });
+        let terminals = manager.with_manager_shared(|m| [LDDFunction::empty_set(m), LDDFunction::empty_vector(m)]);
         for term in terminals {
             let mut vector: Vec<u8> = Vec::new();
             let stream = BitStreamWriter::new(&mut vector);
@@ -245,7 +241,9 @@ mod tests {
     fn test_binary_ldd_stream() {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-            manager.reserve_levels(10);
+            manager.with_manager_exclusive(|m| {
+                m.add_vars(10);
+            });
 
             let input: Vec<_> = (0..20)
                 .map(|_| {

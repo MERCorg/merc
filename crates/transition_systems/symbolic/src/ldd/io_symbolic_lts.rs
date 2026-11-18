@@ -22,6 +22,8 @@ use merc_lts::LtsAction;
 use merc_lts::LtsMultiAction;
 use merc_utilities::MercError;
 use oxidd::LevelNo;
+use oxidd::Manager;
+use oxidd::ManagerRef;
 use oxidd::ldd::LDDManagerRef;
 
 use crate::BinaryLddReader;
@@ -84,7 +86,9 @@ pub fn read_symbolic_lts<R: Read>(
 
     // The relations are the longest vectors: a read and a write value per parameter, followed by the
     // action label.
-    manager.reserve_levels(2 * process_parameters.len() as LevelNo + 1);
+    manager.with_manager_exclusive(|m| {
+        m.add_vars((2 * process_parameters.len() as LevelNo + 1).saturating_sub(m.num_levels()));
+    });
 
     let initial_state = stream.read_ldd(manager)?;
     let states = stream.read_ldd(manager)?;

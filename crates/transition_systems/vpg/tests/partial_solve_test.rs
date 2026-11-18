@@ -61,12 +61,12 @@ fn test_partial_solve_is_sound() {
             encode_parity_game(&manager, &game, rng, radix, num_groups, false).unwrap();
 
         let empty_sinks = symbolic.sinks(&all_vertices, &all_vertices).unwrap();
-        let incomplete = manager.with_manager_shared(LDDFunction::empty_set).unwrap();
+        let incomplete = manager.with_manager_shared(LDDFunction::empty_set);
         let initial = manager
             .with_manager_shared(|m| LDDFunction::singleton(m, &cubes[0]))
             .unwrap();
 
-        let empty = manager.with_manager_shared(LDDFunction::empty_set).unwrap();
+        let empty = manager.with_manager_shared(LDDFunction::empty_set);
         let partial_solution = SymbolicSolution {
             winning: [empty.clone(), empty],
             strategy: [None, None],
@@ -130,11 +130,11 @@ fn test_cycle_detectors_are_sound() {
             encode_parity_game(&manager, &game, rng, radix, num_groups, false).unwrap();
 
         let empty_sinks = symbolic.sinks(&all_vertices, &all_vertices).unwrap();
-        let incomplete = manager.with_manager_shared(LDDFunction::empty_set).unwrap();
+        let incomplete = manager.with_manager_shared(LDDFunction::empty_set);
         let initial = manager
             .with_manager_shared(|m| LDDFunction::singleton(m, &cubes[0]))
             .unwrap();
-        let empty = manager.with_manager_shared(LDDFunction::empty_set).unwrap();
+        let empty = manager.with_manager_shared(LDDFunction::empty_set);
 
         let epg = ExtendedParityGame::new(symbolic, initial, empty_sinks);
 
@@ -231,7 +231,7 @@ fn test_partial_solving_is_sound_with_incomplete_vertices() {
         let initial = manager
             .with_manager_shared(|m| LDDFunction::singleton(m, &cubes[0]))
             .unwrap();
-        let empty = manager.with_manager_shared(LDDFunction::empty_set).unwrap();
+        let empty = manager.with_manager_shared(LDDFunction::empty_set);
 
         // A random subset of vertices, treated as if their outgoing edges were not yet learned —
         // even though `symbolic` actually has all of them already. Every accelerator must stay
@@ -348,11 +348,11 @@ fn test_partial_solving_computes_a_valid_strategy() {
             encode_parity_game(&manager, &game, rng, radix, num_groups, true).unwrap();
 
         let empty_sinks = symbolic.sinks(&all_vertices, &all_vertices).unwrap();
-        let incomplete = manager.with_manager_shared(LDDFunction::empty_set).unwrap();
+        let incomplete = manager.with_manager_shared(LDDFunction::empty_set);
         let initial = manager
             .with_manager_shared(|m| LDDFunction::singleton(m, &cubes[0]))
             .unwrap();
-        let empty = manager.with_manager_shared(LDDFunction::empty_set).unwrap();
+        let empty = manager.with_manager_shared(LDDFunction::empty_set);
 
         let fresh_solution = || SymbolicSolution {
             winning: [empty.clone(), empty.clone()],
@@ -415,7 +415,7 @@ fn test_detect_solitair_cycles_finds_the_fixture_cycle() {
     let (symbolic, all_vertices, cubes) = encode_parity_game(&manager, &game, &mut rng, 2, 1, false).unwrap();
 
     let empty_sinks = symbolic.sinks(&all_vertices, &all_vertices).unwrap();
-    let empty = manager.with_manager_shared(LDDFunction::empty_set).unwrap();
+    let empty = manager.with_manager_shared(LDDFunction::empty_set);
     let incomplete = empty.clone();
     let initial = manager
         .with_manager_shared(|m| LDDFunction::singleton(m, &cubes[0]))
@@ -484,7 +484,7 @@ fn test_detect_forced_cycles_finds_the_fixture_cycle() {
     let (symbolic, all_vertices, cubes) = encode_parity_game(&manager, &game, &mut rng, 2, 1, false).unwrap();
 
     let empty_sinks = symbolic.sinks(&all_vertices, &all_vertices).unwrap();
-    let empty = manager.with_manager_shared(LDDFunction::empty_set).unwrap();
+    let empty = manager.with_manager_shared(LDDFunction::empty_set);
     let incomplete = empty.clone();
     let initial = manager
         .with_manager_shared(|m| LDDFunction::singleton(m, &cubes[0]))
@@ -551,7 +551,7 @@ fn test_detect_fatal_attractors_finds_the_fixture_cycle() {
     let (symbolic, all_vertices, cubes) = encode_parity_game(&manager, &game, &mut rng, 2, 1, false).unwrap();
 
     let empty_sinks = symbolic.sinks(&all_vertices, &all_vertices).unwrap();
-    let empty = manager.with_manager_shared(LDDFunction::empty_set).unwrap();
+    let empty = manager.with_manager_shared(LDDFunction::empty_set);
     let incomplete = empty.clone();
     let initial = manager
         .with_manager_shared(|m| LDDFunction::singleton(m, &cubes[0]))

@@ -122,8 +122,8 @@ impl SymbolicParityGame {
         compute_strategy: bool,
     ) -> Result<Self, MercError> {
         let mut owned = [
-            manager.with_manager_shared(LDDFunction::empty_set)?,
-            manager.with_manager_shared(LDDFunction::empty_set)?,
+            manager.with_manager_shared(LDDFunction::empty_set),
+            manager.with_manager_shared(LDDFunction::empty_set),
         ];
         let mut priorities: BTreeMap<Priority, LDDFunction> = BTreeMap::new();
 
@@ -149,7 +149,7 @@ impl SymbolicParityGame {
     /// Checks that the priority map partitions [`Self::vertices`].
     #[cfg(debug_assertions)]
     fn assert_consistent(&self) -> Result<(), MercError> {
-        let mut covered = self.manager.with_manager_shared(LDDFunction::empty_set)?;
+        let mut covered = self.manager.with_manager_shared(LDDFunction::empty_set);
         for block in self.priorities.values() {
             covered = covered.union(block)?;
         }
@@ -185,7 +185,7 @@ impl SymbolicParityGame {
     }
 
     fn empty(&self) -> Result<LDDFunction, MercError> {
-        Ok(self.manager.with_manager_shared(LDDFunction::empty_set)?)
+        Ok(self.manager.with_manager_shared(LDDFunction::empty_set))
     }
 
     /// Returns the partition of players for the given vertex set, indexed by

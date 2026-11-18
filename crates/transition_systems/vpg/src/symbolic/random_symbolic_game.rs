@@ -4,6 +4,7 @@ use rand::Rng;
 use rand::RngExt;
 
 use oxidd::LevelNo;
+use oxidd::Manager;
 use oxidd::ManagerRef;
 use oxidd::ldd::LDDFunction;
 use oxidd::ldd::LDDManagerRef;
@@ -50,7 +51,9 @@ pub fn encode_parity_game<G: PG, R: Rng>(
     let k = num_of_vertices_to_width(num_of_vertices, radix);
 
     // The relations and their meta-LDD are the longest vectors: a read and a write value per position.
-    manager.reserve_levels(2 * k as LevelNo);
+    manager.with_manager_exclusive(|m| {
+        m.add_vars((2 * k as LevelNo).saturating_sub(m.num_levels()));
+    });
 
     let cubes: Vec<Vec<Value>> = (0..num_of_vertices).map(|v| digits(v, radix, k)).collect();
 

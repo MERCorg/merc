@@ -68,7 +68,7 @@ fn merge_rec(
         return relevel(manager, a, level, relevel_cache);
     }
     if a_node.is_terminal(&LDDTerminal::Empty) || b_node.is_terminal(&LDDTerminal::Empty) {
-        return LDDFunction::empty_set(manager);
+        return Ok(LDDFunction::empty_set(manager));
     }
 
     let key = (a_edge.node_id(), b_edge.node_id());
@@ -223,8 +223,8 @@ impl RawLddTable {
         let mut current = index;
         let mut result = loop {
             match current {
-                0 => break manager.with_manager_shared(LDDFunction::empty_set)?,
-                1 => break manager.with_manager_shared(LDDFunction::empty_vector)?,
+                0 => break manager.with_manager_shared(LDDFunction::empty_set),
+                1 => break manager.with_manager_shared(LDDFunction::empty_vector),
                 _ => {
                     if let Some(cached) = self.cache.get(&(current, level)) {
                         break cached.clone();
@@ -272,13 +272,13 @@ fn fix_element_rec(
         let mut current = set.clone();
         loop {
             match current.node() {
-                None => return manager.with_manager_shared(LDDFunction::empty_set),
+                None => return Ok(manager.with_manager_shared(LDDFunction::empty_set)),
                 Some((v, down, right)) => match v.cmp(&value) {
                     Ordering::Equal => {
-                        let empty = manager.with_manager_shared(LDDFunction::empty_set)?;
+                        let empty = manager.with_manager_shared(LDDFunction::empty_set);
                         return manager.with_manager_shared(|m| LDDFunction::make_node(m, depth, value, &down, &empty));
                     }
-                    Ordering::Greater => return manager.with_manager_shared(LDDFunction::empty_set),
+                    Ordering::Greater => return Ok(manager.with_manager_shared(LDDFunction::empty_set)),
                     Ordering::Less => current = right,
                 },
             }
@@ -302,7 +302,7 @@ fn fix_element_rec(
             }
         }
 
-        let mut result = manager.with_manager_shared(LDDFunction::empty_set)?;
+        let mut result = manager.with_manager_shared(LDDFunction::empty_set);
         for (v, new_down) in kept.into_iter().rev() {
             result = manager.with_manager_shared(|m| LDDFunction::make_node(m, depth, v, &new_down, &result))?;
         }
@@ -315,9 +315,7 @@ pub fn from_iter<'a, I>(manager: &LDDManagerRef, iter: I) -> LDDFunction
 where
     I: Iterator<Item = &'a Vec<Value>>,
 {
-    let mut result = manager
-        .with_manager_shared(|m| LDDFunction::empty_set(m))
-        .expect("Failed to create the empty set");
+    let mut result = manager.with_manager_shared(LDDFunction::empty_set);
 
     for vector in iter {
         let single = manager
@@ -331,6 +329,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use oxidd::Manager;
     use std::collections::HashSet;
 
     use oxidd::ManagerRef;
@@ -361,7 +360,9 @@ mod tests {
     fn test_random_intersect() {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-            manager.reserve_levels(3);
+            manager.with_manager_exclusive(|m| {
+                m.add_vars(3);
+            });
 
             let a = random_vector_set(rng, 8, 3, 5);
             let b = random_vector_set(rng, 8, 3, 5);
@@ -386,7 +387,9 @@ mod tests {
     fn test_random_merge() {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-            manager.reserve_levels(6);
+            manager.with_manager_exclusive(|m| {
+                m.add_vars(6);
+            });
 
             let a = random_vector_set(rng, 8, 3, 5);
             let b = random_vector_set(rng, 8, 3, 5);
@@ -421,7 +424,9 @@ mod tests {
     fn test_random_fix_element() {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-            manager.reserve_levels(5);
+            manager.with_manager_exclusive(|m| {
+                m.add_vars(5);
+            });
 
             let length = 5;
             let max_value = 5;
@@ -454,7 +459,7 @@ mod tests {
     #[cfg_attr(miri, ignore)] // Oxidd does not work with miri
     fn test_fix_element_empty_set() {
         let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-        let empty = manager.with_manager_shared(LDDFunction::empty_set).unwrap();
+        let empty = manager.with_manager_shared(LDDFunction::empty_set);
 
         for level in 0..5 {
             let result = fix_element(&manager, &empty, level, 0).unwrap();

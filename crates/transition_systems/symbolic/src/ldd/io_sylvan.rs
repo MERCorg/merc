@@ -3,6 +3,7 @@ use std::io::Read;
 
 use log::info;
 use merc_utilities::MercError;
+use oxidd::Manager;
 use oxidd::ManagerRef;
 use oxidd::ldd::LDDFunction;
 use oxidd::ldd::LDDManagerRef;
@@ -20,7 +21,9 @@ pub fn read_sylvan<R: Read>(manager: &LDDManagerRef, stream: &mut R) -> Result<S
     let vector_length = read_u32(stream)?;
 
     // The relations and their meta-LDDs are the longest vectors: a read and a write value per position.
-    manager.reserve_levels(2 * vector_length);
+    manager.with_manager_exclusive(|m| {
+        m.add_vars((2 * vector_length).saturating_sub(m.num_levels()));
+    });
 
     let _unused = read_u32(stream)?; // This is called 'k' in Sylvan's ldd2bdd.c, but unused.
     let initial_state = reader.read_ldd(manager, stream)?;
@@ -33,7 +36,7 @@ pub fn read_sylvan<R: Read>(manager: &LDDManagerRef, stream: &mut R) -> Result<S
 
         let (meta, empty) = manager.with_manager_shared(|m| -> Result<_, MercError> {
             let meta = LDDFunction::relation_meta(m, &read_proj, &write_proj)?.meta;
-            Ok((meta, LDDFunction::empty_set(m)?))
+            Ok((meta, LDDFunction::empty_set(m)))
         })?;
         groups.push(SylvanTransitionGroup::new(empty, meta, read_proj, write_proj));
     }

@@ -169,7 +169,7 @@ pub fn bdd_to_ldd_edge<'id, 'ldd>(
 ) -> Result<LDDFunction, OutOfMemory> {
     // Base case: the empty set is represented by the False terminal.
     if let oxidd::Node::Terminal(BDDTerminal::False) = manager.get_node(bdd) {
-        return LDDFunction::empty_set(ldd_manager);
+        return Ok(LDDFunction::empty_set(ldd_manager));
     }
 
     // Base case: once all variables have been consumed the decoded value is complete. The BDD must
@@ -179,8 +179,8 @@ pub fn bdd_to_ldd_edge<'id, 'ldd>(
             matches!(manager.get_node(bdd), oxidd::Node::Terminal(BDDTerminal::True)),
             "Expected the True terminal after consuming all variables"
         );
-        let empty_vector = LDDFunction::empty_vector(ldd_manager)?;
-        let empty = LDDFunction::empty_set(ldd_manager)?;
+        let empty_vector = LDDFunction::empty_vector(ldd_manager);
+        let empty = LDDFunction::empty_set(ldd_manager);
         return LDDFunction::make_node(ldd_manager, level, current_value, &empty_vector, &empty);
     }
 
@@ -217,7 +217,7 @@ pub fn bdd_to_ldd_edge<'id, 'ldd>(
             0,
             0,
         )?;
-        let right = LDDFunction::empty_set(ldd_manager)?;
+        let right = LDDFunction::empty_set(ldd_manager);
         LDDFunction::make_node(ldd_manager, level, current_value, &down, &right)?
     } else {
         debug_assert!(current_bit < num_bits, "Current bit exceeds number of bits for layer");
@@ -260,7 +260,7 @@ pub fn bdd_to_ldd_edge<'id, 'ldd>(
             current_bit + 1,
             current_value,
         )?;
-        LDDFunction::union_edge(ldd_manager, level, &high, &low)?
+        LDDFunction::union_edge(ldd_manager, level, high.as_edge(ldd_manager), low.as_edge(ldd_manager))?
     };
 
     cache.insert(cache_key, result.clone());
@@ -396,7 +396,9 @@ mod tests {
     fn test_random_compute_highest() {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-            manager.reserve_levels(3);
+            manager.with_manager_exclusive(|m| {
+                m.add_vars(3);
+            });
 
             let set = random_vector_set(rng, 4, 3, 5);
             let ldd = from_iter(&manager, set.iter());
@@ -436,7 +438,9 @@ mod tests {
     fn test_random_ldd_to_bdd() {
         random_test(100, |rng| {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-            manager.reserve_levels(3);
+            manager.with_manager_exclusive(|m| {
+                m.add_vars(3);
+            });
 
             let set = random_vector_set(rng, 50, 3, 5);
 

@@ -150,7 +150,7 @@ pub fn reachability_with_callback<L: SymbolicLPS, F: FnMut(usize, &LDDFunction) 
     let mut todo = lts.initial_state().clone();
     let mut states = lts.initial_state().clone();
     let mut deadlocks: Option<LDDFunction> = if options.detect_deadlocks {
-        Some(storage.with_manager_shared(|m| LDDFunction::empty_set(m))?)
+        Some(storage.with_manager_shared(|m| LDDFunction::empty_set(m)))
     } else {
         None
     };
@@ -348,7 +348,7 @@ fn saturation_reachability<L: SymbolicLPS, F: FnMut(usize, &LDDFunction) -> Cont
         } else if !complete {
             // The relations only cover the states that were learned from so far, so every state that
             // was not would show up as a deadlock. Nothing is reported instead.
-            Some(storage.with_manager_shared(|m| LDDFunction::empty_set(m))?)
+            Some(storage.with_manager_shared(|m| LDDFunction::empty_set(m)))
         } else {
             let mut candidates = states.clone();
             for group in lts.transition_groups() {
@@ -436,7 +436,7 @@ fn step<L: SymbolicLPS>(
     let mut deadlocks = if detect_deadlocks {
         todo.clone()
     } else {
-        storage.with_manager_shared(|m| LDDFunction::empty_set(m))?
+        storage.with_manager_shared(|m| LDDFunction::empty_set(m))
     };
 
     if !fixpoint {
@@ -444,7 +444,7 @@ fn step<L: SymbolicLPS>(
         let mut todo1 = if chaining {
             todo.clone()
         } else {
-            storage.with_manager_shared(|m| LDDFunction::empty_set(m))?
+            storage.with_manager_shared(|m| LDDFunction::empty_set(m))
         };
 
         for (i, transition) in groups.iter_mut().enumerate() {
@@ -535,6 +535,7 @@ fn remove_states_with_successor(
 
 #[cfg(test)]
 mod test {
+    use oxidd::Manager;
     use std::ops::ControlFlow;
 
     use crate::LDD_CACHE_CAPACITY;
@@ -873,7 +874,9 @@ mod test {
     }
 
     fn line_lts(manager: &oxidd::ldd::LDDManagerRef) -> LineLts {
-        manager.reserve_levels(3);
+        manager.with_manager_exclusive(|m| {
+            m.add_vars(3);
+        });
 
         // One read+write of parameter 0; relation short vectors place the read/write values at the
         // positions reported by `relation_meta`.
@@ -1026,7 +1029,9 @@ mod test {
     /// laid out the way `SymbolicLpsGroup` does: relation vectors hold the read/write positions given by the
     /// meta, followed by a single action label position that is not covered by the meta.
     fn summand_lts(manager: &LDDManagerRef, num_parameters: usize, initial: &[Value], groups: &[GroupSpec]) -> TestLts {
-        manager.reserve_levels(1 + 2 * num_parameters as LevelNo);
+        manager.with_manager_exclusive(|m| {
+            m.add_vars(1 + 2 * num_parameters as LevelNo);
+        });
 
         let parameters = (0..num_parameters)
             .map(|i| DataVariable::new(ATermString::new(format!("p{i}"))))
