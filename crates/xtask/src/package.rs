@@ -34,6 +34,13 @@ const CONTROL_TEMPLATE: &str = include_str!("../data/control");
 /// Template for the WiX source file used to build the `.msi`.
 const WXS_TEMPLATE: &str = include_str!("../data/merc.wxs");
 
+/// The tools built from the root workspace.
+pub(crate) const CORE_TOOLS: &[&str] = &["merc-lts", "merc-rewrite", "merc-vpg", "merc-sym"];
+/// The tools built from the `tools/mcrl2` workspace, these depend on the mCRL2 toolset.
+pub(crate) const MCRL2_TOOLS: &[&str] = &["merc-pbes", "merc-lps"];
+/// The tools built from the `tools/gui` workspace.
+pub(crate) const GUI_TOOLS: &[&str] = &["merc-ltsgraph"];
+
 /// The installer formats that can be created from the package directory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub(crate) enum Installer {
@@ -98,17 +105,14 @@ pub(crate) fn package(mcrl2: bool, gui: bool, installers: &[Installer]) -> Resul
     println!("=== Building and copying release binaries ===");
 
     // Mapping from workspace paths to their binaries
-    let mut workspace_binaries = vec![(
-        workspace_root.clone(),
-        vec!["merc-lts", "merc-rewrite", "merc-vpg", "merc-sym"],
-    )];
+    let mut workspace_binaries = vec![(workspace_root.clone(), CORE_TOOLS)];
 
     if mcrl2 {
-        workspace_binaries.push((workspace_root.join("tools/mcrl2"), vec!["merc-pbes", "merc-lps"]));
+        workspace_binaries.push((workspace_root.join("tools/mcrl2"), MCRL2_TOOLS));
     }
 
     if gui {
-        workspace_binaries.push((workspace_root.join("tools/gui"), vec!["merc-ltsgraph"]));
+        workspace_binaries.push((workspace_root.join("tools/gui"), GUI_TOOLS));
     }
 
     // All workspaces share the root `target/` directory.
@@ -120,7 +124,7 @@ pub(crate) fn package(mcrl2: bool, gui: bool, installers: &[Installer]) -> Resul
     for (workspace_path, workspace_bins) in &workspace_binaries {
         cmd!("cargo", "build", "--release").dir(workspace_path).run()?;
 
-        for binary_name in workspace_bins {
+        for binary_name in workspace_bins.iter() {
             let file_name = exe_name(binary_name);
             let source_path = target_release_dir.join(&file_name);
             let dest_path = package_dir.join(&file_name);

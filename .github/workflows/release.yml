@@ -88,31 +88,48 @@ jobs:
       env:
         RUSTC_WRAPPER: sccache
 
-  # The install-* jobs install the packages on a clean system and check that every tool starts.
+    # Used to run the tool tests on clean systems in the install-* jobs below.
+    - name: Upload xtask artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: xtask-${{ matrix.os }}
+        path: |
+          target/debug/xtask
+          target/debug/xtask.exe
+        if-no-files-found: error
+
+  # The install-* jobs install the packages on a clean system and run the tool tests on the
+  # installed tools, the xtask binary is downloaded such that no toolchain has to be installed.
   install-deb:
     needs: test
     runs-on: ubuntu-latest
     container: ubuntu:24.04
 
     steps:
+    - name: Checkout the repository
+      uses: actions/checkout@v7
+
     - name: Download installer artifact
       uses: actions/download-artifact@v8
       with:
         name: installer-ubuntu-latest
+        path: installers
+
+    - name: Download xtask artifact
+      uses: actions/download-artifact@v8
+      with:
+        name: xtask-ubuntu-latest
+        path: xtask
 
     - name: Install package
       run: |
         apt-get update
-        apt-get install -y ./merc_*.deb
+        apt-get install -y ./installers/merc_*.deb
 
-    - name: Check installed tools
+    - name: Run tool tests
       run: |
-        for tool in merc-lts merc-rewrite merc-vpg merc-sym merc-pbes merc-lps merc-ltsgraph; do
-          echo "::group::$tool"
-          "$tool" --version
-          echo "::endgroup::"
-        done
-        test -f /opt/merc/bin/kahypar.ini
+        chmod +x xtask/xtask
+        xtask/xtask test-tools
 
     - name: Remove package
       run: |
@@ -125,22 +142,28 @@ jobs:
     container: fedora:latest
 
     steps:
+    - name: Checkout the repository
+      uses: actions/checkout@v7
+
     - name: Download installer artifact
       uses: actions/download-artifact@v8
       with:
         name: installer-ubuntu-latest
+        path: installers
+
+    - name: Download xtask artifact
+      uses: actions/download-artifact@v8
+      with:
+        name: xtask-ubuntu-latest
+        path: xtask
 
     - name: Install package
-      run: dnf install -y ./merc-*.rpm
+      run: dnf install -y ./installers/merc-*.rpm
 
-    - name: Check installed tools
+    - name: Run tool tests
       run: |
-        for tool in merc-lts merc-rewrite merc-vpg merc-sym merc-pbes merc-lps merc-ltsgraph; do
-          echo "::group::$tool"
-          "$tool" --version
-          echo "::endgroup::"
-        done
-        test -f /opt/merc/bin/kahypar.ini
+        chmod +x xtask/xtask
+        xtask/xtask test-tools
 
     - name: Remove package
       run: |
@@ -152,20 +175,26 @@ jobs:
     runs-on: macos-latest
 
     steps:
+    - name: Checkout the repository
+      uses: actions/checkout@v7
+
     - name: Download installer artifact
       uses: actions/download-artifact@v8
       with:
         name: installer-macos-latest
+        path: installers
 
-    - name: Mount disk image and check tools
+    - name: Download xtask artifact
+      uses: actions/download-artifact@v8
+      with:
+        name: xtask-macos-latest
+        path: xtask
+
+    - name: Run tool tests on the disk image
       run: |
-        hdiutil attach -nobrowse -readonly -mountpoint /Volumes/merc merc-*.dmg
-        for tool in merc-lts merc-rewrite merc-vpg merc-sym merc-pbes merc-lps merc-ltsgraph; do
-          echo "::group::$tool"
-          "/Volumes/merc/$tool" --version
-          echo "::endgroup::"
-        done
-        test -f /Volumes/merc/kahypar.ini
+        chmod +x xtask/xtask
+        hdiutil attach -nobrowse -readonly -mountpoint /Volumes/merc installers/merc-*.dmg
+        xtask/xtask test-tools /Volumes/merc --examples examples
         hdiutil detach /Volumes/merc
 
   install-msi:
@@ -173,44 +202,48 @@ jobs:
     runs-on: windows-latest
 
     steps:
+    - name: Checkout the repository
+      uses: actions/checkout@v7
+
     - name: Download installer artifact
       uses: actions/download-artifact@v8
       with:
         name: installer-windows-latest
+        path: installers
+
+    - name: Download xtask artifact
+      uses: actions/download-artifact@v8
+      with:
+        name: xtask-windows-latest
+        path: xtask
 
     - name: Install package
       shell: pwsh
       run: |
-        $msi = (Get-ChildItem merc-*.msi).FullName
+        $msi = (Get-ChildItem installers/merc-*.msi).FullName
         $process = Start-Process msiexec.exe -Wait -PassThru -ArgumentList '/i', "`"$msi`"", '/qn', '/l*v', 'install.log'
         if ($process.ExitCode -ne 0) {
           Get-Content install.log -Tail 50
           exit $process.ExitCode
         }
 
-    - name: Check installed tools
+    # Changes to the system PATH are not picked up by later steps, so forward the entries that
+    # the installer added. The tool tests then only find the tools when the PATH was updated.
+    - name: Forward system PATH
       shell: pwsh
       run: |
-        $installDir = (Get-ItemProperty 'HKLM:\Software\merc').InstallFolder.TrimEnd('\')
-        Write-Output "Installed in $installDir"
+        $current = $env:PATH.Split(';')
+        [Environment]::GetEnvironmentVariable('PATH', 'Machine').Split(';') |
+          Where-Object { $_ -and $current -notcontains $_ } |
+          Add-Content -Path $env:GITHUB_PATH
 
-        # The installer must add the installation directory to the system PATH.
-        $path = [Environment]::GetEnvironmentVariable('PATH', 'Machine').Split(';') | ForEach-Object { $_.TrimEnd('\') }
-        if ($path -notcontains $installDir) { throw "$installDir was not added to the system PATH" }
-
-        foreach ($tool in 'merc-lts', 'merc-rewrite', 'merc-vpg', 'merc-sym', 'merc-pbes', 'merc-lps', 'merc-ltsgraph') {
-          Write-Output "::group::$tool"
-          & (Join-Path $installDir "$tool.exe") --version
-          if ($LASTEXITCODE -ne 0) { throw "$tool --version failed" }
-          Write-Output "::endgroup::"
-        }
-
-        if (-not (Test-Path (Join-Path $installDir 'kahypar.ini'))) { throw 'kahypar.ini is missing' }
+    - name: Run tool tests
+      run: xtask/xtask.exe test-tools
 
     - name: Uninstall package
       shell: pwsh
       run: |
-        $msi = (Get-ChildItem merc-*.msi).FullName
+        $msi = (Get-ChildItem installers/merc-*.msi).FullName
         $process = Start-Process msiexec.exe -Wait -PassThru -ArgumentList '/x', "`"$msi`"", '/qn'
         if ($process.ExitCode -ne 0) { exit $process.ExitCode }
         if (Test-Path 'HKLM:\Software\merc') { throw 'Registry key was not removed' }

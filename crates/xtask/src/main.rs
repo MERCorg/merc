@@ -57,8 +57,25 @@ enum Commands {
     },
     /// Runs `cargo publish --dry-run` for every library crate, in dependency order.
     Publish,
-    /// Runs a smoke test of the packaged tool binaries found in the given directory.
-    TestTools { directory: PathBuf },
+    /// Runs a smoke test of the packaged tool binaries.
+    TestTools {
+        /// Directory containing the tools, e.g., `package`. When omitted the tools are
+        /// searched for on the `PATH`, which tests an installed package.
+        directory: Option<PathBuf>,
+
+        /// Directory containing the examples, defaults to `<directory>/../examples`, or
+        /// `examples` when no directory is given.
+        #[arg(long)]
+        examples: Option<PathBuf>,
+
+        /// Do not expect the gui tools to be present.
+        #[arg(long)]
+        no_gui: bool,
+
+        /// Do not expect the mCRL2 tools to be present.
+        #[arg(long)]
+        no_mcrl2: bool,
+    },
 }
 
 fn main() -> Result<ExitCode, Box<dyn Error>> {
@@ -75,7 +92,12 @@ fn main() -> Result<ExitCode, Box<dyn Error>> {
             installer,
         } => package::package(!no_mcrl2, !no_gui, &installer)?,
         Commands::Publish => publish::publish_crates()?,
-        Commands::TestTools { directory } => tool_testing::test_tools(directory.as_path())?,
+        Commands::TestTools {
+            directory,
+            examples,
+            no_gui,
+            no_mcrl2,
+        } => tool_testing::test_tools(directory.as_deref(), examples.as_deref(), !no_mcrl2, !no_gui)?,
     }
 
     Ok(ExitCode::SUCCESS)
