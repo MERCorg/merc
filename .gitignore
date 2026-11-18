@@ -30,8 +30,12 @@ artifacts/
 package/
 
 # Ignore while its not yet clear whether the snaphots are correct
-crates/language/syntax/tests/snapshot/
-crates/language/typecheck/tests/snapshot/
+crates/language/syntax/tests/snapshot/*.mcrl2
+crates/language/syntax/tests/snapshot/*.dataspec
+crates/language/syntax/tests/snapshot/*.mcf
+crates/language/syntax/tests/snapshot/*.txt
+crates/language/typecheck/tests/snapshot/*.mcrl2
+crates/language/process/tests/snapshot/*.mcrl2
 
 # Ignore temporary files created by CADP
 *.o
