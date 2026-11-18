@@ -287,7 +287,9 @@ eqn  @c0 = @most_significant_digitNat(@zero_word);
                                                         @most_significant_digitNat(@minus_word(w1,w2)),
                                                         @concat_digit(@natpred(diff),@minus_word(w1,w2)))),
                                         if(@equals_zero(diff),
-                                               @most_significant_digitNat(@minus_word(w1,w2)),
+                                               if((n1 == n2),
+                                                        @most_significant_digitNat(@minus_word(w1,w2)),
+                                                        @most_significant_digitNat(@zero_word)),
                                                @concat_digit(diff,@minus_word(w1,w2))));
 
      (@most_significant_digitNat(w1) * @most_significant_digitNat(w2)) =
@@ -534,7 +536,7 @@ eqn  @c0 = @most_significant_digitNat(@zero_word);
                                     @swap_zero(n2, (m1 + @swap_zero(n2, m2))))),
                             if(@equals_zero(n2), 
                                  if(@equals_zero(m2),
-                                      n1,
+                                      m1,
                                       @swap_zero(n1, (@swap_zero(n1,m1) + m2))),
                                  @swap_zero((n1 + n2), (@swap_zero(n1,m1) + @swap_zero(n2,m2)))));
 
