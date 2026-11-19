@@ -64,8 +64,9 @@ jobs:
 
     - name: Run package task
       run: cargo xtask package ${{ matrix.installers }}
-      env:
-        RUSTC_WRAPPER: sccache
+      env:        
+        # sccache does not fall back to an @argfile, and the GUI rustc command line exceeds the Windows limit (os error 206).
+        RUSTC_WRAPPER: ${{ matrix.os != 'windows-latest' && 'sccache' || '' }}
 
     - name: Upload portable artifact
       uses: actions/upload-artifact@v7
