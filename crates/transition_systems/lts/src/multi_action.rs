@@ -2,6 +2,7 @@
 
 use std::fmt;
 use std::hash::Hash;
+use std::mem::ManuallyDrop;
 
 use delegate::delegate;
 use itertools::Itertools;
@@ -13,7 +14,7 @@ use merc_aterm::ATermList;
 use merc_aterm::ATermRef;
 use merc_aterm::ATermString;
 use merc_aterm::Markable;
-use merc_aterm::Symb;
+use merc_aterm::Symbol;
 use merc_aterm::SymbolRef;
 use merc_aterm::Term;
 use merc_aterm::TermIterator;
@@ -29,6 +30,28 @@ use merc_macros::merc_term;
 use merc_utilities::MercError;
 
 use crate::TransitionLabel;
+
+thread_local! {
+    static MULTI_ACTION_SYMBOLS: MultiActionSymbols = MultiActionSymbols::new();
+}
+
+/// The function symbols of the mCRL2 multi-action terms, which are wrapped in `ManuallyDrop` so
+/// that their destructors never run at thread exit.
+struct MultiActionSymbols {
+    timed_multi_action: ManuallyDrop<Symbol>,
+    action: ManuallyDrop<Symbol>,
+    action_label: ManuallyDrop<Symbol>,
+}
+
+impl MultiActionSymbols {
+    fn new() -> Self {
+        MultiActionSymbols {
+            timed_multi_action: ManuallyDrop::new(Symbol::new("TimedMultAct", 2)),
+            action: ManuallyDrop::new(Symbol::new("Action", 2)),
+            action_label: ManuallyDrop::new(Symbol::new("ActId", 2)),
+        }
+    }
+}
 
 /// Represents a multi-action, i.e., a multi set of action labels
 #[derive(Clone, PartialOrd, Ord, PartialEq, Eq, Hash)]
@@ -162,14 +185,31 @@ impl LtsMultiAction<SimpleAction> {
 
 impl LtsMultiAction<LtsAction> {
     /// Converts the MultiAction into its mCRL2 ATerm representation.
+    ///
+    /// The sorts of each action label (`ActId`) are the sorts of its arguments.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the sort of an argument cannot be determined, see
+    /// [DataExpression::try_data_sort].
     pub fn to_mcrl2_aterm(&self) -> Result<ATerm, MercError> {
         let action_terms: Vec<MCRL2Action> = self
             .actions
             .iter()
             .map(|action| -> Result<MCRL2Action, MercError> {
+                let sorts = action
+                    .arguments
+                    .iter()
+                    .map(|argument| {
+                        argument.try_data_sort().ok_or_else(|| -> MercError {
+                            format!("Cannot determine the sort of argument {argument} of action {action}.").into()
+                        })
+                    })
+                    .collect::<Result<Vec<SortExpression>, MercError>>()?;
+
                 let label_term = MCRL2ActionLabel::new(
                     ATermString::new(&action.label).copy(),
-                    ATermList::<SortExpression>::empty(),
+                    ATermList::<SortExpression>::from_double_iter(sorts.into_iter()),
                 );
 
                 let arguments_term = ATermList::<DataExpression>::from_double_iter(action.arguments.iter().cloned());
@@ -201,7 +241,26 @@ impl LtsMultiAction<LtsAction> {
             for action in multi_action.actions() {
                 let arguments = action.arguments().to_vec();
 
-                // Convert the label to string
+                // A well-typed action has exactly the sorts of its label: the typechecker already
+                // inserted any conversions such as Pos2Nat. Arguments whose sort cannot be
+                // determined from the term alone are not checked.
+                let sorts: Vec<SortExpression> = action.label().sorts().iter().collect();
+                let well_typed = sorts.len() == arguments.len()
+                    && sorts.iter().zip(&arguments).all(|(sort, argument)| {
+                        argument
+                            .try_data_sort()
+                            .is_none_or(|argument_sort| argument_sort == *sort)
+                    });
+                if !well_typed {
+                    return Err(format!(
+                        "Arguments [{}] of action {} do not match the sorts [{}] of its label.",
+                        arguments.iter().format(", "),
+                        action.label().name(),
+                        sorts.iter().format(", ")
+                    )
+                    .into());
+                }
+
                 actions.insert(LtsAction {
                     label: action.label().name().to_string(),
                     arguments,
@@ -218,7 +277,6 @@ impl LtsMultiAction<LtsAction> {
 #[merc_derive_terms]
 mod inner {
     use merc_aterm::ATermStringRef;
-    use merc_aterm::Symbol;
     use merc_data::DataExpression;
     use merc_data::DataExpressionRef;
     use merc_macros::merc_ignore;
@@ -236,8 +294,9 @@ mod inner {
         #[merc_ignore]
         pub fn new(actions: ATermList<MCRL2Action>, time: DataExpressionRef<'_>) -> Self {
             let args: &[ATermRef<'_>] = &[actions.copy(), time.into()];
-            let term = ATerm::with_args(&Symbol::new("TimedMultAct", 2), args);
-            MCRL2TimedMultiAction { term: term.protect() }
+            let term =
+                MULTI_ACTION_SYMBOLS.with(|symbols| ATerm::with_args(&*symbols.timed_multi_action, args).protect());
+            MCRL2TimedMultiAction { term }
         }
 
         /// Returns the actions contained in the multi-action.
@@ -261,8 +320,8 @@ mod inner {
         #[merc_ignore]
         pub fn new(label: MCRL2ActionLabelRef<'_>, arguments: ATermList<DataExpression>) -> Self {
             let args: &[ATermRef<'_>] = &[label.into(), arguments.copy()];
-            let term = ATerm::with_args(&Symbol::new("Action", 2), args);
-            MCRL2Action { term: term.protect() }
+            let term = MULTI_ACTION_SYMBOLS.with(|symbols| ATerm::with_args(&*symbols.action, args).protect());
+            MCRL2Action { term }
         }
 
         /// Returns the label of the action.
@@ -286,8 +345,8 @@ mod inner {
         #[merc_ignore]
         pub fn new(name: ATermStringRef<'_>, sorts: ATermList<SortExpression>) -> Self {
             let args: &[ATermRef<'_>] = &[name.into(), sorts.copy()];
-            let term = ATerm::with_args(&Symbol::new("ActId", 2), args);
-            MCRL2ActionLabel { term: term.protect() }
+            let term = MULTI_ACTION_SYMBOLS.with(|symbols| ATerm::with_args(&*symbols.action_label, args).protect());
+            MCRL2ActionLabel { term }
         }
 
         /// Obtain the name of the action label.
@@ -321,17 +380,17 @@ fn is_mcrl2_action_label<'a, 'b, T: Term<'a, 'b>>(term: &'b T) -> bool {
 
 /// Checks if the given symbol represents a TimedMultiAction in mCRL2.
 fn is_mcrl2_timed_multi_action_symbol(symbol: &SymbolRef<'_>) -> bool {
-    symbol.name() == "TimedMultAct" && symbol.arity() == 2
+    MULTI_ACTION_SYMBOLS.with(|symbols| *symbol == symbols.timed_multi_action.copy())
 }
 
 /// Checks if the given symbol represents an Action in mCRL2.
 fn is_mcrl2_action_symbol(symbol: &SymbolRef<'_>) -> bool {
-    symbol.name() == "Action" && symbol.arity() == 2
+    MULTI_ACTION_SYMBOLS.with(|symbols| *symbol == symbols.action.copy())
 }
 
 /// Checks if the given symbol represents an ActionLabel in mCRL2.
 fn is_mcrl2_action_label_symbol(symbol: &SymbolRef<'_>) -> bool {
-    symbol.name() == "ActId" && symbol.arity() == 2
+    MULTI_ACTION_SYMBOLS.with(|symbols| *symbol == symbols.action_label.copy())
 }
 
 /// Represents a single action label, with its (data) arguments
@@ -432,11 +491,23 @@ impl<L: Ord + fmt::Display> fmt::Debug for LtsMultiAction<L> {
 
 #[cfg(test)]
 mod tests {
+    use merc_aterm::ATerm;
+    use merc_aterm::ATermList;
+    use merc_aterm::ATermString;
+    use merc_aterm::Term;
     use merc_collections::VecBag;
+    use merc_data::DataApplication;
+    use merc_data::DataExpression;
+    use merc_data::DataFunctionSymbol;
+    use merc_data::SortExpression;
     use merc_data::is_undefined_real;
+    use merc_data::undefined_real;
 
     use super::LtsAction;
     use super::LtsMultiAction;
+    use super::MCRL2Action;
+    use super::MCRL2ActionLabel;
+    use super::MCRL2TimedMultiAction;
 
     #[test]
     fn to_aterm_uses_the_mcrl2_undefined_real() {
@@ -455,5 +526,41 @@ mod tests {
         let term = multi_action.to_mcrl2_aterm().unwrap();
         let back = LtsMultiAction::from_mcrl2_aterm(term).unwrap();
         assert_eq!(back, multi_action);
+    }
+
+    #[test]
+    fn action_label_sorts_are_the_argument_sorts() {
+        let one = DataFunctionSymbol::with_sort("1", SortExpression::pos().copy());
+        let f = DataFunctionSymbol::with_signature("f", &[SortExpression::pos()], &SortExpression::nat());
+        let truth = DataFunctionSymbol::with_sort("true", SortExpression::bool().copy());
+        let arguments: Vec<DataExpression> = vec![
+            truth.into(),
+            DataApplication::with_args(&f, &[DataExpression::from(one)]).into(),
+        ];
+
+        let multi_action = LtsMultiAction::new(VecBag::singleton(LtsAction::new("a".to_string(), arguments)));
+        let timed: super::MCRL2TimedMultiAction = multi_action.to_mcrl2_aterm().unwrap().into();
+
+        let action = timed.actions().iter().next().unwrap();
+        let sorts: Vec<SortExpression> = action.label().sorts().iter().collect();
+        assert_eq!(sorts, vec![SortExpression::bool(), SortExpression::nat()]);
+    }
+
+    #[test]
+    fn rejects_arguments_that_do_not_match_the_label_sorts() {
+        let one: DataExpression = DataFunctionSymbol::with_sort("1", SortExpression::pos().copy()).into();
+        let label = MCRL2ActionLabel::new(
+            ATermString::new("a").copy(),
+            ATermList::<SortExpression>::from_double_iter([SortExpression::nat()].into_iter()),
+        );
+        let action = MCRL2Action::new(
+            label.copy(),
+            ATermList::<DataExpression>::from_double_iter([one].into_iter()),
+        );
+        let actions = ATermList::<MCRL2Action>::from_double_iter([action].into_iter());
+        let undefined: DataExpression = undefined_real();
+        let term: ATerm = MCRL2TimedMultiAction::new(actions, undefined.copy()).into();
+
+        assert!(LtsMultiAction::<LtsAction>::from_mcrl2_aterm(term).is_err());
     }
 }
