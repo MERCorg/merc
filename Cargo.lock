@@ -160,7 +160,7 @@ checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
 
 [[package]]
 name = "benchmarks_aterm"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "criterion",
  "env_logger",
@@ -169,7 +169,7 @@ dependencies = [
 
 [[package]]
 name = "benchmarks_enumerate"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "criterion",
  "merc_data",
@@ -183,7 +183,7 @@ dependencies = [
 
 [[package]]
 name = "benchmarks_lts"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "criterion",
  "merc_aterm",
@@ -195,7 +195,7 @@ dependencies = [
 
 [[package]]
 name = "benchmarks_sabre"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "ahash",
  "criterion",
@@ -214,7 +214,7 @@ dependencies = [
 
 [[package]]
 name = "benchmarks_sharedmutex"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "criterion",
  "merc_sharedmutex",
@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "benchmarks_symbolic"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "criterion",
  "merc_symbolic",
@@ -233,7 +233,7 @@ dependencies = [
 
 [[package]]
 name = "benchmarks_unsafety"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "ahash",
  "criterion",
@@ -247,7 +247,7 @@ dependencies = [
 
 [[package]]
 name = "benchmarks_utilities"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "criterion",
  "merc_utilities",
@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "benchmarks_vpg"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "criterion",
  "merc_symbolic",
@@ -1155,7 +1155,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "merc-lts"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "clap",
  "env_logger",
@@ -1175,7 +1175,7 @@ dependencies = [
 
 [[package]]
 name = "merc-rewrite"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "ahash",
  "clap",
@@ -1200,7 +1200,7 @@ dependencies = [
 
 [[package]]
 name = "merc-sym"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "clap",
  "duct",
@@ -1220,7 +1220,7 @@ dependencies = [
 
 [[package]]
 name = "merc-vpg"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "clap",
  "duct",
@@ -1337,7 +1337,7 @@ dependencies = [
 
 [[package]]
 name = "merc_formula"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "log",
  "merc_syntax",
@@ -1361,7 +1361,7 @@ dependencies = [
 
 [[package]]
 name = "merc_lowering"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "merc_data",
  "merc_syntax",
@@ -1414,7 +1414,7 @@ dependencies = [
 
 [[package]]
 name = "merc_pbes"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "delegate",
  "ena",
@@ -1455,7 +1455,7 @@ dependencies = [
 
 [[package]]
 name = "merc_pres"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "merc_pbes",
  "merc_syntax",
@@ -1466,7 +1466,7 @@ dependencies = [
 
 [[package]]
 name = "merc_process"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "merc_syntax",
  "merc_typecheck",
@@ -1478,7 +1478,7 @@ dependencies = [
 
 [[package]]
 name = "merc_rec-tests"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "ahash",
  "env_logger",
@@ -1556,7 +1556,7 @@ dependencies = [
 
 [[package]]
 name = "merc_sabre-compiling"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "ahash",
  "duct",
@@ -1579,7 +1579,7 @@ dependencies = [
 
 [[package]]
 name = "merc_sabre-ffi"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "merc_aterm",
  "merc_data",
@@ -1663,7 +1663,7 @@ dependencies = [
 
 [[package]]
 name = "merc_typecheck"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "ena",
  "log",
@@ -3316,7 +3316,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "ar",
  "clap",
