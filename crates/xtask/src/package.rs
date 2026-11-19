@@ -120,9 +120,20 @@ pub(crate) fn package(mcrl2: bool, gui: bool, installers: &[Installer]) -> Resul
 
     let mut binaries = Vec::new();
 
+    // Cargo only tells build scripts whether debug info is enabled, so `cc` compiles C and C++
+    // dependencies (most notably mCRL2) with full `-g` even though the release profile asks for
+    // line tables only. Appending `-g1` lowers that to line tables, which still give backtraces.
+    let mut build = cmd!("cargo", "build", "--release");
+    if !cfg!(target_env = "msvc") {
+        for flags in ["CFLAGS", "CXXFLAGS"] {
+            let value = env::var(flags).map_or_else(|_| "-g1".to_string(), |value| format!("{value} -g1"));
+            build = build.env(flags, value);
+        }
+    }
+
     // Build all workspaces in release mode
     for (workspace_path, workspace_bins) in &workspace_binaries {
-        cmd!("cargo", "build", "--release").dir(workspace_path).run()?;
+        build.dir(workspace_path).run()?;
 
         for binary_name in workspace_bins.iter() {
             let file_name = exe_name(binary_name);
@@ -137,6 +148,12 @@ pub(crate) fn package(mcrl2: bool, gui: bool, installers: &[Installer]) -> Resul
 
             copy(&source_path, &dest_path)?;
             println!("Copied {binary_name} to package directory");
+
+            // Only ELF binaries embed their debug info, on macOS and Windows it is kept in
+            // separate files. Compressed sections are still read by the backtrace symbolizer.
+            if cfg!(target_os = "linux") {
+                cmd!("objcopy", "--compress-debug-sections=zlib", &dest_path).run()?;
+            }
             binaries.push(file_name);
         }
     }
