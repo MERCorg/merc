@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 mod builtins;
 #[cfg(feature = "internal")]
 mod checking;

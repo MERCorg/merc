@@ -145,8 +145,11 @@ library used in the [mCRL2](https://mcrl2.org) toolset.
 
 Reviewed the crate extensively to ensure that safe code cannot lead to UB. This
 did introduce various thread local storage calls that could reduce performance,
-but benchmarks show a minimal impact in practice. Added various `Send` and `Sync`
-bounds.
+but benchmarks show a minimal impact in practice. Added various `Send` and
+`Sync` bounds. `Protected` containers are now written through a scoped closure.
+Terms and function symbols have a more compact layout, the term parser no longer
+depends on pest, and garbage collection marking uses pointer tagging instead of
+a hash set.
 
 ### 2.0.0
 

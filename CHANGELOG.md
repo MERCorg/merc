@@ -1,3 +1,45 @@
+# v3.0 (December 2026)
+
+See the `README.md` of the individual crates for their own changelogs. The
+crates are now grouped into `core`, `language`, `rewriter` and
+`transition_systems` directories.
+
+This release adds a native type checker for the mCRL2 specification language.
+The new `merc_typecheck` crate type checks data specifications, including
+overload resolution, implicit numeric coercions, structured sorts and the
+polymorphic system-defined containers. The syntax tree now carries span
+information, which gives precise error messages and is the basis for a language
+server. Parsing of deeply nested if-then-else expressions is no longer
+quadratic.
+
+The new `merc_explore` crate provides a generic explicit state space
+exploration framework, with optional caching of summand enumeration, a
+control flow graph analysis and parallel (work stealing) exploration. It is
+used by `merc-lps explore-explicit`, by the PBES exploration and by
+`merc-lts combine`. The latter now caches enabled actions and shares action
+labels, which makes it considerably faster.
+
+The `merc_ldd` crate has been removed in favour of the LDD implementation of
+[OxiDD](https://oxidd.net). Symbolic reachability in `merc-symbolic` now
+supports chaining and saturation (following Ciardo) and summand grouping. The
+`merc-pbes` tool has been extended considerably. It can now explore PBES
+explicitly or symbolically into parity games, and solve them (`solve`,
+`solve-symbolic`). 
+
+The `merc-rewrite` tool can now parse full mCRL2 specifications and has a new
+`check` command to type check data specifications. `merc-lts` supports the
+binary LTS formats where sensible, no longer converts `i` to `tau` when
+reading AUT files, and requires an output for `convert`. The explicit parity
+games and LTSs use compressed vectors to reduce memory usage.
+
+The `merc_aterm` crate has been reviewed to ensure that safe code cannot lead
+to undefined behaviour. In particular, `Protected` containers are now written
+through a scoped closure. Terms and function symbols have a more compact
+layout, the term parser no longer depends on pest, and garbage collection
+marking uses pointer tagging instead of a hash set.
+
+**Full Changelog**:  https://github.com/MERCorg/merc/compare/v2.0...main
+
 # v2.0 (June 2026)
 
 See the `README.md` of the individual crates for their own changelogs. The

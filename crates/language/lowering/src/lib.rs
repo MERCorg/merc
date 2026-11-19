@@ -1,5 +1,4 @@
-//! Lowers a type checked mCRL2 data specification, see [merc_typecheck::DataSpecification], to the
-//! aterm representation of [merc_data] used by the rewriters and the rest of merc.
+#![doc = include_str!("../README.md")]
 
 mod lowering;
 mod system_symbols;

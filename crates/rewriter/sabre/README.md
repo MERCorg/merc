@@ -40,6 +40,25 @@ This crate implements a `NaiveRewriter` for reference testing, an
 Matching, and the full `SabreRewriter` that uses the Set Automaton construction
 for matching.
 
+## Changelog
+
+### 3.0.0
+
+The `InnermostRewriter` can now rewrite terms containing binders, such as
+lambdas and quantifiers. Quantifiers are decided by an `Enumerator`, given with
+`InnermostRewriter::with_enumerator`, of which the `merc_enumerate` crate
+provides an implementation.
+
+Other additions:
+
+- `RewriteEngine::rewrite_with` rewrites a term under a substitution, given by
+  the `RewriteSubstitution` trait, of which the replacements are already in
+  normal form.
+
+Fixed the `SabreRewriter` rewriting infinitely for non-linear rules such as
+`eq(x, x) -> true`, and fixed the set automaton construction not terminating
+for some sets of rewrite rules.
+
 ## Safety
 
 This crate contains minimal `unsafe` code, but modules that don't use `unsafe` code

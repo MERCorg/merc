@@ -1,4 +1,4 @@
-//! Type checking of modal (mu-calculus) state formulas, see [ModalSpecification].
+#![doc = include_str!("../README.md")]
 
 mod check;
 mod error;

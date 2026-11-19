@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 mod system;
 
 pub use system::PresError;

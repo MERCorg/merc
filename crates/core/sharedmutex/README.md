@@ -12,6 +12,25 @@ The implementation is extended with a read recursive lock variant called `Recurs
 
 Compared to other readers-writer locks this implementation requires local data for every reader, which is achieved by requiring the user to clone the readers-writer lock (once) for every thread that must have access to the shared state. This allows for very efficient (uncontended) read access, at the cost of more memory usage and typically higher overhead for write access. In its main use case of the term library, or large vectors, the amount of write accesses is often in the orders of 1000+ times less frequent than read accesses, making this trade-off worthwhile.
 
+## Changelog
+
+### 3.0.0
+
+Reviewed the crate for soundness, using [loom](https://github.com/tokio-rs/loom)
+to test the concurrent behaviour of the locks. This resulted in several
+breaking changes:
+
+- `BfSharedMutex::get_mut` now returns an `Option`, which is `None` when other
+  clones of the shared mutex exist, since these can concurrently access the
+  shared object.
+- `RecursiveLockWriteGuard` no longer implements `DerefMut`; mutable access is
+  provided by the scoped `with_mut` function instead.
+- `BfVec` no longer implements `Index`, use `BfVec::at` instead.
+
+Added `try_write` to `BfSharedMutex` and `RecursiveLock`, which returns `None`
+instead of blocking when another thread is already acquiring or releasing a
+write lock.
+
 ## Authors
 
 This crate was developed by Maurice Laveaux, Flip van Spaendonck and Jan Friso Groote.

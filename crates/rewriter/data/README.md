@@ -33,6 +33,22 @@ let term = ATerm::from_string("f(a, g(x))").unwrap();
 let data_expr = to_untyped_data_expression(term, Some(&AHashSet::from_iter(["x".to_string()])));
 ```
 
+## Changelog
+
+### 3.0.0
+
+The placeholder `DataSpecification` has been replaced by
+`Mcrl2DataSpecification`, which stores the sorts, aliases, constructors,
+mappings and equations of an mCRL2 data specification. It can be read from and
+written to the binary ATerm format.
+
+Added `DataExpression::kind`, which returns a `DataExpressionKind` to match on
+the different kinds of data expressions. Data expressions can be traversed with
+`visit_data_expr` and the `DataExpressionVisitor` trait. Added constructors for
+the boolean connectives (e.g. `DataExpression::and`), the standard sorts (e.g.
+`SortExpression::nat`), evaluation of machine word operations with
+`try_evaluate_machine_word`.
+
 ## Safety
 
 This crate contains no unsafe code.

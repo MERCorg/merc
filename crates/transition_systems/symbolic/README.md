@@ -1,8 +1,8 @@
 # Overview
 
 This crate provides algorithms for working with symbolic data structures. This
-includes List Decision Diagrams using the `merc_ldd` crate and Binary Decision
-Diagrams using the [OxiDD](https://oxidd.net) crate. 
+includes List Decision Diagrams and Binary Decision Diagrams, both using the
+[OxiDD](https://oxidd.net) crate.
 
 In the following example we show that we can load symbolic LTSs stored in
 Sylvan's binary format. These can then be explored using the reachability
@@ -11,19 +11,22 @@ function.
 ```rust
 use std::fs::File;
 
-use merc_ldd::Storage;
+use merc_symbolic::LDD_CACHE_CAPACITY;
+use merc_symbolic::LDD_NODE_CAPACITY;
 use merc_symbolic::read_sylvan;
 use merc_symbolic::reachability;
+use merc_utilities::Timing;
 
-let mut storage = Storage::new();
-let lts = read_sylvan(&mut storage, &File::open("../../examples/ldd/anderson.4.ldd").expect("File could not be opened"));
+let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+let mut file = File::open("../../../examples/ldd/anderson.4.ldd").expect("File could not be opened");
+let mut lts = read_sylvan(&manager, &mut file).expect("Should not fail");
 
-reachability(&mut storage, &lts).expect("Should not fail");
+let states = reachability(&manager, &mut lts, &Timing::new()).expect("Should not fail");
 ```
 
-Furthermore, this crate can also compute variable ordering, for now only using
-the MINCE algorithm for a given dependency graph. This requires the
-[kahypar](https://github.com/kahypar/kahypar) tool.
+Furthermore, this crate can also compute variable orders using the MINCE
+algorithm for a given dependency graph, or apply a user defined order. MINCE
+requires the [kahypar](https://github.com/kahypar/kahypar) tool.
 
 The summands of a linear process can be distributed over the transition groups
 used for symbolic reachability, using the `SummandGrouping` strategies of the
@@ -34,6 +37,24 @@ transition relations.
 ## Changelog
 
 ### 3.0.0
+
+The `merc_ldd` crate has been removed, and List Decision Diagrams are now
+provided by [OxiDD](https://github.com/oxidd/oxidd).
+
+Symbolic reachability can be configured using `reachability_with_options`, which
+supports the strategies of `ExplorationStrategy` (including chaining and
+Ciardo's saturation) and can detect deadlocks, the latter is also required for
+the `PBES` explorers.
+
+Added `SymbolicLps` to explore a linear process symbolically, where the
+summands are grouped into transition groups according to a `SummandGrouping`,
+and the state vector is permuted according to a `VariableOrder`, which is
+either user defined or computed by MINCE.
+
+The `SymbolicLts` type is now generic in its action labels, and can be written
+with `write_symbolic_lts`. The `convert_symbolic_lts` and the new
+`convert_symbolic_lts_bdd` functions accept any `LtsBuilder`, so symbolic LTSs
+can also be converted to mCRL2 `.lts` files.
 
 Fixed the implementation of the signature-based refinement algorithm for strong
 bisimulation, both the regular and the split signature variants should now yield

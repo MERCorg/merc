@@ -38,6 +38,17 @@ assert_eq!(reduced.num_of_states(), 3);
 
 ## Changelog
 
+### 3.0.0
+
+The `compare_lts` function can now return a counter example when the LTSs are
+not equivalent, in the form of a distinguishing Hennessy-Milner formula
+represented by `DistinguishingFormula`. This is only supported for
+`Equivalence::StrongBisimNaive` at the moment.
+
+The `quotient_lts_block` function now panics when used for branching
+bisimulation on a block without a bottom state, instead of silently dropping its
+transitions.
+
 ### 2.0.0
 
 Fixed an issue with the compare function for branching bisimulation, which

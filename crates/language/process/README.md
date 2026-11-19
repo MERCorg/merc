@@ -1,26 +1,36 @@
 # Overview
 
-The `merc_process` crate type checks mCRL2 process specifications.
-`ProcessSpecification::from_untyped` type checks the embedded data specification with
-`merc_typecheck::DataSpecification`, and then checks every action declaration, process
-declaration, and the `init` process against it. Before checking runs,
-`ProcessSpecification` disambiguates the specification to undo a handful of
-grammar-level ambiguities mCRL2's concrete syntax has between the process
-algebra and the data language — `.`, `+`, and `||` all lex the same in both, and
-a single-action `hide`/`block`/`allow` application can appear in the same
-ambiguous position. `ProcessSpecification::typing_info` exposes the same
-span-keyed `TypingInfo` as `DataSpecification`, merged over every checked
-process-body expression.
+This crate type checks process specifications of the
+[mCRL2](https://www.mcrl2.org/) toolset. This checks the data specification,
+the action and process declarations and the initial process. Note that the
+syntax of process expressions and data expressions overlaps, for example `.`,
+`+` and `||` occur in both, so before type checking the parsed specification is
+disambiguated based on the declared actions and processes.
 
-A related grammar quirk survives disambiguation rather than being undone by it: a process
-reference with no arguments and no parentheses (`proc P = a . P;`'s recursive `P`) is not parsed
-as `ProcessExprKind::Id` — that variant requires parentheses, even empty ones (`P()`). A bare `P`
-instead falls through to the same `Action` rule a real action instantiation uses, landing as
-`ProcessExprKind::Action`. Type checking resolves this by looking such a name up against both the
-declared action names and the declared process names (`check_action_or_process`); an `act` and a
-`proc` are never allowed to share a name in the first place (`ActionAndProcessConflict`), so this
-never resolves a genuine action-vs-process ambiguity — only an arity overload within whichever one
-of the two the name actually belongs to.
+## Usage
+
+```rust
+use merc_process::ProcessSpecification;
+use merc_syntax::UntypedProcessSpecification;
+
+let untyped = UntypedProcessSpecification::parse("
+    act
+        a, b: Nat;
+
+    proc
+        P(n: Nat) = a(n) . P(n + 1) + (n > 0) -> b(n) . P(Int2Nat(n - 1));
+
+    init
+        P(0);
+").unwrap();
+
+let spec = ProcessSpecification::from_untyped(untyped).unwrap();
+assert_eq!(spec.process_declarations().len(), 1);
+
+// Using an undeclared action results in a type error.
+let untyped = UntypedProcessSpecification::parse("init c;").unwrap();
+assert!(ProcessSpecification::from_untyped(untyped).is_err());
+```
 
 ## Safety
 

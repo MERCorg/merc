@@ -41,6 +41,11 @@ assert!(counter_example.is_none());
 
 ## Changelog
 
+### 3.0.0
+
+Fixed the counter examples of weak refinements containing the internal (tau)
+steps of the implementation.
+
 ### 2.0
 
 Added various refinement algorithms, which can return counter examples when the

@@ -1,4 +1,4 @@
-//! Type checking of mCRL2 process specifications, see [ProcessSpecification].
+#![doc = include_str!("../README.md")]
 
 mod check;
 mod disambiguation;

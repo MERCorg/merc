@@ -47,6 +47,27 @@ variable must be set to the installation path of CADP at compilation and run tim
 
 ## Changelog
 
+### 3.0.0
+
+The `read_lts` function now also returns the data specification of the LTS in
+the mCRL2 `.lts` format, which `write_lts` requires to write a valid file, and
+`GenericLts::Lts` carries it as well. The closures passed to
+`GenericLts::apply` and `apply_pair` therefore receive this extra data as an
+additional argument. Added `LtsStream` to stream an LTS to disk in this format.
+
+Added state labels to the `LTS` trait, with an associated `StateLabel` type.
+`LabelledTransitionSystem` has an additional type parameter for its state
+labels, which defaults to `()`, and the state labels of the `.lts` format are
+available as `LtsStateLabels`. The reason for this design is that the
+`LtsStateLabels` can now use `Protected` internally to avoid protecting each
+individual state label separately.
+
+Added the `ConcurrentLtsBuilder` trait for builders that accept transitions from
+multiple threads, with the `Mutex` based `MutexLtsBuilder` implementation.
+
+The `read_aut` function now removes duplicate transitions. Fixed `AutStream`
+writing an invalid file for an LTS without transitions.
+
 ### v2.0.0
 
 Added support for reading and writing LTSs in the BCG format from the

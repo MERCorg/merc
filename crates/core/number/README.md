@@ -2,9 +2,7 @@
 
  > ⚠️ **important** This is an internal crate and is not intended for public use.
  
-Internal MERC crate for number types and operations. In the future this crate
-can contain arbitrary width integers, rationals, and other number types as done
-in the mCRL2 toolset.
+Internal MERC crate for number types and operations. It also contains the implementation for the machine word operations.
 
 ## Minimum Supported Rust Version
 

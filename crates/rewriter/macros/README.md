@@ -37,6 +37,20 @@ installed using `cargo install cargo-expand` to make it easier. Running the
 command `cargo expand` in `merc_aterm` crate can be used to print the Rust code
 with the macros expanded for debugging purposes.
 
+## Changelog
+
+### 3.0.0
+
+The `merc_derive_terms` macro now generates an `unsafe impl` of the
+`Transmutable` trait, which became unsafe in `merc_aterm`, and forwards the new
+`Term::borrow` method. The generated `copy` of a `Ref` type now returns a
+reference with the lifetime of the referenced term instead of the borrow, and
+the same holds for elided lifetimes in the return types of methods that are
+duplicated onto the `Ref` type.
+
+Invalid arguments to `#[merc_term(...)]` and unsupported `impl` blocks are now
+reported as compile errors, instead of being ignored or panicking in the macro.
+
 ## Safety
 
 The proc-macro crate itself contains no unsafe code (`#![forbid(unsafe_code)]`).

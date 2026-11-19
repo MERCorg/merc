@@ -31,6 +31,19 @@ let mcrl2_spec = UntypedProcessSpecification::parse("
 
 ## Changelog
 
+### 3.0.0
+
+The AST now carries source spans. The expression types, such as `DataExpr`,
+`SortExpression`, `ProcessExpr` and `StateFrm`, are now a `Spanned` node of
+which the variants moved to the corresponding kind, e.g. `DataExprKind`.
+
+The visitors and builders, such as `visit_statefrm` and `apply_sort_expression`,
+have been replaced by the `Traverse` trait. These traversals, and dropping an
+AST, no longer use recursion, avoiding stack overflows on large expressions.
+
+Avoided quadratic parsing time of nested if-then-else expressions, and fixed
+several parsing and printing issues.
+
 ### 2.0
 
 Added various builders and visitors to manipulate the ASTs.

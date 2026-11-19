@@ -39,18 +39,21 @@ let (_solution, _strategy) = solve_zielonka(&parity_game, false);
 
 ## Changelog
 
-### 3.0
+### 3.0.0
 
 Added a symbolic (LDD-based) parity game representation and solver, alongside
-the existing explicit one: `SymbolicParityGame`, built from any
-`merc_symbolic::TransitionGroup`, and `solve_symbolic_zielonka`, a port of
-mCRL2's `symbolic_pbessolve_algorithm` used by `merc-pbes`'s `solve-symbolic`
-command. Includes:
+the existing explicit one: `SymbolicParityGame`. This includes winning strategy
+computation, `verify_symbolic_strategy` to check the resulting strategy, and the
+partial solvers of `partial_solve` for incomplete parity games.
 
-- Winning-strategy computation (`compute_strategy` on the game), and
-  `verify_symbolic_strategy`, a native LDD-level certificate checker.
-  `verify_symbolic_solution` offers a second, decode-to-explicit
-  cross-check for testing, reusing the explicit `verify_solution` checker.
+Parity games now store their vertices, edges, owners and priorities in
+compressed vectors to reduce memory usage. The `PGBuilder` trait abstracts over
+`ParityGameBuilder`, so that the exploration of a parity game can also discard
+the result.
+
+Fixed the `alternative_solving` flag of `solve_variability_zielonka`, which was
+inverted. The optional vertex names of the PGSolver format are now ignored, and
+invalid vertex owners result in an error instead of a panic.
 
 ### 2.0
 

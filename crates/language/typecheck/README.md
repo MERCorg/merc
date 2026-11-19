@@ -1,59 +1,50 @@
 # Overview
 
-The `merc_typecheck` crate type checks mCRL2 data specifications, following the
-definitions in *Modeling and Analysis of Communicating Systems* (Groote &
-Mousavi, MIT Press 2014). It turns the loosely-structured syntax tree produced
-by the `merc_syntax` parser into a fully typed specification: it resolves every
-name, decides the sort of every expression, chooses between overloaded
-operators, and inserts the implicit coercions the surface language leaves out
-(such as reading a natural number where a real number is expected).
+This crate type checks data specifications of the
+[mCRL2](https://www.mcrl2.org/) toolset, following the definitions in
+*Modeling and Analysis of Communicating Systems* (Groote & Mousavi, MIT Press
+2014). Type checking resolves every name, determines the sort of every
+expression, chooses between overloaded functions and inserts the implicit
+coercions, for example where a natural number is used as a real number.
 
-Type checking runs as a pipeline of phases — sort resolution, desugaring,
-signature building, then constraint-based sort inference. Lowering the result
-to the aterm representation used by the rest of merc (`merc_data`,
-`merc_sabre`, `merc_explore`) is done by the separate `merc_lowering` crate. For the full design — the query-based architecture, the sort
-lattice, and the ranked backtracking search that drives inference — see the
-[Type Checking](https://MERCorg.github.io/merc/developer/typechecking/) page
-on the documentation site.
+The result can be lowered to the term representation used by the rewriters
+with `merc_lowering`. Process specifications, modal formulas, PBESs and PRESs
+are type checked by the `merc_process`, `merc_formula`, `merc_pbes` and
+`merc_pres` crates respectively, which build on this crate. The design of the
+type checker is described on the
+[Type Checking](https://MERCorg.github.io/merc/developer/typechecking/) page of
+the website.
 
 ## Usage
 
-The entry point is `DataSpecification::from_untyped`, which takes an
-`UntypedDataSpecification` (produced by `merc_syntax`) and returns a type
-checked specification, or a `WellTypedError` describing the first problem
-found. `merc_lowering::lower_data_specification` turns the result into the
-`merc_data::Mcrl2DataSpecification` (aterm, fully typed) consumed by rewriting.
-
 ```rust
-use merc_lowering::lower_data_specification;
 use merc_syntax::UntypedDataSpecification;
 use merc_typecheck::DataSpecification;
 
-let untyped = UntypedDataSpecification::parse(
-    "sort D = struct c(pr: Nat, other: Bool)?is_c | d;
-     map f: D -> Nat;
-     var d: D;
-     eqn f(d) = pr(d);",
-)
-.unwrap();
+let text = "
+    sort D = struct c(pr: Nat, other: Bool)?is_c | d;
+    map f: D -> Nat;
+    var x: D;
+    eqn f(x) = pr(x);
+";
 
-let spec = DataSpecification::from_untyped(untyped).unwrap();
-let lowered = lower_data_specification(&spec);
+let spec = DataSpecification::from_untyped(UntypedDataSpecification::parse(text).unwrap()).unwrap();
+
+// The typing information gives the sort of every expression by its position in the input.
+let offset = text.find("pr(x)").unwrap();
+let typing_info = spec.typing_info();
+let node = typing_info.at_offset(offset).unwrap();
+println!("{} has sort {:?}", &text[offset..offset + 2], node.sort);
+
+// The structured sort declares the projection `pr: D -> Nat`, so applying it to
+// the natural number `1` instead of a `D` results in a type error.
+let untyped = UntypedDataSpecification::parse("
+    sort D = struct c(pr: Nat);
+    map g: Nat;
+    eqn g = pr(1);
+").unwrap();
+assert!(DataSpecification::from_untyped(untyped).is_err());
 ```
-
-`DataSpecification::typing_info` (and its per-equation counterpart,
-`equation_typing_info`) returns a `TypingInfo`: the sort and name resolution of
-every checked expression node, keyed by source `Span` rather than any internal
-id, so a consumer such as an editor integration can look up hover text or a
-go-to-definition target by byte offset via `TypingInfo::at_offset` without
-needing to know anything about how inference numbers its nodes internally.
-
-### Other specifications
-
-The process specifications, state formulas, and PBES/PRES specifications that embed data
-expressions are checked by their own crates, `merc_process`, `merc_formula`, `merc_pbes`, and
-`merc_pres`, on top of a `DataSpecification`. These build on the scoped checking and variable
-resolution building blocks this crate exposes behind the (unstable) `internal` feature.
 
 ## Safety
 

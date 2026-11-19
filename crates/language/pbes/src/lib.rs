@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 mod counter_example;
 mod equation_system;
 mod error;
