@@ -487,6 +487,27 @@ impl Drop for ATermSend {
     }
 }
 
+impl Clone for ATermSend {
+    /// Protects the term again, in the send protection set of the current thread.
+    fn clone(&self) -> Self {
+        let protection_set = THREAD_TERM_POOL.with(|tp| tp.send_term_protection_set().clone());
+        // SAFETY: `self` keeps the term protected during this call, so the index stays valid, and
+        // inserting the copy into the send-term protection set makes it a GC root until the clone
+        // is dropped.
+        let term: ATermRef<'static> = unsafe { ATermRef::from_index(self.term.shared()) };
+        let root = protection_set
+            .lock()
+            .expect("Lock poisoned!")
+            .protect(unsafe { self.term.shared().copy() });
+
+        Self {
+            term,
+            root,
+            protection_set,
+        }
+    }
+}
+
 impl Hash for ATermSend {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.term.hash(state)
