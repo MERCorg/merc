@@ -21,7 +21,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          # The binaries require the glibc version of the build system, so build on the oldest
+          # supported distribution instead of ubuntu-latest. Keep it in sync with install-deb.
+          - os: ubuntu-24.04
             installers: --installer deb --installer rpm
           - os: macos-latest
             installers: --installer dmg
@@ -31,14 +33,14 @@ jobs:
 
     steps:
     - name: Cache APT packages
-      if: matrix.os == 'ubuntu-latest'
+      if: matrix.os == 'ubuntu-24.04'
       uses: actions/cache@v6
       with:
         path: /var/cache/apt/archives/*.deb
         key: apt-${{ runner.os }}-fontconfig-freetype-v1
 
     - name: Install Ubuntu Dependencies
-      if: matrix.os == 'ubuntu-latest'
+      if: matrix.os == 'ubuntu-24.04'
       run: |
         sudo apt-get update
         sudo apt-get install -y libfontconfig1-dev libfreetype6-dev
@@ -103,7 +105,7 @@ jobs:
   # installed tools, the xtask binary is downloaded such that no toolchain has to be installed.
   install-deb:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container: ubuntu:24.04
 
     steps:
@@ -113,13 +115,13 @@ jobs:
     - name: Download installer artifact
       uses: actions/download-artifact@v8
       with:
-        name: installer-ubuntu-latest
+        name: installer-ubuntu-24.04
         path: installers
 
     - name: Download xtask artifact
       uses: actions/download-artifact@v8
       with:
-        name: xtask-ubuntu-latest
+        name: xtask-ubuntu-24.04
         path: xtask
 
     - name: Install package
@@ -139,7 +141,7 @@ jobs:
 
   install-rpm:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     container: fedora:latest
 
     steps:
@@ -149,13 +151,13 @@ jobs:
     - name: Download installer artifact
       uses: actions/download-artifact@v8
       with:
-        name: installer-ubuntu-latest
+        name: installer-ubuntu-24.04
         path: installers
 
     - name: Download xtask artifact
       uses: actions/download-artifact@v8
       with:
-        name: xtask-ubuntu-latest
+        name: xtask-ubuntu-24.04
         path: xtask
 
     - name: Install package
