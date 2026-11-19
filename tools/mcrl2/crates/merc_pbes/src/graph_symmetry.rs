@@ -883,7 +883,12 @@ where
         let i = node.index();
         let point = i + 1;
         let vc = &sdg.colours[i];
-        let rhs = format!("rhs {{{}}}", sdg.rhs[i].iter().format(","));
+        // `C_RHS`, shown only for the right-hand sides of equations.
+        let rhs = if sdg.rhs[i].is_empty() {
+            String::new()
+        } else {
+            format!("\\nrhs {{{}}}", sdg.rhs[i].iter().format(","))
+        };
 
         let label = match vc {
             VertexColour::Parameter(_) => sdg.parameters[i].name().to_string(),
@@ -905,12 +910,12 @@ where
         if matches!(vc, VertexColour::Update) {
             writeln!(
                 w,
-                "  p{point} [label=\"\", xlabel=\"{rhs}\", shape=diamond, fillcolor=\"{fill}\", width=0.2, height=0.2, fixedsize=true];"
+                "  p{point} [label=\"\", shape=diamond, fillcolor=\"{fill}\", width=0.2, height=0.2, fixedsize=true];"
             )?;
         } else {
             writeln!(
                 w,
-                "  p{point} [label=\"{label}\\n{rhs}\", shape={shape}, fillcolor=\"{fill}\"];"
+                "  p{point} [label=\"{label}{rhs}\", shape={shape}, fillcolor=\"{fill}\"];"
             )?;
         }
     }
