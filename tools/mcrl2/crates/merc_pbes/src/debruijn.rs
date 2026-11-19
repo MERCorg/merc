@@ -64,14 +64,10 @@ mod tests {
 
     use super::BindingScope;
 
-    fn variable(name: &'static str) -> &'static str {
-        name
-    }
-
     #[test]
     fn test_innermost_variable_has_index_zero() {
         test_logger();
-        let (x, y) = (variable("x"), variable("y"));
+        let (x, y) = ("x", "y");
 
         let mut scope = BindingScope::new();
         assert_eq!(scope.push([x]), 1);
@@ -79,13 +75,13 @@ mod tests {
 
         assert_eq!(scope.index_of(&y), Some(0));
         assert_eq!(scope.index_of(&x), Some(1));
-        assert_eq!(scope.index_of(&variable("z")), None);
+        assert_eq!(scope.index_of(&"z"), None);
     }
 
     #[test]
     fn test_multi_variable_binder_numbers_in_list_order() {
         test_logger();
-        let (x, y) = (variable("x"), variable("y"));
+        let (x, y) = ("x", "y");
 
         let mut nested = BindingScope::new();
         nested.push([x]);
@@ -101,7 +97,7 @@ mod tests {
     #[test]
     fn test_pop_restores_outer_scope() {
         test_logger();
-        let (x, y) = (variable("x"), variable("y"));
+        let (x, y) = ("x", "y");
 
         let mut scope = BindingScope::new();
         scope.push([x]);
@@ -116,11 +112,11 @@ mod tests {
     #[test]
     fn test_shadowing_resolves_to_innermost_binder() {
         test_logger();
-        let x = variable("x");
+        let x = "x";
 
         let mut scope = BindingScope::new();
         scope.push([x]);
-        scope.push([variable("y")]);
+        scope.push(["y"]);
         scope.push([x]);
 
         assert_eq!(scope.index_of(&x), Some(0), "the innermost x shadows the outer one");
