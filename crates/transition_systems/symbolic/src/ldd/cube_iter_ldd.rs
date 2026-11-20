@@ -10,24 +10,21 @@ pub fn iter_right(ldd: &LDDFunction) -> IterRight {
     IterRight { current: ldd.clone() }
 }
 
-// Returns an iterator over all vectors contained in the given LDD.
+/// Returns an iterator over all vectors contained in the given LDD, including the empty vector when
+/// the LDD is the set that contains only that.
 pub fn iter(ldd: &LDDFunction) -> Iter {
-    if ldd.node().is_none() {
-        // Either the empty set or the empty vector, both contain no
-        // non-trivial vectors to iterate.
-        Iter {
-            vector: Vec::new(),
-            current: Vec::new(),
-            stack: Vec::new(),
-            finished: false,
-        }
-    } else {
-        Iter {
-            vector: Vec::new(),
-            current: Vec::new(),
-            stack: vec![ldd.clone()],
-            finished: false,
-        }
+    Iter {
+        vector: Vec::new(),
+        current: Vec::new(),
+        // Terminals are never pushed: the empty set has no vectors, and the empty vector is
+        // reported once through `empty_vector`.
+        stack: if ldd.node().is_some() {
+            vec![ldd.clone()]
+        } else {
+            Vec::new()
+        },
+        empty_vector: ldd.is_empty_vector(),
+        finished: false,
     }
 }
 
@@ -115,6 +112,8 @@ pub struct Iter {
     current: Vec<Value>,
     /// Stores the stack for the depth-first search (only non 'true' or 'false' nodes)
     stack: Vec<LDDFunction>,
+    /// Whether the empty vector, the only vector of the LDD, still has to be reported.
+    empty_vector: bool,
     /// Indicates whether the iteration is finished.
     finished: bool,
 }
@@ -123,6 +122,12 @@ impl StreamingIterator for Iter {
     type Item = Vec<Value>;
 
     fn advance(&mut self) {
+        if self.empty_vector {
+            self.empty_vector = false;
+            self.current.clear();
+            return;
+        }
+
         // Find the next vector by going down the chain.
         loop {
             if let Some(current) = self.stack.last() {
