@@ -21,11 +21,13 @@ use crate::binding::BindingChain;
 use crate::binding::BindingGuard;
 use crate::binding::SingleSubstitution;
 
-/// Applies [the one-point rule](https://mercorg.github.io/merc-website/developer/rewriting/enumeration/#the-one-point-rule) to a fixpoint,
-/// for a quantifier of `kind` over `vars`, or a `sum` as [`QuantifierKind::Exists`].
+/// Applies [the one-point
+/// rule](https://mercorg.github.io/merc-website/developer/rewriting/enumeration/#the-one-point-rule)
+/// to a fixpoint, for a quantifier of `kind` over `vars`, or a `sum` as
+/// [`QuantifierKind::Exists`].
 ///
-/// The [`Enumerator`](crate::Enumerator) never applies the rule itself, so this is a
-/// preprocessing step for the caller.
+/// The [`Enumerator`](crate::Enumerator) never applies the rule itself, so this
+/// is a preprocessing step for the caller.
 ///
 /// `condition` is the goal body to search for one-point (dis)equations over
 /// `vars`, rewritten to its residual form in place. `rest` is *not* searched
@@ -35,6 +37,9 @@ use crate::binding::SingleSubstitution;
 ///
 /// `condition` must already be in normal form, so that the `e` of a matched
 /// equation can be substituted without rewriting it again.
+/// 
+/// Returns a tuple containing the remaining variables that were not eliminated
+/// and the eliminated variables with their corresponding values.
 pub fn simplify_one_point<R: RewriteEngine>(
     rewriter: &mut R,
     kind: QuantifierKind,

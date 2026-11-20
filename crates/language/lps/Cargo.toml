@@ -41,6 +41,7 @@ merc_unsafety.workspace = true
 merc_utilities.workspace = true
 
 [dev-dependencies]
+rand.workspace = true
 test-case.workspace = true
 
 [lints]

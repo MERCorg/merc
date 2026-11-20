@@ -11,6 +11,13 @@ expressions are terms of `merc_data`; unlike in mCRL2 the summands, actions and
 the process itself are plain Rust values. Stochastic linear processes are not
 supported.
 
+The crate also explores the state space of a linear process, using only the term
+rewriters and enumerator of MERC. A `.lps` file stores only the user defined
+part of its data specification, so [`TransformedLps`] first generates the system
+defined equations. It then it can be transformed using several preprocessing
+steps, see the `transformations` module, after which the process can be explored
+explicitly, optionally in parallel, or symbolically.
+
 ## Usage
 
 ```rust,no_run
@@ -25,6 +32,8 @@ for summand in &lps.action_summands {
 }
 write_lps(&lps, File::create("copy.lps").unwrap()).unwrap();
 ```
+
+The `merc-lps` tool in `tools/lps` exposes the exploration.
 
 ## Safety
 

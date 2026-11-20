@@ -249,7 +249,8 @@ fn test_simplify_one_point_then_enumerate_normalized_matches_direct_enumeration(
 
     let mut condition = normalized_body;
     let mut rest = [DataExpression::from(b.clone())];
-    let remaining_vars = simplify_one_point(&mut rewriter, QuantifierKind::Exists, &vars, &mut condition, &mut rest);
+    let (remaining_vars, _) =
+        simplify_one_point(&mut rewriter, QuantifierKind::Exists, &vars, &mut condition, &mut rest);
     let other = rest[0].clone();
 
     let true_literal = merc_data::DataExpression::bool_literal(true);

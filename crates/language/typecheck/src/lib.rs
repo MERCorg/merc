@@ -62,7 +62,6 @@ pub mod internal {
     pub use crate::inference::SortInterner;
     pub use crate::inference::TypeCheckContext;
     pub use crate::inference::for_each_expr_child;
-    pub use crate::inference::unreachable_not_a_value_sort;
     pub use crate::instantiate::instantiate_used_templates;
     pub use crate::resolution::NameStack;
     pub use crate::resolution::Scope as VariableScope;
