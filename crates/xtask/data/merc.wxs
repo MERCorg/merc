@@ -1,4 +1,5 @@
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package Name="{{ name }}" Manufacturer="{{ maintainer }}" Version="{{ version }}" UpgradeCode="{{ upgrade_code }}" Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" />
@@ -6,10 +7,22 @@
     <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="INSTALLFOLDER" Name="{{ name }}" />
     </StandardDirectory>
+    <StandardDirectory Id="CommonProgramsFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="{{ name }}" />
+    </StandardDirectory>
 
-    <Feature Id="Main">
+    <Feature Id="Main" Title="{{ name }}" Display="expand">
       <ComponentGroupRef Id="Files" />
+      {% if gui %}
+      <ComponentRef Id="LtsgraphStartMenuShortcut" />
+      <Feature Id="LtsgraphDesktopShortcut" Title="Desktop shortcut" Level="2">
+        <ComponentRef Id="LtsgraphDesktopShortcutComponent" />
+      </Feature>
+      {% endif %}
     </Feature>
+
+    <ui:WixUI Id="WixUI_FeatureTree" />
+    <WixVariable Id="WixUILicenseRtf" Value="{{ license_rtf }}" />
   </Package>
 
   <Fragment>
@@ -20,11 +33,30 @@
       </Component>
       {% endfor %}
 
+      {% if gui %}
+      <Component Id="LtsgraphExecutable">
+        <File Id="MercLtsgraphExe" Source="{{ ltsgraph }}" KeyPath="yes" />
+      </Component>
+      {% endif %}
+
       <!-- Adds the installation directory to the system PATH. -->
       <Component Id="Path">
         <RegistryValue Root="HKLM" Key="Software\{{ name }}" Name="InstallFolder" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
         <Environment Id="PATH" Name="PATH" Value="[INSTALLFOLDER]" Permanent="no" Part="last" Action="set" System="yes" />
       </Component>
     </ComponentGroup>
+
+    {% if gui %}
+    <Component Id="LtsgraphStartMenuShortcut" Directory="ApplicationProgramsFolder">
+      <Shortcut Id="LtsgraphStartMenuLink" Name="merc-ltsgraph" Target="[#MercLtsgraphExe]" WorkingDirectory="INSTALLFOLDER" />
+      <RemoveFolder Id="RemoveApplicationProgramsFolder" On="uninstall" />
+      <RegistryValue Root="HKLM" Key="Software\{{ name }}" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <Component Id="LtsgraphDesktopShortcutComponent" Directory="CommonDesktopFolder">
+      <Shortcut Id="LtsgraphDesktopLink" Name="merc-ltsgraph" Target="[#MercLtsgraphExe]" WorkingDirectory="INSTALLFOLDER" />
+      <RegistryValue Root="HKLM" Key="Software\{{ name }}" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+    {% endif %}
   </Fragment>
 </Wix>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="100%" height="100%" viewBox="0 0 512 512" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:affinity="https://www.affinity.studio/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linecap:round;stroke-linejoin:round;">
+    <path id="rect2" d="M400,16C452.984,16 496,59.016 496,112L496,400C496,452.984 452.984,496 400,496L112,496C59.016,496 16,452.984 16,400L16,112C16,59.016 59.016,16 112,16L400,16Z" style="fill:rgb(74,165,255);"/>
+    <g id="polyline2" transform="matrix(1,0,-0.176327,1,35.543802,0)">
+        <g id="g2">
+            <path id="polyline21" affinity:id="polyline2" d="M140,388L140,124L256,272L372,124L372,388" style="fill:none;fill-rule:nonzero;stroke:rgb(26,26,26);stroke-width:54px;"/>
+        </g>
+    </g>
+</svg>

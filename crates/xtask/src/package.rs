@@ -1,6 +1,6 @@
 use duct::cmd;
-use flate2::Compression;
 use flate2::write::GzEncoder;
+use flate2::Compression;
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -439,32 +439,21 @@ fn xml_escape(value: &str) -> String {
 }
 
 /// Builds a Windows installer (`.msi`) that installs into `Program Files\merc` and adds that
-/// directory to the system `PATH`. Generates a WiX source file and compiles it with the WiX
-/// toolset, which can be installed with `dotnet tool install --global wix`.
+/// directory to the system `PATH`. When `merc-ltsgraph` is included, the installer also creates
+/// a Start Menu shortcut and offers an optional desktop shortcut. Requires WiX and its UI
+/// extension, which can be installed with `dotnet tool install --global wix` and
+/// `wix extension add -g WixToolset.UI.wixext`.
 fn build_msi(contents: &PackageContents, output_dir: &Path) -> Result<PathBuf, Box<dyn Error>> {
     if which::which("wix").is_err() {
         return Err(
-            "Creating a .msi requires the WiX toolset, install it with `dotnet tool install --global wix`".into(),
+            "Creating a .msi requires the WiX toolset and UI extension; install them with `dotnet tool install --global wix` and `wix extension add -g WixToolset.UI.wixext`".into(),
         );
     }
 
-    let files: Vec<String> = contents
-        .binaries
-        .iter()
-        .chain(&contents.data_files)
-        .map(|file| xml_escape(&contents.dir.join(file).to_string_lossy()))
-        .collect();
-
-    let wxs = render_template(
-        WXS_TEMPLATE,
-        upon::value! {
-            name: NAME,
-            version: VERSION,
-            maintainer: MAINTAINER,
-            upgrade_code: MSI_UPGRADE_CODE,
-            files: files,
-        },
-    )?;
+    let license_rtf = output_dir.join(format!("{NAME}-license.rtf"));
+    fs::write(&license_rtf, license_to_rtf(include_str!("../../../LICENSE")))?;
+    let license_rtf = license_rtf.to_string_lossy().into_owned();
+    let wxs = render_msi_source(contents, &license_rtf)?;
 
     let wxs_path = output_dir.join(format!("{NAME}.wxs"));
     fs::write(&wxs_path, wxs)?;
@@ -475,7 +464,110 @@ fn build_msi(contents: &PackageContents, output_dir: &Path) -> Result<PathBuf, B
         _ => "x64",
     };
     let path = output_dir.join(format!("{NAME}-{VERSION}-{arch}.msi"));
-    cmd!("wix", "build", "-arch", arch, "-o", &path, &wxs_path).run()?;
+    cmd!(
+        "wix",
+        "build",
+        "-ext",
+        "WixToolset.UI.wixext",
+        "-arch",
+        arch,
+        "-o",
+        &path,
+        &wxs_path
+    )
+    .run()?;
 
     Ok(path)
+}
+
+fn render_msi_source(contents: &PackageContents, license_rtf: &str) -> Result<String, upon::Error> {
+    let ltsgraph_binary = exe_name("merc-ltsgraph");
+    let gui = contents.binaries.iter().any(|binary| binary == &ltsgraph_binary);
+    let files: Vec<String> = contents
+        .binaries
+        .iter()
+        .filter(|binary| *binary != &ltsgraph_binary)
+        .chain(&contents.data_files)
+        .map(|file| xml_escape(&contents.dir.join(file).to_string_lossy()))
+        .collect();
+    let ltsgraph = xml_escape(&contents.dir.join(ltsgraph_binary).to_string_lossy());
+
+    render_template(
+        WXS_TEMPLATE,
+        upon::value! {
+            name: NAME,
+            version: VERSION,
+            maintainer: MAINTAINER,
+            upgrade_code: MSI_UPGRADE_CODE,
+            files: files,
+            gui: gui,
+            ltsgraph: ltsgraph,
+            license_rtf: xml_escape(license_rtf),
+        },
+    )
+}
+
+/// Converts plain-text license content to RTF for WiX's built-in license dialog.
+fn license_to_rtf(license: &str) -> String {
+    let mut escaped = String::with_capacity(license.len());
+    for character in license.chars() {
+        match character {
+            '\\' => escaped.push_str(r"\\"),
+            '{' => escaped.push_str(r"\{"),
+            '}' => escaped.push_str(r"\}"),
+            '\r' => {}
+            '\n' => escaped.push_str(r"\par "),
+            character if character.is_ascii() => escaped.push(character),
+            character => {
+                let mut utf16 = [0; 2];
+                for code_unit in character.encode_utf16(&mut utf16) {
+                    escaped.push_str(&format!(r"\u{}?", *code_unit as i16));
+                }
+            }
+        }
+    }
+
+    format!(r"{{\rtf1\ansi\deff0{{\fonttbl{{\f0\fnil Arial;}}}}\viewkind4\uc1\pard\f0\fs20 {escaped}\par}}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn msi_source_offers_gui_shortcuts_only_when_the_gui_binary_is_present() {
+        let contents = PackageContents {
+            dir: PathBuf::from("package"),
+            binaries: vec![exe_name("merc-lts"), exe_name("merc-ltsgraph")],
+            data_files: vec!["LICENSE".to_string()],
+        };
+        let source = render_msi_source(&contents, "merc-license.rtf").unwrap();
+
+        assert!(source.contains("WixUI_FeatureTree"));
+        assert!(source.contains("MercLtsgraphExe"));
+        assert!(source.contains("LtsgraphStartMenuShortcut"));
+        assert!(source.contains("LtsgraphDesktopShortcut"));
+        assert!(source.contains("Level=\"2\""));
+        assert!(source.contains("merc-lts.exe"));
+
+        let contents = PackageContents {
+            dir: PathBuf::from("package"),
+            binaries: vec![exe_name("merc-lts")],
+            data_files: vec!["LICENSE".to_string()],
+        };
+        let source = render_msi_source(&contents, "merc-license.rtf").unwrap();
+
+        assert!(!source.contains("MercLtsgraphExe"));
+        assert!(!source.contains("LtsgraphStartMenuShortcut"));
+        assert!(!source.contains("LtsgraphDesktopShortcut"));
+        assert!(source.contains("merc-lts.exe"));
+    }
+
+    #[test]
+    fn license_rtf_escapes_control_characters_and_preserves_text() {
+        assert_eq!(
+            license_to_rtf("Terms {of} use\\back\nslash"),
+            r"{\rtf1\ansi\deff0{\fonttbl{\f0\fnil Arial;}}\viewkind4\uc1\pard\f0\fs20 Terms \{of\} use\\back\par slash\par}"
+        );
+    }
 }
