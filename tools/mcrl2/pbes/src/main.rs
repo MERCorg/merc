@@ -459,7 +459,9 @@ impl InputArgs {
 
         if pbes.has_counter_example_information() {
             warn!("The PBES contains counter-example information, which is not supported; removing it");
-            timing.measure("remove counter-example information", || pbes.remove_counterexample_info())?;
+            timing.measure("remove counter-example information", || {
+                pbes.remove_counterexample_info()
+            })?;
         }
 
         Ok(pbes)

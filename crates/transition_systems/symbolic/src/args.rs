@@ -54,8 +54,9 @@ fn gib_to_entries(gib: u32) -> usize {
 #[cfg(feature = "clap")]
 #[derive(clap::Args, Debug)]
 pub struct OxiddArgs {
-    /// Number of worker threads for the Oxidd decision diagram manager.
-    #[arg(long = "oxidd-workers", global = true, default_value_t = 1)]
+    /// Number of worker threads, used by the Oxidd decision diagram manager and by the explicit
+    /// exploration.
+    #[arg(long = "threads", alias = "oxidd-workers", global = true, default_value_t = 1)]
     workers: u32,
 
     /// Capacity of the manager's inner-node table, in gigabytes (as a power of two, i.e. `1 << 30`
@@ -70,6 +71,11 @@ pub struct OxiddArgs {
 
 #[cfg(feature = "clap")]
 impl OxiddArgs {
+    /// The number of worker threads given by `--threads`.
+    pub fn threads(&self) -> usize {
+        self.workers as usize
+    }
+
     /// Initializes an Oxidd BDD manager based on these arguments.
     pub fn init_bdd_manager(&self) -> oxidd::bdd::BDDManagerRef {
         oxidd::bdd::new_manager(self.node_capacity(), self.cache_capacity(), self.workers)
