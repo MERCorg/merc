@@ -1,6 +1,5 @@
 #![forbid(unsafe_code)]
 
-use log::info;
 use merc_data::DataApplication;
 use merc_data::DataExpression;
 use merc_data::DataExpressionRef;
@@ -9,7 +8,6 @@ use merc_utilities::debug_trace;
 use crate::AnnouncementInnermost;
 use crate::RewriteEngine;
 use crate::RewriteSpecification;
-use crate::RewritingStatistics;
 use crate::set_automaton::MatchResult;
 use crate::set_automaton::SetAutomaton;
 use crate::utilities::DataPositionIndexed;
@@ -22,15 +20,7 @@ pub struct NaiveRewriter {
 
 impl RewriteEngine for NaiveRewriter {
     fn rewrite(&mut self, t: &DataExpression) -> DataExpression {
-        let mut stats = RewritingStatistics::default();
-
-        let result = NaiveRewriter::rewrite_aux(&self.apma, t.copy(), &mut stats);
-
-        info!(
-            "{} rewrites, {} single steps and {} symbol comparisons",
-            stats.recursions, stats.rewrite_steps, stats.symbol_comparisons
-        );
-        result
+        NaiveRewriter::rewrite_aux(&self.apma, t.copy())
     }
 }
 
@@ -48,11 +38,7 @@ impl NaiveRewriter {
     /// Rewrites `t` to normal form by first normalising every subterm, then matching the result
     /// at the root: naive because it never observes a symbol below the root before its
     /// subterms are already fully rewritten.
-    fn rewrite_aux(
-        automaton: &SetAutomaton<AnnouncementInnermost>,
-        t: DataExpressionRef<'_>,
-        stats: &mut RewritingStatistics,
-    ) -> DataExpression {
+    fn rewrite_aux(automaton: &SetAutomaton<AnnouncementInnermost>, t: DataExpressionRef<'_>) -> DataExpression {
         // A variable has no head symbol to match on and is its own normal form.
         let Some(symbol) = t.try_data_function_symbol() else {
             return t.protect();
@@ -61,7 +47,7 @@ impl NaiveRewriter {
         // Recursively call rewrite_aux on all the subterms.
         let mut arguments = vec![];
         for t in t.data_arguments() {
-            arguments.push(NaiveRewriter::rewrite_aux(automaton, t, stats));
+            arguments.push(NaiveRewriter::rewrite_aux(automaton, t));
         }
 
         let nf: DataExpression = if arguments.is_empty() {
@@ -70,7 +56,7 @@ impl NaiveRewriter {
             DataApplication::with_args(&symbol, &arguments).into()
         };
 
-        match NaiveRewriter::find_match(automaton, &nf, stats) {
+        match NaiveRewriter::find_match(automaton, &nf) {
             None => nf,
             Some(MatchResult::Native(result)) => {
                 debug_trace!("native rewrote {} to {}", nf, result);
@@ -79,7 +65,7 @@ impl NaiveRewriter {
             Some(MatchResult::Rule(_announcement, ema)) => {
                 let result = ema.rhs_stack.evaluate(&nf);
                 debug_trace!("rewrote {} to {} using rule {}", nf, result, _announcement.rule);
-                NaiveRewriter::rewrite_aux(automaton, result.copy(), stats)
+                NaiveRewriter::rewrite_aux(automaton, result.copy())
             }
         }
     }
@@ -90,7 +76,6 @@ impl NaiveRewriter {
     fn find_match<'a>(
         automaton: &'a SetAutomaton<AnnouncementInnermost>,
         t: &DataExpression,
-        stats: &mut RewritingStatistics,
     ) -> Option<MatchResult<'a, AnnouncementInnermost>> {
         // Start at the initial state
         let mut state_index = 0;
@@ -118,7 +103,7 @@ impl NaiveRewriter {
 
                     // Check conditions if there are any
                     if !ema.conditions.is_empty() {
-                        conditions_hold = NaiveRewriter::check_conditions(automaton, &t.copy(), ema, stats);
+                        conditions_hold = NaiveRewriter::check_conditions(automaton, &t.copy(), ema);
                     }
 
                     // Check equivalence of subterms for non-linear patterns
@@ -160,14 +145,13 @@ impl NaiveRewriter {
         automaton: &SetAutomaton<AnnouncementInnermost>,
         t: &DataExpressionRef<'_>,
         ema: &AnnouncementInnermost,
-        stats: &mut RewritingStatistics,
     ) -> bool {
         for c in &ema.conditions {
             let lhs = c.lhs_term_stack.evaluate(t);
             let rhs = c.rhs_term_stack.evaluate(t);
 
-            let rhs_normal = NaiveRewriter::rewrite_aux(automaton, rhs.copy(), stats);
-            let lhs_normal = NaiveRewriter::rewrite_aux(automaton, lhs.copy(), stats);
+            let rhs_normal = NaiveRewriter::rewrite_aux(automaton, rhs.copy());
+            let lhs_normal = NaiveRewriter::rewrite_aux(automaton, lhs.copy());
 
             let holds = (lhs_normal == rhs_normal && c.equality) || (lhs_normal != rhs_normal && !c.equality);
             if !holds {

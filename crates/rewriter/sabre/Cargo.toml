@@ -4,7 +4,7 @@ description = "Implements various term rewrite engines based on a set automaton 
 keywords = ["rewriting", "term"]
 categories = ["algorithms", "data-structures", "science"]
 readme = "README.md"
-version = "3.0.0"
+version = "4.0.0"
 
 edition.workspace = true
 homepage.workspace = true
@@ -15,6 +15,10 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Counts what the rewriters do, see `RewriteMetrics`.
+metrics = []
+
 [dependencies]
 merc_aterm.workspace = true
 merc_data.workspace = true
@@ -24,12 +28,15 @@ rustc-hash.workspace = true
 smallvec.workspace = true
 html-escape.workspace = true
 ahash.workspace = true
+bitvec.workspace = true
 env_logger.workspace = true
 log.workspace = true
 itertools.workspace = true
 rand.workspace = true
 
 [dev-dependencies]
+# The tests compare rewriters by their metrics.
+merc_sabre = { path = ".", features = ["metrics"] }
 merc_syntax.workspace = true
 merc_lowering.workspace = true
 merc_typecheck.workspace = true

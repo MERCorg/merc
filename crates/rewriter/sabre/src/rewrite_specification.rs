@@ -73,6 +73,15 @@ impl RewriteSpecification {
         }
     }
 
+    /// Returns a specification with the given rules, and the native machine-word operations of
+    /// this one.
+    pub(crate) fn with_rules(&self, rewrite_rules: Vec<Rule>) -> RewriteSpecification {
+        RewriteSpecification {
+            rewrite_rules,
+            native_symbols: self.native_symbols.clone(),
+        }
+    }
+
     /// Returns the rewrite rules of this specification.
     pub fn rewrite_rules(&self) -> &[Rule] {
         &self.rewrite_rules

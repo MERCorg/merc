@@ -614,9 +614,13 @@ impl ThreadTermPool {
     ) {
         // Protect the term by adding its index to the protection set
         // SAFETY: If the global term pool is locked, so we can safely access the protection set.
-        unsafe { &mut *self.protection_sets.get() }
-            .term_protection_set
-            .replace(root, term);
+        // The only caller passes the root of a live `ATerm`, which is unprotected only when that
+        // term is dropped, so `root` is still live.
+        unsafe {
+            (&mut *self.protection_sets.get())
+                .term_protection_set
+                .replace(root, term);
+        }
     }
 
     /// Creates a Return for the given index and guard.
