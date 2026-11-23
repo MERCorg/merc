@@ -1534,9 +1534,10 @@ dependencies = [
 
 [[package]]
 name = "merc_sabre"
-version = "3.0.0"
+version = "4.0.0"
 dependencies = [
  "ahash",
+ "bitvec",
  "env_logger",
  "html-escape",
  "itertools 0.15.0",
@@ -1544,6 +1545,7 @@ dependencies = [
  "merc_aterm",
  "merc_data",
  "merc_lowering",
+ "merc_sabre",
  "merc_syntax",
  "merc_typecheck",
  "merc_utilities",

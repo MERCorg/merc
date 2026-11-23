@@ -2,12 +2,14 @@ use std::fmt::Debug;
 
 use clap::ValueEnum;
 
+use log::info;
 use merc_aterm::ATerm;
 use merc_data::DataExpression;
 use merc_data::to_untyped_data_expression;
 use merc_sabre::InnermostRewriter;
 use merc_sabre::NaiveRewriter;
 use merc_sabre::RewriteEngine;
+use merc_sabre::RewriteMetrics;
 use merc_sabre::RewriteSpecification;
 use merc_sabre::SabreRewriter;
 use merc_sabre_compiling::SabreCompilingRewriter;
@@ -60,13 +62,23 @@ pub fn rewrite_terms(
     output: bool,
     timing: &Timing,
 ) -> Result<(), MercError> {
-    /// Rewrites every term with `engine`, printing each result when asked.
-    fn rewrite_all(engine: &mut impl RewriteEngine, terms: &[DataExpression], output: bool, timing: &Timing) {
+    /// Rewrites every term with `engine`, printing each result when asked, and logs the metrics
+    /// of each rewrite for an engine that has `metrics`.
+    fn rewrite_all<E, M>(engine: &mut E, terms: &[DataExpression], output: bool, timing: &Timing, metrics: M)
+    where
+        E: RewriteEngine,
+        M: Fn(&E) -> Option<&RewriteMetrics>,
+    {
         timing.measure("rewrite_rec", || {
             for term in terms {
                 let result = engine.rewrite(term);
                 if output {
                     println!("{}", result)
+                }
+                if cfg!(feature = "metrics")
+                    && let Some(metrics) = metrics(engine)
+                {
+                    info!("metrics: {metrics:#}");
                 }
             }
         });
@@ -75,21 +87,21 @@ pub fn rewrite_terms(
     match rewriter {
         Rewriter::Naive => {
             let mut inner = timing.measure("rewriter_construction", || NaiveRewriter::new(spec));
-            rewrite_all(&mut inner, terms, output, timing);
+            rewrite_all(&mut inner, terms, output, timing, |_| None);
         }
         Rewriter::Innermost => {
             let mut inner = timing.measure("rewriter_construction", || InnermostRewriter::new(spec));
-            rewrite_all(&mut inner, terms, output, timing);
+            rewrite_all(&mut inner, terms, output, timing, |engine| Some(engine.metrics()));
         }
         Rewriter::InnermostCompiling => {
             let mut inner = timing.measure("rewriter_construction", || {
                 SabreCompilingRewriter::new(spec, true, false)
             })?;
-            rewrite_all(&mut inner, terms, output, timing);
+            rewrite_all(&mut inner, terms, output, timing, |_| None);
         }
         Rewriter::Sabre => {
             let mut sa = timing.measure("rewriter_construction", || SabreRewriter::new(spec));
-            rewrite_all(&mut sa, terms, output, timing);
+            rewrite_all(&mut sa, terms, output, timing, |engine| Some(engine.metrics()));
         }
     }
 

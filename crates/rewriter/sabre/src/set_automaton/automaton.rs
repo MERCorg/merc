@@ -124,7 +124,7 @@ impl<M> SetAutomaton<M> {
 
     /// Like [SetAutomaton::new] for an APMA, but also keeps the rules with `exists`/`forall`
     /// binders in their right-hand side, for a rewriter that evaluates
-    /// [Config::Binder](crate::utilities::Config::Binder).
+    /// [Instruction::Binder](crate::utilities::Instruction::Binder).
     pub fn with_binders<F>(spec: &RewriteSpecification, annotate: F) -> SetAutomaton<M>
     where
         F: Fn(&Rule) -> M,
@@ -791,7 +791,7 @@ pub fn is_supported_rule(rule: &Rule) -> bool {
 
 /// Like [is_supported_rule], but `binders` allows `exists`/`forall` binders in the right-hand
 /// side; see [SetAutomaton::with_binders].
-fn is_supported_rule_with(rule: &Rule, binders: bool) -> bool {
+pub(crate) fn is_supported_rule_with(rule: &Rule, binders: bool) -> bool {
     // There should be no terms of the shape t(t0,...,t_n)
     if !is_supported_term(&rule.rhs, binders) || !is_supported_term(&rule.lhs, false) {
         return false;

@@ -18,6 +18,8 @@ pest.workspace = true
 ahash.workspace = true
 
 [dev-dependencies]
+# The tests compare rewriters by their metrics.
+merc_sabre = { workspace = true, features = ["metrics"] }
 test-case.workspace = true
 env_logger.workspace = true
 

@@ -12,6 +12,7 @@ use merc_data::DataExpression;
 use merc_data::to_untyped_data_expression;
 use merc_sabre::Condition;
 use merc_sabre::InnermostRewriter;
+use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
 use merc_sabre::Rule;
 use merc_sabre::SabreRewriter;
@@ -63,11 +64,13 @@ fn test_condition_cache_reduces_steps_across_unrelated_rules() {
     let expected = term("ok", &[]);
 
     let mut uncached = InnermostRewriter::with_condition_cache_capacity(&spec, None);
-    let (result, uncached_stats) = uncached.rewrite_with_statistics(&input);
+    let result = uncached.rewrite(&input);
+    let uncached_stats = uncached.metrics().clone();
     assert_eq!(result, expected, "InnermostRewriter: uncached result mismatch");
 
     let mut cached = InnermostRewriter::new(&spec);
-    let (result, cached_stats) = cached.rewrite_with_statistics(&input);
+    let result = cached.rewrite(&input);
+    let cached_stats = cached.metrics().clone();
     assert_eq!(result, expected, "InnermostRewriter: default-capacity result mismatch");
 
     assert!(
@@ -87,11 +90,13 @@ fn test_condition_cache_reduces_steps_across_unrelated_rules() {
     );
 
     let mut uncached_sabre = SabreRewriter::with_condition_cache_capacity(&spec, None);
-    let (result, uncached_stats) = uncached_sabre.rewrite_with_statistics(&input);
+    let result = uncached_sabre.rewrite(&input);
+    let uncached_stats = uncached_sabre.metrics().clone();
     assert_eq!(result, expected, "SabreRewriter: uncached result mismatch");
 
     let mut cached_sabre = SabreRewriter::new(&spec);
-    let (result, cached_stats) = cached_sabre.rewrite_with_statistics(&input);
+    let result = cached_sabre.rewrite(&input);
+    let cached_stats = cached_sabre.metrics().clone();
     assert_eq!(result, expected, "SabreRewriter: default-capacity result mismatch");
 
     assert!(
@@ -112,14 +117,16 @@ fn test_condition_cache_correct_under_heavy_eviction() {
     let expected = term("ok", &[]);
 
     let mut inner = InnermostRewriter::with_condition_cache_capacity(&spec, Some(1));
-    let (result, _) = inner.rewrite_with_statistics(&input);
+    let result = inner.rewrite(&input);
+    let _ = inner.metrics().clone();
     assert_eq!(
         result, expected,
         "a 1-entry cache must still be correct, just ineffective"
     );
 
     let mut sabre = SabreRewriter::with_condition_cache_capacity(&spec, Some(1));
-    let (result, _) = sabre.rewrite_with_statistics(&input);
+    let result = sabre.rewrite(&input);
+    let _ = sabre.metrics().clone();
     assert_eq!(
         result, expected,
         "a 1-entry cache must still be correct, just ineffective"

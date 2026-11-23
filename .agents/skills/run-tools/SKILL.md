@@ -10,8 +10,8 @@ Every tool is a cargo binary; run it with `cargo run --release --bin <tool> -- <
 | Tool | Workspace | Purpose | Example inputs |
 |---|---|---|---|
 | `merc-lts` | root | LTS reduction, comparison, refinement, conversion, composition | `examples/lts/*.aut`, `*.lts` |
-| `merc-sym` | root | symbolic (LDD/BDD) state-space exploration and reduction | `examples/ldd/*.ldd`, `examples/lts/*.sym` |
-| `merc-rewrite` | root | REC term rewriting with Sabre | `examples/REC/` |
+| `merc-sym` | root | symbolic (LDD/BDD) reachability and reduction | `examples/ldd/*.ldd`, `examples/lts/*.sym` |
+| `merc-rewrite` | root | rewriting with the naive, innermost, jitty and Sabre rewriters, for REC files and mCRL2 data specifications; `check` prints the stages of parsing and type checking | `examples/REC/rec/*.rec`, `examples/mCRL2/` |
 | `merc-vpg` | root | (variability) parity game solving | `examples/vpg/*.pg`, `*.vpg` |
 | `merc-lps` | `tools/mcrl2` | mCRL2 linear process specification exploration | `examples/mCRL2/` |
 | `merc-pbes` | `tools/mcrl2` | PBES symmetry identification | `examples/pbes/` |
@@ -32,7 +32,7 @@ cargo run --release --bin merc-lts -- --help
 cargo run --release --bin merc-lts -- reduce --help
 ```
 
-All tools share global flags such as `--timings` and a verbosity flag.
+All tools share the global flags `--timings` and `-q`/`-v`/`-d`/`--trace` for verbosity, which come from `merc_tools`.
 
 ### Step 2: Run against an example
 
@@ -43,10 +43,13 @@ Known-good smoke tests:
 cargo run --release --bin merc-lts -- info examples/lts/abp.aut
 
 # Reduce an LTS modulo an equivalence (see reduce --help for the list)
-cargo run --release --bin merc-lts -- reduce <equivalence> examples/lts/abp.aut --output /tmp/reduced.aut
+cargo run --release --bin merc-lts -- reduce branching-bisim examples/lts/abp.aut --output /tmp/reduced.aut
 
-# Explore a symbolic state space
-cargo run --release --bin merc-sym -- explore examples/ldd/anderson.4.ldd
+# Count the reachable states of a symbolic LTS (29,641 for this one)
+cargo run --release --bin merc-sym -- reachability examples/ldd/anderson.4.ldd
+
+# Rewrite the terms of a REC specification
+cargo run --release --bin merc-rewrite -- rewrite innermost examples/REC/rec/fibonacci05.rec
 ```
 
 The `examples/ldd` models are sorted by size in their filename suffix (`anderson.4` is small, `anderson.8` is large) — start small.

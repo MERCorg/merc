@@ -9,6 +9,7 @@ use criterion::criterion_main;
 use merc_data::to_untyped_data_expression;
 use merc_rec_tests::load_rec_from_strings;
 use merc_sabre::InnermostRewriter;
+use merc_sabre::JittyRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::SabreRewriter;
 use merc_sabre::SetAutomaton;
@@ -78,6 +79,26 @@ pub fn criterion_benchmark_innermost_rewriter(c: &mut Criterion) {
                 let mut inner = InnermostRewriter::new(&spec);
                 for term in &terms {
                     let _ = black_box(inner.rewrite(term));
+                }
+            });
+        });
+    }
+}
+
+pub fn criterion_benchmark_jitty_rewriter(c: &mut Criterion) {
+    for (name, rec_files) in CASES {
+        let (syntax_spec, syntax_terms) = load_rec_from_strings(rec_files).unwrap();
+        let spec = syntax_spec.to_rewrite_spec();
+        let terms: Vec<_> = syntax_terms
+            .iter()
+            .map(|term| to_untyped_data_expression(term.clone(), None))
+            .collect();
+
+        c.bench_function(&format!("jitty rewriter {}", name), |bencher| {
+            bencher.iter(|| {
+                let mut jitty = JittyRewriter::new(&spec);
+                for term in &terms {
+                    let _ = black_box(jitty.rewrite(term));
                 }
             });
         });
@@ -178,6 +199,7 @@ criterion_group!(
     benches,
     criterion_benchmark_set_automaton,
     criterion_benchmark_innermost_rewriter,
+    criterion_benchmark_jitty_rewriter,
     criterion_benchmark_sabre_rewriter,
     criterion_benchmark_condition_cache,
 );
