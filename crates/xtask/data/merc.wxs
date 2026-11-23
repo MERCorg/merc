@@ -7,7 +7,7 @@
     <StandardDirectory Id="ProgramFiles6432Folder">
       <Directory Id="INSTALLFOLDER" Name="{{ name }}" />
     </StandardDirectory>
-    <StandardDirectory Id="CommonProgramsFolder">
+    <StandardDirectory Id="ProgramMenuFolder">
       <Directory Id="ApplicationProgramsFolder" Name="{{ name }}" />
     </StandardDirectory>
 
@@ -53,7 +53,7 @@
       <RegistryValue Root="HKLM" Key="Software\{{ name }}" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
     </Component>
 
-    <Component Id="LtsgraphDesktopShortcutComponent" Directory="CommonDesktopFolder">
+    <Component Id="LtsgraphDesktopShortcutComponent" Directory="DesktopFolder">
       <Shortcut Id="LtsgraphDesktopLink" Name="merc-ltsgraph" Target="[#MercLtsgraphExe]" WorkingDirectory="INSTALLFOLDER" />
       <RegistryValue Root="HKLM" Key="Software\{{ name }}" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
     </Component>

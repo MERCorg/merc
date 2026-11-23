@@ -45,18 +45,22 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y libfontconfig1-dev libfreetype6-dev
 
-    # WiX v7 and later require accepting the OSMF EULA, so stay on v6 for now.
+    # WiX v7 and later require accepting the OSMF EULA (https://github.com/wixtoolset/wix/blob/main/OSMFEULA.txt).
     - name: Install WiX toolset
       if: matrix.os == 'windows-latest'
       shell: bash
       run: |
-        dotnet tool install --global wix --version 6.0.2
+        dotnet tool install --global wix --version 7.0.1
         echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
 
     - name: Install WiX UI extension
       if: matrix.os == 'windows-latest'
       shell: bash
-      run: wix extension add -g WixToolset.UI.wixext
+      run: wix extension add -g WixToolset.UI.wixext/7.0.1
+
+    - name: Accept WiX OSMF EULA
+      if: matrix.os == 'windows-latest'
+      run: wix eula accept wix7
 
     - name: Install stable rust
       uses: dtolnay/rust-toolchain@stable

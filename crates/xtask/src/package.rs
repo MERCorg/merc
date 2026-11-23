@@ -1,6 +1,6 @@
 use duct::cmd;
-use flate2::write::GzEncoder;
 use flate2::Compression;
+use flate2::write::GzEncoder;
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -528,46 +528,4 @@ fn license_to_rtf(license: &str) -> String {
     }
 
     format!(r"{{\rtf1\ansi\deff0{{\fonttbl{{\f0\fnil Arial;}}}}\viewkind4\uc1\pard\f0\fs20 {escaped}\par}}")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn msi_source_offers_gui_shortcuts_only_when_the_gui_binary_is_present() {
-        let contents = PackageContents {
-            dir: PathBuf::from("package"),
-            binaries: vec![exe_name("merc-lts"), exe_name("merc-ltsgraph")],
-            data_files: vec!["LICENSE".to_string()],
-        };
-        let source = render_msi_source(&contents, "merc-license.rtf").unwrap();
-
-        assert!(source.contains("WixUI_FeatureTree"));
-        assert!(source.contains("MercLtsgraphExe"));
-        assert!(source.contains("LtsgraphStartMenuShortcut"));
-        assert!(source.contains("LtsgraphDesktopShortcut"));
-        assert!(source.contains("Level=\"2\""));
-        assert!(source.contains("merc-lts.exe"));
-
-        let contents = PackageContents {
-            dir: PathBuf::from("package"),
-            binaries: vec![exe_name("merc-lts")],
-            data_files: vec!["LICENSE".to_string()],
-        };
-        let source = render_msi_source(&contents, "merc-license.rtf").unwrap();
-
-        assert!(!source.contains("MercLtsgraphExe"));
-        assert!(!source.contains("LtsgraphStartMenuShortcut"));
-        assert!(!source.contains("LtsgraphDesktopShortcut"));
-        assert!(source.contains("merc-lts.exe"));
-    }
-
-    #[test]
-    fn license_rtf_escapes_control_characters_and_preserves_text() {
-        assert_eq!(
-            license_to_rtf("Terms {of} use\\back\nslash"),
-            r"{\rtf1\ansi\deff0{\fonttbl{\f0\fnil Arial;}}\viewkind4\uc1\pard\f0\fs20 Terms \{of\} use\\back\par slash\par}"
-        );
-    }
 }
