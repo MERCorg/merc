@@ -51,7 +51,7 @@ pub use optimized_boolean::optimized_conjunction;
 pub use optimized_boolean::optimized_conjunction_chain;
 pub use optimized_boolean::optimized_disjunction;
 pub use optimized_boolean::optimized_disjunction_chain;
-pub use optimized_boolean::optimized_impies;
+pub use optimized_boolean::optimized_implies;
 pub use optimized_boolean::optimized_not;
 pub use optimized_boolean::optimized_or;
 pub use permutation::is_valid_permutation;

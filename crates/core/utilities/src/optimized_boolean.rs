@@ -58,7 +58,7 @@ pub fn optimized_or<T: Boolean>(lhs: T, rhs: T) -> T {
 }
 
 /// `lhs => rhs`, simplified for constants and equal operands.
-pub fn optimized_impies<T: Boolean>(lhs: T, rhs: T) -> T {
+pub fn optimized_implies<T: Boolean>(lhs: T, rhs: T) -> T {
     if lhs.is_true() {
         rhs
     } else if lhs.is_false() || rhs.is_true() || lhs == rhs {
