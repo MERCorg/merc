@@ -53,14 +53,14 @@ jobs:
         dotnet tool install --global wix --version 7.0.1
         echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
 
+    - name: Accept WiX OSMF EULA
+      if: matrix.os == 'windows-latest'
+      run: wix eula accept wix7
+
     - name: Install WiX UI extension
       if: matrix.os == 'windows-latest'
       shell: bash
       run: wix extension add -g WixToolset.UI.wixext/7.0.1
-
-    - name: Accept WiX OSMF EULA
-      if: matrix.os == 'windows-latest'
-      run: wix eula accept wix7
 
     - name: Install stable rust
       uses: dtolnay/rust-toolchain@stable
