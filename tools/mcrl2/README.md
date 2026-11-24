@@ -23,9 +23,10 @@ wrappers around the resulting functionality.
 
 # Stack traces
 
-The `mcrl2_cpptrace` feature can be enabled to provide stack traces on
-exceptions and assertions in the mCRL2 code. This requires `cmake` to be
-found on `PATH` to build the necessary components.
+The `cpptrace` feature of the `mcrl2` crate can be enabled, for example with
+`cargo build --features mcrl2/cpptrace`, to provide stack traces on exceptions
+and assertions in the mCRL2 code. This requires `cmake` to be found on `PATH`
+to build the necessary components.
 
 # IDEs
 

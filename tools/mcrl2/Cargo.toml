@@ -23,7 +23,8 @@ exclude = [
 edition = "2024"
 license = "BSL-1.0"
 rust-version = "1.91.0"
-version = "1.0.0"
+# Keep this equal to the release version in the root Cargo.toml.
+version = "3.0.0"
 
 [workspace.dependencies]
 clap = { version = "4.6", features = ["derive"] }

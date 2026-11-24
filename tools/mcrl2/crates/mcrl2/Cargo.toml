@@ -28,7 +28,7 @@ merc_typecheck.workspace = true
 
 [features]
 # Enables the compiling rewriter option for mCRL2.
-jittyc = []
+jittyc = ["mcrl2-sys/jittyc"]
 
 # Enables the C++ trace option for mCRL2.
 cpptrace = ["mcrl2-sys/cpptrace"]
