@@ -5,8 +5,11 @@ keywords = ["process", "transition-systems", "exploration"]
 categories = ["science"]
 readme = "README.md"
 version = "2.0.0"
+
 edition.workspace = true
+homepage.workspace = true
 license.workspace = true
+repository.workspace = true
 rust-version.workspace = true
 
 [features]
