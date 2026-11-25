@@ -1,5 +1,6 @@
 //! Authors: Maurice Laveaux and Jan Martens.
 use std::mem::swap;
+use std::rc::Rc;
 
 use bumpalo::Bump;
 use log::debug;
@@ -294,6 +295,62 @@ pub(crate) fn weak_bisim_sigref_inductive_naive_impl<L: LTS>(
     (preprocessed_lts, mapped_state, partition)
 }
 
+/// Computes a weak bisimulation partitioning using signature refinement with
+/// inductive signatures and the process-the-smaller-half (dirty state)
+/// optimisation. See [signature_refinement_weak_dirty] for details.
+///
+/// If `preprocess` is true, first reduces modulo branching bisimulation; the
+/// returned LTS and `StateIndex` correspond to `state` after whatever
+/// preprocessing occurred.
+pub(crate) fn weak_bisim_sigref_inductive<L: LTS>(
+    lts: L,
+    state: StateIndex,
+    preprocess: bool,
+    divergence_preserving: bool,
+    timing: &Timing,
+) -> (LabelledTransitionSystem<L::Label>, StateIndex, BlockPartition) {
+    // Preprocess the LTS if desired.
+    if preprocess {
+        let (preprocessed_lts, mapped_state, partition) =
+            branching_bisim_sigref(lts, state, divergence_preserving, timing);
+        let quotiented_state = StateIndex::new(*partition.block_number(mapped_state));
+        let lts = timing.measure("quotient", || {
+            quotient_lts_block::<_, true>(&preprocessed_lts, &partition, !divergence_preserving)
+        });
+
+        weak_bisim_sigref_inductive_impl(lts, quotiented_state, divergence_preserving, timing)
+    } else {
+        weak_bisim_sigref_inductive_impl(lts, state, divergence_preserving, timing)
+    }
+}
+
+/// Implementation of [weak_bisim_sigref_inductive] that deals with both preprocessed and regular LTSs.
+///
+/// The `state` is any state for which we return the equivalent state in the preprocessed LTS.
+fn weak_bisim_sigref_inductive_impl<L: LTS>(
+    lts: L,
+    state: StateIndex,
+    divergence_preserving: bool,
+    timing: &Timing,
+) -> (LabelledTransitionSystem<L::Label>, StateIndex, BlockPartition) {
+    let (preprocessed_lts, mapped_state) = timing.measure("preprocess", || {
+        tau_cycle_elimination_and_reorder(lts, state, !divergence_preserving)
+    });
+
+    let partition = if divergence_preserving {
+        let dp_lts = DivergencePreservingLts::new(&preprocessed_lts);
+        let incoming = timing.measure("preprocess", || IncomingTransitions::new(&dp_lts));
+        timing.measure("reduction", || signature_refinement_weak_dirty(&dp_lts, &incoming))
+    } else {
+        let incoming = timing.measure("preprocess", || IncomingTransitions::new(&preprocessed_lts));
+        timing.measure("reduction", || {
+            signature_refinement_weak_dirty(&preprocessed_lts, &incoming)
+        })
+    };
+
+    (preprocessed_lts, mapped_state, partition)
+}
+
 /// Computes a weak bisimulation partitioning using naive signature
 /// refinement (no inductive signatures).
 ///
@@ -521,6 +578,205 @@ where
 
         iteration += 1;
 
+        progress.print((iteration, partition.num_of_blocks()));
+    }
+
+    trace!("Refinement partition {partition}");
+    partition
+}
+
+/// Adds `state` to the dirty states (and the queue to be closed under tau) unless it is already dirty.
+fn add_dirty(state: StateIndex, is_dirty: &mut [bool], dirty: &mut Vec<StateIndex>, queue: &mut Vec<StateIndex>) {
+    if !is_dirty[state] {
+        is_dirty[state] = true;
+        dirty.push(state);
+        queue.push(state);
+    }
+}
+
+/// Extends the dirty states queued in `queue` to be closed under incoming tau-transitions.
+fn close_dirty_under_tau(
+    incoming: &IncomingTransitions,
+    is_dirty: &mut [bool],
+    dirty: &mut Vec<StateIndex>,
+    queue: &mut Vec<StateIndex>,
+) {
+    while let Some(state) = queue.pop() {
+        for transition in incoming.incoming_silent_transitions(state) {
+            add_dirty(transition.from, is_dirty, dirty, queue);
+        }
+    }
+}
+
+/// A signature that is owned, such that it can outlive a single refinement
+/// round. Shared between the key lookup map and the key list.
+type OwnedSignature = Rc<[(LabelIndex, BlockIndex)]>;
+
+/// Weak signature refinement with inductive signatures that only recomputes
+/// the signatures of *dirty* states, i.e., the process-the-smaller-half
+/// optimisation.
+///
+/// Unlike [signature_refinement], all dirty blocks are handled in a single
+/// round: the signatures of every dirty state are first computed (in
+/// topological order, since weak signatures depend on tau-successors that may
+/// live in other dirty blocks), against the partition at the start of the
+/// round, and only afterwards are the blocks split. Splitting block by block
+/// would use stale signatures for tau-successors in blocks that are still dirty.
+///
+/// A state is dirty when its weak signature can have changed, which is the case
+/// when it can reach a state in a newly created block via `tau* a? tau*`.
+/// Assumes the LTS has no tau-cycles and is reverse topologically sorted.
+fn signature_refinement_weak_dirty<L: LTS>(lts: &L, incoming: &IncomingTransitions) -> BlockPartition {
+    let num_of_states = lts.num_of_states();
+
+    let mut builder = SignatureBuilder::default();
+    let mut split_builder = BlockPartitionBuilder::default();
+
+    // Signatures are persistent over rounds, since signatures of states that are not dirty remain valid.
+    let mut id: FxHashMap<OwnedSignature, usize> = FxHashMap::default();
+    let mut key_to_signature: Vec<OwnedSignature> = Vec::new();
+    let mut state_to_key: Vec<Option<usize>> = vec![None; num_of_states];
+    let mut state_to_taus: Vec<Box<[(LabelIndex, BlockIndex)]>> = vec![Box::default(); num_of_states];
+
+    let mut partition = BlockPartition::new(num_of_states);
+
+    // The states in blocks that were created in the previous round, initially all states.
+    let mut new_states: Vec<StateIndex> = lts.iter_states().collect();
+    let mut first_round = true;
+
+    let mut dirty: Vec<StateIndex> = Vec::new();
+    let mut is_dirty = vec![false; num_of_states];
+    let mut queue: Vec<StateIndex> = Vec::new();
+    let mut worklist: Vec<BlockIndex> = Vec::new();
+    let mut local_keys: FxHashMap<usize, BlockIndex> = FxHashMap::default();
+
+    let progress = TimeProgress::new(
+        |(iteration, blocks)| {
+            info!("Iteration {iteration}, found {blocks} blocks...");
+        },
+        5,
+    );
+    let mut iteration = 0usize;
+
+    while !new_states.is_empty() {
+        // Determine the dirty states: close under incoming tau-transitions, then add every predecessor, and close again.
+        dirty.clear();
+        worklist.clear();
+        if first_round {
+            dirty.extend(lts.iter_states());
+            worklist.push(BlockIndex::new(0));
+        } else {
+            for &state in &new_states {
+                add_dirty(state, &mut is_dirty, &mut dirty, &mut queue);
+            }
+            close_dirty_under_tau(incoming, &mut is_dirty, &mut dirty, &mut queue);
+
+            let tau_closed = dirty.len();
+            for index in 0..tau_closed {
+                for transition in incoming.incoming_transitions(dirty[index]) {
+                    add_dirty(transition.from, &mut is_dirty, &mut dirty, &mut queue);
+                }
+            }
+            close_dirty_under_tau(incoming, &mut is_dirty, &mut dirty, &mut queue);
+
+            // Mark the dirty states in the partition, and keep track of the blocks that contain them.
+            for &state in &dirty {
+                let block_index = partition.block_number(state);
+                if !partition.block(block_index).has_marked() {
+                    worklist.push(block_index);
+                }
+                partition.mark_element(state);
+            }
+        }
+
+        for &state in &dirty {
+            is_dirty[state] = false;
+        }
+
+        // Process the states in topological order, such that tau-successors are up to date.
+        dirty.sort_unstable();
+
+        // The tau signatures only depend on tau-successors, but the signatures below also read the tau signatures
+        // of the targets of visible transitions, which can have any index. So these are computed first.
+        for &state_index in &dirty {
+            weak_bisim_signature_sorted_taus(state_index, lts, &partition, &state_to_taus, &mut builder);
+            state_to_taus[state_index] = Box::from(builder.as_slice());
+        }
+
+        // Compute the new signature of every dirty state w.r.t. the partition at the start of this round.
+        for &state_index in &dirty {
+            weak_bisim_presignature_sorted(
+                state_index,
+                lts,
+                &partition,
+                &state_to_taus,
+                &state_to_key,
+                &mut builder,
+            );
+
+            // Inductive step see if presig is a subset of a tau reachable state.
+            let mut inductive_key = None;
+            for keyvalue in builder.as_slice() {
+                if is_tau_hat(keyvalue.0, lts) {
+                    let tau_sig = Signature::new(&key_to_signature[keyvalue.1.value()]);
+
+                    if tau_sig.is_subset_of(builder.as_slice(), *keyvalue) {
+                        inductive_key = Some(keyvalue.1.value());
+                        break;
+                    }
+                }
+            }
+
+            let key = if let Some(inductive_key) = inductive_key {
+                inductive_key
+            } else {
+                // If not: expand the signature completely.
+                weak_bisim_signature_sorted_full(
+                    state_index,
+                    lts,
+                    &partition,
+                    &state_to_taus,
+                    &state_to_key,
+                    &key_to_signature,
+                    &mut builder,
+                );
+
+                if let Some(key) = id.get(builder.as_slice()) {
+                    *key
+                } else {
+                    let signature: OwnedSignature = Rc::from(builder.as_slice());
+                    let key = key_to_signature.len();
+                    id.insert(signature.clone(), key);
+                    key_to_signature.push(signature);
+                    key
+                }
+            };
+
+            trace!("State {state_index} signature key {key}");
+            state_to_key[state_index] = Some(key);
+        }
+
+        // Only split after all signatures have been computed.
+        new_states.clear();
+        for &block_index in &worklist {
+            local_keys.clear();
+
+            let new_blocks = partition.partition_marked_with(block_index, &mut split_builder, |state_index, _| {
+                let next = BlockIndex::new(local_keys.len());
+                *local_keys
+                    .entry(state_to_key[state_index].expect("Dirty states have a signature"))
+                    .or_insert(next)
+            });
+
+            for new_block_index in new_blocks {
+                if new_block_index != block_index {
+                    new_states.extend(partition.iter_block(new_block_index));
+                }
+            }
+        }
+
+        first_round = false;
+        iteration += 1;
         progress.print((iteration, partition.num_of_blocks()));
     }
 
@@ -898,6 +1154,7 @@ mod tests {
     use super::branching_bisim_sigref_naive;
     use super::strong_bisim_sigref;
     use super::strong_bisim_sigref_naive;
+    use super::weak_bisim_sigref_inductive;
     use super::weak_bisim_sigref_inductive_naive;
     use super::weak_bisim_sigref_naive;
 
@@ -1099,6 +1356,76 @@ mod tests {
 
             // There is no preprocessing so this works.
             assert!(equal_partitions(&result_partition, &expected_partition));
+        });
+    }
+
+    /// A tau chain with visible actions at several depths, where splitting the
+    /// bottom of the chain must propagate through tau-predecessors in other blocks.
+    #[test]
+    fn test_weak_bisim_sigref_inductive_chain() {
+        // 0 -tau-> 1 -tau-> 2 -tau-> 3, 1 -a-> 4, 3 -b-> 4, 2 -a-> 4 (label 0 is tau, 1 is a, 2 is b).
+        let transitions = [(0, 0, 1), (1, 0, 2), (2, 0, 3), (1, 1, 4), (3, 2, 4), (2, 1, 4)]
+            .map(|(from, label, to)| (StateIndex::new(from), LabelIndex::new(label), StateIndex::new(to)));
+
+        let lts = LabelledTransitionSystem::new(
+            StateIndex::new(0),
+            None,
+            || transitions.iter().cloned(),
+            vec![String::tau_label(), "a".to_string(), "b".to_string()],
+        );
+
+        let timing = Timing::new();
+        let (_, _, expected) =
+            weak_bisim_sigref_inductive_naive(lts.clone(), StateIndex::new(0), false, false, &timing);
+        let (_, _, result) = weak_bisim_sigref_inductive(lts, StateIndex::new(0), false, false, &timing);
+
+        assert!(equal_partitions(&result, &expected));
+    }
+
+    /// Small random systems, which hit corner cases (e.g. visible transitions to
+    /// higher numbered states) more often than the large random systems.
+    #[test]
+    #[cfg_attr(miri, ignore)] // Test is too slow under miri
+    fn test_random_small_weak_bisim_sigref_inductive() {
+        random_test(1000, |rng| {
+            let lts = random_lts::<String, _>(rng, 6, 2);
+            let timing = Timing::new();
+
+            let (_, _, expected) = weak_bisim_sigref_naive(lts.clone(), StateIndex::new(0), false, false, &timing);
+            let (preprocessed_lts, _, result) =
+                weak_bisim_sigref_inductive(lts, StateIndex::new(0), false, false, &timing);
+
+            assert!(
+                equal_partitions(&result, &expected),
+                "Dirty inductive partition {result} differs from naive partition {expected:?} for {:?}",
+                preprocessed_lts.num_of_transitions()
+            );
+        });
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // Test is too slow under miri
+    fn test_random_weak_bisim_sigref_inductive() {
+        random_test(100, |rng| {
+            let files = DumpFiles::new("test_random_weak_bisim_sigref_inductive");
+
+            let lts = random_lts::<String, _>(rng, 1000, 3);
+            files.dump("input.aut", |writer| write_aut(writer, &lts)).unwrap();
+
+            let timing = Timing::new();
+
+            for divergence_preserving in [false, true] {
+                let (_, _, expected) =
+                    weak_bisim_sigref_naive(lts.clone(), StateIndex::new(0), false, divergence_preserving, &timing);
+                let (_, _, result) =
+                    weak_bisim_sigref_inductive(lts.clone(), StateIndex::new(0), false, divergence_preserving, &timing);
+
+                // There is no preprocessing so the partitions are over the same states.
+                assert!(
+                    equal_partitions(&result, &expected),
+                    "Dirty inductive partition differs from naive one (divergence preserving: {divergence_preserving})"
+                );
+            }
         });
     }
 
