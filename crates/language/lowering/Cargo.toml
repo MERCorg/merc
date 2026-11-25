@@ -1,6 +1,9 @@
 [package]
 name = "merc_lowering"
 readme = "README.md"
+description = "Lowers type-checked ASTs to the data expression representation"
+keywords = ["typing", "specification"]
+categories = ["science"]
 
 edition.workspace = true
 homepage.workspace = true

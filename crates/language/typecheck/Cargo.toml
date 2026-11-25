@@ -1,13 +1,16 @@
 [package]
 name = "merc_typecheck"
 readme = "README.md"
+description = "Provides a type checker for the mCRL2 specification language."
+keywords = ["typing", "specification"]
+categories = ["science"]
 
 edition.workspace = true
 homepage.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-version.workspace = true
+version = "3.0.0"
 
 [features]
 # Exposes the building blocks used by specification type checkers in other
