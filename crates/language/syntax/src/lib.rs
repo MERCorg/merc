@@ -10,6 +10,7 @@ mod parse;
 mod random;
 mod span_offset;
 mod spanned;
+pub mod spec;
 mod syntax_tree;
 mod traverse;
 
