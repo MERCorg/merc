@@ -41,7 +41,7 @@ use merc_symbolic::refine_bisimulation;
 use merc_symbolic::reorder;
 use merc_symbolic::sigref_symbolic;
 use merc_symbolic::write_symbolic_lts;
-use merc_tools::KaHyParArgs;
+use merc_symbolic::KaHyParArgs;
 use merc_tools::VerbosityFlag;
 use merc_tools::Version;
 use merc_tools::VersionFlag;

@@ -3218,7 +3218,7 @@ dependencies = [
 
 [[package]]
 name = "merc_macros"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3250,7 +3250,6 @@ dependencies = [
  "env_logger",
  "log",
  "merc_utilities",
- "which",
  "winapi",
 ]
 
@@ -6372,15 +6371,6 @@ dependencies = [
  "raw-window-handle",
  "static_assertions",
  "web-sys",
-]
-
-[[package]]
-name = "which"
-version = "8.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bae2f2b2b816647a1cab1acc91f5bd20812d53cb344382635ec2181940c8034f"
-dependencies = [
- "libc",
 ]
 
 [[package]]

@@ -9,7 +9,7 @@ use std::ops::ControlFlow;
 use oxidd::ldd::LDDFunction;
 
 #[cfg(feature = "clap")]
-use merc_tools::KaHyParArgs;
+use crate::KaHyParArgs;
 #[cfg(feature = "clap")]
 use merc_utilities::MercError;
 

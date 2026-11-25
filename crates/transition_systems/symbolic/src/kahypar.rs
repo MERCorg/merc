@@ -4,14 +4,15 @@ use merc_utilities::MercError;
 
 /// Command line arguments locating the [KaHyPar](https://github.com/kahypar/kahypar) hypergraph
 /// partitioner, which the MINCE variable reordering is implemented on top of.
-#[derive(clap::Args, Clone, Debug, Default)]
+#[derive(Clone, Debug, Default)]
+#[cfg_attr(feature = "clap", derive(clap::Args))]
 pub struct KaHyParArgs {
     /// Explicit path to the kahypar tools.
-    #[arg(long)]
+    #[cfg_attr(feature = "clap", arg(long))]
     pub kahypar_path: Option<PathBuf>,
 
     /// Explicit path to the kahypar.ini file to use.
-    #[arg(long)]
+    #[cfg_attr(feature = "clap", arg(long))]
     pub kahypar_ini_path: Option<PathBuf>,
 }
 
