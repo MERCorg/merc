@@ -1,13 +1,10 @@
 use std::collections::HashMap;
 
-use merc_aterm::ATerm;
 use merc_aterm::Term;
 use merc_data::DataApplication;
 use merc_data::DataExpression;
 use merc_data::DataExpressionKind;
 use merc_data::DataVariable;
-use merc_data::SortArrow;
-use merc_data::SortExpression;
 use merc_data::is_closed;
 use merc_enumerate::FreshVariableGenerator;
 use merc_sabre::DataRewriter;
@@ -69,7 +66,7 @@ impl ConstantReplacer<'_> {
         }
 
         if is_closed(expression) {
-            let variable = self.generator.generate(application_sort(expression).copy());
+            let variable = self.generator.generate(expression.data_sort().copy());
             let value = self.rewriter.rewrite(expression);
             self.substitutions.insert(expression.clone(), variable.clone());
             self.assignments.push((variable.clone(), value));
@@ -82,17 +79,5 @@ impl ConstantReplacer<'_> {
             .map(|argument| self.replace(&DataExpression::from(argument.protect())))
             .collect();
         DataApplication::with_args(&head, &arguments).into()
-    }
-}
-
-/// The sort of an application, or of a function symbol or variable at its head: the codomain of the
-/// sort of its head.
-fn application_sort(expression: &DataExpression) -> SortExpression {
-    match expression.kind() {
-        DataExpressionKind::Application(_) => {
-            let head = application_sort(&DataExpression::from(expression.arg(0).protect()));
-            SortArrow::from(ATerm::from(head)).codomain().protect()
-        }
-        _ => expression.data_sort(),
     }
 }
