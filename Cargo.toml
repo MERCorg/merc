@@ -177,8 +177,8 @@ merc_refinement = { version = "3.0", path = "crates/transition_systems/refinemen
 merc_symbolic = { version = "3.0",path = "crates/transition_systems/symbolic", features = ["clap"] }
 merc_vpg = { version = "3.0", path = "crates/transition_systems/vpg", features = ["clap"] }
 
-merc_syntax = { version = "3.0", path = "crates/language/syntax" }
-merc_typecheck = { version = "3.0", path = "crates/language/typecheck" }
+merc_syntax = { version = "3.1", path = "crates/language/syntax" }
+merc_typecheck = { version = "3.1", path = "crates/language/typecheck" }
 merc_pbes = { version = "3.0", path = "crates/language/pbes" }
 merc_pres = { version = "3.0", path = "crates/language/pres" }
 merc_process = { version = "3.0", path = "crates/language/process" }

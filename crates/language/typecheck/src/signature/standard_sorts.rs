@@ -491,16 +491,16 @@ struct BasicSortTemplates {
 }
 
 static BASIC_SORT_TEMPLATES: LazyLock<BasicSortTemplates> = LazyLock::new(|| BasicSortTemplates {
-    bool: parse_template_bare(include_str!("../../../syntax/spec/bool.mcrl2")),
-    pos: parse_template_bare(include_str!("../../../syntax/spec/pos.mcrl2")),
-    int: parse_template_bare(include_str!("../../../syntax/spec/int.mcrl2")),
-    nat: parse_template_bare(include_str!("../../../syntax/spec/nat.mcrl2")),
-    real: parse_template_bare(include_str!("../../../syntax/spec/real.mcrl2")),
-    machine_word: parse_template_bare(include_str!("../../../syntax/spec/machine_word.mcrl2")),
-    pos64: parse_template_bare(include_str!("../../../syntax/spec/pos64.mcrl2")),
-    int64: parse_template_bare(include_str!("../../../syntax/spec/int64.mcrl2")),
-    nat64: parse_template_bare(include_str!("../../../syntax/spec/nat64.mcrl2")),
-    real64: parse_template_bare(include_str!("../../../syntax/spec/real64.mcrl2")),
+    bool: parse_template_bare(merc_syntax::spec::BOOL),
+    pos: parse_template_bare(merc_syntax::spec::POS),
+    int: parse_template_bare(merc_syntax::spec::INT),
+    nat: parse_template_bare(merc_syntax::spec::NAT),
+    real: parse_template_bare(merc_syntax::spec::REAL),
+    machine_word: parse_template_bare(merc_syntax::spec::MACHINE_WORD),
+    pos64: parse_template_bare(merc_syntax::spec::POS64),
+    int64: parse_template_bare(merc_syntax::spec::INT64),
+    nat64: parse_template_bare(merc_syntax::spec::NAT64),
+    real64: parse_template_bare(merc_syntax::spec::REAL64),
 });
 
 /// Registers and merges each `(virtual path, source text, parsed template)`
@@ -525,27 +525,15 @@ fn basic_sorts_binary(sources: &mut SourceMap) -> UntypedDataSpecification {
         &[
             (
                 "<builtin>/bool.mcrl2",
-                include_str!("../../../syntax/spec/bool.mcrl2"),
+                merc_syntax::spec::BOOL,
                 &BASIC_SORT_TEMPLATES.bool,
             ),
-            (
-                "<builtin>/pos.mcrl2",
-                include_str!("../../../syntax/spec/pos.mcrl2"),
-                &BASIC_SORT_TEMPLATES.pos,
-            ),
-            (
-                "<builtin>/int.mcrl2",
-                include_str!("../../../syntax/spec/int.mcrl2"),
-                &BASIC_SORT_TEMPLATES.int,
-            ),
-            (
-                "<builtin>/nat.mcrl2",
-                include_str!("../../../syntax/spec/nat.mcrl2"),
-                &BASIC_SORT_TEMPLATES.nat,
-            ),
+            ("<builtin>/pos.mcrl2", merc_syntax::spec::POS, &BASIC_SORT_TEMPLATES.pos),
+            ("<builtin>/int.mcrl2", merc_syntax::spec::INT, &BASIC_SORT_TEMPLATES.int),
+            ("<builtin>/nat.mcrl2", merc_syntax::spec::NAT, &BASIC_SORT_TEMPLATES.nat),
             (
                 "<builtin>/real.mcrl2",
-                include_str!("../../../syntax/spec/real.mcrl2"),
+                merc_syntax::spec::REAL,
                 &BASIC_SORT_TEMPLATES.real,
             ),
         ],
@@ -559,32 +547,32 @@ fn basic_sorts_machine_word(sources: &mut SourceMap) -> UntypedDataSpecification
         &[
             (
                 "<builtin>/bool.mcrl2",
-                include_str!("../../../syntax/spec/bool.mcrl2"),
+                merc_syntax::spec::BOOL,
                 &BASIC_SORT_TEMPLATES.bool,
             ),
             (
                 "<builtin>/machine_word.mcrl2",
-                include_str!("../../../syntax/spec/machine_word.mcrl2"),
+                merc_syntax::spec::MACHINE_WORD,
                 &BASIC_SORT_TEMPLATES.machine_word,
             ),
             (
                 "<builtin>/pos64.mcrl2",
-                include_str!("../../../syntax/spec/pos64.mcrl2"),
+                merc_syntax::spec::POS64,
                 &BASIC_SORT_TEMPLATES.pos64,
             ),
             (
                 "<builtin>/int64.mcrl2",
-                include_str!("../../../syntax/spec/int64.mcrl2"),
+                merc_syntax::spec::INT64,
                 &BASIC_SORT_TEMPLATES.int64,
             ),
             (
                 "<builtin>/nat64.mcrl2",
-                include_str!("../../../syntax/spec/nat64.mcrl2"),
+                merc_syntax::spec::NAT64,
                 &BASIC_SORT_TEMPLATES.nat64,
             ),
             (
                 "<builtin>/real64.mcrl2",
-                include_str!("../../../syntax/spec/real64.mcrl2"),
+                merc_syntax::spec::REAL64,
                 &BASIC_SORT_TEMPLATES.real64,
             ),
         ],
@@ -626,22 +614,22 @@ impl ContainerTemplates {
 /// The container templates in the recursive binary encoding, only used for the
 /// signatures.
 pub(crate) static CONTAINER_TEMPLATES: LazyLock<ContainerTemplates> = LazyLock::new(|| ContainerTemplates {
-    list: parse_rigid_template(include_str!("../../../syntax/spec/list.mcrl2")),
-    set: parse_rigid_template(include_str!("../../../syntax/spec/set.mcrl2")),
-    fset: parse_rigid_template(include_str!("../../../syntax/spec/fset.mcrl2")),
-    bag: parse_rigid_template(include_str!("../../../syntax/spec/bag.mcrl2")),
-    fbag: parse_rigid_template(include_str!("../../../syntax/spec/fbag.mcrl2")),
+    list: parse_rigid_template(merc_syntax::spec::LIST),
+    set: parse_rigid_template(merc_syntax::spec::SET),
+    fset: parse_rigid_template(merc_syntax::spec::FSET),
+    bag: parse_rigid_template(merc_syntax::spec::BAG),
+    fbag: parse_rigid_template(merc_syntax::spec::FBAG),
 });
 
 /// As [CONTAINER_TEMPLATES], for the container templates whose equations are expressed in terms of
 /// the machine-word numeric sorts.
 pub(crate) static CONTAINER_TEMPLATES_MACHINE_WORD: LazyLock<ContainerTemplates> =
     LazyLock::new(|| ContainerTemplates {
-        list: parse_rigid_template(include_str!("../../../syntax/spec/list64.mcrl2")),
-        set: parse_rigid_template(include_str!("../../../syntax/spec/set64.mcrl2")),
-        fset: parse_rigid_template(include_str!("../../../syntax/spec/fset64.mcrl2")),
-        bag: parse_rigid_template(include_str!("../../../syntax/spec/bag64.mcrl2")),
-        fbag: parse_rigid_template(include_str!("../../../syntax/spec/fbag64.mcrl2")),
+        list: parse_rigid_template(merc_syntax::spec::LIST64),
+        set: parse_rigid_template(merc_syntax::spec::SET64),
+        fset: parse_rigid_template(merc_syntax::spec::FSET64),
+        bag: parse_rigid_template(merc_syntax::spec::BAG64),
+        fbag: parse_rigid_template(merc_syntax::spec::FBAG64),
     });
 
 /// [CONTAINER_TEMPLATES], registered into `sources` as virtual documents.
@@ -650,31 +638,31 @@ fn container_templates_binary(sources: &mut SourceMap) -> ContainerTemplates {
         list: register_bare_template(
             sources,
             "<builtin>/list.mcrl2",
-            include_str!("../../../syntax/spec/list.mcrl2"),
+            merc_syntax::spec::LIST,
             &CONTAINER_TEMPLATES.list,
         ),
         set: register_bare_template(
             sources,
             "<builtin>/set.mcrl2",
-            include_str!("../../../syntax/spec/set.mcrl2"),
+            merc_syntax::spec::SET,
             &CONTAINER_TEMPLATES.set,
         ),
         fset: register_bare_template(
             sources,
             "<builtin>/fset.mcrl2",
-            include_str!("../../../syntax/spec/fset.mcrl2"),
+            merc_syntax::spec::FSET,
             &CONTAINER_TEMPLATES.fset,
         ),
         bag: register_bare_template(
             sources,
             "<builtin>/bag.mcrl2",
-            include_str!("../../../syntax/spec/bag.mcrl2"),
+            merc_syntax::spec::BAG,
             &CONTAINER_TEMPLATES.bag,
         ),
         fbag: register_bare_template(
             sources,
             "<builtin>/fbag.mcrl2",
-            include_str!("../../../syntax/spec/fbag.mcrl2"),
+            merc_syntax::spec::FBAG,
             &CONTAINER_TEMPLATES.fbag,
         ),
     }
@@ -687,31 +675,31 @@ fn container_templates_machine_word(sources: &mut SourceMap) -> ContainerTemplat
         list: register_bare_template(
             sources,
             "<builtin>/list64.mcrl2",
-            include_str!("../../../syntax/spec/list64.mcrl2"),
+            merc_syntax::spec::LIST64,
             &CONTAINER_TEMPLATES_MACHINE_WORD.list,
         ),
         set: register_bare_template(
             sources,
             "<builtin>/set64.mcrl2",
-            include_str!("../../../syntax/spec/set64.mcrl2"),
+            merc_syntax::spec::SET64,
             &CONTAINER_TEMPLATES_MACHINE_WORD.set,
         ),
         fset: register_bare_template(
             sources,
             "<builtin>/fset64.mcrl2",
-            include_str!("../../../syntax/spec/fset64.mcrl2"),
+            merc_syntax::spec::FSET64,
             &CONTAINER_TEMPLATES_MACHINE_WORD.fset,
         ),
         bag: register_bare_template(
             sources,
             "<builtin>/bag64.mcrl2",
-            include_str!("../../../syntax/spec/bag64.mcrl2"),
+            merc_syntax::spec::BAG64,
             &CONTAINER_TEMPLATES_MACHINE_WORD.bag,
         ),
         fbag: register_bare_template(
             sources,
             "<builtin>/fbag64.mcrl2",
-            include_str!("../../../syntax/spec/fbag64.mcrl2"),
+            merc_syntax::spec::FBAG64,
             &CONTAINER_TEMPLATES_MACHINE_WORD.fbag,
         ),
     }
@@ -794,7 +782,7 @@ pub(crate) fn typecheck_function_update_template(
 }
 
 /// [BUILTIN_SCHEME_TEMPLATE]'s source text.
-pub(crate) const BUILTIN_SCHEME_TEMPLATE_TEXT: &str = include_str!("../../../syntax/spec/comparison.mcrl2");
+pub(crate) const BUILTIN_SCHEME_TEMPLATE_TEXT: &str = merc_syntax::spec::COMPARISON;
 
 /// The polymorphic built-in operators that exist for *every* sort.
 pub(crate) static BUILTIN_SCHEME_TEMPLATE: LazyLock<UntypedDataSpecification> =

@@ -263,8 +263,8 @@ mod tests {
 
     /// Declares the bundled specification files by name, so a failure names the file.
     macro_rules! spec {
-        ($name:literal) => {
-            ($name, include_str!(concat!("../../syntax/spec/", $name)))
+        ($name:ident) => {
+            (concat!(stringify!($name), ".mcrl2"), merc_syntax::spec::$name)
         };
     }
 
@@ -297,32 +297,32 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_numeric_symbols_match_their_declarations() {
-        assert_declared(c0(), &[spec!("nat.mcrl2"), spec!("nat64.mcrl2")]);
-        assert_declared(c1(), &[spec!("pos.mcrl2"), spec!("pos64.mcrl2")]);
-        assert_declared(c_dub(), &[spec!("pos.mcrl2")]);
-        assert_declared(c_nat(), &[spec!("nat.mcrl2")]);
-        assert_declared(c_int(), &[spec!("int.mcrl2"), spec!("int64.mcrl2")]);
-        assert_declared(c_real(), &[spec!("real.mcrl2"), spec!("real64.mcrl2")]);
-        assert_declared(pos2nat(), &[spec!("nat.mcrl2"), spec!("nat64.mcrl2")]);
-        assert_declared(most_significant_digit(), &[spec!("pos64.mcrl2")]);
-        assert_declared(most_significant_digit_nat(), &[spec!("nat64.mcrl2")]);
-        assert_declared(concat_digit_pos(), &[spec!("pos64.mcrl2")]);
-        assert_declared(concat_digit_nat(), &[spec!("nat64.mcrl2")]);
+        assert_declared(c0(), &[spec!(NAT), spec!(NAT64)]);
+        assert_declared(c1(), &[spec!(POS), spec!(POS64)]);
+        assert_declared(c_dub(), &[spec!(POS)]);
+        assert_declared(c_nat(), &[spec!(NAT)]);
+        assert_declared(c_int(), &[spec!(INT), spec!(INT64)]);
+        assert_declared(c_real(), &[spec!(REAL), spec!(REAL64)]);
+        assert_declared(pos2nat(), &[spec!(NAT), spec!(NAT64)]);
+        assert_declared(most_significant_digit(), &[spec!(POS64)]);
+        assert_declared(most_significant_digit_nat(), &[spec!(NAT64)]);
+        assert_declared(concat_digit_pos(), &[spec!(POS64)]);
+        assert_declared(concat_digit_nat(), &[spec!(NAT64)]);
     }
 
     #[test]
     #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
     fn test_container_symbols_match_their_declarations() {
         let s = template_variable();
-        assert_declared(empty_list(&s), &[spec!("list.mcrl2"), spec!("list64.mcrl2")]);
-        assert_declared(empty_fset(&s), &[spec!("fset.mcrl2"), spec!("fset64.mcrl2")]);
-        assert_declared(empty_fbag(&s), &[spec!("fbag.mcrl2"), spec!("fbag64.mcrl2")]);
-        assert_declared(fset_insert(&s), &[spec!("fset.mcrl2"), spec!("fset64.mcrl2")]);
-        assert_declared(fbag_cinsert(&s), &[spec!("fbag.mcrl2"), spec!("fbag64.mcrl2")]);
-        assert_declared(false_function(&s), &[spec!("set.mcrl2"), spec!("set64.mcrl2")]);
-        assert_declared(zero_function(&s), &[spec!("bag.mcrl2"), spec!("bag64.mcrl2")]);
-        assert_declared(set_constructor(&s), &[spec!("set.mcrl2"), spec!("set64.mcrl2")]);
-        assert_declared(bag_constructor(&s), &[spec!("bag.mcrl2"), spec!("bag64.mcrl2")]);
+        assert_declared(empty_list(&s), &[spec!(LIST), spec!(LIST64)]);
+        assert_declared(empty_fset(&s), &[spec!(FSET), spec!(FSET64)]);
+        assert_declared(empty_fbag(&s), &[spec!(FBAG), spec!(FBAG64)]);
+        assert_declared(fset_insert(&s), &[spec!(FSET), spec!(FSET64)]);
+        assert_declared(fbag_cinsert(&s), &[spec!(FBAG), spec!(FBAG64)]);
+        assert_declared(false_function(&s), &[spec!(SET), spec!(SET64)]);
+        assert_declared(zero_function(&s), &[spec!(BAG), spec!(BAG64)]);
+        assert_declared(set_constructor(&s), &[spec!(SET), spec!(SET64)]);
+        assert_declared(bag_constructor(&s), &[spec!(BAG), spec!(BAG64)]);
     }
 
     /// A symbol that the specification files do not declare with that sort must be rejected, so
@@ -332,6 +332,6 @@ mod tests {
     #[should_panic(expected = "does not declare")]
     fn test_a_mismatching_sort_is_rejected() {
         let wrong = DataFunctionSymbol::with_signature(C_NAT, &[SortExpression::nat()], &SortExpression::nat());
-        assert_declared(wrong, &[spec!("nat.mcrl2")]);
+        assert_declared(wrong, &[spec!(NAT)]);
     }
 }
