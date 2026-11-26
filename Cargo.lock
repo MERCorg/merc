@@ -1414,6 +1414,7 @@ dependencies = [
  "oxidd",
  "rand",
  "rayon",
+ "tempfile",
  "test-case",
 ]
 

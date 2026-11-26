@@ -37,7 +37,7 @@ use crate::binding::SingleSubstitution;
 ///
 /// `condition` must already be in normal form, so that the `e` of a matched
 /// equation can be substituted without rewriting it again.
-/// 
+///
 /// Returns a tuple containing the remaining variables that were not eliminated
 /// and the eliminated variables with their corresponding values.
 pub fn simplify_one_point<R: RewriteEngine>(

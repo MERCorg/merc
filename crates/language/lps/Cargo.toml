@@ -42,6 +42,7 @@ merc_utilities.workspace = true
 
 [dev-dependencies]
 rand.workspace = true
+tempfile.workspace = true
 test-case.workspace = true
 
 [lints]
