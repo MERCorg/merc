@@ -136,7 +136,7 @@ pub fn reachability_with_options<L: SymbolicLPS>(
 /// time spent, or to report on the progress.
 ///
 /// The transition relations are learned with the [`SymbolicLPS::group_learner`] of `lts`, if it has
-/// one, and returned in [ReachabilityResult::groups]; `lts` itself is not changed.
+/// one, and returned in [ReachabilityResult::groups]; the relations of `lts` are not changed.
 pub fn reachability_with_callback<L: SymbolicLPS, F: FnMut(usize, &LDDFunction) -> ControlFlow<()>>(
     storage: &LDDManagerRef,
     lts: &L,

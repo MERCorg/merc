@@ -19,9 +19,9 @@ use merc_utilities::Timing;
 
 let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
 let mut file = File::open("../../../examples/ldd/anderson.4.ldd").expect("File could not be opened");
-let mut lts = read_sylvan(&manager, &mut file).expect("Should not fail");
+let lts = read_sylvan(&manager, &mut file).expect("Should not fail");
 
-let states = reachability(&manager, &mut lts, &Timing::new()).expect("Should not fail");
+let states = reachability(&manager, &lts, &Timing::new()).expect("Should not fail");
 ```
 
 Furthermore, this crate can also compute variable orders using the MINCE
@@ -45,6 +45,13 @@ Symbolic reachability can be configured using `reachability_with_options`, which
 supports the strategies of `ExplorationStrategy` (including chaining and
 Ciardo's saturation) and can detect deadlocks, the latter is also required for
 the `PBES` explorers.
+
+Transition relations are learned during reachability with the `GroupLearner` that
+a `SymbolicLPS` provides through `group_learner`, or not at all when the
+relations are fixed. Exploration takes the LTS by shared reference, keeps the
+learned relations itself and returns them in `ReachabilityResult::groups`; the
+`SymbolicLps` keeps the interning of values and labels, see
+`SymbolicLps::interning`.
 
 Added `SymbolicLps` to explore a linear process symbolically, where the
 summands are grouped into transition groups according to a `SummandGrouping`,

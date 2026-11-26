@@ -1,4 +1,6 @@
+use oxidd::Function;
 use oxidd::HasWorkers;
+use oxidd::ManagerRef;
 use oxidd::WorkerPool;
 use oxidd::ldd::LDDFunction;
 use oxidd::ldd::LDDManagerRef;
@@ -180,17 +182,17 @@ const MAX_SPLIT_LEVELS: usize = 8;
 /// The top levels of `ldd` are expanded into sub-sets until there are a few per worker (or
 /// [`MAX_SPLIT_LEVELS`] levels are expanded), and the sub-sets are divided over the workers with
 /// `join`; each is walked sequentially with [`iter`]. Every sub-set gets its own accumulator from
-/// `identity`, and the accumulators are combined with `merge`, which must be associative; `f` is
-/// called with the accumulator of its sub-set. The first error that `f` or `merge` returns is
-/// returned, and the other sub-sets still run to completion.
+/// `identity`, which gets the manager, and the accumulators are combined with `merge`, which must be
+/// associative; `f` is called with the accumulator of its sub-set. The first error that `f` or
+/// `merge` returns is returned, and the other sub-sets still run to completion.
 ///
-/// All calls of `f` happen on the workers, so `f` can keep per-worker state indexed by
-/// [`rayon::current_thread_index`].
+/// All calls of `f` happen on the workers, so `f` can keep per-worker state in a
+/// [`merc_unsafety::WorkerLocal`].
 pub fn iter_par<A, E, I, F, M>(storage: &LDDManagerRef, ldd: &LDDFunction, identity: I, f: F, merge: M) -> Result<A, E>
 where
     A: Send,
     E: Send,
-    I: Fn() -> A + Sync,
+    I: for<'id> Fn(&<LDDFunction as Function>::Manager<'id>) -> A + Sync,
     F: Fn(&mut A, &[Value]) -> Result<(), E> + Sync,
     M: Fn(A, A) -> Result<A, E> + Sync,
 {
@@ -218,19 +220,21 @@ where
         tasks = expanded;
     }
 
-    let run_task = |(prefix, set): &(Vec<Value>, LDDFunction)| -> Result<A, E> {
-        let mut acc = identity();
-        let mut vector = prefix.clone();
-        let mut suffixes = iter(set);
-        while let Some(suffix) = suffixes.next() {
-            vector.truncate(prefix.len());
-            vector.extend_from_slice(suffix);
-            f(&mut acc, &vector)?;
-        }
-        Ok(acc)
-    };
+    storage.with_manager_shared(|manager| {
+        let run_task = |(prefix, set): &(Vec<Value>, LDDFunction)| -> Result<A, E> {
+            let mut acc = identity(manager);
+            let mut vector = prefix.clone();
+            let mut suffixes = iter(set);
+            while let Some(suffix) = suffixes.next() {
+                vector.truncate(prefix.len());
+                vector.extend_from_slice(suffix);
+                f(&mut acc, &vector)?;
+            }
+            Ok(acc)
+        };
 
-    workers.install(|| parallel_map_reduce(workers, 0..tasks.len(), &|i| run_task(&tasks[i]), &merge))
+        workers.install(|| parallel_map_reduce(workers, 0..tasks.len(), &|i| run_task(&tasks[i]), &merge))
+    })
 }
 
 #[cfg(test)]
@@ -296,7 +300,7 @@ mod tests {
                 let mut visited: Vec<Vec<Value>> = iter_par(
                     &manager,
                     &ldd,
-                    Vec::new,
+                    |_| Vec::new(),
                     |acc: &mut Vec<Vec<Value>>, vector| -> Result<(), ()> {
                         assert!(rayon::current_thread_index().is_some(), "f runs on a worker");
                         acc.push(vector.to_vec());
@@ -333,7 +337,7 @@ mod tests {
         let count = iter_par(
             &manager,
             &ldd,
-            || 0usize,
+            |_| 0usize,
             |n, _| -> Result<(), ()> {
                 *n += 1;
                 Ok(())

@@ -27,7 +27,6 @@ use crate::SatCount;
 use crate::SymbolicLPS;
 use crate::TransitionGroup;
 use crate::ldd_len;
-use crate::parallel_map;
 use crate::parallel_map_reduce;
 
 use super::ExplorationStrategy;
@@ -70,7 +69,7 @@ where
         1,
     );
 
-    // The chaining and saturation strategies compute an entire fixpoint inside a single step, so the
+    // The chaining and fixpoint strategies can compute a long fixpoint inside a single step, so the
     // progress above can stay silent for a very long time. This one reports the frontier as it grows.
     let step_progress = TimeProgress::new(
         |(group, num_of_states)| {
@@ -135,7 +134,7 @@ where
 /// visited states) and, when [ReachabilityOptions::detect_deadlocks] is set, the subset of `todo`
 /// with no outgoing transition in any group. The transition relations are learned on the fly.
 ///
-/// For the chaining and saturation strategies a single step is a fixpoint computation that can take
+/// For the chaining and fixpoint strategies a single step can be a fixpoint computation that takes
 /// arbitrarily long, so `progress` reports `(group, frontier size)` while that fixpoint is computed.
 fn step<L: SymbolicLPS, T: GroupLearner + Sync>(
     storage: &LDDManagerRef,
@@ -167,6 +166,10 @@ fn step<L: SymbolicLPS, T: GroupLearner + Sync>(
         (0..groups.len()).collect()
     };
 
+    if !fixpoint && !chaining && !detect_deadlocks {
+        return step_parallel_groups(storage, groups.len(), relations, todo, timing);
+    }
+
     // Potential deadlocks start as the whole frontier; a state is removed as soon as a group is found
     // that takes it to a successor. Only tracked when requested.
     let mut deadlocks = if detect_deadlocks {
@@ -174,10 +177,6 @@ fn step<L: SymbolicLPS, T: GroupLearner + Sync>(
     } else {
         storage.with_manager_shared(|m| LDDFunction::empty_set(m))
     };
-
-    if !fixpoint && !chaining && !detect_deadlocks {
-        return step_parallel_groups(storage, groups.len(), relations, todo, timing);
-    }
 
     if !fixpoint {
         // Regular breadth-first, or chaining where successors found by earlier groups feed later groups.
@@ -292,10 +291,21 @@ fn step_parallel_groups<T: GroupLearner + Sync>(
 ) -> Result<(LDDFunction, LDDFunction), MercError> {
     let workers = storage.workers();
     let empty = storage.with_manager_shared(|m| LDDFunction::empty_set(m));
+    if num_groups == 0 {
+        // Without groups no state has a successor.
+        return Ok((empty.clone(), empty));
+    }
 
     if relations.is_learning() {
         timing.measure("pg_learn", || {
-            workers.install(|| parallel_map(workers, num_groups, &|i| relations.learn(i, todo)))
+            workers.install(|| {
+                parallel_map_reduce(
+                    workers,
+                    0..num_groups,
+                    &|i| relations.learn(i, todo),
+                    &|a, b| Ok(a || b),
+                )
+            })
         })?;
     }
 

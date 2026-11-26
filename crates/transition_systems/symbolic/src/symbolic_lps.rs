@@ -15,8 +15,8 @@ use crate::Relation;
 /// Any type with an initial state and transition groups can be explored via [crate::reachability].
 /// The relations of the groups are either given up front ([`TransitionGroup::relation`]), or learned
 /// during exploration with the [`GroupLearner`] of [`Self::group_learner`]. Exploration keeps the
-/// learned relations itself and returns them in [`crate::ReachabilityResult::groups`], so the LTS
-/// is never changed by exploring it.
+/// learned relations itself and returns them in [`crate::ReachabilityResult::groups`], so the
+/// relations of the LTS are never changed by exploring it.
 pub trait SymbolicLPS {
     /// The transition group type backing this LTS.
     type Group: TransitionGroup;

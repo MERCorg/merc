@@ -692,3 +692,26 @@ fn test_reachability_detect_deadlocks() {
         assert_eq!(count(&deadlocks), 1, "{strategy:?}");
     }
 }
+
+/// An LTS without transition groups (e.g. an LPS without summands) only reaches its initial state,
+/// under every strategy and with or without deadlock detection.
+#[test]
+#[cfg_attr(miri, ignore)] // Oxidd does not work with miri
+fn test_reachability_without_groups_reaches_only_the_initial_state() {
+    for strategy in ALL_STRATEGIES {
+        for detect_deadlocks in [false, true] {
+            let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 2);
+            let mut lts = line_lts(&manager);
+            lts.groups.clear();
+
+            let options = ReachabilityOptions {
+                strategy,
+                detect_deadlocks,
+                cached: false,
+            };
+            let result =
+                reachability_with_options(&manager, &lts, &options, &Timing::new()).expect("reachability succeeds");
+            assert_eq!(count(&result.states), 1, "{strategy:?}/deadlocks={detect_deadlocks}");
+        }
+    }
+}
