@@ -505,7 +505,7 @@ impl ExplicitLinearProcessSpecification {
         // Temporary enumeration context used to rewrite the initial state
         // expressions to normal form. Its substitution is seeded with the
         // constant assignments recorded during preprocessing.
-        let context = LearnSuccessorsContext::new(&lps);
+        let context = LearnSuccessorsContext::new(&lps)?;
 
         let initial_state = lps
             .initial_process()
@@ -733,7 +733,10 @@ impl LPS for ExplicitLinearProcessSpecification {
 
     fn create_context(&self) -> ExplicitContext {
         ExplicitContext {
-            context: LearnSuccessorsContext::new(&self.lps),
+            // The constructor already created a context for this LPS with the same
+            // rewrite strategy, so creating another one is not expected to fail.
+            context: LearnSuccessorsContext::new(&self.lps)
+                .expect("a context for this LPS was already created during construction"),
             parameter_values: Vec::with_capacity(self.process_parameters.len()),
             next_state_buf: Vec::new(),
         }

@@ -12,8 +12,10 @@ use log::info;
 use log::warn;
 
 use mcrl2::Pbes;
+use mcrl2::RewriteStrategy;
 use mcrl2::SrfPbes;
 use mcrl2::set_reporting_level;
+use mcrl2::set_rewrite_strategy;
 use mcrl2::verbosity_to_log_level;
 use merc_symbolic::ExplorationArgs;
 use merc_symbolic::LddLenCache;
@@ -96,6 +98,10 @@ struct Cli {
     /// Skip the default preprocessing that is applied to a PBES before instantiating.
     #[arg(long, global = true, default_value_t = false)]
     no_preprocess: bool,
+
+    /// The rewrite strategy of the mCRL2 data rewriter.
+    #[arg(long, global = true, value_enum, default_value_t = RewriteStrategy::Jitty)]
+    rewriter: RewriteStrategy,
 
     #[command(flatten)]
     oxidd: OxiddArgs,
@@ -412,6 +418,11 @@ fn main() -> ExitCode {
     if cli.version.into() {
         eprintln!("{}", Version);
         return ExitCode::SUCCESS;
+    }
+
+    // Must happen before any worker thread is started.
+    if let Err(error) = set_rewrite_strategy(cli.rewriter) {
+        return report_error(Err(error));
     }
 
     let timing = Timing::new();

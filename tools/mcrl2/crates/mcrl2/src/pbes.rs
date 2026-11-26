@@ -76,6 +76,7 @@ use crate::PbesExpression;
 use crate::PbesPropositionalVariableInstantiation;
 use crate::data_expression::to_assignment_pairs;
 use crate::lock_global;
+use crate::rewrite_strategy;
 
 /// A named preprocessing step of [Pbes::preprocess] and [Pbes::preprocess_symbolic].
 type PreprocessStep = (&'static str, fn(&mut Pbes) -> Result<(), MercError>);
@@ -302,12 +303,15 @@ pub struct PbesRewriteContext {
 }
 
 impl PbesRewriteContext {
+    /// Creates a rewriter for the given data specification, whose data rewriter
+    /// uses the strategy set by [crate::set_rewrite_strategy].
     pub fn from_data_spec(data_spec: &DataSpecification) -> Result<Self, MercError> {
         let ctx = mcrl2_pbes_create_rewrite_context(
             data_spec
                 .get()
                 .as_ref()
                 .expect("data_specification UniquePtr should not be null"),
+            rewrite_strategy(),
         )?;
         Ok(PbesRewriteContext {
             ctx: RefCell::new(ctx),

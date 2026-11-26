@@ -74,7 +74,7 @@ impl CfgLinearProcessSpecification {
         // Certain preprocessing steps (notably `replace_constants_by_variables`)
         // introduce expressions that must be rewritten; `LearnSuccessorsContext`
         // seeds that substitution from `inner.lps()` itself.
-        let context = LearnSuccessorsContext::new(inner.lps());
+        let context = LearnSuccessorsContext::new(inner.lps())?;
         let parameters = inner.parameters();
         // Every summand of an explicit LPS is a candidate from every state (see
         // `ExplicitLinearProcessSpecification::prepare`), so none of them is dead

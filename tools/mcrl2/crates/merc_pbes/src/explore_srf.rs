@@ -478,7 +478,7 @@ impl PbesSrfLps {
     /// Creates a fresh [`LearnSuccessorsContext`] for rewriting closed terms to
     /// normal form, independent of the per-thread enumeration contexts created by
     /// [`LPS::create_context`]. Used by [`mcrl2::ControlFlowGraph`].
-    pub fn analysis_context(&self) -> LearnSuccessorsContext {
+    pub fn analysis_context(&self) -> Result<LearnSuccessorsContext, MercError> {
         LearnSuccessorsContext::from_data_spec(&self.data_spec)
     }
 
@@ -535,7 +535,8 @@ impl LPS for PbesSrfLps {
 
     fn create_context(&self) -> PbesSrfContext {
         PbesSrfContext {
-            context: LearnSuccessorsContext::from_data_spec(&self.data_spec),
+            context: LearnSuccessorsContext::from_data_spec(&self.data_spec)
+                .expect("cannot create the rewriter for the data specification"),
             parameter_values: Vec::with_capacity(self.num_params),
             next_state_buf: vec![0; 1 + self.num_params],
         }

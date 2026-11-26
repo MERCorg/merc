@@ -75,7 +75,7 @@ impl CfgPbesSrfLps {
     pub fn new(srf: SrfPbes) -> Result<Self, MercError> {
         let inner = PbesSrfLps::new(srf)?;
 
-        let context = inner.analysis_context();
+        let context = inner.analysis_context()?;
         let parameters = inner.parameters();
         // A summand belonging to an equation that is itself unreachable from
         // the initial equation must not be allowed to disqualify a genuine

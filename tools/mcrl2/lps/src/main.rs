@@ -37,10 +37,12 @@ use merc_utilities::Timing;
 
 use mcrl2::LinearProcessSpecification;
 use mcrl2::PreprocessOptions;
+use mcrl2::RewriteStrategy;
 use mcrl2::preprocess;
 use mcrl2::read_lps;
 use mcrl2::read_lps_text;
 use mcrl2::set_reporting_level;
+use mcrl2::set_rewrite_strategy;
 use mcrl2::verbosity_to_log_level;
 
 use merc_lps::LtsMultiActionAdapter;
@@ -67,6 +69,10 @@ struct Cli {
     /// Skip the preprocessing that mCRL2 applies to an LPS before exploring it.
     #[arg(long, global = true, default_value_t = false)]
     no_preprocess: bool,
+
+    /// The rewrite strategy of the mCRL2 data rewriter.
+    #[arg(long, global = true, value_enum, default_value_t = RewriteStrategy::Jitty)]
+    rewriter: RewriteStrategy,
 
     #[command(flatten)]
     oxidd: OxiddArgs,
@@ -208,6 +214,11 @@ fn main() -> ExitCode {
     if cli.version.into() {
         eprintln!("{}", Version);
         return ExitCode::SUCCESS;
+    }
+
+    // Must happen before any worker thread is started.
+    if let Err(error) = set_rewrite_strategy(cli.rewriter) {
+        return report_error(Err(error));
     }
 
     let timing = Timing::new();
