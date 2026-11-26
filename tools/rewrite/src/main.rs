@@ -118,19 +118,16 @@ struct RewriteArgs {
     rewriter: Rewriter,
 
     /// The specification that contains the rewrite rules: a REC file, or an
-    /// mCRL2-family specification (`.mcrl2`, `.dataspec`, `.pbes`, `.pres`,
-    /// `.mcf`).
+    /// mCRL2 specification (`.mcrl2`, `.dataspec`, `.pbes`, `.pres`, `.mcf`).
     #[arg(value_name = "SPEC")]
     specification: PathBuf,
 
-    /// File containing the terms to be rewritten. For an mCRL2-family specification this is a
-    /// file of mCRL2 data expressions, one per line; blank lines and lines starting with `%` are
-    /// ignored. Ignored for a REC specification, which carries its own terms.
+    /// File containing the terms to be rewritten, only applicable to the mCRL2
+    /// specifications.
     terms: Option<PathBuf>,
 
-    /// An mCRL2 data expression to rewrite, type checked and lowered against the
-    /// specification's data specification. May be repeated; combines with `TERMS`. Only
-    /// supported for an mCRL2-family specification.
+    /// An mCRL2 data expression to rewrite, only applicable to the mCRL2
+    /// specifications.
     #[arg(long, short = 'e', value_name = "EXPR")]
     expression: Vec<String>,
 
