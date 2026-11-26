@@ -1,6 +1,7 @@
 use duct::cmd;
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use std::collections::BTreeSet;
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -41,6 +42,13 @@ pub(crate) const MCRL2_TOOLS: &[&str] = &["merc-pbes", "merc-lps"];
 /// The tools built from the `tools/gui` workspace.
 pub(crate) const GUI_TOOLS: &[&str] = &["merc-ltsgraph"];
 
+/// The directory, in the `mcrl2-sys` build output and next to the installed
+/// binaries, that holds what the compiling rewriter of mCRL2 (jittyc) needs: the
+/// [COMPILE_REWRITER_SCRIPT] and an `include` directory with the mCRL2 headers.
+const COMPILE_REWRITER_DIR: &str = "jittyc";
+/// The script in [COMPILE_REWRITER_DIR] that jittyc runs to compile its generated code.
+const COMPILE_REWRITER_SCRIPT: &str = "mcrl2compilerewriter";
+
 /// The installer formats that can be created from the package directory.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
 pub(crate) enum Installer {
@@ -60,7 +68,11 @@ struct PackageContents {
     dir: PathBuf,
     /// File names of the executables in `dir`.
     binaries: Vec<String>,
-    /// File names of the other (non-executable) files in `dir`.
+    /// Paths, relative to `dir` and separated by `/`, of executable helper
+    /// scripts, which are installed with the binaries but not linked into `/usr/bin`.
+    scripts: Vec<String>,
+    /// Paths, relative to `dir` and separated by `/`, of the other
+    /// (non-executable) files in `dir`.
     data_files: Vec<String>,
 }
 
@@ -123,7 +135,13 @@ pub(crate) fn package(mcrl2: bool, gui: bool, installers: &[Installer]) -> Resul
     // Cargo only tells build scripts whether debug info is enabled, so `cc` compiles C and C++
     // dependencies (most notably mCRL2) with full `-g` even though the release profile asks for
     // line tables only. Appending `-g1` lowers that to line tables, which still give backtraces.
-    let mut build = cmd!("cargo", "build", "--release");
+    // The JSON messages on stdout tell where the build scripts wrote their output.
+    let mut build = cmd!(
+        "cargo",
+        "build",
+        "--release",
+        "--message-format=json-render-diagnostics"
+    );
     if !cfg!(target_env = "msvc") {
         for flags in ["CFLAGS", "CXXFLAGS"] {
             let value = env::var(flags).map_or_else(|_| "-g1".to_string(), |value| format!("{value} -g1"));
@@ -132,8 +150,10 @@ pub(crate) fn package(mcrl2: bool, gui: bool, installers: &[Installer]) -> Resul
     }
 
     // Build all workspaces in release mode
+    let mut mcrl2_sys_out_dir = None;
     for (workspace_path, workspace_bins) in &workspace_binaries {
-        build.dir(workspace_path).run()?;
+        let output = build.dir(workspace_path).stdout_capture().run()?;
+        mcrl2_sys_out_dir = mcrl2_sys_out_dir.or(find_mcrl2_sys_out_dir(&String::from_utf8_lossy(&output.stdout)));
 
         for binary_name in workspace_bins.iter() {
             let file_name = exe_name(binary_name);
@@ -167,13 +187,37 @@ pub(crate) fn package(mcrl2: bool, gui: bool, installers: &[Installer]) -> Resul
         package_dir.join("kahypar.ini"),
     )?;
 
+    let mut data_files = vec!["LICENSE".to_string(), "kahypar.ini".to_string()];
+    let mut scripts = Vec::new();
+
+    // Add the script and headers that the compiling rewriter of mCRL2 needs, these only
+    // exist when mcrl2-sys was built with the jittyc feature on a unix platform.
+    if let Some(out_dir) = mcrl2_sys_out_dir.map(|dir| dir.join(COMPILE_REWRITER_DIR))
+        && out_dir.join(COMPILE_REWRITER_SCRIPT).is_file()
+    {
+        let jittyc_dir = package_dir.join(COMPILE_REWRITER_DIR);
+        if jittyc_dir.exists() {
+            fs::remove_dir_all(&jittyc_dir)?;
+        }
+        for file in copy_dir_all(&out_dir, &jittyc_dir)? {
+            let file = format!("{COMPILE_REWRITER_DIR}/{file}");
+            if file == format!("{COMPILE_REWRITER_DIR}/{COMPILE_REWRITER_SCRIPT}") {
+                scripts.push(file);
+            } else {
+                data_files.push(file);
+            }
+        }
+        println!("Copied {COMPILE_REWRITER_DIR}/{COMPILE_REWRITER_SCRIPT} and its headers to package directory");
+    }
+
     println!("=== Package creation completed ===");
     println!("Package directory: {}", package_dir.display());
 
     let contents = PackageContents {
         dir: package_dir,
         binaries,
-        data_files: vec!["LICENSE".to_string(), "kahypar.ini".to_string()],
+        scripts,
+        data_files,
     };
 
     if !installers.is_empty() {
@@ -193,6 +237,68 @@ pub(crate) fn package(mcrl2: bool, gui: bool, installers: &[Installer]) -> Resul
     }
 
     Ok(())
+}
+
+/// Returns the `OUT_DIR` of the `mcrl2-sys` build script from the JSON messages
+/// printed by `cargo build --message-format=json`.
+fn find_mcrl2_sys_out_dir(messages: &str) -> Option<PathBuf> {
+    messages
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|message| message["reason"] == "build-script-executed")
+        .filter(|message| {
+            // The package id is `<source>#<name>@<version>`, or `<source>#<version>`
+            // when the name is the last component of the source.
+            message["package_id"].as_str().is_some_and(|id| {
+                id.contains("#mcrl2-sys@")
+                    || id
+                        .split('#')
+                        .next()
+                        .is_some_and(|source| source.ends_with("/mcrl2-sys"))
+            })
+        })
+        .find_map(|message| message["out_dir"].as_str().map(PathBuf::from))
+}
+
+/// Recursively copies the files in `source` to `destination`, and returns their
+/// paths relative to `destination`, separated by `/`, in sorted order.
+fn copy_dir_all(source: &Path, destination: &Path) -> std::io::Result<Vec<String>> {
+    let mut files = Vec::new();
+    let mut pending = vec![String::new()];
+    while let Some(relative) = pending.pop() {
+        create_dir_all(destination.join(&relative))?;
+        for entry in fs::read_dir(source.join(&relative))? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let path = if relative.is_empty() {
+                name
+            } else {
+                format!("{relative}/{name}")
+            };
+            if entry.file_type()?.is_dir() {
+                pending.push(path);
+            } else {
+                copy(entry.path(), destination.join(&path))?;
+                files.push(path);
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+/// Returns the directories, relative to the package directory, that contain the
+/// scripts and data files, with every directory preceding its subdirectories.
+fn data_dirs(contents: &PackageContents) -> BTreeSet<String> {
+    let mut dirs = BTreeSet::new();
+    for file in contents.scripts.iter().chain(&contents.data_files) {
+        let mut parent = Path::new(file).parent();
+        while let Some(dir) = parent.filter(|dir| !dir.as_os_str().is_empty()) {
+            dirs.insert(dir.to_string_lossy().into_owned());
+            parent = dir.parent();
+        }
+    }
+    dirs
 }
 
 /// Renders the given template with the given values.
@@ -323,6 +429,16 @@ fn build_deb(contents: &PackageContents, output_dir: &Path) -> Result<PathBuf, B
         )?;
     }
 
+    for dir in data_dirs(contents) {
+        tar_append_dir(&mut data, &format!("{bin_dir}/{dir}"))?;
+    }
+
+    for script in &contents.scripts {
+        let bytes = fs::read(contents.dir.join(script))?;
+        installed_size += bytes.len() as u64;
+        tar_append_file(&mut data, &format!("{bin_dir}/{script}"), &bytes, 0o755)?;
+    }
+
     for file in &contents.data_files {
         let bytes = fs::read(contents.dir.join(file))?;
         installed_size += bytes.len() as u64;
@@ -392,6 +508,17 @@ fn build_rpm(contents: &PackageContents, output_dir: &Path) -> Result<PathBuf, B
             rpm::FileOptions::new(&dest).permissions(0o755),
         )?;
         builder.with_symlink(rpm::FileOptions::symlink(format!("/usr/bin/{binary}"), dest))?;
+    }
+
+    for script in &contents.scripts {
+        builder.with_file(
+            contents.dir.join(script),
+            rpm::FileOptions::new(format!("{UNIX_INSTALL_DIR}/bin/{script}")).permissions(0o755),
+        )?;
+    }
+
+    for dir in data_dirs(contents) {
+        builder.with_dir_entry(rpm::FileOptions::dir(format!("{UNIX_INSTALL_DIR}/bin/{dir}")))?;
     }
 
     for file in &contents.data_files {
