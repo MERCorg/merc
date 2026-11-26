@@ -61,21 +61,13 @@ impl CfgLinearProcessSpecification {
     pub fn new(lps: TransformedLps) -> Result<Self, MercError> {
         let inner = ExplicitLinearProcessSpecification::new(lps)?;
 
-        // Both closures below need the context, while `summands` borrows the terms of another one.
-        let terms = inner.create_context();
         let summands: Vec<CfgSummand<'_>> = inner
             .summands()
             .iter()
-            .enumerate()
-            .map(|(index, summand)| CfgSummand {
-                summation_variables: terms.summation_variables(index),
-                condition: terms.condition(index),
-                writes: summand
-                    .write_indices()
-                    .iter()
-                    .copied()
-                    .zip(terms.writes(index))
-                    .collect(),
+            .map(|summand| CfgSummand {
+                summation_variables: summand.summation_variables(),
+                condition: summand.condition(),
+                writes: summand.write_indices().iter().copied().zip(summand.writes()).collect(),
             })
             .collect();
 
@@ -86,7 +78,7 @@ impl CfgLinearProcessSpecification {
             .collect();
         let context = RefCell::new(inner.create_context());
         let graph = ControlFlowGraph::new(
-            &inner.parameters(),
+            inner.parameters(),
             &initial_state,
             &summands,
             |term| context.borrow_mut().rewrite_closed(term),

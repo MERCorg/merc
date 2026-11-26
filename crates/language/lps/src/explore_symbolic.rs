@@ -86,20 +86,13 @@ pub fn explore_lps_symbolic_to_sym<F: FnMut(usize, &LDDFunction) -> ControlFlow<
 
     let permuted = symbolic.lps();
     let inner = permuted.inner();
-    let order = permuted.order();
 
     // The data specification never changes during exploration, so it is only
     // converted once here rather than tracked incrementally.
-    let data_specification = inner.user_data_specification();
+    let data_specification = inner.user_data_specification().clone();
 
-    // `order[i]` is the position of `inner`'s (unpermuted) state vector stored
-    // at position `i` of the diagrams `symbolic` builds, so the process
-    // parameters in diagram order are `inner.parameters()[order[i]]`.
-    let inner_parameters = inner.parameters();
-    let process_parameters: Vec<DataVariable> = order
-        .iter()
-        .map(|&position| inner_parameters[position].clone())
-        .collect();
+    // The process parameters in the order of the diagram levels.
+    let process_parameters = permuted.permute(inner.parameters());
 
     // The values observed for each process parameter, in the dense order the
     // diagrams use, i.e. matching the LDD values stored at that position.

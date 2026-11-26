@@ -64,6 +64,7 @@ pub use multi_action::LtsMultiAction;
 pub use multi_action::MCRL2Action;
 pub use multi_action::MCRL2ActionLabel;
 pub use multi_action::MCRL2ActionLabelRef;
+pub use multi_action::MCRL2TimedMultiAction;
 pub use multi_action::SimpleAction;
 pub use per_state_dedup::PerStateDedup;
 pub use random_lts::mutate_lts;

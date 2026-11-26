@@ -494,7 +494,6 @@ mod tests {
     use merc_aterm::ATerm;
     use merc_aterm::ATermList;
     use merc_aterm::ATermString;
-    use merc_aterm::Term;
     use merc_collections::VecBag;
     use merc_data::DataApplication;
     use merc_data::DataExpression;

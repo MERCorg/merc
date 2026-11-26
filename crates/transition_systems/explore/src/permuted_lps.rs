@@ -148,6 +148,18 @@ impl<P: LPS> PermutedLps<P> {
     pub fn order(&self) -> &[usize] {
         &self.order
     }
+
+    /// Rearranges `values`, given per position of the inner state vector (such as the process
+    /// parameters of the inner LPS), into the positions of this LPS.
+    pub fn permute<T: Clone>(&self, values: &[T]) -> Vec<T> {
+        debug_assert_eq!(values.len(), self.order.len(), "one value per position is required");
+        self.order.iter().map(|&position| values[position].clone()).collect()
+    }
+
+    /// The position of this LPS that holds position `position` of the inner LPS.
+    pub fn position_of(&self, position: usize) -> usize {
+        self.level_of[position]
+    }
 }
 
 impl<P: LPS> LPS for PermutedLps<P> {

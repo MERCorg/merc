@@ -13,10 +13,9 @@ use log::info;
 
 use merc_aterm::ATerm;
 use merc_aterm::ATermList;
-use merc_aterm::ATermRead;
+use merc_aterm::ATermRef;
 use merc_aterm::ATermSend;
-use merc_aterm::ATermStreamable;
-use merc_aterm::ATermWrite;
+use merc_aterm::ProtectedSend;
 use merc_aterm::Symb;
 use merc_aterm::Term;
 use merc_aterm::structural_cmp;
@@ -56,7 +55,6 @@ use merc_lts::TransitionLabel;
 use merc_sabre::DataRewriter;
 use merc_sabre::RewriteEngine;
 use merc_sabre::RewriteSpecification;
-use merc_sabre::Rewriter;
 use merc_sabre::utilities::SliceSubstitution;
 use merc_unsafety::ConcurrentIndexedSet;
 use merc_utilities::MercError;
@@ -64,7 +62,6 @@ use merc_utilities::ShardedCounter;
 use merc_utilities::Timing;
 
 use crate::ActionSummand;
-use crate::LinearProcessSpecification;
 use crate::cfg_lps::CfgLinearProcessSpecification;
 use crate::io_lps::action_label_term;
 use crate::transformations::LpsTransformation;
@@ -478,57 +475,20 @@ fn multi_action_term(mut actions: Vec<MCRL2Action>, time: &DataExpression) -> MC
     MCRL2TimedMultiAction::new(ATermList::from_double_iter(actions.into_iter()), time.copy())
 }
 
-/// The terms of a [TransformedLps] that every worker thread protects for itself, see
-/// [ExplicitLinearProcessSpecification].
-struct ExplorationInput {
-    lps: LinearProcessSpecification,
-    /// The data specification extended by the preprocessing, from which the rewriter is built.
-    data_specification: Mcrl2DataSpecification,
-    /// The constants introduced by the preprocessing, with their values.
-    constants: Vec<(DataVariable, DataExpression)>,
-}
-
-impl ATermStreamable for ExplorationInput {
-    fn write<W: ATermWrite>(&self, writer: &mut W) -> Result<(), MercError> {
-        self.lps.write(writer)?;
-        self.data_specification.write(writer)?;
-        writer.write_aterm_iter(self.constants.iter().map(|(variable, _)| variable.clone().into()))?;
-        writer.write_aterm_iter(self.constants.iter().map(|(_, value)| value.clone().into()))
-    }
-
-    fn read<R: ATermRead>(reader: &mut R) -> Result<Self, MercError> {
-        let lps = LinearProcessSpecification::read(reader)?;
-        let data_specification = Mcrl2DataSpecification::read(reader)?;
-        let variables = reader
-            .read_aterm_iter()?
-            .map(|term| Ok(DataVariable::try_from_term(term?)?))
-            .collect::<Result<Vec<_>, MercError>>()?;
-        let values = reader
-            .read_aterm_iter()?
-            .map(|term| Ok(DataExpression::try_from_term(term?)?))
-            .collect::<Result<Vec<_>, MercError>>()?;
-        Ok(ExplorationInput {
-            lps,
-            data_specification,
-            constants: variables.into_iter().zip(values).collect(),
-        })
-    }
-}
-
-/// Interns the data expressions observed as parameter values, shared by all worker threads.
-type ValueTable = ConcurrentIndexedSet<ATermSend>;
+/// Interns the data expressions observed as parameter values, shared by all worker threads. The
+/// set is a garbage collection root for its terms, so an entry is a plain reference.
+type ValueTable = ProtectedSend<ConcurrentIndexedSet<ATermRef<'static>>>;
 
 /// Explicit-state view of a [TransformedLps] that implements the [merc_explore::LPS] trait.
 ///
-/// State vectors are indices into a shared table of the parameter values in normal form. The terms
-/// of the LPS are stored as a single [SendStreamable], so that the view can be shared between the
-/// worker threads, and every thread reads back its own copy in its [ExplicitContext].
+/// State vectors are indices into a shared table of the parameter values in normal form. The view
+/// is `Sync`: the worker threads read (and clone) its terms, and only the value table is shared
+/// mutable state.
 pub struct ExplicitLinearProcessSpecification {
-    input: SendStreamable<ExplorationInput>,
+    lps: TransformedLps,
     summands: Vec<ExplicitSummand>,
     values: Arc<ValueTable>,
     initial_state: Vec<usize>,
-    rewriter: Rewriter,
 }
 
 impl ExplicitLinearProcessSpecification {
@@ -560,34 +520,34 @@ impl ExplicitLinearProcessSpecification {
             lps
         };
 
-        let values = Arc::new(ValueTable::new());
-        let parameters = &lps.lps().process_parameters;
-        let constants: Vec<DataVariable> = lps
-            .constant_assignments()
-            .map(|(variable, _)| variable.clone())
-            .collect();
+        let values = Arc::new(ValueTable::default());
+        let (constant_variables, constant_values): (Vec<_>, Vec<_>) = lps.constant_assignments().cloned().unzip();
         let summands = lps
             .lps()
             .action_summands
             .iter()
             .enumerate()
-            .map(|(index, summand)| ExplicitSummand::new(index, summand, parameters, &constants, values.clone()))
+            .map(|(index, summand)| {
+                ExplicitSummand::new(
+                    index,
+                    summand,
+                    &lps.lps().process_parameters,
+                    (&constant_variables, &constant_values),
+                    values.clone(),
+                )
+            })
             .collect();
 
         let mut result = ExplicitLinearProcessSpecification {
-            input: SendStreamable::new(&ExplorationInput {
-                lps: lps.lps().clone(),
-                data_specification: lps.data_specification().clone(),
-                constants: lps.constant_assignments().cloned().collect(),
-            })?,
+            lps,
             summands,
             values,
             initial_state: Vec::new(),
-            rewriter: lps.rewriter_kind(),
         };
 
         let mut context = result.create_context();
-        result.initial_state = lps
+        result.initial_state = result
+            .lps
             .lps()
             .initial_state
             .iter()
@@ -597,19 +557,20 @@ impl ExplicitLinearProcessSpecification {
     }
 
     /// The process parameter variables in declaration order.
-    pub fn parameters(&self) -> Vec<DataVariable> {
-        self.input().lps.process_parameters
+    pub fn parameters(&self) -> &[DataVariable] {
+        &self.lps.lps().process_parameters
     }
 
     /// The user defined part of the data specification, which is the part an exploration result
     /// stores since the rest can be generated from it.
-    pub fn user_data_specification(&self) -> Mcrl2DataSpecification {
-        self.input().lps.data_specification
+    pub fn user_data_specification(&self) -> &Mcrl2DataSpecification {
+        &self.lps.lps().data_specification
     }
 
-    /// The value interned at `index`, as protected on the current thread.
+    /// The value interned at `index`.
     pub fn value(&self, index: usize) -> DataExpression {
         self.values
+            .read()
             .get_by_index(index)
             .expect("an interned value must be present")
             .protect()
@@ -621,13 +582,6 @@ impl ExplicitLinearProcessSpecification {
     pub fn intern_normal_form(&self, context: &mut ExplicitContext, value: &DataExpression) -> usize {
         let normal_form = context.rewrite_closed(value);
         context.cache.intern(&self.values, &normal_form)
-    }
-
-    /// The terms of the LPS, protected on the current thread.
-    fn input(&self) -> ExplorationInput {
-        self.input
-            .local()
-            .expect("an exploration input reads back what it writes")
     }
 }
 
@@ -645,7 +599,7 @@ impl ValueCache {
             return *index;
         }
 
-        let (index, _) = table.insert(ATermSend::from(value.clone().into()));
+        let (index, _) = table.read().insert(value.get());
         self.indices.insert(value.clone(), index);
         index
     }
@@ -656,6 +610,7 @@ impl ValueCache {
         }
         self.values[index].get_or_insert_with(|| {
             table
+                .read()
                 .get_by_index(index)
                 .expect("an interned value must be present")
                 .protect()
@@ -664,27 +619,13 @@ impl ValueCache {
     }
 }
 
-/// The terms of an [ExplicitSummand], protected on the current thread.
-struct ThreadSummand {
-    condition: DataExpression,
-    summation_variables: Vec<DataVariable>,
-    /// The domain of the substitution: the summation variables, followed by the parameters that
-    /// are read, followed by the constants that are used.
-    variables: Vec<DataVariable>,
-    /// The image of the substitution, parallel to `variables`.
-    values: Vec<DataExpression>,
-    /// The new values of the written parameters.
-    writes: Vec<DataExpression>,
-    actions: Vec<(MCRL2ActionLabel, Vec<DataExpression>)>,
-    time: Option<DataExpression>,
-}
-
 /// Per-thread enumeration context for an [ExplicitLinearProcessSpecification].
 pub struct ExplicitContext {
     rewriter: DataRewriter,
     enumerator: Enumerator,
     frame: EnumeratorFrame,
-    summands: Vec<ThreadSummand>,
+    /// For every summand, the image of its substitution, see [ExplicitSummand::variables].
+    images: Vec<Vec<DataExpression>>,
     constant_variables: Vec<DataVariable>,
     constant_values: Vec<DataExpression>,
     cache: ValueCache,
@@ -698,21 +639,6 @@ impl ExplicitContext {
         let sigma = SliceSubstitution::new(&self.constant_variables, &self.constant_values);
         self.rewriter.rewrite_with(term, &sigma)
     }
-
-    /// The summation variables of the summand with the given index on this thread.
-    pub(crate) fn summation_variables(&self, index: usize) -> &[DataVariable] {
-        &self.summands[index].summation_variables
-    }
-
-    /// The condition of the summand with the given index on this thread.
-    pub(crate) fn condition(&self, index: usize) -> &DataExpression {
-        &self.summands[index].condition
-    }
-
-    /// The new values of the parameters that the summand with the given index writes.
-    pub(crate) fn writes(&self, index: usize) -> &[DataExpression] {
-        &self.summands[index].writes
-    }
 }
 
 /// A single summand of the LPS, prepared for explicit enumeration.
@@ -720,17 +646,27 @@ pub struct ExplicitSummand {
     index: usize,
     read_indices: Vec<usize>,
     write_indices: Vec<usize>,
-    /// The constants, as indices in the constant assignments, that occur in this summand.
-    constants: Vec<usize>,
+    condition: DataExpression,
+    summation_variables: Vec<DataVariable>,
+    /// The domain of the substitution: the summation variables, followed by the parameters that
+    /// are read, followed by the constants that occur in this summand.
+    variables: Vec<DataVariable>,
+    /// The initial image of the substitution, parallel to `variables`: placeholders for the
+    /// summation variables and read parameters, followed by the values of the constants.
+    image: Vec<DataExpression>,
+    /// The new values of the written parameters, parallel to `write_indices`.
+    writes: Vec<DataExpression>,
+    actions: Vec<(MCRL2ActionLabel, Vec<DataExpression>)>,
+    time: Option<DataExpression>,
     values: Arc<ValueTable>,
 }
 
 impl ExplicitSummand {
     fn new(
         index: usize,
-        summand: &crate::ActionSummand,
+        summand: &ActionSummand,
         parameters: &[DataVariable],
-        constants: &[DataVariable],
+        (constant_variables, constant_values): (&[DataVariable], &[DataExpression]),
         values: Arc<ValueTable>,
     ) -> Self {
         debug_assert!(
@@ -742,15 +678,16 @@ impl ExplicitSummand {
         );
 
         // An assignment `d := d` leaves `d` unchanged.
-        let (write_indices, writes): (Vec<usize>, Vec<&DataExpression>) = summand
+        let (write_indices, writes): (Vec<usize>, Vec<DataExpression>) = summand
             .next_state
             .iter()
             .enumerate()
             .filter_map(|(position, value)| Some((position, value.as_ref()?)))
             .filter(|(position, value)| DataExpression::from(parameters[*position].clone()) != **value)
+            .map(|(position, value)| (position, value.clone()))
             .unzip();
 
-        let mut terms: Vec<&DataExpression> = writes.clone();
+        let mut terms: Vec<&DataExpression> = writes.iter().collect();
         terms.push(&summand.condition);
         terms.extend(summand.action.time.iter());
         for action in &summand.action.actions {
@@ -764,53 +701,27 @@ impl ExplicitSummand {
             }
             (0..variables.len()).filter(|&position| occurs[position]).collect()
         };
+        let read_indices = occurring(parameters);
+        let used_constants = occurring(constant_variables);
+
+        let summation_variables = summand.summation_variables.clone();
+        let mut variables = summation_variables.clone();
+        variables.extend(read_indices.iter().map(|&position| parameters[position].clone()));
+        variables.extend(used_constants.iter().map(|&index| constant_variables[index].clone()));
+
+        let placeholder = DataExpression::bool_literal(false);
+        let mut image = vec![placeholder; summation_variables.len() + read_indices.len()];
+        image.extend(used_constants.iter().map(|&index| constant_values[index].clone()));
 
         Self {
             index,
-            read_indices: occurring(parameters),
-            constants: occurring(constants),
+            read_indices,
             write_indices,
-            values,
-        }
-    }
-
-    /// The parameters that are written, as positions in the state vector, parallel to the
-    /// [ExplicitContext::writes] of this summand.
-    pub(crate) fn write_indices(&self) -> &[usize] {
-        &self.write_indices
-    }
-
-    /// The terms of `summand`, which is this summand of the LPS as read back on the current thread.
-    fn thread_summand(
-        &self,
-        summand: &ActionSummand,
-        parameters: &[DataVariable],
-        constants: &[(DataVariable, DataExpression)],
-    ) -> ThreadSummand {
-        let summation_variables = summand.summation_variables.clone();
-
-        let mut variables = summation_variables.clone();
-        variables.extend(self.read_indices.iter().map(|&position| parameters[position].clone()));
-        variables.extend(self.constants.iter().map(|&index| constants[index].0.clone()));
-
-        let placeholder = DataExpression::bool_literal(false);
-        let mut values = vec![placeholder; summation_variables.len() + self.read_indices.len()];
-        values.extend(self.constants.iter().map(|&index| constants[index].1.clone()));
-
-        ThreadSummand {
             condition: summand.condition.clone(),
             summation_variables,
             variables,
-            values,
-            writes: self
-                .write_indices
-                .iter()
-                .map(|&position| {
-                    summand.next_state[position]
-                        .clone()
-                        .expect("a written parameter is assigned")
-                })
-                .collect(),
+            image,
+            writes,
             actions: summand
                 .action
                 .actions
@@ -818,7 +729,29 @@ impl ExplicitSummand {
                 .map(|action| (action_label_term(&action.label), action.arguments.clone()))
                 .collect(),
             time: summand.action.time.clone(),
+            values,
         }
+    }
+
+    /// The parameters that are written, as positions in the state vector, parallel to
+    /// [ExplicitSummand::writes].
+    pub(crate) fn write_indices(&self) -> &[usize] {
+        &self.write_indices
+    }
+
+    /// The new values of the parameters that this summand writes.
+    pub(crate) fn writes(&self) -> &[DataExpression] {
+        &self.writes
+    }
+
+    /// The summation variables of this summand.
+    pub(crate) fn summation_variables(&self) -> &[DataVariable] {
+        &self.summation_variables
+    }
+
+    /// The condition of this summand.
+    pub(crate) fn condition(&self) -> &DataExpression {
+        &self.condition
     }
 }
 
@@ -837,29 +770,21 @@ impl LPS for ExplicitLinearProcessSpecification {
     }
 
     fn create_context(&self) -> ExplicitContext {
-        let ExplorationInput {
-            lps,
-            data_specification,
-            constants,
-        } = self.input();
-        let specification = RewriteSpecification::from_data_specification(&data_specification);
-        let plans = Rc::new(EnumerationPlans::build(&data_specification));
+        let data_specification = self.lps.data_specification();
+        let specification = RewriteSpecification::from_data_specification(data_specification);
+        let plans = Rc::new(EnumerationPlans::build(data_specification));
+        let (constant_variables, constant_values) = self.lps.constant_assignments().cloned().unzip();
 
         ExplicitContext {
-            rewriter: DataRewriter::new(self.rewriter, &specification),
+            rewriter: DataRewriter::new(self.lps.rewriter_kind(), &specification),
             enumerator: Enumerator::new(
                 plans,
                 FreshVariableGenerator::new("@enum", std::iter::empty::<String>()),
             ),
             frame: EnumeratorFrame::default(),
-            summands: self
-                .summands
-                .iter()
-                .zip(&lps.action_summands)
-                .map(|(summand, terms)| summand.thread_summand(terms, &lps.process_parameters, &constants))
-                .collect(),
-            constant_variables: constants.iter().map(|(variable, _)| variable.clone()).collect(),
-            constant_values: constants.into_iter().map(|(_, value)| value).collect(),
+            images: self.summands.iter().map(|summand| summand.image.clone()).collect(),
+            constant_variables,
+            constant_values,
             cache: ValueCache::default(),
             labels: HashMap::new(),
             next_state: Vec::new(),
@@ -873,17 +798,12 @@ impl LPS for ExplicitLinearProcessSpecification {
     fn state_info(&self, _state: &[usize], _context: &ExplicitContext) -> Self::StateInfo {}
 }
 
-/// Rewrites the effects of a summand under the substitution of `variables` by `values`, and reports
-/// the resulting transition.
-#[allow(clippy::too_many_arguments)]
+/// Rewrites the effects of `summand` under the substitution of its variables by `image`, and
+/// reports the resulting transition.
 fn report_solution<F>(
     summand: &ExplicitSummand,
     rewriter: &mut DataRewriter,
-    variables: &[DataVariable],
-    values: &[DataExpression],
-    writes: &[DataExpression],
-    actions: &[(MCRL2ActionLabel, Vec<DataExpression>)],
-    time: &Option<DataExpression>,
+    image: &[DataExpression],
     cache: &mut ValueCache,
     labels: &mut HashMap<ATerm, LpsMultiActionLabel>,
     next_state: &mut [usize],
@@ -892,13 +812,14 @@ fn report_solution<F>(
 where
     F: FnMut(&LpsMultiActionLabel, &[usize]) -> Result<(), MercError>,
 {
-    let sigma = SliceSubstitution::new(variables, values);
-    for (&position, write) in summand.write_indices.iter().zip(writes) {
+    let sigma = SliceSubstitution::new(&summand.variables, image);
+    for (&position, write) in summand.write_indices.iter().zip(&summand.writes) {
         let value = rewriter.rewrite_with(write, &sigma);
         next_state[position] = cache.intern(&summand.values, &value);
     }
 
-    let action_terms = actions
+    let action_terms = summand
+        .actions
         .iter()
         .map(|(label, arguments)| {
             MCRL2Action::new(
@@ -913,7 +834,7 @@ where
             )
         })
         .collect();
-    let time = match time {
+    let time = match &summand.time {
         Some(time) => rewriter.rewrite_with(time, &sigma),
         None => undefined_real(),
     };
@@ -946,32 +867,24 @@ impl Summand for ExplicitSummand {
             rewriter,
             enumerator,
             frame,
-            summands,
+            images,
             cache,
             labels,
             next_state,
             ..
         } = context;
-        let ThreadSummand {
-            condition,
-            summation_variables,
-            variables,
-            values,
-            writes,
-            actions,
-            time,
-        } = &mut summands[self.index];
+        let image = &mut images[self.index];
 
-        let num_summation_variables = summation_variables.len();
+        let num_summation_variables = self.summation_variables.len();
         for (offset, &position) in self.read_indices.iter().enumerate() {
-            values[num_summation_variables + offset] = cache.get(&self.values, state[position]).clone();
+            image[num_summation_variables + offset] = cache.get(&self.values, state[position]).clone();
         }
 
         let condition = rewriter.rewrite_with(
-            condition,
+            &self.condition,
             &SliceSubstitution::new(
-                &variables[num_summation_variables..],
-                &values[num_summation_variables..],
+                &self.variables[num_summation_variables..],
+                &image[num_summation_variables..],
             ),
         );
         if is_bool_literal(&condition, false) {
@@ -981,45 +894,26 @@ impl Summand for ExplicitSummand {
         next_state.clear();
         next_state.extend_from_slice(state);
 
-        if summation_variables.is_empty() {
+        if self.summation_variables.is_empty() {
             if !is_bool_literal(&condition, true) {
                 return Err(undecided_condition(&condition));
             }
-            return report_solution(
-                self,
-                rewriter,
-                variables,
-                values,
-                writes,
-                actions,
-                time,
-                cache,
-                labels,
-                next_state,
-                &mut report,
-            );
+            return report_solution(self, rewriter, image, cache, labels, next_state, &mut report);
         }
 
-        let outcome =
-            enumerator.enumerate_normalized(frame, rewriter, summation_variables, condition, |rewriter, solution| {
-                values[..num_summation_variables].clone_from_slice(solution.values());
-                match report_solution(
-                    self,
-                    rewriter,
-                    variables,
-                    values,
-                    writes,
-                    actions,
-                    time,
-                    cache,
-                    labels,
-                    next_state,
-                    &mut report,
-                ) {
+        let outcome = enumerator.enumerate_normalized(
+            frame,
+            rewriter,
+            &self.summation_variables,
+            condition,
+            |rewriter, solution| {
+                image[..num_summation_variables].clone_from_slice(solution.values());
+                match report_solution(self, rewriter, image, cache, labels, next_state, &mut report) {
                     Ok(()) => ControlFlow::Continue(()),
                     Err(error) => ControlFlow::Break(error),
                 }
-            });
+            },
+        );
 
         match outcome {
             Outcome::Exhausted => Ok(()),
