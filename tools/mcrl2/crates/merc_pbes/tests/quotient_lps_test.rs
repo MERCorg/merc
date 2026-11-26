@@ -26,6 +26,8 @@ use merc_pbes::QuotientLps;
 use merc_pbes::explore_pbes_impl;
 use merc_pbes::symmetry_parameter_basis;
 
+use mcrl2::DataRewriter;
+use mcrl2::RewriteStrategy;
 use rand::RngExt;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
@@ -135,7 +137,10 @@ nu X(b: Bool) = X(true);
 init X(true);"#;
     let pbes = Pbes::from_text(pbes_text)?;
 
-    let lps = PbesSrfLps::new(unified_srf(&pbes))?;
+    let input_spec = unified_srf(&pbes);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
+    let lps = PbesSrfLps::new(input_spec, rewriter)?;
     let n = lps.num_params();
     let bsgs = Arc::new(Bsgs::from_generators(&[], n, &gap_config())?);
 
@@ -147,7 +152,10 @@ init X(true);"#;
         ParityGameBuilder::new(VertexIndex::new(0)),
     )?;
 
-    let lps2 = PbesSrfLps::new(unified_srf(&pbes))?;
+    let input_spec = unified_srf(&pbes);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
+    let lps2 = PbesSrfLps::new(input_spec, rewriter)?;
     let qlps = QuotientLps::new(lps2, Arc::new(Canonicaliser::Bsgs(bsgs)), 1);
     let quot_game = explore_pbes_impl(
         &qlps,
@@ -170,7 +178,10 @@ fn quotient_with_cache_compiles() -> Result<(), MercError> {
 nu X(b: Bool) = X(true);
 init X(true);"#;
     let pbes = Pbes::from_text(pbes_text)?;
-    let lps = PbesSrfLps::new(unified_srf(&pbes))?;
+    let input_spec = unified_srf(&pbes);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
+    let lps = PbesSrfLps::new(input_spec, rewriter)?;
     let n = lps.num_params();
     let bsgs = Arc::new(Bsgs::from_generators(&[], n, &gap_config())?);
 
@@ -207,7 +218,11 @@ fn quotient_preserves_winner_and_reduces_the_game() -> Result<(), MercError> {
     let timing = Timing::new();
 
     let plain = explore_pbes_impl(
-        &PbesLps::new(pbes.clone())?,
+        &PbesLps::new(
+            pbes.clone(),
+            DataRewriter::new(&pbes.data_specification(), RewriteStrategy::default())
+                .expect("the rewriter should be built"),
+        )?,
         ExplorationStrategy::Bfs,
         &timing,
         ParityGameBuilder::new(VertexIndex::new(0)),
@@ -216,7 +231,9 @@ fn quotient_preserves_winner_and_reduces_the_game() -> Result<(), MercError> {
     // `n` sizes the permutation group; the tool itself derives this same degree
     // from `symmetry_parameter_basis` rather than from a constructed LPS.
     let n = symmetry_parameter_basis(&pbes)?.len();
-    let lps = PbesLps::new(pbes)?;
+    let rewriter = DataRewriter::new(&pbes.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
+    let lps = PbesLps::new(pbes, rewriter)?;
     let generators = vec![Permutation::from_cycle_notation("(0 1)")?];
     let bsgs = Arc::new(Bsgs::from_generators(&generators, n, &gap_config())?);
     let quotient = explore_pbes_impl(
@@ -256,13 +273,20 @@ fn quotient_over_srf_preserves_winner_and_reduces_the_game() -> Result<(), MercE
     let timing = Timing::new();
 
     let plain = explore_pbes_impl(
-        &PbesSrfLps::new(unified_srf(&pbes))?,
+        &PbesSrfLps::new(
+            unified_srf(&pbes),
+            DataRewriter::new(&pbes.data_specification(), RewriteStrategy::default())
+                .expect("the rewriter should be built"),
+        )?,
         ExplorationStrategy::Bfs,
         &timing,
         ParityGameBuilder::new(VertexIndex::new(0)),
     )?;
 
-    let lps = PbesSrfLps::new(unified_srf(&pbes))?;
+    let input_spec = unified_srf(&pbes);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
+    let lps = PbesSrfLps::new(input_spec, rewriter)?;
     assert_eq!(
         lps.num_params(),
         2,
@@ -307,7 +331,10 @@ fn quotient_over_cache_agrees_with_quotient_alone() -> Result<(), MercError> {
     // `n` sizes the permutation group; the tool itself derives this same degree
     // from `symmetry_parameter_basis` rather than from a constructed LPS.
     let n = symmetry_parameter_basis(&pbes)?.len();
-    let lps = PbesLps::new(pbes.clone())?;
+    let input_spec = pbes.clone();
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
+    let lps = PbesLps::new(input_spec, rewriter)?;
     let bsgs = Arc::new(Bsgs::from_generators(&generators, n, &gap_config())?);
     let uncached = explore_pbes_impl(
         &QuotientLps::new(lps, Arc::new(Canonicaliser::Bsgs(Arc::clone(&bsgs))), 1),
@@ -316,7 +343,9 @@ fn quotient_over_cache_agrees_with_quotient_alone() -> Result<(), MercError> {
         ParityGameBuilder::new(VertexIndex::new(0)),
     )?;
 
-    let cached = CacheLPS::new(PbesLps::new(pbes)?, CachingStrategy::Local);
+    let rewriter = DataRewriter::new(&pbes.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
+    let cached = CacheLPS::new(PbesLps::new(pbes, rewriter)?, CachingStrategy::Local);
     let cached = explore_pbes_impl(
         &QuotientLps::new(cached, Arc::new(Canonicaliser::Bsgs(bsgs)), 1),
         ExplorationStrategy::Bfs,
@@ -364,7 +393,12 @@ fn random_quotient_bsgs_matches_gap_lexmin() {
         let generators: Vec<Permutation> = (0..num_gens).map(|_| random_non_identity(rng, k)).collect();
 
         let plain = explore_pbes_impl(
-            &PbesLps::new(pbes.clone()).expect("PbesLps"),
+            &PbesLps::new(
+                pbes.clone(),
+                DataRewriter::new(&pbes.data_specification(), RewriteStrategy::default())
+                    .expect("the rewriter should be built"),
+            )
+            .expect("PbesLps"),
             ExplorationStrategy::Bfs,
             &timing,
             ParityGameBuilder::new(VertexIndex::new(0)),
@@ -374,7 +408,12 @@ fn random_quotient_bsgs_matches_gap_lexmin() {
         let bsgs = Arc::new(Bsgs::from_generators(&generators, n, &gap_config()).expect("BSGS"));
         let quot_bsgs = explore_pbes_impl(
             &QuotientLps::new(
-                PbesLps::new(pbes.clone()).expect("PbesLps"),
+                PbesLps::new(
+                    pbes.clone(),
+                    DataRewriter::new(&pbes.data_specification(), RewriteStrategy::default())
+                        .expect("the rewriter should be built"),
+                )
+                .expect("PbesLps"),
                 Arc::new(Canonicaliser::Bsgs(Arc::clone(&bsgs))),
                 1,
             ),
@@ -384,9 +423,11 @@ fn random_quotient_bsgs_matches_gap_lexmin() {
         )
         .expect("BSGS quotient");
 
+        let rewriter = DataRewriter::new(&pbes.data_specification(), RewriteStrategy::default())
+            .expect("the rewriter should be built");
         let quot_gap = explore_pbes_impl(
             &QuotientLps::new(
-                PbesLps::new(pbes).expect("PbesLps"),
+                PbesLps::new(pbes, rewriter).expect("PbesLps"),
                 Arc::new(Canonicaliser::gap_lexmin(generators.clone(), n, &gap_config())),
                 1,
             ),

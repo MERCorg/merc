@@ -11,11 +11,11 @@ use log::debug;
 use log::info;
 use log::warn;
 
+use mcrl2::DataRewriter;
 use mcrl2::Pbes;
 use mcrl2::RewriteStrategy;
 use mcrl2::SrfPbes;
 use mcrl2::set_reporting_level;
-use mcrl2::set_rewrite_strategy;
 use mcrl2::verbosity_to_log_level;
 use merc_symbolic::ExplorationArgs;
 use merc_symbolic::LddLenCache;
@@ -420,11 +420,6 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    // Must happen before any worker thread is started.
-    if let Err(error) = set_rewrite_strategy(cli.rewriter) {
-        return report_error(Err(error));
-    }
-
     let timing = Timing::new();
     let result = handle_command(&cli, &timing);
 
@@ -444,9 +439,9 @@ fn handle_command(cli: &Cli, timing: &Timing) -> Result<(), MercError> {
             Commands::Print(args) => handle_print(args, timing, preprocess)?,
             Commands::CfgSymmetry(args) => handle_symmetry(args, timing, preprocess)?,
             Commands::GraphSymmetry(args) => handle_graph_symmetry(args, timing, preprocess)?,
-            Commands::ExploreExplicit(args) => handle_explore_explicit(args, timing, preprocess)?,
+            Commands::ExploreExplicit(args) => handle_explore_explicit(args, cli.rewriter, timing, preprocess)?,
             Commands::ExploreSymbolic(args) => handle_explore_symbolic(cli, args, timing, preprocess)?,
-            Commands::Solve(args) => handle_solve(args, timing, preprocess)?,
+            Commands::Solve(args) => handle_solve(args, cli.rewriter, timing, preprocess)?,
             Commands::SolveSymbolic(args) => handle_solve_symbolic(cli, args, timing, preprocess)?,
         }
     }
@@ -561,7 +556,17 @@ impl ExploreArgs {
     /// itself logs) can pass `()` and skip materialising the game - see
     /// [`ExploreArgs::write_output`] for writing a real one to `--output`
     /// afterwards.
-    fn explore<B: PGBuilder>(&self, pbes: Pbes, timing: &Timing, builder: B) -> Result<B::PG, MercError> {
+    fn explore<B: PGBuilder>(
+        &self,
+        pbes: Pbes,
+        rewrite_strategy: RewriteStrategy,
+        timing: &Timing,
+        builder: B,
+    ) -> Result<B::PG, MercError> {
+        // Conversion to SRF and the unification of parameters keep the data
+        // specification, so this rewriter serves every explorer below.
+        let rewriter = DataRewriter::new(&pbes.data_specification(), rewrite_strategy)?;
+
         // Explicit generators take precedence over detection: giving both means
         // the user already knows the group and only detection would be redundant.
         let canonicaliser = if !self.quotient.is_empty() {
@@ -584,12 +589,13 @@ impl ExploreArgs {
         };
 
         if let Some(canonicaliser) = canonicaliser {
-            explore_with_symmetry(&pbes, self, canonicaliser, timing, builder)
+            explore_with_symmetry(&pbes, self, rewriter, canonicaliser, timing, builder)
         } else if self.srf {
             let srf = self.build_srf(&pbes)?;
             if self.threads > 1 {
                 explore_srf_pbes_parallel(
                     srf,
+                    rewriter,
                     self.threads,
                     self.caching,
                     self.control_flow,
@@ -598,12 +604,20 @@ impl ExploreArgs {
                     builder,
                 )
             } else {
-                explore_srf_pbes(srf, self.strategy, self.caching, self.control_flow, timing, builder)
+                explore_srf_pbes(
+                    srf,
+                    rewriter,
+                    self.strategy,
+                    self.caching,
+                    self.control_flow,
+                    timing,
+                    builder,
+                )
             }
         } else if self.threads > 1 {
-            explore_pbes_parallel(pbes, self.threads, self.pinned, timing, builder)
+            explore_pbes_parallel(pbes, rewriter, self.threads, self.pinned, timing, builder)
         } else {
-            explore_pbes(pbes, self.strategy, timing, builder)
+            explore_pbes(pbes, rewriter, self.strategy, timing, builder)
         }
     }
 
@@ -619,14 +633,19 @@ impl ExploreArgs {
     }
 }
 
-fn handle_explore_explicit(args: &ExploreExplicitArgs, timing: &Timing, preprocess: bool) -> Result<(), MercError> {
+fn handle_explore_explicit(
+    args: &ExploreExplicitArgs,
+    rewriter: RewriteStrategy,
+    timing: &Timing,
+    preprocess: bool,
+) -> Result<(), MercError> {
     args.explore.validate()?;
     let pbes = args.input.read(timing, preprocess)?;
 
     if args.explore.output.is_some() {
         let game = args
             .explore
-            .explore(pbes, timing, ParityGameBuilder::new(VertexIndex::new(0)))?;
+            .explore(pbes, rewriter, timing, ParityGameBuilder::new(VertexIndex::new(0)))?;
         args.explore.write_output(&game)?;
 
         // Reported as log key-values so that `format_key_values_json` renders them as
@@ -642,7 +661,7 @@ fn handle_explore_explicit(args: &ExploreExplicitArgs, timing: &Timing, preproce
     } else {
         // No output requested, discard the explored game - the exploration loop
         // itself already logs the vertex/edge counts as it goes.
-        args.explore.explore(pbes, timing, ())?;
+        args.explore.explore(pbes, rewriter, timing, ())?;
     }
 
     Ok(())
@@ -679,10 +698,12 @@ fn handle_explore_symbolic(
     let storage = cli.oxidd.init_ldd_manager();
     let encoding = args.symbolic.encoding()?;
 
+    let rewriter = DataRewriter::new(&pbes.data_specification(), cli.rewriter)?;
     let srf_pbes = args.symbolic.build_srf(&pbes)?;
     let states = explore_pbes_symbolic(
         &storage,
         srf_pbes,
+        rewriter,
         &encoding,
         args.symbolic.exploration.strategy,
         args.symbolic.cached,
@@ -707,11 +728,13 @@ fn handle_solve_symbolic(
     let storage = cli.oxidd.init_ldd_manager();
     let encoding = args.symbolic.encoding()?;
     let srf_pbes = args.symbolic.build_srf(&pbes)?;
+    let rewriter = DataRewriter::new(&pbes.data_specification(), cli.rewriter)?;
 
     let symbolic = timing.measure("instantiation", || {
         explore_pbes_symbolic_game(
             &storage,
             srf_pbes,
+            rewriter,
             &encoding,
             args.symbolic.exploration.strategy,
             args.symbolic.cached,
@@ -862,6 +885,7 @@ fn build_canonicaliser_for_pbes(
 fn explore_with_symmetry<B: PGBuilder>(
     pbes: &Pbes,
     args: &ExploreArgs,
+    rewriter: DataRewriter,
     canonicaliser: Arc<Canonicaliser>,
     timing: &Timing,
     builder: B,
@@ -878,11 +902,11 @@ fn explore_with_symmetry<B: PGBuilder>(
         // or the generators would index into a different vector than this SRF view
         // lays its state out by (see the module-level comment on this function).
         srf.unify_parameters(UNIFY_IGNORE_CE_EQUATIONS, !args.no_reset)?;
-        let lps = PbesSrfLps::new(srf)?;
+        let lps = PbesSrfLps::new(srf, rewriter)?;
         check_parameter_basis(&basis, &lps.parameters(), "SRF")?;
         quotient_explore(&lps, args, args.caching, canonicaliser, timing, builder)
     } else {
-        let lps = PbesLps::new(pbes.clone())?;
+        let lps = PbesLps::new(pbes.clone(), rewriter)?;
         check_parameter_basis(&basis, &lps.parameters(), "structure-graph")?;
         quotient_explore(&lps, args, CachingStrategy::None, canonicaliser, timing, builder)
     }
@@ -929,11 +953,17 @@ where
 
 /// Handles the solve command, which explores a PBES into a parity game and
 /// solves the game, printing the solution of the initial vertex.
-fn handle_solve(args: &SolveArgs, timing: &Timing, preprocess: bool) -> Result<(), MercError> {
+fn handle_solve(
+    args: &SolveArgs,
+    rewriter: RewriteStrategy,
+    timing: &Timing,
+    preprocess: bool,
+) -> Result<(), MercError> {
     args.explore.validate()?;
     // Solving always needs the actual game, unlike plain `explore-explicit`.
     let game = args.explore.explore(
         args.input.read(timing, preprocess)?,
+        rewriter,
         timing,
         ParityGameBuilder::new(VertexIndex::new(0)),
     )?;

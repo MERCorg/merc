@@ -21,6 +21,8 @@ use merc_vpg::ParityGameBuilder;
 use merc_vpg::VertexIndex;
 use merc_vpg::solve_zielonka;
 
+use mcrl2::DataRewriter;
+use mcrl2::RewriteStrategy;
 use merc_pbes::CfgPbesSrfLps;
 use merc_pbes::explore_srf_pbes;
 use merc_pbes::explore_srf_pbes_parallel;
@@ -37,7 +39,10 @@ fn unified_srf(pbes: &Pbes) -> SrfPbes {
 fn cfg_srf(text: &str) -> CfgPbesSrfLps {
     let mut pbes = Pbes::from_text(text).expect("Failed to parse PBES");
     pbes.normalize();
-    CfgPbesSrfLps::new(unified_srf(&pbes)).expect("Failed to build control-flow SRF view")
+    let input_spec = unified_srf(&pbes);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
+    CfgPbesSrfLps::new(input_spec, rewriter).expect("Failed to build control-flow SRF view")
 }
 
 /// Explores `text` (parsed and normalised) both with the plain SRF explorer
@@ -50,8 +55,12 @@ fn assert_cfg_matches_srf_text(text: &str) {
     let mut pbes = Pbes::from_text(text).expect("Failed to parse PBES");
     pbes.normalize();
 
+    let input_spec = unified_srf(&pbes);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let reference = explore_srf_pbes(
-        unified_srf(&pbes),
+        input_spec,
+        rewriter,
         ExplorationStrategy::Bfs,
         CachingStrategy::None,
         false,
@@ -60,8 +69,12 @@ fn assert_cfg_matches_srf_text(text: &str) {
     )
     .expect("SRF exploration failed");
 
+    let input_spec = unified_srf(&pbes);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let cfg = explore_srf_pbes(
-        unified_srf(&pbes),
+        input_spec,
+        rewriter,
         ExplorationStrategy::Bfs,
         CachingStrategy::None,
         true,
@@ -164,7 +177,9 @@ fn control_flow_parameter_survives_a_reachable_sink_without_reset() {
     pbes.normalize();
     let mut srf = SrfPbes::from(&pbes).expect("Failed to convert to SRF");
     srf.unify_parameters(false, false).expect("Failed to unify parameters");
-    let lps = CfgPbesSrfLps::new(srf).expect("Failed to build control-flow SRF view");
+    let rewriter =
+        DataRewriter::new(&srf.data_specification(), RewriteStrategy::default()).expect("the rewriter should be built");
+    let lps = CfgPbesSrfLps::new(srf, rewriter).expect("Failed to build control-flow SRF view");
 
     assert_eq!(
         lps.control_flow_parameters().len(),
@@ -292,8 +307,12 @@ fn assert_cfg_parallel_matches_sequential(text: &str) {
     let mut pbes = Pbes::from_text(text).expect("Failed to parse PBES");
     pbes.normalize();
 
+    let input_spec = unified_srf(&pbes);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let sequential = explore_srf_pbes(
-        unified_srf(&pbes),
+        input_spec,
+        rewriter,
         ExplorationStrategy::Bfs,
         CachingStrategy::None,
         true,
@@ -304,8 +323,12 @@ fn assert_cfg_parallel_matches_sequential(text: &str) {
     let (sequential_solution, _) = solve_zielonka(&sequential, false);
 
     for caching in [CachingStrategy::None, CachingStrategy::Local] {
+        let input_spec = unified_srf(&pbes);
+        let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+            .expect("the rewriter should be built");
         let parallel = explore_srf_pbes_parallel(
-            unified_srf(&pbes),
+            input_spec,
+            rewriter,
             4,
             caching,
             true,
@@ -349,8 +372,12 @@ fn control_flow_matches_under_caching() {
         let mut pbes = Pbes::from_text(&pbes_ast.to_string()).expect("parse failed");
         pbes.normalize();
 
+        let input_spec = unified_srf(&pbes);
+        let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+            .expect("the rewriter should be built");
         let uncached = explore_srf_pbes(
-            unified_srf(&pbes),
+            input_spec,
+            rewriter,
             ExplorationStrategy::Bfs,
             CachingStrategy::None,
             true,
@@ -358,8 +385,12 @@ fn control_flow_matches_under_caching() {
             ParityGameBuilder::new(VertexIndex::new(0)),
         )
         .expect("uncached control-flow exploration failed");
+        let input_spec = unified_srf(&pbes);
+        let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+            .expect("the rewriter should be built");
         let cached = explore_srf_pbes(
-            unified_srf(&pbes),
+            input_spec,
+            rewriter,
             ExplorationStrategy::Bfs,
             CachingStrategy::Local,
             true,

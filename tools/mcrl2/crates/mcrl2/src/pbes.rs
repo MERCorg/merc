@@ -70,13 +70,13 @@ use crate::ATerm;
 use crate::ATermList;
 use crate::ATermString;
 use crate::DataExpression;
+use crate::DataRewriter;
 use crate::DataSpecification;
 use crate::DataVariable;
 use crate::PbesExpression;
 use crate::PbesPropositionalVariableInstantiation;
 use crate::data_expression::to_assignment_pairs;
 use crate::lock_global;
-use crate::rewrite_strategy;
 
 /// A named preprocessing step of [Pbes::preprocess] and [Pbes::preprocess_symbolic].
 type PreprocessStep = (&'static str, fn(&mut Pbes) -> Result<(), MercError>);
@@ -304,19 +304,19 @@ pub struct PbesRewriteContext {
 
 impl PbesRewriteContext {
     /// Creates a rewriter for the given data specification, whose data rewriter
-    /// uses the strategy set by [crate::set_rewrite_strategy].
-    pub fn from_data_spec(data_spec: &DataSpecification) -> Result<Self, MercError> {
+    /// is a clone of `rewriter`, a rewriter for `data_spec`.
+    pub fn from_data_spec(data_spec: &DataSpecification, rewriter: &DataRewriter) -> Self {
         let ctx = mcrl2_pbes_create_rewrite_context(
             data_spec
                 .get()
                 .as_ref()
                 .expect("data_specification UniquePtr should not be null"),
-            rewrite_strategy(),
-        )?;
-        Ok(PbesRewriteContext {
+            rewriter.get(),
+        );
+        PbesRewriteContext {
             ctx: RefCell::new(ctx),
             _not_send: PhantomData,
-        })
+        }
     }
 
     /// Sets σ := { `variables[i]` ↦ `values[i]` } for the next rewrite call.

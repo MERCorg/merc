@@ -16,6 +16,8 @@ use merc_vpg::solve_symbolic_zielonka;
 use merc_vpg::solve_zielonka;
 use merc_vpg::verify_symbolic_strategy;
 
+use mcrl2::DataRewriter;
+use mcrl2::RewriteStrategy;
 use merc_pbes::explore_pbes_symbolic_game;
 use merc_pbes::explore_srf_pbes;
 
@@ -41,8 +43,12 @@ fn assert_symbolic_matches_explicit(pbes: &Pbes) {
     pbes.normalize();
     let pbes = &pbes;
 
+    let input_spec = unified_srf(pbes);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let game = explore_srf_pbes(
-        unified_srf(pbes),
+        input_spec,
+        rewriter,
         ExplorationStrategy::Bfs,
         CachingStrategy::None,
         false,
@@ -58,9 +64,13 @@ fn assert_symbolic_matches_explicit(pbes: &Pbes) {
     };
 
     let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+    let input_spec = unified_symbolic_srf(pbes);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let symbolic = explore_pbes_symbolic_game(
         &storage,
-        unified_symbolic_srf(pbes),
+        input_spec,
+        rewriter,
         &SymbolicLpsOptions::default(),
         SymbolicExplorationStrategy::default(),
         false,

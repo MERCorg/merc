@@ -35,6 +35,7 @@ use merc_unsafety::print_allocator_metrics;
 use merc_utilities::MercError;
 use merc_utilities::Timing;
 
+use mcrl2::DataRewriter;
 use mcrl2::LinearProcessSpecification;
 use mcrl2::PreprocessOptions;
 use mcrl2::RewriteStrategy;
@@ -42,7 +43,6 @@ use mcrl2::preprocess;
 use mcrl2::read_lps;
 use mcrl2::read_lps_text;
 use mcrl2::set_reporting_level;
-use mcrl2::set_rewrite_strategy;
 use mcrl2::verbosity_to_log_level;
 
 use merc_lps::LtsMultiActionAdapter;
@@ -216,11 +216,6 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    // Must happen before any worker thread is started.
-    if let Err(error) = set_rewrite_strategy(cli.rewriter) {
-        return report_error(Err(error));
-    }
-
     let timing = Timing::new();
     let result = handle_command(&cli, &timing);
 
@@ -238,7 +233,7 @@ fn handle_command(cli: &Cli, timing: &Timing) -> Result<(), MercError> {
     if let Some(command) = &cli.commands {
         match command {
             Commands::Explore(args) => handle_explore(cli, args, timing, preprocess_lps)?,
-            Commands::ExploreExplicit(args) => handle_explore_explicit(args, timing, preprocess_lps)?,
+            Commands::ExploreExplicit(args) => handle_explore_explicit(args, cli.rewriter, timing, preprocess_lps)?,
         }
     }
 
@@ -248,6 +243,7 @@ fn handle_command(cli: &Cli, timing: &Timing) -> Result<(), MercError> {
 /// Handles symbolic exploration of an LPS.
 fn handle_explore(cli: &Cli, args: &ExploreArgs, timing: &Timing, preprocess_lps: bool) -> Result<(), MercError> {
     let lps = args.input.read(timing, preprocess_lps)?;
+    let rewriter = DataRewriter::new(&lps.data_specification(), cli.rewriter)?;
 
     let storage = cli.oxidd.init_ldd_manager();
 
@@ -266,7 +262,8 @@ fn handle_explore(cli: &Cli, args: &ExploreArgs, timing: &Timing, preprocess_lps
     let on_iteration = args.max_iterations.on_iteration(&mut stopped_after);
 
     if let Some(output) = &args.output {
-        let (lts, deadlocks) = explore_lps_symbolic_to_sym(&storage, lps, &encoding, &options, timing, on_iteration)?;
+        let (lts, deadlocks) =
+            explore_lps_symbolic_to_sym(&storage, lps, rewriter, &encoding, &options, timing, on_iteration)?;
         println!("Number of states: {}", ldd_len(lts.states(), &mut LddLenCache::new()));
         if let Some(deadlocks) = &deadlocks {
             println!("Number of deadlocks: {}", ldd_len(deadlocks, &mut LddLenCache::new()));
@@ -275,7 +272,7 @@ fn handle_explore(cli: &Cli, args: &ExploreArgs, timing: &Timing, preprocess_lps
         let mut file = BufWriter::new(File::create(output)?);
         write_symbolic_lts(&storage, &mut file, &lts)?;
     } else {
-        let result = explore_lps_symbolic(&storage, lps, &encoding, &options, timing, on_iteration)?;
+        let result = explore_lps_symbolic(&storage, lps, rewriter, &encoding, &options, timing, on_iteration)?;
         println!("Number of states: {}", ldd_len(&result.states, &mut LddLenCache::new()));
         if let Some(deadlocks) = &result.deadlocks {
             println!("Number of deadlocks: {}", ldd_len(deadlocks, &mut LddLenCache::new()));
@@ -288,15 +285,21 @@ fn handle_explore(cli: &Cli, args: &ExploreArgs, timing: &Timing, preprocess_lps
 }
 
 /// Handles the explicit exploration of an LPS.
-fn handle_explore_explicit(args: &ExploreExplicitArgs, timing: &Timing, preprocess_lps: bool) -> Result<(), MercError> {
+fn handle_explore_explicit(
+    args: &ExploreExplicitArgs,
+    rewrite_strategy: RewriteStrategy,
+    timing: &Timing,
+    preprocess_lps: bool,
+) -> Result<(), MercError> {
     let lps = args.input.read(timing, preprocess_lps)?;
+    let rewriter = DataRewriter::new(&lps.data_specification(), rewrite_strategy)?;
 
     let output_format = guess_lts_output_format(args.output.as_deref(), args.out_format, LtsFormat::Aut);
 
     // The binary `.lts` format additionally carries a data specification, so it's handled
     // separately (see `handle_explore_explicit_lts`).
     if output_format == LtsFormat::Lts {
-        return handle_explore_explicit_lts(args, lps, timing);
+        return handle_explore_explicit_lts(args, lps, rewriter, timing);
     }
 
     let aut_format = match output_format {
@@ -320,6 +323,7 @@ fn handle_explore_explicit(args: &ExploreExplicitArgs, timing: &Timing, preproce
             explore_lps_explicit_parallel(
                 &mut builder,
                 lps,
+                rewriter,
                 args.caching,
                 args.threads,
                 args.control_flow,
@@ -331,6 +335,7 @@ fn handle_explore_explicit(args: &ExploreExplicitArgs, timing: &Timing, preproce
             explore_lps_explicit_parallel(
                 &mut (),
                 lps,
+                rewriter,
                 args.caching,
                 args.threads,
                 args.control_flow,
@@ -344,6 +349,7 @@ fn handle_explore_explicit(args: &ExploreExplicitArgs, timing: &Timing, preproce
         explore_lps_explicit(
             &mut builder,
             lps,
+            rewriter,
             args.caching,
             args.strategy,
             args.control_flow,
@@ -355,6 +361,7 @@ fn handle_explore_explicit(args: &ExploreExplicitArgs, timing: &Timing, preproce
         explore_lps_explicit(
             &mut builder,
             lps,
+            rewriter,
             args.caching,
             args.strategy,
             args.control_flow,
@@ -370,6 +377,7 @@ fn handle_explore_explicit(args: &ExploreExplicitArgs, timing: &Timing, preproce
 fn handle_explore_explicit_lts(
     args: &ExploreExplicitArgs,
     lps: LinearProcessSpecification,
+    rewriter: DataRewriter,
     timing: &Timing,
 ) -> Result<(), MercError> {
     let Some(output) = &args.output else {
@@ -379,6 +387,7 @@ fn handle_explore_explicit_lts(
             explore_lps_explicit_parallel(
                 &mut (),
                 lps,
+                rewriter,
                 args.caching,
                 args.threads,
                 args.control_flow,
@@ -386,7 +395,15 @@ fn handle_explore_explicit_lts(
                 timing,
             )?;
         } else {
-            explore_lps_explicit(&mut (), lps, args.caching, args.strategy, args.control_flow, timing)?;
+            explore_lps_explicit(
+                &mut (),
+                lps,
+                rewriter,
+                args.caching,
+                args.strategy,
+                args.control_flow,
+                timing,
+            )?;
         }
         return Ok(());
     };
@@ -402,6 +419,7 @@ fn handle_explore_explicit_lts(
         explore_lps_explicit_parallel(
             &mut builder,
             lps,
+            rewriter,
             args.caching,
             args.threads,
             args.control_flow,
@@ -413,6 +431,7 @@ fn handle_explore_explicit_lts(
         explore_lps_explicit(
             &mut builder,
             lps,
+            rewriter,
             args.caching,
             args.strategy,
             args.control_flow,

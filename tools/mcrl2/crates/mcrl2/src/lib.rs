@@ -81,9 +81,8 @@ pub(crate) use global_lock::lock_global;
 pub use log::set_reporting_level;
 pub use log::verbosity_to_log_level;
 
+pub use rewrite_strategy::DataRewriter;
 pub use rewrite_strategy::RewriteStrategy;
-pub(crate) use rewrite_strategy::rewrite_strategy;
-pub use rewrite_strategy::set_rewrite_strategy;
 
 pub use lps::LearnSuccessorsContext;
 pub use lps::LinearProcessInitializer;
