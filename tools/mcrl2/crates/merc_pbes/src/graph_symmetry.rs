@@ -12,9 +12,8 @@ use itertools::Itertools;
 use log::debug;
 use log::info;
 use log::trace;
+use petgraph::graph::DiGraph;
 use petgraph::graph::NodeIndex;
-use petgraph::graph::UnGraph;
-use petgraph::graph6::ToGraph6;
 
 use mcrl2::ATermRef;
 use mcrl2::DataAbstractionRef;
@@ -218,8 +217,10 @@ impl fmt::Display for EdgeColour {
 
 /// `C(e)`, the colour of an edge.
 ///
-/// GAP does not support parallel edges, so coinciding edges are merged into one
-/// edge whose colour is a set of positions or roles.
+/// Every edge is directed from a vertex to a direct subformula, from a PVI to
+/// one of its update vertices, or from an update vertex to its data and
+/// parameter. GAP does not support parallel edges, so coinciding edges are
+/// merged into one edge whose colour is a set of positions or roles.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 enum EdgeColour {
     /// The positions `{i | t_i = psi}` of argument `psi` of a non-commutative
@@ -258,9 +259,9 @@ impl fmt::Display for UpdateRole {
 /// The symmetry detection graph (SDG) of a PBES, as constructed by
 /// [`build_sdg`].
 pub struct Sdg {
-    /// A simple undirected graph: no parallel edges (see [`EdgeColour`]) and no
+    /// A simple directed graph: no parallel edges (see [`EdgeColour`]) and no
     /// self-loops.
-    graph: UnGraph<SdgVertex, EdgeColour>,
+    graph: DiGraph<SdgVertex, EdgeColour>,
 
     /// `C(v)`, indexed by `NodeIndex::index()`.
     colours: Vec<VertexColour>,
@@ -411,7 +412,7 @@ enum VertexKey {
 /// Builds up an [`Sdg`] incrementally by walking a PBES's right-hand sides.
 struct SdgBuilder {
     /// The graph under construction; becomes [`Sdg::graph`].
-    graph: UnGraph<SdgVertex, EdgeColour>,
+    graph: DiGraph<SdgVertex, EdgeColour>,
 
     /// `C(v)` per vertex, indexed by `NodeIndex::index()`.
     colours: Vec<VertexColour>,
@@ -456,7 +457,7 @@ fn uncoloured(arguments: &[NodeIndex]) -> Vec<(NodeIndex, EdgeColour)> {
 impl SdgBuilder {
     fn new(parameters: &[DataVariable]) -> Self {
         SdgBuilder {
-            graph: UnGraph::new_undirected(),
+            graph: DiGraph::new(),
             colours: Vec::new(),
             rhs: Vec::new(),
             interned: HashMap::new(),
@@ -479,7 +480,7 @@ impl SdgBuilder {
         self.rhs[node.index()].insert(equation);
     }
 
-    /// Adds an edge, or merges the colour into an existing `(u, v)` edge.
+    /// Adds the edge `u -> v`, or merges the colour into an existing one.
     fn add_or_merge_edge(&mut self, u: NodeIndex, v: NodeIndex, colour: EdgeColour) {
         if let Some(edge) = self.graph.find_edge(u, v) {
             let existing = self
@@ -487,7 +488,7 @@ impl SdgBuilder {
                 .edge_weight_mut(edge)
                 .expect("find_edge returned a valid edge index");
             trace!(
-                "edge: merge v{}--v{} colour {:?} into {:?}",
+                "edge: merge v{}->v{} colour {:?} into {:?}",
                 u.index(),
                 v.index(),
                 colour,
@@ -495,7 +496,7 @@ impl SdgBuilder {
             );
             *existing = merge_edge_colour(existing.clone(), colour);
         } else {
-            trace!("edge: add   v{}--v{} colour {:?}", u.index(), v.index(), colour);
+            trace!("edge: add   v{}->v{} colour {:?}", u.index(), v.index(), colour);
             self.graph.add_edge(u, v, colour);
         }
     }
@@ -705,7 +706,8 @@ impl SdgBuilder {
     }
 
     /// Returns the vertex of a PVI. A new PVI also gets its update vertices
-    /// `X_{i,k}`, connected to the PVI, the `k`-th argument and parameter `d_k`.
+    /// `X_{i,k}`, with the edges `PVI -> X_{i,k}`, `X_{i,k} -> t_k` and
+    /// `X_{i,k} -> d_k`.
     ///
     /// Unlike the paper, equal PVIs share one set of update vertices; duplicate
     /// sets would only add automorphisms that are the identity on parameters.
@@ -759,10 +761,11 @@ impl SdgBuilder {
             );
             trace!("update vertex v{} X_({},{})", update_node.index(), pvi_node.index(), k);
 
-            let par_node = NodeIndex::new(k);
+            self.add_or_merge_edge(pvi_node, update_node, EdgeColour::Update([UpdateRole::Pvi].into()));
 
+            // The data and parameter edges coincide when `t_k = d_k`.
+            let par_node = NodeIndex::new(k);
             let mut by_target: BTreeMap<NodeIndex, BTreeSet<UpdateRole>> = BTreeMap::new();
-            by_target.entry(pvi_node).or_default().insert(UpdateRole::Pvi);
             by_target.entry(data_node).or_default().insert(UpdateRole::Data);
             by_target.entry(par_node).or_default().insert(UpdateRole::Par);
 
@@ -794,8 +797,8 @@ fn merge_edge_colour(a: EdgeColour, b: EdgeColour) -> EdgeColour {
     }
 }
 
-/// The SDG in the form GAP's Digraphs package expects: a symmetric digraph
-/// (every undirected edge as two opposite directed arcs) with 1-based points.
+/// The SDG in the form GAP's Digraphs package expects: out-neighbour lists with
+/// 1-based points.
 pub struct GapGraph {
     /// The 1-based out-neighbours of vertex `u+1`.
     out_neighbours: Vec<Vec<usize>>,
@@ -843,8 +846,6 @@ impl Sdg {
             let dense_ec = dense_edge_colours[edge.index()];
             out_neighbours[u.index()].push(v.index() + 1);
             edge_colours[u.index()].push(dense_ec);
-            out_neighbours[v.index()].push(u.index() + 1);
-            edge_colours[v.index()].push(dense_ec);
         }
 
         debug_assert!(
@@ -857,9 +858,8 @@ impl Sdg {
         debug_assert!(
             out_neighbours
                 .iter()
-                .enumerate()
-                .all(|(u, nb)| { nb.iter().zip(&edge_colours[u]).collect::<HashSet<_>>().len() == nb.len() }),
-            "no two arcs from the same source may share both target and colour"
+                .all(|nb| nb.iter().collect::<HashSet<_>>().len() == nb.len()),
+            "no two arcs from the same source may share a target"
         );
 
         GapGraph {
@@ -876,7 +876,7 @@ pub fn write_dot<W>(sdg: &Sdg, w: &mut W) -> Result<(), MercError>
 where
     W: Write,
 {
-    writeln!(w, "graph sdg {{")?;
+    writeln!(w, "digraph sdg {{")?;
     writeln!(w, "  node [style=filled];")?;
 
     for node in sdg.graph.node_indices() {
@@ -932,7 +932,7 @@ where
 
         writeln!(
             w,
-            "  p{} -- p{} [{style}label=\"{elabel}\"];",
+            "  p{} -> p{} [{style}label=\"{elabel}\"];",
             u.index() + 1,
             v.index() + 1
         )?;
@@ -940,19 +940,6 @@ where
 
     writeln!(w, "}}")?;
     Ok(())
-}
-
-/// petgraph only implements the 4-byte N(n) encoding; the format supports up to 68_719_476_735.
-const GRAPH6_MAX_NODES: usize = 258_047;
-
-/// Renders the SDG in graph6 format, which cannot represent the colours.
-pub fn graph6_string(sdg: &Sdg) -> Result<String, MercError> {
-    if sdg.graph.node_count() > GRAPH6_MAX_NODES {
-        return Err(
-            format!("petgraph's graph6 encoder does not support graphs over {GRAPH6_MAX_NODES} vertices").into(),
-        );
-    }
-    Ok(sdg.graph.graph6_string())
 }
 
 /// Generates a GAP script that computes `Aut(G)`, restricts its generators to
@@ -1194,6 +1181,7 @@ pub fn graph_symmetries(pbes: &Pbes, config: &GapConfig) -> Result<GraphSymmetry
 mod tests {
     use mcrl2::Pbes;
     use merc_utilities::test_logger;
+    use petgraph::Direction;
     use petgraph::graph::NodeIndex;
     use petgraph::visit::EdgeRef;
     use std::sync::OnceLock;
@@ -1449,11 +1437,9 @@ mod tests {
     }
 
     /// A PVI that copies a parameter unchanged (`X(n)` from within `X`'s own
-    /// right-hand side) makes the `data(X,i,k)` and `d_k` update-edge
-    /// targets coincide: the update vertex must have exactly one combined
-    /// `{Data, Par}`-coloured edge to `n`, plus a separate `{Pvi}`-coloured
-    /// edge to the PVI vertex -- not three edges, and not a silently
-    /// dropped role.
+    /// right-hand side) makes the `data(X,i,k)` and `d_k` update-edge targets
+    /// coincide: the update vertex has exactly one outgoing `{Data, Par}` edge to
+    /// `n`, and one incoming `{Pvi}` edge from the PVI vertex.
     #[test]
     fn test_update_edge_combines_roles_on_parameter_copy() {
         test_logger();
@@ -1466,28 +1452,34 @@ mod tests {
             .find(|&index| sdg.colours[index.index()] == VertexColour::Update)
             .expect("there should be exactly one update vertex");
 
-        let mut edges: Vec<_> = sdg.graph.edges(update_node).map(|e| e.weight().clone()).collect();
-        edges.sort_by_key(|colour| format!("{colour:?}"));
-
+        let outgoing: Vec<_> = sdg.graph.edges(update_node).collect();
+        assert_eq!(outgoing.len(), 1, "expected one combined {{Data,Par}} edge");
+        assert_eq!(outgoing[0].target(), NodeIndex::new(0));
         assert_eq!(
-            edges.len(),
-            2,
-            "expected one {{Pvi}} edge and one combined {{Data,Par}} edge"
+            *outgoing[0].weight(),
+            EdgeColour::Update([UpdateRole::Data, UpdateRole::Par].into_iter().collect())
         );
-        assert!(edges.contains(&EdgeColour::Update([UpdateRole::Pvi].into_iter().collect())));
-        assert!(edges.contains(&EdgeColour::Update(
-            [UpdateRole::Data, UpdateRole::Par].into_iter().collect()
-        )));
 
-        // And the combined edge's target must be the parameter vertex `n`,
-        // i.e. NodeIndex(0).
-        let combined_target = sdg
-            .graph
-            .edges(update_node)
-            .find(|e| *e.weight() == EdgeColour::Update([UpdateRole::Data, UpdateRole::Par].into_iter().collect()))
-            .map(|e| e.target())
-            .unwrap();
-        assert_eq!(combined_target, NodeIndex::new(0));
+        let incoming: Vec<_> = sdg.graph.edges_directed(update_node, Direction::Incoming).collect();
+        assert_eq!(incoming.len(), 1, "only the PVI points to its update vertex");
+        assert!(matches!(&sdg.colours[incoming[0].source().index()], VertexColour::Pvi(name) if name == "X"));
+        assert_eq!(
+            *incoming[0].weight(),
+            EdgeColour::Update([UpdateRole::Pvi].into_iter().collect())
+        );
+    }
+
+    /// Edges point from a formula to its direct subformulas, so parameters,
+    /// which are leaves, have no outgoing edges.
+    #[test]
+    fn test_parameters_have_no_outgoing_edges() {
+        test_logger();
+        let pbes = Pbes::from_text(include_str!("../../../../../examples/pbes/c.text.pbes")).unwrap();
+        let sdg = build_sdg(&pbes).unwrap();
+
+        for k in 0..sdg.num_parameters() {
+            assert_eq!(sdg.graph.edges(NodeIndex::new(k)).count(), 0);
+        }
     }
 
     /// Two equations declaring different parameter vectors are rejected
