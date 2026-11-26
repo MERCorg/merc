@@ -93,6 +93,13 @@ const _: () = assert!(std::mem::size_of::<Option<ATermRef>>() == std::mem::size_
 unsafe impl Send for ATermRef<'_> {}
 unsafe impl Sync for ATermRef<'_> {}
 
+/// Same as [Term::copy], so that references can be stored in containers that require [Clone].
+impl Clone for ATermRef<'_> {
+    fn clone(&self) -> Self {
+        self.copy()
+    }
+}
+
 impl ATermRef<'_> {
     /// Creates a new term reference from the given [ATermIndex].
     ///
