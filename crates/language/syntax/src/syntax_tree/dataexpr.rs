@@ -31,6 +31,11 @@ pub enum DataExprUnaryOp {
     Size,
 }
 
+impl DataExprUnaryOp {
+    /// All unary operators.
+    pub const ALL: &[DataExprUnaryOp] = &[DataExprUnaryOp::Negation, DataExprUnaryOp::Minus, DataExprUnaryOp::Size];
+}
+
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub enum DataExprBinaryOp {
     Conj,
@@ -53,6 +58,32 @@ pub enum DataExprBinaryOp {
     Mod,
     Multiply,
     At,
+}
+
+impl DataExprBinaryOp {
+    /// All binary operators.
+    pub const ALL: &[DataExprBinaryOp] = &[
+        DataExprBinaryOp::Conj,
+        DataExprBinaryOp::Disj,
+        DataExprBinaryOp::Implies,
+        DataExprBinaryOp::Equal,
+        DataExprBinaryOp::NotEqual,
+        DataExprBinaryOp::LessThan,
+        DataExprBinaryOp::LessEqual,
+        DataExprBinaryOp::GreaterThan,
+        DataExprBinaryOp::GreaterEqual,
+        DataExprBinaryOp::Cons,
+        DataExprBinaryOp::Snoc,
+        DataExprBinaryOp::In,
+        DataExprBinaryOp::Concat,
+        DataExprBinaryOp::Add,
+        DataExprBinaryOp::Subtract,
+        DataExprBinaryOp::Div,
+        DataExprBinaryOp::IntDiv,
+        DataExprBinaryOp::Mod,
+        DataExprBinaryOp::Multiply,
+        DataExprBinaryOp::At,
+    ];
 }
 
 /// The kind of a [DataExpr] node.

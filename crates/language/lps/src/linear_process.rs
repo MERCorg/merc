@@ -1,11 +1,13 @@
 use std::fmt;
 
+use ahash::AHashSet;
 use itertools::Itertools;
 use merc_aterm::ATermString;
 use merc_data::DataExpression;
 use merc_data::DataVariable;
 use merc_data::Mcrl2DataSpecification;
 use merc_data::SortExpression;
+use merc_data::collect_variables;
 use merc_data::is_bool_literal;
 use merc_lowering::Pretty;
 
@@ -40,10 +42,14 @@ pub struct ActionSummand {
     pub summation_variables: Vec<DataVariable>,
     pub condition: DataExpression,
     pub action: MultiAction,
-    /// The value of every process parameter after the action, parallel to
-    /// [`LinearProcessSpecification::process_parameters`]. A parameter that the summand leaves
-    /// unchanged is the parameter itself.
-    pub next_state: Vec<DataExpression>,
+    /// The assignments of the summand, parallel to
+    /// [`LinearProcessSpecification::process_parameters`]: the new value of every assigned
+    /// parameter, and `None` for a parameter that the summand leaves unchanged.
+    ///
+    /// The values are in the scope of the summation variables, so `Some(d)` for a parameter `d`
+    /// that a summation variable `d` shadows assigns that summation variable, which is why
+    /// unchanged is not represented by the parameter itself.
+    pub next_state: Vec<Option<DataExpression>>,
 }
 
 /// A deadlock summand `Σ d: D . c → δ`, optionally at time `t`. It only restricts the passing of
@@ -70,6 +76,61 @@ pub struct LinearProcessSpecification {
 
     /// The initial value of every process parameter, parallel to [`Self::process_parameters`].
     pub initial_state: Vec<DataExpression>,
+}
+
+impl LinearProcessSpecification {
+    /// Returns true iff a summation variable has the name of a process parameter, and therefore
+    /// shadows that parameter in its summand. See
+    /// [resolve_name_clashes](crate::transformations::resolve_name_clashes).
+    pub fn has_name_clashes(&self) -> bool {
+        let parameters: AHashSet<&str> = self
+            .process_parameters
+            .iter()
+            .map(|parameter| parameter.name())
+            .collect();
+        self.summation_variables()
+            .any(|variable| parameters.contains(variable.name()))
+    }
+
+    /// The names of all variables that occur in this LPS, including free ones such as those
+    /// introduced by [replace_constants_by_variables](crate::transformations::replace_constants_by_variables).
+    pub(crate) fn variable_names(&self) -> AHashSet<String> {
+        let mut variables: AHashSet<DataVariable> = self
+            .global_variables
+            .iter()
+            .chain(&self.process_parameters)
+            .chain(self.summation_variables())
+            .cloned()
+            .collect();
+
+        let action_terms = self.action_summands.iter().flat_map(|summand| {
+            std::iter::once(&summand.condition)
+                .chain(summand.next_state.iter().flatten())
+                .chain(&summand.action.time)
+                .chain(summand.action.actions.iter().flat_map(|action| &action.arguments))
+        });
+        let deadlock_terms = self
+            .deadlock_summands
+            .iter()
+            .flat_map(|summand| std::iter::once(&summand.condition).chain(&summand.time));
+        for term in self.initial_state.iter().chain(action_terms).chain(deadlock_terms) {
+            collect_variables(term, &mut variables);
+        }
+
+        variables.iter().map(|variable| variable.name().to_string()).collect()
+    }
+
+    /// The summation variables of all action and deadlock summands.
+    fn summation_variables(&self) -> impl Iterator<Item = &DataVariable> {
+        self.action_summands
+            .iter()
+            .flat_map(|summand| &summand.summation_variables)
+            .chain(
+                self.deadlock_summands
+                    .iter()
+                    .flat_map(|summand| &summand.summation_variables),
+            )
+    }
 }
 
 impl fmt::Display for ActionLabel {
@@ -160,7 +221,7 @@ impl fmt::Display for LinearProcessSpecification {
     }
 }
 
-/// An action summand `sum d: D. c -> a . P(x = e)`, which shows only the parameters that change.
+/// An action summand `sum d: D. c -> a . P(x = e)`, which shows only the assigned parameters.
 struct SummandWithParameters<'a> {
     summand: &'a ActionSummand,
     parameters: &'a [DataVariable],
@@ -172,7 +233,7 @@ impl fmt::Display for SummandWithParameters<'_> {
             .parameters
             .iter()
             .zip(&self.summand.next_state)
-            .filter(|(parameter, value)| DataExpression::from((*parameter).clone()) != **value)
+            .filter_map(|(parameter, value)| Some((parameter, value.as_ref()?)))
             .format_with(", ", |(parameter, value), f| {
                 f(&format_args!("{} = {}", parameter.name(), Pretty::from(value)))
             });

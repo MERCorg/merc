@@ -62,7 +62,7 @@ impl<'a> From<&'a DataExpression> for Pretty<'a> {
 
 impl fmt::Display for Pretty<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", raise_data_expression(&self.0.protect()).pretty())
+        write!(f, "{}", raise_data_expression(&self.0.protect()))
     }
 }
 
