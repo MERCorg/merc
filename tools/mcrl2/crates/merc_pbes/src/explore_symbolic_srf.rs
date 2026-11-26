@@ -51,9 +51,9 @@ pub struct SymbolicPbes {
 /// sinks are needed to build the game; there is no `--detect-deadlocks` flag here, unlike
 /// `merc-sym`/`merc-lps`.
 ///
-/// Builds the game from the same `SymbolicContext` reachability ran with; the
-/// value → equation-index mapping in `context.columns()` is only valid for that one context and
-/// must not be recombined with states obtained from a different one.
+/// Builds the game from the interning of the same `SymbolicLps` that reachability ran with; the
+/// value → equation-index mapping is only valid for that one `SymbolicLps` and must not be
+/// recombined with states obtained from a different one.
 pub fn explore_pbes_symbolic_game(
     storage: &LDDManagerRef,
     srf_pbes: SrfPbes,
@@ -69,8 +69,7 @@ pub fn explore_pbes_symbolic_game(
          call `SrfPbes::unify_parameters` on it first"
     );
     let lps = PbesSrfLps::new(srf_pbes)?;
-    let mut symbolic = SymbolicLps::with_options(storage, lps, encoding)?;
-
+    let symbolic = SymbolicLps::with_options(storage, lps, encoding)?;
     debug!("{symbolic:?}");
 
     // `with_options` wraps the LPS in a `PermutedLps` to realise `--reorder`, so the equation
@@ -87,21 +86,23 @@ pub fn explore_pbes_symbolic_game(
         detect_deadlocks: true,
         cached,
     };
-    let mut context = symbolic.create_context();
-    let result = reachability_with_options(storage, &mut symbolic, &mut context, &options, timing)?;
+    let result = reachability_with_options(storage, &symbolic, &options, timing)?;
     let sinks = result
         .deadlocks
         .expect("detect_deadlocks was requested, so deadlocks must be Some");
 
     let info = symbolic.lps().inner().equation_info();
-    let blocks: Vec<(Value, Player, Priority)> = context.columns()[level]
-        .iter()
-        .map(|(value, &equation)| (*value as Value, info[equation].player, info[equation].priority))
+    let blocks: Vec<(Value, Player, Priority)> = symbolic
+        .interning()
+        .values(level)
+        .into_iter()
+        .enumerate()
+        .map(|(value, equation)| (value as Value, info[equation].player, info[equation].priority))
         .collect();
 
     let game = SymbolicParityGame::from_block_index(
         storage,
-        symbolic.transition_groups(),
+        &result.groups,
         result.states.clone(),
         level,
         &blocks,

@@ -17,6 +17,7 @@ use merc_lts::LtsStream;
 use merc_lts::guess_lts_format_from_extension;
 use merc_lts::write_bcg;
 use merc_symbolic::ExplorationArgs;
+use merc_symbolic::KaHyParArgs;
 use merc_symbolic::LddLenCache;
 use merc_symbolic::MaxIterationsArgs;
 use merc_symbolic::OxiddArgs;
@@ -41,7 +42,6 @@ use merc_symbolic::refine_bisimulation;
 use merc_symbolic::reorder;
 use merc_symbolic::sigref_symbolic;
 use merc_symbolic::write_symbolic_lts;
-use merc_symbolic::KaHyParArgs;
 use merc_tools::VerbosityFlag;
 use merc_tools::Version;
 use merc_tools::VersionFlag;
@@ -294,11 +294,10 @@ fn handle_reachability(cli: &Cli, args: &ReachabilityArgs, timing: &Timing) -> R
                 return Err("Writing output is only supported for the .sym format".into());
             }
 
-            let mut lts = timing.measure("read_symbolic_lts", || read_sylvan(&storage, &mut file))?;
+            let lts = timing.measure("read_symbolic_lts", || read_sylvan(&storage, &mut file))?;
 
-            lts.create_context();
             let result = timing.measure("reachability", || {
-                reachability_with_callback(&storage, &mut lts, &mut (), &options, timing, on_iteration)
+                reachability_with_callback(&storage, &lts, &options, timing, on_iteration)
             })?;
 
             print_reachable_states(&result.states);
@@ -306,9 +305,8 @@ fn handle_reachability(cli: &Cli, args: &ReachabilityArgs, timing: &Timing) -> R
         SymFormat::Sym => {
             let mut lts = timing.measure("read_symbolic_lts", || read_symbolic_lts(&storage, &mut file))?;
 
-            lts.create_context();
             let result = timing.measure("reachability", || {
-                reachability_with_callback(&storage, &mut lts, &mut (), &options, timing, on_iteration)
+                reachability_with_callback(&storage, &lts, &options, timing, on_iteration)
             })?;
 
             print_reachable_states(&result.states);

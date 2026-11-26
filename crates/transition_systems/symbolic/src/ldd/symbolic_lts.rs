@@ -3,6 +3,7 @@ use merc_data::DataVariable;
 use merc_data::Mcrl2DataSpecification;
 use merc_lts::TransitionLabel;
 use oxidd::ldd::LDDFunction;
+use oxidd::ldd::LDDManagerRef;
 
 use crate::SummandGroup;
 use crate::SymbolicLPS;
@@ -86,6 +87,10 @@ impl<L: TransitionLabel> SymbolicLts<L> {
 
 impl<L: TransitionLabel> SymbolicLPS for SymbolicLts<L> {
     type Group = SummandGroup;
+    type Learner<'a>
+        = crate::NoLearner
+    where
+        Self: 'a;
 
     fn initial_state(&self) -> &LDDFunction {
         &self.initial_state
@@ -95,11 +100,9 @@ impl<L: TransitionLabel> SymbolicLPS for SymbolicLts<L> {
         &self.summand_groups
     }
 
-    fn transition_groups_mut(&mut self) -> &mut [Self::Group] {
-        &mut self.summand_groups
+    fn group_learner<'a>(&'a self, _storage: &'a LDDManagerRef) -> Option<crate::NoLearner> {
+        None
     }
-
-    fn create_context(&self) {}
 }
 
 impl<L: TransitionLabel> SymbolicLTS for SymbolicLts<L> {

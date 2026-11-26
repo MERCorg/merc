@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use itertools::Either;
 
+use merc_unsafety::NoCloneArc;
 use merc_utilities::MercError;
 
 use crate::LPS;
@@ -23,7 +24,7 @@ use crate::Summand;
 /// [`PermutedLps::new`], and passes every state vector through untouched.
 pub struct PermutedLps<P: LPS> {
     /// The wrapped LPS, shared with every summand wrapper.
-    inner: Arc<P>,
+    inner: NoCloneArc<P>,
 
     /// `order[i]` is the position of the inner state vector stored at position `i`, i.e. the
     /// permutation that turns an inner state vector into one of this LPS.
@@ -44,7 +45,7 @@ pub struct PermutedLps<P: LPS> {
 /// state vectors.
 pub struct PermutedSummand<P: LPS> {
     /// The wrapped LPS, shared with [`PermutedLps`].
-    inner: Arc<P>,
+    inner: NoCloneArc<P>,
 
     /// Index of the wrapped summand in `inner.summands()`.
     index: usize,
@@ -85,7 +86,7 @@ impl<P: LPS> PermutedLps<P> {
     /// [`StateEffect::Opaque`] can only be wrapped by the identity permutation, since its next
     /// states have no fixed positional shape to permute.
     pub fn new(inner: P, order: Vec<usize>) -> Result<Self, MercError> {
-        let inner = Arc::new(inner);
+        let mut inner = NoCloneArc::new(inner);
         let num_positions = inner.initial_state().len();
         validate_permutation(&order, num_positions)?;
 
@@ -93,11 +94,13 @@ impl<P: LPS> PermutedLps<P> {
         let level_of: Arc<[usize]> = inverse_permutation(&order).into();
         let order: Arc<[usize]> = order.into();
 
+        let shares: Vec<NoCloneArc<P>> = (0..inner.summands().len()).map(|_| inner.share()).collect();
         let summands = inner
             .summands()
             .iter()
+            .zip(shares)
             .enumerate()
-            .map(|(index, summand)| {
+            .map(|(index, (summand, share))| {
                 let read_positions = permute_positions(summand.read_positions(), &level_of)
                     .map_err(|error| MercError::from(format!("summand {index}: {error}")))?;
 
@@ -115,7 +118,7 @@ impl<P: LPS> PermutedLps<P> {
                 };
 
                 Ok(PermutedSummand {
-                    inner: Arc::clone(&inner),
+                    inner: share,
                     index,
                     read_positions,
                     effect,

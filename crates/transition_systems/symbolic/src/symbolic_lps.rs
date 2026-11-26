@@ -13,9 +13,18 @@ use crate::Relation;
 /// A generic trait for symbolic LDD-based state-space exploration.
 ///
 /// Any type with an initial state and transition groups can be explored via [crate::reachability].
+/// The relations of the groups are either given up front ([`TransitionGroup::relation`]), or learned
+/// during exploration with the [`GroupLearner`] of [`Self::group_learner`]. Exploration keeps the
+/// learned relations itself and returns them in [`crate::ReachabilityResult::groups`], so the
+/// relations of the LTS are never changed by exploring it.
 pub trait SymbolicLPS {
     /// The transition group type backing this LTS.
     type Group: TransitionGroup;
+
+    /// The learner returned by [`Self::group_learner`]; [`NoLearner`] when the relations are fixed.
+    type Learner<'a>: GroupLearner + Sync
+    where
+        Self: 'a;
 
     /// Returns the LDD representing the initial state(s).
     fn initial_state(&self) -> &LDDFunction;
@@ -23,15 +32,13 @@ pub trait SymbolicLPS {
     /// Returns the transition groups.
     fn transition_groups(&self) -> &[Self::Group];
 
-    /// Returns the transition groups (mutable), needed for on-the-fly learning.
-    fn transition_groups_mut(&mut self) -> &mut [Self::Group];
-
-    /// Creates a fresh learning context, threaded through [TransitionGroup::learn_successors].
+    /// Returns a learner for the transition groups, or `None` when [`TransitionGroup::relation`] is
+    /// already the complete relation of every group.
     ///
-    /// The context owns the per-run mutable state shared by all groups (e.g. an enumeration backend
-    /// and value interning), so the groups themselves need no interior mutability. It is created once
-    /// per reachability run and must outlive every learning call.
-    fn create_context(&self) -> <Self::Group as TransitionGroup>::Context;
+    /// Called once per exploration run; the learner keeps its per-run state (such as an enumeration
+    /// context per worker) for that run. It can be used from every worker of `storage`, also
+    /// concurrently and from inside an operation such as saturation.
+    fn group_learner<'a>(&'a self, storage: &'a LDDManagerRef) -> Option<Self::Learner<'a>>;
 
     /// Computes the dependency graph from the read/write indices of each transition group.
     fn dependency_graph(&self) -> DependencyGraph {
@@ -50,12 +57,31 @@ pub trait SymbolicLPS {
     }
 }
 
+/// Learns the transitions of the transition groups of a [`SymbolicLPS`] for projected states, see
+/// [`SymbolicLPS::group_learner`].
+pub trait GroupLearner {
+    /// Returns the transitions of group `group` from the projected states `projected`, which are
+    /// short vectors over the read indices of the group, in the layout of its relation.
+    ///
+    /// Can be called from inside saturation, on any worker of the manager's pool.
+    fn learn(&self, group: usize, projected: &LDDFunction) -> Result<LDDFunction, MercError>;
+}
+
+/// The [`SymbolicLPS::Learner`] of an LTS whose relations are fixed; it has no values, so
+/// [`SymbolicLPS::group_learner`] can only return `None`.
+pub enum NoLearner {}
+
+impl GroupLearner for NoLearner {
+    fn learn(&self, _group: usize, _projected: &LDDFunction) -> Result<LDDFunction, MercError> {
+        match *self {}
+    }
+}
+
 /// A single LDD-based transition group for a set of summands (short vector encoding).
 pub trait TransitionGroup: fmt::Debug {
-    /// Per-run mutable state threaded into [Self::learn_successors]; `()` when nothing is learned.
-    type Context;
-
-    /// Returns the transition relation T' -> U' for this summand group.
+    /// Returns the transition relation T' -> U' for this summand group, as known before
+    /// exploration: the complete relation for a group with a fixed relation, and the empty set for
+    /// a group that is learned with a [`GroupLearner`].
     fn relation(&self) -> &LDDFunction;
 
     /// Returns the read indices for this summand group.
@@ -69,22 +95,6 @@ pub trait TransitionGroup: fmt::Debug {
 
     /// Returns the meta LDD required to perform the relational product.
     fn meta(&self) -> &LDDFunction;
-
-    /// Learns the successors of `todo` and incorporates them into [Self::relation].
-    ///
-    /// When `cached` is set the group remembers the projections of the states it has already learned
-    /// from (its *domain*) and only learns the successors of the projections it has not seen before.
-    /// Since the relation is projected on the read parameters, a state whose read projection is
-    /// already in the domain cannot contribute a transition that is not in the relation yet, so this
-    /// does not change the learned relation — it only trades memory for enumeration work. Groups that
-    /// have nothing to learn ignore the flag.
-    fn learn_successors(
-        &mut self,
-        context: &mut Self::Context,
-        manager: &LDDManagerRef,
-        todo: &LDDFunction,
-        cached: bool,
-    ) -> Result<(), MercError>;
 }
 
 /// A short vector transition relation for a group of summands.
@@ -177,8 +187,6 @@ impl SummandGroup {
 }
 
 impl TransitionGroup for SummandGroup {
-    type Context = ();
-
     fn relation(&self) -> &LDDFunction {
         &self.relation
     }
@@ -197,16 +205,6 @@ impl TransitionGroup for SummandGroup {
 
     fn action_label_index(&self) -> Option<usize> {
         Some(self.action_label_index)
-    }
-
-    fn learn_successors(
-        &mut self,
-        _context: &mut (),
-        _storage: &LDDManagerRef,
-        _todo: &LDDFunction,
-        _cached: bool,
-    ) -> Result<(), MercError> {
-        Ok(())
     }
 }
 

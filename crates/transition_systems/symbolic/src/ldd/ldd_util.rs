@@ -329,9 +329,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use oxidd::Manager;
     use std::collections::HashSet;
 
+    use oxidd::Manager;
     use oxidd::ManagerRef;
     use oxidd::ldd::LDDFunction;
 

@@ -1,9 +1,8 @@
 //! Times [`merc_symbolic::reachability_with_options`] on checked-in `.sym` examples, across every
 //! [`ExplorationStrategy`].
 //!
-//! A fresh manager and a freshly re-read `SymbolicLts` are built per criterion sample (in the
-//! untimed `iter_batched` setup), since `learn_successors` mutates the LTS's learned relations in
-//! place — reusing one across samples would make every sample after the first a no-op.
+//! A fresh manager and a freshly read `SymbolicLts` are built per criterion sample (in the untimed
+//! `iter_batched` setup), so that no sample benefits from the operation caches of an earlier one.
 
 use std::fs::File;
 use std::path::Path;
@@ -17,7 +16,6 @@ use merc_symbolic::ExplorationStrategy;
 use merc_symbolic::LDD_CACHE_CAPACITY;
 use merc_symbolic::LDD_NODE_CAPACITY;
 use merc_symbolic::ReachabilityOptions;
-use merc_symbolic::SymbolicLPS;
 use merc_symbolic::reachability_with_options;
 use merc_symbolic::read_symbolic_lts;
 use merc_utilities::Timing;
@@ -51,10 +49,7 @@ fn bench_example(c: &mut Criterion, group_name: &str, path: PathBuf) {
                     let lts = read_symbolic_lts(&manager, File::open(&path).unwrap()).unwrap();
                     (manager, lts)
                 },
-                |(manager, mut lts)| {
-                    lts.create_context();
-                    reachability_with_options(&manager, &mut lts, &mut (), &options, &Timing::new()).unwrap()
-                },
+                |(manager, lts)| reachability_with_options(&manager, &lts, &options, &Timing::new()).unwrap(),
                 BatchSize::LargeInput,
             );
         });
