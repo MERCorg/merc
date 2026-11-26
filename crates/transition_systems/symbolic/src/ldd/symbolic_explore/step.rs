@@ -31,20 +31,26 @@ use crate::parallel_map;
 use crate::parallel_map_reduce;
 
 use super::ExplorationStrategy;
+use super::Explored;
+use super::LearnedRelations;
 use super::ReachabilityOptions;
-use super::ReachabilityResult;
 use super::remove_states_with_successor;
 
 /// Performs reachability with the breadth-first, chaining or fixpoint strategies, see
 /// [`super::reachability_with_callback`].
-pub(super) fn step_reachability<L: SymbolicLPS, F: FnMut(usize, &LDDFunction) -> ControlFlow<()>>(
+pub(super) fn step_reachability<L, T, F>(
     storage: &LDDManagerRef,
-    lts: &mut L,
-    context: &mut <L::Group as TransitionGroup>::Context,
+    lts: &L,
+    relations: &LearnedRelations<'_, T>,
     options: &ReachabilityOptions,
     timing: &Timing,
     mut on_iteration: F,
-) -> Result<ReachabilityResult, MercError> {
+) -> Result<Explored, MercError>
+where
+    L: SymbolicLPS,
+    T: GroupLearner + Sync,
+    F: FnMut(usize, &LDDFunction) -> ControlFlow<()>,
+{
     let mut todo = lts.initial_state().clone();
     let mut states = lts.initial_state().clone();
     let mut deadlocks: Option<LDDFunction> = if options.detect_deadlocks {
@@ -81,7 +87,7 @@ pub(super) fn step_reachability<L: SymbolicLPS, F: FnMut(usize, &LDDFunction) ->
                 ldd_len(&todo, &mut len_cache)
             );
 
-            let (todo1, step_deadlocks) = step(storage, lts, context, &todo, options, timing, &step_progress)?;
+            let (todo1, step_deadlocks) = step(storage, lts, relations, &todo, options, timing, &step_progress)?;
 
             trace!("todo1 = {}", LddDisplay::new(&todo1));
 
@@ -115,7 +121,7 @@ pub(super) fn step_reachability<L: SymbolicLPS, F: FnMut(usize, &LDDFunction) ->
             }
         }
 
-        Ok(ReachabilityResult {
+        Ok(Explored {
             states,
             deadlocks,
             complete,
@@ -131,10 +137,10 @@ pub(super) fn step_reachability<L: SymbolicLPS, F: FnMut(usize, &LDDFunction) ->
 ///
 /// For the chaining and saturation strategies a single step is a fixpoint computation that can take
 /// arbitrarily long, so `progress` reports `(group, frontier size)` while that fixpoint is computed.
-fn step<L: SymbolicLPS>(
+fn step<L: SymbolicLPS, T: GroupLearner + Sync>(
     storage: &LDDManagerRef,
-    lts: &mut L,
-    context: &mut <L::Group as TransitionGroup>::Context,
+    lts: &L,
+    relations: &LearnedRelations<'_, T>,
     todo: &LDDFunction,
     options: &ReachabilityOptions,
     timing: &Timing,
@@ -153,9 +159,8 @@ fn step<L: SymbolicLPS>(
     );
     let detect_deadlocks = options.detect_deadlocks;
 
-    let groups = lts.transition_groups_mut();
-
     // The order in which the groups are applied; it only matters when groups feed each other.
+    let groups = lts.transition_groups();
     let order = if chaining {
         chaining_order(groups)
     } else {
@@ -171,7 +176,7 @@ fn step<L: SymbolicLPS>(
     };
 
     if !fixpoint && !chaining && !detect_deadlocks {
-        return step_parallel_groups(storage, lts, context, todo, options, timing);
+        return step_parallel_groups(storage, groups.len(), relations, todo, timing);
     }
 
     if !fixpoint {
@@ -183,20 +188,18 @@ fn step<L: SymbolicLPS>(
         };
 
         for &i in &order {
-            let transition = &mut groups[i];
             trace!("Learning successors for transition group {}:", i);
             let source = if chaining { todo1.clone() } else { todo.clone() };
-            timing.measure(&format!("learn_successors_{}", i), || {
-                transition.learn_successors(context, storage, &source, options.cached)
-            })?;
+            timing.measure(&format!("learn_successors_{}", i), || relations.learn(i, &source))?;
 
+            let relation = relations.relation(i);
             let result = timing.measure("bf_relprod", || {
-                source.relational_successors(transition.relation(), transition.meta())
+                source.relational_successors(&relation, relations.meta(i))
             })?;
             todo1 = timing.measure("bf_union_todo", || todo1.union(&result))?;
 
             if detect_deadlocks {
-                deadlocks = remove_states_with_successor(&todo1, transition, &deadlocks)?;
+                deadlocks = remove_states_with_successor(&todo1, &relation, relations.meta(i), &deadlocks)?;
             }
 
             // Only chaining accumulates the frontier across groups; for breadth-first every group
@@ -214,14 +217,13 @@ fn step<L: SymbolicLPS>(
 
         for (applied, &i) in order.iter().enumerate() {
             trace!("Learning successors for transition group {}:", i);
-            timing.measure(&format!("learn_successors_{}", i), || {
-                groups[i].learn_successors(context, storage, &todo1, options.cached)
-            })?;
+            timing.measure(&format!("learn_successors_{}", i), || relations.learn(i, &todo1))?;
 
             // Apply group i repeatedly until it no longer adds new states.
+            let relation = relations.relation(i);
             loop {
                 let old = todo1.clone();
-                let result = todo1.relational_successors(groups[i].relation(), groups[i].meta())?;
+                let result = todo1.relational_successors(&relation, relations.meta(i))?;
                 todo1 = todo1.union(&result)?;
                 if todo1 == old {
                     break;
@@ -233,15 +235,19 @@ fn step<L: SymbolicLPS>(
             }
 
             if detect_deadlocks {
-                deadlocks = remove_states_with_successor(&todo1, &groups[i], &deadlocks)?;
+                deadlocks = remove_states_with_successor(&todo1, &relation, relations.meta(i), &deadlocks)?;
             }
 
             // Apply all previously learned groups repeatedly until a fixpoint.
             if chaining {
+                let applied_relations: Vec<(LDDFunction, &LDDFunction)> = order[..=applied]
+                    .iter()
+                    .map(|&j| (relations.relation(j), relations.meta(j)))
+                    .collect();
                 loop {
                     let old = todo1.clone();
-                    for group in order[..=applied].iter().map(|&j| &groups[j]) {
-                        let result = todo1.relational_successors(group.relation(), group.meta())?;
+                    for (relation, meta) in &applied_relations {
+                        let result = todo1.relational_successors(relation, meta)?;
                         todo1 = todo1.union(&result)?;
                     }
                     if todo1 == old {
@@ -274,116 +280,32 @@ fn chaining_order<G: TransitionGroup>(groups: &[G]) -> Vec<usize> {
     order
 }
 
-/// A breadth-first step that applies the groups in parallel. Every group reads
-/// the same `todo`, so the projections of all groups are computed in parallel,
-/// then the groups learn, and then the relational products of all groups and
-/// their unions run as a balanced tree of `join`s ([`parallel_map_reduce`]).
-///
-/// The groups learn at the same time through the
-/// [`SymbolicLPS::group_learner`], as saturation does, or one after
-/// another (each in parallel itself) if the backend has none.
-fn step_parallel_groups<L: SymbolicLPS>(
+/// A breadth-first step that applies the groups in parallel. Every group reads the same `todo`, so
+/// all groups learn at the same time, each in parallel itself, and then the relational products of
+/// all groups and their unions run as a balanced tree of `join`s ([`parallel_map_reduce`]).
+fn step_parallel_groups<T: GroupLearner + Sync>(
     storage: &LDDManagerRef,
-    lts: &mut L,
-    context: &mut <L::Group as TransitionGroup>::Context,
+    num_groups: usize,
+    relations: &LearnedRelations<'_, T>,
     todo: &LDDFunction,
-    options: &ReachabilityOptions,
     timing: &Timing,
 ) -> Result<(LDDFunction, LDDFunction), MercError> {
     let workers = storage.workers();
-    let cached = options.cached;
     let empty = storage.with_manager_shared(|m| LDDFunction::empty_set(m));
 
-    // The projections of all groups that learn and the projections
-    // that are not in the domain yet, in parallel.
-    let inputs: Vec<(Option<LDDFunction>, Option<LDDFunction>)> = lts
-        .transition_groups()
-        .iter()
-        .map(|g| (g.projection().cloned(), g.domain().cloned()))
-        .collect();
-    let projections: Vec<Option<(LDDFunction, LDDFunction)>> = timing.measure("parallel_project", || {
-        workers.install(|| {
-            parallel_map(workers, inputs.len(), &|i| -> Result<_, oxidd::util::OutOfMemory> {
-                let (Some(projection_ldd), domain) = &inputs[i] else {
-                    return Ok(None);
-                };
-                let projection = todo.project(projection_ldd)?;
-                let new = match domain {
-                    Some(domain) if cached => projection.diff(domain)?,
-                    _ => projection.clone(),
-                };
-                Ok(Some((projection, new)))
-            })
-        })
-    })?;
-
-    let learned = {
-        let lts_ref: &L = lts;
-        let current: Vec<(LDDFunction, Option<LDDFunction>)> = lts_ref
-            .transition_groups()
-            .iter()
-            .map(|g| (g.relation().clone(), g.domain().cloned()))
-            .collect();
-        match lts_ref.group_learner(context, storage) {
-            Some(learner) => Some(timing.measure("pg_learn", || {
-                workers.install(|| {
-                    parallel_map(workers, projections.len(), &|i| -> Result<
-                        Option<(LDDFunction, LDDFunction)>,
-                        MercError,
-                    > {
-                        let (Some((projection, new)), Some(domain)) = (&projections[i], &current[i].1) else {
-                            return Ok(None);
-                        };
-                        if new.is_empty() {
-                            return Ok(None);
-                        }
-                        let transitions = learner.learn(i, new)?;
-                        let relation = current[i].0.union(&transitions)?;
-                        let domain = if cached {
-                            domain.union(projection)?
-                        } else {
-                            domain.clone()
-                        };
-                        Ok(Some((relation, domain)))
-                    })
-                })
-            })?),
-            None => None,
-        }
-    };
-
-    match learned {
-        Some(learned) => {
-            for (i, learned) in learned.into_iter().enumerate() {
-                if let Some((relation, domain)) = learned {
-                    lts.transition_groups_mut()[i].set_learned(relation, domain);
-                }
-            }
-        }
-        None => {
-            for (i, (group, projection)) in lts.transition_groups_mut().iter_mut().zip(projections).enumerate() {
-                timing.measure(&format!("learn_successors_{i}"), || {
-                    group.learn_successors_projected(context, storage, todo, projection.map(|p| p.0), cached)
-                })?;
-            }
-        }
+    if relations.is_learning() {
+        timing.measure("pg_learn", || {
+            workers.install(|| parallel_map(workers, num_groups, &|i| relations.learn(i, todo)))
+        })?;
     }
 
     // The relational products of all groups and their union, as a balanced tree.
-    let relations: Vec<(LDDFunction, LDDFunction)> = lts
-        .transition_groups()
-        .iter()
-        .map(|g| (g.relation().clone(), g.meta().clone()))
-        .collect();
     let todo1 = timing.measure("pg_relprod_union", || {
         workers.install(|| {
             parallel_map_reduce(
                 workers,
-                0..relations.len(),
-                &|i| {
-                    let (relation, meta) = &relations[i];
-                    todo.relational_successors(relation, meta)
-                },
+                0..num_groups,
+                &|i| todo.relational_successors(&relations.relation(i), relations.meta(i)),
                 &|a: LDDFunction, b| a.union(&b),
             )
         })

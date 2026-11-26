@@ -54,11 +54,10 @@ pub fn explore_lps_symbolic<F: FnMut(usize, &LDDFunction) -> ControlFlow<()>>(
     on_iteration: F,
 ) -> Result<ReachabilityResult, MercError> {
     let lps = ExplicitLinearProcessSpecification::new(lps)?;
-    let mut symbolic = SymbolicLps::with_options(storage, lps, encoding)?;
+    let symbolic = SymbolicLps::with_options(storage, lps, encoding)?;
     debug!("{symbolic:?}");
 
-    let mut context = symbolic.create_context();
-    reachability_with_callback(storage, &mut symbolic, &mut context, options, timing, on_iteration)
+    reachability_with_callback(storage, &symbolic, options, timing, on_iteration)
 }
 
 /// Explore the linear process specification using symbolic reachability and
@@ -84,11 +83,10 @@ pub fn explore_lps_symbolic_to_sym<F: FnMut(usize, &LDDFunction) -> ControlFlow<
     on_iteration: F,
 ) -> Result<(SymbolicLts<LtsMultiAction<LtsAction>>, Option<LDDFunction>), MercError> {
     let lps = ExplicitLinearProcessSpecification::new(lps)?;
-    let mut symbolic = SymbolicLps::with_options(storage, lps, encoding)?;
+    let symbolic = SymbolicLps::with_options(storage, lps, encoding)?;
     debug!("{symbolic:?}");
 
-    let mut context = symbolic.create_context();
-    let result = reachability_with_callback(storage, &mut symbolic, &mut context, options, timing, on_iteration)?;
+    let result = reachability_with_callback(storage, &symbolic, options, timing, on_iteration)?;
 
     // Converts a single FFI term into its `merc_aterm` counterpart.
     let convert = |term: Mcrl2ATerm| mcrl2_aterm_to_merc(&term.copy());
@@ -115,30 +113,28 @@ pub fn explore_lps_symbolic_to_sym<F: FnMut(usize, &LDDFunction) -> ControlFlow<
 
     // The values observed for each process parameter, in the dense order the
     // diagrams use, i.e. matching the LDD values stored at that position.
-    let (columns, labels) = context.into_interning();
+    let interning = symbolic.interning();
     let mut parameter_values: Vec<Vec<DataExpression>> = Vec::with_capacity(process_parameters.len());
-    for column in &columns {
-        let mut values = Vec::with_capacity(column.len());
-        for i in 0..column.len() {
-            let index = *column.get_by_index(i).expect("dense index must be present");
-            values.push(DataExpression::from(convert_learned(Mcrl2ATerm::from(
-                inner.value(index),
-            ))));
-        }
+    for position in 0..interning.num_positions() {
+        let values = interning
+            .values(position)
+            .into_iter()
+            .map(|index| DataExpression::from(convert_learned(Mcrl2ATerm::from(inner.value(index)))))
+            .collect();
         parameter_values.push(values);
     }
 
     // The action labels observed during exploration, again in dense order.
-    let mut action_labels: Vec<LtsMultiAction<LtsAction>> = Vec::with_capacity(labels.len());
-    for i in 0..labels.len() {
-        let label = labels.get_by_index(i).expect("dense index must be present");
-        action_labels.push(LtsMultiAction::from_mcrl2_aterm(convert_learned(label.as_aterm()))?);
-    }
+    let action_labels = interning
+        .labels()
+        .iter()
+        .map(|label| LtsMultiAction::from_mcrl2_aterm(convert_learned(label.as_aterm())))
+        .collect::<Result<Vec<LtsMultiAction<LtsAction>>, _>>()?;
 
     // Every transition group, translated from diagram positions to the
     // process parameters they read/write.
-    let mut summand_groups = Vec::with_capacity(symbolic.transition_groups().len());
-    for group in symbolic.transition_groups() {
+    let mut summand_groups = Vec::with_capacity(result.groups.len());
+    for group in &result.groups {
         let read_parameters: Vec<DataVariable> = group
             .read_indices()
             .iter()
@@ -190,7 +186,6 @@ mod tests {
     use merc_symbolic::LddLenCache;
     use merc_symbolic::ReachabilityOptions;
     use merc_symbolic::SatCountCache;
-    use merc_symbolic::SymbolicLPS;
     use merc_symbolic::SymbolicLpsOptions;
     use merc_symbolic::SymbolicLtsBdd;
     use merc_symbolic::approx_satcount;
@@ -412,26 +407,18 @@ mod tests {
             );
 
             // 2. lpsreach .sym, LDD reachability.
-            let mut sym_lts_ldd = read_symbolic_lts(&storage, File::open(&sym_path).expect("Failed to open .sym"))
-                .expect("Failed to read .sym (LDD path)");
-            sym_lts_ldd.create_context();
+            let sym_lts = read_symbolic_lts(&storage, File::open(&sym_path).expect("Failed to open .sym"))
+                .expect("Failed to read .sym");
             let sym_ldd_count = count(
-                &reachability_with_options(
-                    &storage,
-                    &mut sym_lts_ldd,
-                    &mut (),
-                    &ReachabilityOptions::default(),
-                    &timing,
-                )
-                .expect("Failed to run LDD reachability on .sym")
-                .states,
+                &reachability_with_options(&storage, &sym_lts, &ReachabilityOptions::default(), &timing)
+                    .expect("Failed to run LDD reachability on .sym")
+                    .states,
             );
 
-            // 3. lpsreach .sym, BDD reachability (fresh read since reachability_with_options mutates the LTS).
-            let sym_lts_bdd = read_symbolic_lts(&storage, File::open(&sym_path).expect("Failed to open .sym"))
-                .expect("Failed to read .sym (BDD path)");
+            // 3. lpsreach .sym, BDD reachability on the same LTS.
+            let sym_lts_bdd = &sym_lts;
             let bdd_manager = oxidd::bdd::new_manager(BDD_NODE_CAPACITY, BDD_CACHE_CAPACITY, 1);
-            let lts_bdd = SymbolicLtsBdd::from_symbolic_lts(&storage, &bdd_manager, &sym_lts_bdd)
+            let lts_bdd = SymbolicLtsBdd::from_symbolic_lts(&storage, &bdd_manager, sym_lts_bdd)
                 .expect("Failed to convert .sym to BDD");
             assert!(
                 lts_bdd.initial_state().satisfiable(),
@@ -470,22 +457,15 @@ mod tests {
             )
             .expect("Failed to write the assembled symbolic LTS");
 
-            let mut reread_lts = read_symbolic_lts(
+            let reread_lts = read_symbolic_lts(
                 &storage,
                 File::open(&written_sym_path).expect("Failed to open written.sym"),
             )
             .expect("Failed to read the written symbolic LTS back");
-            reread_lts.create_context();
             let written_sym_count = count(
-                &reachability_with_options(
-                    &storage,
-                    &mut reread_lts,
-                    &mut (),
-                    &ReachabilityOptions::default(),
-                    &timing,
-                )
-                .expect("Failed to run LDD reachability on the written symbolic LTS")
-                .states,
+                &reachability_with_options(&storage, &reread_lts, &ReachabilityOptions::default(), &timing)
+                    .expect("Failed to run LDD reachability on the written symbolic LTS")
+                    .states,
             );
 
             assert_eq!(

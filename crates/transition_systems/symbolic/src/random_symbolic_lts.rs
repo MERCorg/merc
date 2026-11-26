@@ -108,11 +108,11 @@ pub fn random_symbolic_lts<R: Rng>(
 
     // Explore via a lightweight wrapper so SymbolicLts is only constructed at the end
     // with the actual reachable state set.
-    let mut lps = ExplorationLps {
+    let lps = ExplorationLps {
         initial_state: initial_state_ldd.clone(),
         summand_groups,
     };
-    let reachable = reachability(manager, &mut lps, &Timing::new())?;
+    let reachable = reachability(manager, &lps, &Timing::new())?;
 
     Ok(SymbolicLts::new(
         Mcrl2DataSpecification::default(),
@@ -146,9 +146,7 @@ impl SymbolicLPS for ExplorationLps {
         &self.summand_groups
     }
 
-    fn transition_groups_mut(&mut self) -> &mut [Self::Group] {
-        &mut self.summand_groups
+    fn group_learner<'a>(&'a self, _storage: &'a LDDManagerRef) -> Option<crate::NoLearner> {
+        None
     }
-
-    fn create_context(&self) {}
 }

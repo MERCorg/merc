@@ -67,18 +67,16 @@ fn learns_in_rounds(strategy: ExplorationStrategy) -> bool {
     strategy == ExplorationStrategy::Saturation
 }
 
-/// Runs [reachability_with_options] on `lts` with a fresh context.
-fn reach<L: SymbolicLPS>(manager: &LDDManagerRef, lts: &mut L, options: &ReachabilityOptions) -> ReachabilityResult {
-    let mut context = lts.create_context();
-    reachability_with_options(manager, lts, &mut context, options, &Timing::new())
-        .expect("Reachability should work correctly")
+/// Runs [reachability_with_options] on `lts`.
+fn reach<L: SymbolicLPS>(manager: &LDDManagerRef, lts: &L, options: &ReachabilityOptions) -> ReachabilityResult {
+    reachability_with_options(manager, lts, options, &Timing::new()).expect("Reachability should work correctly")
 }
 
 /// Explores the Sylvan fixture in `bytes` with the given strategy in a fresh manager, and returns the
 /// manager, the LTS and its reachable states.
 fn explore_fixture(bytes: &[u8], strategy: ExplorationStrategy) -> (LDDManagerRef, SylvanLts, LDDFunction) {
     let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-    let mut lts = read_sylvan(&ldd_manager, &mut &bytes[..]).expect("Loading should work correctly");
+    let lts = read_sylvan(&ldd_manager, &mut &bytes[..]).expect("Loading should work correctly");
 
     let options = ReachabilityOptions {
         strategy,
@@ -86,7 +84,7 @@ fn explore_fixture(bytes: &[u8], strategy: ExplorationStrategy) -> (LDDManagerRe
         // The groups of a Sylvan fixture are fully explored, so there is nothing to cache.
         cached: false,
     };
-    let states = reach(&ldd_manager, &mut lts, &options).states;
+    let states = reach(&ldd_manager, &lts, &options).states;
 
     (ldd_manager, lts, states)
 }
@@ -114,11 +112,9 @@ impl SymbolicLPS for SylvanLtsWithStates {
         self.lts.transition_groups()
     }
 
-    fn transition_groups_mut(&mut self) -> &mut [Self::Group] {
-        self.lts.transition_groups_mut()
+    fn group_learner<'a>(&'a self, _storage: &'a LDDManagerRef) -> Option<crate::NoLearner> {
+        None
     }
-
-    fn create_context(&self) {}
 }
 
 impl SymbolicLTS for SylvanLtsWithStates {
@@ -178,20 +174,12 @@ fn test_reachability_callback() {
         };
 
         // Without stopping, every iteration is reported once, in order, and the sets only grow.
-        let mut lts = read_sylvan(&manager, &mut &bytes[..]).expect("Loading should work correctly");
-        lts.create_context();
+        let lts = read_sylvan(&manager, &mut &bytes[..]).expect("Loading should work correctly");
         let mut seen: Vec<(usize, usize)> = Vec::new();
-        let full = reachability_with_callback(
-            &manager,
-            &mut lts,
-            &mut (),
-            &options,
-            &Timing::new(),
-            |iteration, states| {
-                seen.push((iteration, count(states)));
-                ControlFlow::Continue(())
-            },
-        )
+        let full = reachability_with_callback(&manager, &lts, &options, &Timing::new(), |iteration, states| {
+            seen.push((iteration, count(states)));
+            ControlFlow::Continue(())
+        })
         .expect("Reachability should work correctly");
 
         assert!(
@@ -213,16 +201,14 @@ fn test_reachability_callback() {
         let iterations = seen.len();
 
         // Stopping after the first iteration returns exactly what the callback saw.
-        let mut lts = read_sylvan(&manager, &mut &bytes[..]).expect("Loading should work correctly");
-        lts.create_context();
+        let lts = read_sylvan(&manager, &mut &bytes[..]).expect("Loading should work correctly");
         let mut calls = 0;
-        let partial =
-            reachability_with_callback(&manager, &mut lts, &mut (), &options, &Timing::new(), |iteration, _| {
-                calls += 1;
-                assert_eq!(iteration, 1, "{strategy:?}: called again after breaking");
-                ControlFlow::Break(())
-            })
-            .expect("Reachability should work correctly");
+        let partial = reachability_with_callback(&manager, &lts, &options, &Timing::new(), |iteration, _| {
+            calls += 1;
+            assert_eq!(iteration, 1, "{strategy:?}: called again after breaking");
+            ControlFlow::Break(())
+        })
+        .expect("Reachability should work correctly");
 
         assert_eq!(calls, 1, "{strategy:?}");
         assert_eq!(count(&partial.states), seen[0].1, "{strategy:?}");
@@ -244,17 +230,15 @@ fn test_reachability_callback() {
 
         // Stopping in the last iteration still gives the complete result, except for the round-based ones.
         if !learns_in_rounds(strategy) {
-            let mut lts = read_sylvan(&manager, &mut &bytes[..]).expect("Loading should work correctly");
-            lts.create_context();
-            let last =
-                reachability_with_callback(&manager, &mut lts, &mut (), &options, &Timing::new(), |iteration, _| {
-                    if iteration == iterations {
-                        ControlFlow::Break(())
-                    } else {
-                        ControlFlow::Continue(())
-                    }
-                })
-                .expect("Reachability should work correctly");
+            let lts = read_sylvan(&manager, &mut &bytes[..]).expect("Loading should work correctly");
+            let last = reachability_with_callback(&manager, &lts, &options, &Timing::new(), |iteration, _| {
+                if iteration == iterations {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            })
+            .expect("Reachability should work correctly");
 
             assert!(last.complete, "{strategy:?}");
             assert!(last.states == full.states, "{strategy:?}");
@@ -339,11 +323,9 @@ impl SymbolicLPS for LineLts {
         &self.groups
     }
 
-    fn transition_groups_mut(&mut self) -> &mut [Self::Group] {
-        &mut self.groups
+    fn group_learner<'a>(&'a self, _storage: &'a LDDManagerRef) -> Option<crate::NoLearner> {
+        None
     }
-
-    fn create_context(&self) {}
 }
 
 fn line_lts(manager: &oxidd::ldd::LDDManagerRef) -> LineLts {
@@ -377,7 +359,7 @@ fn line_lts(manager: &oxidd::ldd::LDDManagerRef) -> LineLts {
 }
 
 /// Explores `lts` with the given strategy, detecting deadlocks.
-fn explore(manager: &LDDManagerRef, lts: &mut TestLts, strategy: ExplorationStrategy) -> ReachabilityResult {
+fn explore(manager: &LDDManagerRef, lts: &TestLts, strategy: ExplorationStrategy) -> ReachabilityResult {
     let options = ReachabilityOptions {
         strategy,
         detect_deadlocks: true,
@@ -694,15 +676,14 @@ fn test_reachability_degenerate_groups() {
 fn test_reachability_detect_deadlocks() {
     for strategy in ALL_STRATEGIES {
         let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-        let mut lts = line_lts(&manager);
+        let lts = line_lts(&manager);
 
         let options = ReachabilityOptions {
             strategy,
             detect_deadlocks: true,
             cached: false,
         };
-        lts.create_context();
-        let result = reachability_with_options(&manager, &mut lts, &mut (), &options, &Timing::new())
+        let result = reachability_with_options(&manager, &lts, &options, &Timing::new())
             .expect("Reachability should work correctly");
 
         // States 0, 1, 2 are reachable and only state 2 has no outgoing transition.

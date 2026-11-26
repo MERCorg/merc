@@ -141,8 +141,8 @@ mod tests {
             let manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
 
             // We don't really check anything here, just ensure that reachability runs without errors.
-            let mut lts = random_symbolic_lts(rng, &manager, 10, 5).unwrap();
-            let reachable_states = reachability(&manager, &mut lts, &Timing::new()).unwrap();
+            let lts = random_symbolic_lts(rng, &manager, 10, 5).unwrap();
+            let reachable_states = reachability(&manager, &lts, &Timing::new()).unwrap();
             let num_reachable_states = ldd_len(&reachable_states, &mut LddLenCache::new())
                 .exact()
                 .expect("the random test sets are small") as usize;

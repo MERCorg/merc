@@ -119,7 +119,7 @@ const STRATEGIES: &[ExplorationStrategy] = &[
 /// state count, final diagram node count)`.
 fn run(bytes: &[u8], capacity: usize, strategy: ExplorationStrategy) -> (usize, usize) {
     let storage = oxidd::ldd::new_manager(capacity, capacity / 2, 1);
-    let mut lts = read_sylvan(&storage, &mut &bytes[..]).expect("loading a checked-in fixture should not fail");
+    let lts = read_sylvan(&storage, &mut &bytes[..]).expect("loading a checked-in fixture should not fail");
 
     let options = ReachabilityOptions {
         strategy,
@@ -127,8 +127,7 @@ fn run(bytes: &[u8], capacity: usize, strategy: ExplorationStrategy) -> (usize, 
         cached: false,
         ..ReachabilityOptions::default()
     };
-    let mut context = lts.create_context();
-    let result = merc_symbolic::reachability_with_options(&storage, &mut lts, &mut context, &options, &Timing::new())
+    let result = merc_symbolic::reachability_with_options(&storage, &lts, &options, &Timing::new())
         .expect("reachability should succeed on a checked-in fixture");
 
     let states = ldd_len(&result.states, &mut LddLenCache::new())

@@ -101,11 +101,9 @@ impl SymbolicLPS for SylvanLts {
         &self.transition_groups
     }
 
-    fn transition_groups_mut(&mut self) -> &mut [Self::Group] {
-        &mut self.transition_groups
+    fn group_learner<'a>(&'a self, _storage: &'a LDDManagerRef) -> Option<crate::NoLearner> {
+        None
     }
-
-    fn create_context(&self) {}
 }
 
 /// A transition group read from a Sylvan file.
@@ -129,8 +127,6 @@ impl SylvanTransitionGroup {
 }
 
 impl TransitionGroup for SylvanTransitionGroup {
-    type Context = ();
-
     fn relation(&self) -> &LDDFunction {
         &self.relation
     }
@@ -149,17 +145,6 @@ impl TransitionGroup for SylvanTransitionGroup {
 
     fn meta(&self) -> &LDDFunction {
         &self.meta
-    }
-
-    fn learn_successors(
-        &mut self,
-        _context: &mut (),
-        _manager: &LDDManagerRef,
-        _todo: &LDDFunction,
-        _cached: bool,
-    ) -> Result<(), MercError> {
-        // All states are already explored.
-        Ok(())
     }
 }
 
@@ -254,8 +239,8 @@ mod test {
     fn test_load_anderson_4() {
         let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let bytes = include_bytes!("../../../../../examples/ldd/anderson.4.ldd");
-        let mut lts = read_sylvan(&ldd_manager, &mut &bytes[..]).expect("Loading should work correctly");
-        reachability(&ldd_manager, &mut lts, &Timing::new()).expect("Reachability should work correctly");
+        let lts = read_sylvan(&ldd_manager, &mut &bytes[..]).expect("Loading should work correctly");
+        reachability(&ldd_manager, &lts, &Timing::new()).expect("Reachability should work correctly");
     }
 
     #[test]
@@ -266,6 +251,6 @@ mod test {
         let ldd_manager = oxidd::ldd::new_manager(LDD_NODE_CAPACITY * 20, LDD_CACHE_CAPACITY * 20, 1);
         let bytes = include_bytes!("../../../../../examples/ldd/collision.4.ldd");
         let mut lts = read_sylvan(&ldd_manager, &mut &bytes[..]).expect("Loading should work correctly");
-        reachability(&ldd_manager, &mut lts, &Timing::new()).expect("Reachability should work correctly");
+        reachability(&ldd_manager, &lts, &Timing::new()).expect("Reachability should work correctly");
     }
 }

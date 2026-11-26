@@ -59,6 +59,7 @@ pub use io::SymFormat;
 pub use io::guess_format_from_extension;
 pub use kahypar::KaHyParArgs;
 pub use ldd::ExplorationStrategy;
+pub use ldd::ExploredGroup;
 pub use ldd::LddDisplay;
 pub use ldd::LddDot;
 pub use ldd::ReachabilityOptions;

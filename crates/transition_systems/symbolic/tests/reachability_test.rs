@@ -32,9 +32,9 @@ use merc_utilities::random_test;
 fn compare_ldd_bdd_reachability(name: &str, sym: &[u8]) {
     // LDD path: read into its own manager and run symbolic reachability.
     let ldd_storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
-    let mut lts_ldd = read_symbolic_lts(&ldd_storage, sym).expect("Failed to read sym file for LDD path");
+    let lts_ldd = read_symbolic_lts(&ldd_storage, sym).expect("Failed to read sym file for LDD path");
     let ldd_count = ldd_len(
-        &reachability(&ldd_storage, &mut lts_ldd, &Timing::new()).expect("LDD reachability failed"),
+        &reachability(&ldd_storage, &lts_ldd, &Timing::new()).expect("LDD reachability failed"),
         &mut LddLenCache::new(),
     )
     .as_f64() as usize;

@@ -26,7 +26,6 @@ use oxidd::ldd::LDDFunction;
 use oxidd::ldd::LDDManagerRef;
 use oxidd::ldd::SaturationEvent;
 use oxidd::util::AllocResult;
-use parking_lot::Mutex;
 
 use merc_io::TimeProgress;
 use merc_utilities::MercError;
@@ -38,8 +37,9 @@ use crate::SymbolicLPS;
 use crate::TransitionGroup;
 use crate::ldd_len;
 
+use super::Explored;
+use super::LearnedRelations;
 use super::ReachabilityOptions;
-use super::ReachabilityResult;
 use super::remove_states_with_successor;
 
 /// The epoch of the next saturation call. The results of a call are memoized under its epoch and
@@ -49,25 +49,36 @@ static NEXT_EPOCH: AtomicU32 = AtomicU32::new(0);
 
 /// Performs reachability with saturation, see the module documentation.
 ///
-/// Saturation runs on the manager's worker pool and learns from every worker, with
-/// [`SymbolicLPS::group_learner`]. Groups with fixed relations are saturated without learning.
-///
-/// One iteration of `on_iteration` is one pass. Learning always caches the domains: without it, a
-/// group would enumerate the same projections at every node.
-pub(super) fn saturation_reachability<L: SymbolicLPS, F: FnMut(usize, &LDDFunction) -> ControlFlow<()>>(
+/// Saturation runs on the manager's worker pool and learns from every worker through `relations`,
+/// which must cache the domains: without it, a group would enumerate the same projections at every
+/// node. One iteration of `on_iteration` is one pass.
+pub(super) fn saturation_reachability<L, T, F>(
     storage: &LDDManagerRef,
-    lts: &mut L,
-    context: &mut <L::Group as TransitionGroup>::Context,
+    lts: &L,
+    relations: &LearnedRelations<'_, T>,
     options: &ReachabilityOptions,
     timing: &Timing,
     mut on_iteration: F,
-) -> Result<ReachabilityResult, MercError> {
+) -> Result<Explored, MercError>
+where
+    L: SymbolicLPS,
+    T: GroupLearner + Sync,
+    F: FnMut(usize, &LDDFunction) -> ControlFlow<()>,
+{
     let progress = TimeProgress::new(
         |(pass, num_of_states)| {
             info!("explored {} state(s) after {} pass(es)", num_of_states, pass);
         },
         1,
     );
+
+    let (events, event_groups) = saturation_events(lts, relations);
+
+    // The groups without an event read and write nothing. They cannot add states, but their
+    // transitions (self-loops) belong to the relation, so they are learned outside saturation.
+    let without_event: Vec<usize> = (0..lts.transition_groups().len())
+        .filter(|group| !event_groups.iter().any(|event| event.group == *group))
+        .collect();
 
     timing.measure("reachability", || {
         let mut states = lts.initial_state().clone();
@@ -76,7 +87,15 @@ pub(super) fn saturation_reachability<L: SymbolicLPS, F: FnMut(usize, &LDDFuncti
         let mut len_cache = LddLenCache::new();
 
         loop {
-            let (next, grew) = saturation_pass(storage, lts, context, &states)?;
+            // Such a group projects every state onto the empty vector, so with the cached domain it
+            // learns at most once.
+            let mut grew = false;
+            for &group in &without_event {
+                grew |= relations.learn(group, &states)?;
+            }
+
+            let (next, grew_saturating) = saturation_pass(relations, &events, &event_groups, &states)?;
+            let grew = grew || grew_saturating;
             pass += 1;
 
             let changed = next != states;
@@ -115,13 +134,18 @@ pub(super) fn saturation_reachability<L: SymbolicLPS, F: FnMut(usize, &LDDFuncti
             // The last pass learned at every group's top position for all reachable states, so the
             // relations are complete for them.
             let mut candidates = states.clone();
-            for group in lts.transition_groups() {
-                candidates = remove_states_with_successor(&states, group, &candidates)?;
+            for group in 0..lts.transition_groups().len() {
+                candidates = remove_states_with_successor(
+                    &states,
+                    &relations.relation(group),
+                    relations.meta(group),
+                    &candidates,
+                )?;
             }
             Some(candidates)
         };
 
-        Ok(ReachabilityResult {
+        Ok(Explored {
             states,
             deadlocks,
             complete,
@@ -129,60 +153,47 @@ pub(super) fn saturation_reachability<L: SymbolicLPS, F: FnMut(usize, &LDDFuncti
     })
 }
 
-/// Saturates `states` once, learning on the fly, and hands the learned relations back to the groups
-/// of `lts`. Returns the result and whether a relation grew.
-fn saturation_pass<L: SymbolicLPS>(
-    storage: &LDDManagerRef,
-    lts: &mut L,
-    context: &mut <L::Group as TransitionGroup>::Context,
+/// Saturates `states` once, learning on the fly. Returns the result and whether a relation grew.
+fn saturation_pass<T: GroupLearner + Sync>(
+    relations: &LearnedRelations<'_, T>,
+    events: &[SaturationEvent],
+    event_groups: &[EventGroup],
     states: &LDDFunction,
 ) -> Result<(LDDFunction, bool), MercError> {
-    let (events, groups) = saturation_events(lts);
     let epoch = NEXT_EPOCH.fetch_add(1, Ordering::Relaxed);
 
-    let (result, learned) = {
-        let lts: &L = lts;
-        // Saturation calls the learner from every worker of the pool.
-        if let Some(learner) = lts.group_learner(context, storage) {
-            let on_the_fly = OnTheFly::new(&learner, lts, &events, &groups);
-            let result = states.saturate(&events, epoch, |event, set| on_the_fly.relation_for(event, set));
-            (result, Some(on_the_fly.finish()))
-        } else if groups
-            .iter()
-            .any(|&group| lts.transition_groups()[group].domain().is_some())
-        {
-            return Err("the transition groups are learned, but the LTS offers no group learner for saturation".into());
-        } else {
-            let relations: Vec<LDDFunction> = groups
-                .iter()
-                .map(|&group| lts.transition_groups()[group].relation().clone())
-                .collect();
-            (
-                states.saturate(&events, epoch, |event, _| Ok(relations[event].clone())),
-                None,
-            )
-        }
+    // Saturation asks for the relations from every worker of the pool.
+    let on_the_fly = OnTheFly {
+        relations,
+        events: event_groups,
+        error: OnceLock::new(),
+        grew: AtomicBool::new(false),
     };
+    let result = states.saturate(events, epoch, |event, set| on_the_fly.relation_for(event, set));
 
-    let mut grew = false;
-    if let Some(learned) = learned {
-        // Hand back what was learned before reporting an error, so that nothing is lost.
-        for (group, relation, domain) in learned.groups {
-            lts.transition_groups_mut()[group].set_learned(relation, domain);
-        }
-        if let Some(error) = learned.error {
-            return Err(error);
-        }
-        grew = learned.grew;
+    if let Some(error) = on_the_fly.error.into_inner() {
+        return Err(error);
     }
-
-    Ok((result?, grew))
+    Ok((result?, on_the_fly.grew.into_inner()))
 }
 
-/// Returns the saturation events of `lts`'s transition groups, and for every event the index of its
-/// group. A group that neither reads nor writes any position is skipped: its relation is the
-/// identity, so it cannot add states.
-fn saturation_events<L: SymbolicLPS>(lts: &L) -> (Vec<SaturationEvent>, Vec<usize>) {
+/// The group of a saturation event, and what it learns with.
+struct EventGroup {
+    /// The index of the group of the event.
+    group: usize,
+
+    /// The projection of a set at the event's top position onto the group's read positions, or
+    /// `None` when the group reads nothing or nothing is learned.
+    projection_at_top: Option<LDDFunction>,
+}
+
+/// Returns the saturation events of `lts`'s transition groups, and for every event its group. A
+/// group that neither reads nor writes any position is skipped: its relation is the identity, so it
+/// cannot add states.
+fn saturation_events<L: SymbolicLPS, T: GroupLearner>(
+    lts: &L,
+    relations: &LearnedRelations<'_, T>,
+) -> (Vec<SaturationEvent>, Vec<EventGroup>) {
     let graph = lts.dependency_graph();
     lts.transition_groups()
         .iter()
@@ -194,7 +205,17 @@ fn saturation_events<L: SymbolicLPS>(lts: &L) -> (Vec<SaturationEvent>, Vec<usiz
                 meta_at_top: descend(transition.meta(), top),
                 top: top as LevelNo,
             };
-            Some((event, group))
+            let projection_at_top = relations
+                .projection(group)
+                .filter(|_| !transition.read_indices().is_empty())
+                .map(|projection| descend(projection, top));
+            Some((
+                event,
+                EventGroup {
+                    group,
+                    projection_at_top,
+                },
+            ))
         })
         .unzip()
 }
@@ -213,14 +234,11 @@ fn descend(ldd: &LDDFunction, levels: usize) -> LDDFunction {
 }
 
 /// Provides the relations of the saturation events to [`LDDFunction::saturate`], learning the
-/// relations of their groups with a [`GroupLearner`] for the nodes the events are about to fire on,
-/// see [`Self::relation_for`].
-///
-/// It keeps the relation and the domain of every event's group during a saturation call, shared by
-/// all workers, and hands them back with [`Self::finish`]. It is `Sync` when the group learner is.
-struct OnTheFly<'a, G: ?Sized> {
-    learner: &'a G,
-    events: Vec<EventState>,
+/// relations of their groups for the nodes the events are about to fire on, see
+/// [`Self::relation_for`]. It is `Sync` when the group learner is.
+struct OnTheFly<'r, 'a, T> {
+    relations: &'r LearnedRelations<'a, T>,
+    events: &'r [EventGroup],
 
     /// The first error of a learning call. After an error nothing more is learned.
     error: OnceLock<MercError>,
@@ -229,121 +247,32 @@ struct OnTheFly<'a, G: ?Sized> {
     grew: AtomicBool,
 }
 
-/// What an event learns with.
-struct EventState {
-    /// The index of the group of the event.
-    group: usize,
-
-    /// The projection of a set at the event's top position onto the group's read positions, or
-    /// `None` when the group reads nothing.
-    projection_at_top: Option<LDDFunction>,
-
-    /// The relation and the domain of the group. Both grow together, under the lock.
-    learned: Mutex<(LDDFunction, LDDFunction)>,
-}
-
-/// What [`OnTheFly::finish`] returns.
-struct Learned {
-    /// The relation and domain of the group of every event, by group index.
-    groups: Vec<(usize, LDDFunction, LDDFunction)>,
-
-    /// Whether a relation grew.
-    grew: bool,
-
-    /// The first error of a learning call.
-    error: Option<MercError>,
-}
-
-impl<'a, G: ?Sized + GroupLearner> OnTheFly<'a, G> {
-    /// Learns the groups `groups` of the `events` with `learner`, starting from their current
-    /// relations and domains in `lts`.
-    fn new<L: SymbolicLPS>(learner: &'a G, lts: &L, events: &[SaturationEvent], groups: &[usize]) -> Self {
-        let events = events
-            .iter()
-            .zip(groups)
-            .map(|(event, &index)| {
-                let group = &lts.transition_groups()[index];
-                let projection = group.projection().expect("only learning groups get a learner");
-                let domain = group.domain().expect("only learning groups get a learner");
-                EventState {
-                    group: index,
-                    projection_at_top: (!group.read_indices().is_empty())
-                        .then(|| descend(projection, event.top as usize)),
-                    learned: Mutex::new((group.relation().clone(), domain.clone())),
-                }
-            })
-            .collect();
-
-        Self {
-            learner,
-            events,
-            error: OnceLock::new(),
-            grew: AtomicBool::new(false),
-        }
-    }
-
-    /// Learns the transitions of `event`'s group for the vectors of `set`, which start at the
-    /// event's top position.
-    fn try_learn(&self, event: usize, set: &LDDFunction) -> Result<(), MercError> {
-        let state = &self.events[event];
-        let domain = state.learned.lock().1.clone();
-        let projected = match &state.projection_at_top {
-            Some(projection) => set.project(projection)?,
-            None if set.is_empty() => return Ok(()),
-            None => set.with_manager_shared(|manager, _| LDDFunction::empty_vector(manager)),
-        };
-
-        let new = projected.diff(&domain)?;
-        if new.is_empty() {
-            return Ok(());
-        }
-        let transitions = self.learner.learn(state.group, &new)?;
-
-        // No lock is held during an LDD operation, which can wait for the pool. When another
-        // worker extended the relation in the meantime, unite again with its result.
-        loop {
-            let (relation, domain) = state.learned.lock().clone();
-            let grown_relation = relation.union(&transitions)?;
-            let grown_domain = domain.union(&new)?;
-
-            let mut learned = state.learned.lock();
-            if learned.0 == relation && learned.1 == domain {
-                if grown_relation != relation {
-                    self.grew.store(true, Ordering::Relaxed);
-                }
-                *learned = (grown_relation, grown_domain);
-                return Ok(());
-            }
-        }
-    }
-
-    /// Returns the learned relations and domains, whether they grew, and the first error.
-    fn finish(self) -> Learned {
-        Learned {
-            groups: self
-                .events
-                .into_iter()
-                .map(|state| {
-                    let (relation, domain) = state.learned.into_inner();
-                    (state.group, relation, domain)
-                })
-                .collect(),
-            grew: self.grew.into_inner(),
-            error: self.error.into_inner(),
-        }
-    }
-}
-
-impl<G: ?Sized + GroupLearner> OnTheFly<'_, G> {
+impl<T: GroupLearner> OnTheFly<'_, '_, T> {
     /// Learns the transitions of `event`'s group for the vectors of `set`, which start at the
     /// event's top position, and returns the group's relation. Called by saturation right before
-    /// the event fires on `set`; an error is kept for [`Self::finish`] and stops further learning.
+    /// the event fires on `set`; an error is kept for the caller and stops further learning.
     fn relation_for(&self, event: usize, set: &LDDFunction) -> AllocResult<LDDFunction> {
-        if self.error.get().is_none()
-            && let Err(error) = self.try_learn(event, set)
-        {
-            let _ = self.error.set(error);
+        let state = &self.events[event];
+        if self.relations.is_learning() && self.error.get().is_none() {
+            match self.try_learn(state, set) {
+                Ok(true) => self.grew.store(true, Ordering::Relaxed),
+                Ok(false) => {}
+                Err(error) => {
+                    let _ = self.error.set(error);
+                }
+            }
         }
-        Ok(self.events[event].learned.lock().0.clone())
+        Ok(self.relations.relation(state.group))
+    }
+
+    /// Learns the transitions of the group of `state` for the vectors of `set`, which start at the
+    /// event's top position. Returns whether the relation grew.
+    fn try_learn(&self, state: &EventGroup, set: &LDDFunction) -> Result<bool, MercError> {
+        let projected = match &state.projection_at_top {
+            Some(projection) => set.project(projection)?,
+            None if set.is_empty() => return Ok(false),
+            None => set.with_manager_shared(|manager, _| LDDFunction::empty_vector(manager)),
+        };
+        self.relations.learn_projected(state.group, &projected)
     }
 }

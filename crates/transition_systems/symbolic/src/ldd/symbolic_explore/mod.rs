@@ -9,10 +9,13 @@ use merc_utilities::MercError;
 use merc_utilities::Timing;
 
 use crate::SymbolicLPS;
-use crate::TransitionGroup;
 
+mod learned;
 mod saturation;
 mod step;
+
+pub use learned::ExploredGroup;
+use learned::LearnedRelations;
 
 /// A symbolic LTS — extends [SymbolicLPS] with LTS-specific metadata.
 pub trait SymbolicLTS: SymbolicLPS {
@@ -83,6 +86,19 @@ pub struct ReachabilityResult {
     /// [reachability_with_callback] stopped the exploration first, in which case
     /// [ReachabilityResult::states] is only an under-approximation of the reachable states.
     pub complete: bool,
+
+    /// The transition groups with the relations as learned (or given) during this run, in the order
+    /// of [`SymbolicLPS::transition_groups`]. When the exploration was not
+    /// [complete](ReachabilityResult::complete), a learned relation only covers the states that
+    /// were learned from.
+    pub groups: Vec<ExploredGroup>,
+}
+
+/// What a strategy computes; [reachability_with_callback] adds the learned relations.
+struct Explored {
+    states: LDDFunction,
+    deadlocks: Option<LDDFunction>,
+    complete: bool,
 }
 
 /// Performs reachability analysis using the given initial state and transitions.
@@ -91,26 +107,20 @@ pub struct ReachabilityResult {
 /// deadlock detection. Returns only the reachable states.
 pub fn reachability<L: SymbolicLPS>(
     storage: &LDDManagerRef,
-    lts: &mut L,
+    lts: &L,
     timing: &Timing,
 ) -> Result<LDDFunction, MercError> {
-    let mut context = lts.create_context();
-    Ok(reachability_with_options(storage, lts, &mut context, &ReachabilityOptions::default(), timing)?.states)
+    Ok(reachability_with_options(storage, lts, &ReachabilityOptions::default(), timing)?.states)
 }
 
 /// Performs reachability analysis using the given initial state, transitions and [ReachabilityOptions].
-///
-/// `context` is created once by the caller (via [`SymbolicLPS::create_context`]) and threaded through
-/// every learning call, so that its interned state — e.g. the value/label interning some
-/// implementations use — is still available to the caller once reachability finishes.
 pub fn reachability_with_options<L: SymbolicLPS>(
     storage: &LDDManagerRef,
-    lts: &mut L,
-    context: &mut <L::Group as TransitionGroup>::Context,
+    lts: &L,
     options: &ReachabilityOptions,
     timing: &Timing,
 ) -> Result<ReachabilityResult, MercError> {
-    reachability_with_callback(storage, lts, context, options, timing, |_, _| ControlFlow::Continue(()))
+    reachability_with_callback(storage, lts, options, timing, |_, _| ControlFlow::Continue(()))
 }
 
 /// Like [reachability_with_options], but calls `on_iteration` after every iteration of the outer loop.
@@ -124,36 +134,53 @@ pub fn reachability_with_options<L: SymbolicLPS>(
 /// are returned with [ReachabilityResult::complete] set to `false`, unless that iteration had
 /// already reached the fixpoint. This allows, for example, to limit the number of iterations or the
 /// time spent, or to report on the progress.
+///
+/// The transition relations are learned with the [`SymbolicLPS::group_learner`] of `lts`, if it has
+/// one, and returned in [ReachabilityResult::groups]; `lts` itself is not changed.
 pub fn reachability_with_callback<L: SymbolicLPS, F: FnMut(usize, &LDDFunction) -> ControlFlow<()>>(
     storage: &LDDManagerRef,
-    lts: &mut L,
-    context: &mut <L::Group as TransitionGroup>::Context,
+    lts: &L,
     options: &ReachabilityOptions,
     timing: &Timing,
     on_iteration: F,
 ) -> Result<ReachabilityResult, MercError> {
-    match options.strategy {
+    let learner = lts.group_learner(storage);
+
+    // Saturation always caches the domains: without it, a group would enumerate the same
+    // projections at every node.
+    let cached = options.cached || options.strategy == ExplorationStrategy::Saturation;
+    let relations = LearnedRelations::new(storage, lts, learner.as_ref(), cached)?;
+
+    let explored = match options.strategy {
         ExplorationStrategy::Saturation => {
-            saturation::saturation_reachability(storage, lts, context, options, timing, on_iteration)
+            saturation::saturation_reachability(storage, lts, &relations, options, timing, on_iteration)
         }
         ExplorationStrategy::BreadthFirst
         | ExplorationStrategy::Chaining
         | ExplorationStrategy::Fixpoint
         | ExplorationStrategy::FixpointChaining => {
-            step::step_reachability(storage, lts, context, options, timing, on_iteration)
+            step::step_reachability(storage, lts, &relations, options, timing, on_iteration)
         }
-    }
+    }?;
+
+    Ok(ReachabilityResult {
+        states: explored.states,
+        deadlocks: explored.deadlocks,
+        complete: explored.complete,
+        groups: relations.into_groups(lts),
+    })
 }
 
-/// Removes from `deadlocks` every state that has a `group` transition into `todo1`, i.e. every state
-/// that is not actually a deadlock with respect to `group`. Uses the relational predecessor (the
-/// inverse of the relational product) restricted to the current deadlock candidates.
+/// Removes from `deadlocks` every state that has a transition into `todo1` with `relation`, i.e.
+/// every state that is not actually a deadlock with respect to that group. Uses the relational
+/// predecessor (the inverse of the relational product) restricted to the current deadlock candidates.
 pub(crate) fn remove_states_with_successor(
     todo1: &LDDFunction,
-    group: &impl TransitionGroup,
+    relation: &LDDFunction,
+    meta: &LDDFunction,
     deadlocks: &LDDFunction,
 ) -> Result<LDDFunction, MercError> {
-    let with_successor = todo1.relational_predecessors(group.relation(), group.meta(), deadlocks)?;
+    let with_successor = todo1.relational_predecessors(relation, meta, deadlocks)?;
     Ok(deadlocks.diff(&with_successor)?)
 }
 

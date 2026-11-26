@@ -58,68 +58,49 @@ pub struct SymbolicLps<L: LPS> {
 
     /// The encoded initial state.
     initial_state: LDDFunction,
+
+    /// The interning of the values and labels into dense LDD values, seeded with the initial state
+    /// and grown while learning.
+    interning: Interning<L>,
 }
 
-/// Per-run learning state threaded through [SymbolicLpsGroup::learn_successors].
+/// The interning of the values and action labels of a [`SymbolicLps`] into dense LDD values.
 ///
-/// Holds the mutable state shared by all groups of one [SymbolicLps], so the
-/// groups themselves need no interior mutability. The internings are wrapped
-/// in mutexes, since every worker of the pool grows them while learning.
-pub struct SymbolicContext<L: LPS> {
+/// The interning belongs to the [`SymbolicLps`], so the diagrams of every exploration of it use the
+/// same values. It is wrapped in mutexes, since every worker of the pool grows it while learning.
+pub struct Interning<L: LPS> {
     /// Per state-vector position interning of `LPS` values into dense LDD values.
     columns: Vec<Mutex<IndexedSet<L::Value>>>,
 
-    /// Interning of the action labels observed during learning into dense LDD
-    /// values, shared by every group so a label's index means the same thing
-    /// everywhere. Positions correspond to the trailing "action" dimension each
-    /// [`SymbolicLpsGroup`] appends to its relation, see
+    /// Interning of the action labels observed during learning into dense LDD values, shared by
+    /// every group so a label's index means the same thing everywhere. Positions correspond to the
+    /// trailing "action" dimension each [`SymbolicLpsGroup`] appends to its relation, see
     /// [`TransitionGroup::action_label_index`].
     labels: Mutex<IndexedSet<L::Label>>,
-
-    /// The enumeration contexts of the pool workers for parallel learning, created on first use and
-    /// kept for the whole exploration, since creating a context can be expensive. They are dropped
-    /// on their workers, so the manager whose pool they belong to is kept with them.
-    workers: Option<(LDDManagerRef, WorkerLocal<<L::Summand as Summand>::Context>)>,
 }
 
-impl<L: LPS> SymbolicContext<L> {
-    /// Returns the enumeration contexts of the workers of `storage`.
-    fn workers(&mut self, storage: &LDDManagerRef) -> &WorkerLocal<<L::Summand as Summand>::Context> {
-        &self
-            .workers
-            .get_or_insert_with(|| {
-                (
-                    storage.clone(),
-                    WorkerLocal::new(storage.workers().current_num_threads()),
-                )
-            })
-            .1
+impl<L: LPS> Interning<L> {
+    /// Returns the number of positions of the state vector.
+    pub fn num_positions(&self) -> usize {
+        self.columns.len()
     }
-}
 
-impl<L: LPS> Drop for SymbolicContext<L> {
-    fn drop(&mut self) {
-        // The contexts of the workers may be thread-affine, so they are dropped on the workers.
-        if let Some((storage, workers)) = self.workers.take() {
-            storage.workers().broadcast(|_| workers.clear_current());
-        }
+    /// Returns the values interned at `position`, where the value at index `i` is the one that the
+    /// diagrams store as LDD value `i`.
+    pub fn values(&self, position: usize) -> Vec<L::Value> {
+        let column = self.columns[position].lock();
+        (0..column.len())
+            .map(|index| *column.get_by_index(index).expect("the interning is dense"))
+            .collect()
     }
-}
 
-impl<L: LPS> SymbolicContext<L> {
-    /// Consumes the context and returns the per-position interning of `LPS`
-    /// values and the action-label interning it accumulated, in dense LDD order.
-    ///
-    /// The sets are only readable once learning has finished, so they are handed
-    /// over rather than borrowed; the caller keeps them alive while it converts
-    /// the learned diagrams to its own output.
-    pub fn into_interning(mut self) -> (Vec<IndexedSet<L::Value>>, IndexedSet<L::Label>) {
-        let columns = std::mem::take(&mut self.columns)
-            .into_iter()
-            .map(Mutex::into_inner)
-            .collect();
-        let labels = std::mem::replace(&mut self.labels, Mutex::new(IndexedSet::new())).into_inner();
-        (columns, labels)
+    /// Returns the interned action labels, where the label at index `i` is the one that the
+    /// diagrams store as LDD value `i`.
+    pub fn labels(&self) -> Vec<L::Label> {
+        let labels = self.labels.lock();
+        (0..labels.len())
+            .map(|index| labels.get_by_index(index).expect("the interning is dense").clone())
+            .collect()
     }
 }
 
@@ -224,17 +205,14 @@ impl<L: LPS> SymbolicLps<PermutedLps<L>> {
             let read_indices: Vec<Value> = pattern.read_positions().map(|p| p as Value).collect();
             let write_indices: Vec<Value> = pattern.write_positions().map(|p| p as Value).collect();
 
-            let (project_ldd, meta, read_positions, write_positions, relation, domain) =
+            let (meta, read_positions, write_positions, relation) =
                 manager.with_manager_shared(|m| -> Result<_, MercError> {
-                    let project_ldd = LDDFunction::projection_meta(m, &read_indices)?;
                     let RelationMeta {
                         meta,
                         read_positions,
                         write_positions,
                     } = LDDFunction::relation_meta(m, &read_indices, &write_indices)?;
-                    let relation = LDDFunction::empty_set(m);
-                    let domain = LDDFunction::empty_set(m);
-                    Ok((project_ldd, meta, read_positions, write_positions, relation, domain))
+                    Ok((meta, read_positions, write_positions, LDDFunction::empty_set(m)))
                 })?;
 
             groups.push(SymbolicLpsGroup {
@@ -244,10 +222,8 @@ impl<L: LPS> SymbolicLps<PermutedLps<L>> {
                 write_indices,
                 read_positions,
                 write_positions,
-                project_ldd,
                 meta,
                 relation,
-                domain,
             });
         }
 
@@ -255,6 +231,10 @@ impl<L: LPS> SymbolicLps<PermutedLps<L>> {
             lps,
             groups,
             initial_state,
+            interning: Interning {
+                columns: columns.into_iter().map(Mutex::new).collect(),
+                labels: Mutex::new(IndexedSet::new()),
+            },
         })
     }
 }
@@ -265,18 +245,10 @@ impl<L: LPS> SymbolicLps<L> {
         &self.lps
     }
 
-    /// Builds the per-position interning seeded with the initial-state values.
-    ///
-    /// Re-inserting `initial_state()` into fresh per-column sets reproduces the
-    /// exact dense indices used when [Self::with_options] encoded the initial LDD, so the
-    /// learned relations stay consistent with it.
-    fn initial_columns(&self) -> Vec<IndexedSet<L::Value>> {
-        let initial_values = self.lps.initial_state();
-        let mut columns: Vec<IndexedSet<L::Value>> = (0..initial_values.len()).map(|_| IndexedSet::new()).collect();
-        for (position, value) in initial_values.iter().enumerate() {
-            columns[position].insert(*value);
-        }
-        columns
+    /// Returns the interning of the values and labels into the LDD values of the diagrams, which
+    /// grows during exploration.
+    pub fn interning(&self) -> &Interning<L> {
+        &self.interning
     }
 }
 
@@ -322,37 +294,14 @@ where
         &self.groups
     }
 
-    fn transition_groups_mut(&mut self) -> &mut [Self::Group] {
-        &mut self.groups
-    }
-
-    fn create_context(&self) -> SymbolicContext<L> {
-        SymbolicContext {
-            columns: self.initial_columns().into_iter().map(Mutex::new).collect(),
-            labels: Mutex::new(IndexedSet::new()),
-            workers: None,
-        }
-    }
-
-    fn group_learner<'a>(
-        &'a self,
-        context: &'a mut SymbolicContext<L>,
-        storage: &'a LDDManagerRef,
-    ) -> Option<ParallelLearner<'a, L>> {
-        context.workers(storage);
-        let SymbolicContext {
-            columns,
-            labels,
-            workers: Some((_, workers)),
-            ..
-        } = context
-        else {
-            unreachable!("the workers were just created");
-        };
+    fn group_learner<'a>(&'a self, storage: &'a LDDManagerRef) -> Option<ParallelLearner<'a, L>> {
         Some(ParallelLearner {
             groups: &self.groups,
-            workers,
-            interning: Interning { columns, labels },
+            workers: WorkerLocal::new(storage.workers().current_num_threads()),
+            interning: Interning {
+                columns: &self.interning.columns,
+                labels: &self.interning.labels,
+            },
             storage,
         })
     }
@@ -380,18 +329,11 @@ pub struct SymbolicLpsGroup<L: LPS> {
     /// Interleaved short-vector positions of `write_indices`.
     write_positions: Vec<LevelNo>,
 
-    /// Projection meta selecting `read_indices` from a full state.
-    project_ldd: LDDFunction,
-
     /// Relational-product meta for `read_indices`/`write_indices`.
     meta: LDDFunction,
 
-    /// The learned transition relation `T' -> U'`, grown on the fly.
+    /// The empty set: the relation is learned during exploration, which keeps it.
     relation: LDDFunction,
-
-    /// The domain of [Self::relation]: the projections on `read_indices` whose successors have
-    /// already been learned. Only grown when learning is requested with caching, and empty otherwise.
-    domain: LDDFunction,
 }
 
 impl<L> TransitionGroup for SymbolicLpsGroup<L>
@@ -400,8 +342,6 @@ where
     L::Value: Send,
     L::Label: Send,
 {
-    type Context = SymbolicContext<L>;
-
     fn relation(&self) -> &LDDFunction {
         &self.relation
     }
@@ -421,68 +361,12 @@ where
     fn meta(&self) -> &LDDFunction {
         &self.meta
     }
-
-    fn learn_successors(
-        &mut self,
-        context: &mut SymbolicContext<L>,
-        storage: &LDDManagerRef,
-        todo: &LDDFunction,
-        cached: bool,
-    ) -> Result<(), MercError> {
-        self.learn_successors_projected(context, storage, todo, None, cached)
-    }
-
-    fn learn_successors_projected(
-        &mut self,
-        context: &mut SymbolicContext<L>,
-        storage: &LDDManagerRef,
-        todo: &LDDFunction,
-        projection: Option<LDDFunction>,
-        cached: bool,
-    ) -> Result<(), MercError> {
-        let projection = match projection {
-            Some(projection) => projection,
-            None => todo.project(&self.project_ldd)?,
-        };
-
-        // With caching only the projections that have not been learned from before are enumerated;
-        // the ones in the domain already contributed all their transitions to the relation.
-        let proj = if cached {
-            projection.diff(&self.domain)?
-        } else {
-            projection.clone()
-        };
-
-        let learned = learn_group_parallel(self, context, storage, &proj)?;
-
-        self.relation = self.relation.union(&learned)?;
-        if cached {
-            // Only extend the domain once every projection above was enumerated successfully,
-            // otherwise a failed learning call would hide the states it never reached.
-            self.domain = self.domain.union(&projection)?;
-        }
-        Ok(())
-    }
-
-    fn projection(&self) -> Option<&LDDFunction> {
-        Some(&self.project_ldd)
-    }
-
-    fn domain(&self) -> Option<&LDDFunction> {
-        Some(&self.domain)
-    }
-
-    fn set_learned(&mut self, relation: LDDFunction, domain: LDDFunction) {
-        self.relation = relation;
-        self.domain = domain;
-    }
 }
 
 /// Reusable scratch buffers for learning the successors of one projected state at a time, see
-/// [`SymbolicLpsGroup::learn_successors`].
+/// [`learn_one_state`].
 ///
-/// The buffers live outside [`SymbolicContext`] so that every task of the parallel learner owns
-/// its own scratch state while sharing the interning.
+/// Every task of the parallel learner owns its own scratch state while sharing the interning.
 struct LearnScratch<L: LPS> {
     /// Reusable full-length state buffer, seeded from the initial state so that positions no group
     /// ever writes keep their initial value.
@@ -509,9 +393,8 @@ impl<L: LPS> LearnScratch<L> {
 
 /// Shared, mutex-protected interning of the values and action labels observed during learning.
 ///
-/// A plain struct borrowing the interning out of the [`SymbolicContext`], so it can be passed to
-/// [`learn_one_state`] as one argument; on the parallel learning path the same value is shared by
-/// every worker.
+/// A plain struct borrowing the [`LpsInterning`], so it can be passed to [`learn_one_state`] as one
+/// argument; the same value is shared by every worker.
 struct Interning<'a, L: LPS> {
     /// Per state-vector position interning of `LPS` values into dense LDD values.
     columns: &'a [Mutex<IndexedSet<L::Value>>],
@@ -541,8 +424,8 @@ impl<L: LPS> SymbolicLpsGroup<L> {
 /// transition into `relation` with [`LDDFunction::union_cube`].
 ///
 /// The enumeration backend (`enumerate`) and the shared `interning` are passed as separate
-/// references — they are disjoint fields of the [`SymbolicContext`], and the enumeration callback
-/// grows the interning while the backend call is in progress. `union_cube` never waits for the
+/// references, since the enumeration callback grows the interning while the backend call is in
+/// progress. `union_cube` never waits for the
 /// worker pool, so a worker does not run other work of the pool while it holds its enumeration
 /// context. The same routine serves the serial learner and every parallel worker.
 fn learn_one_state<L: LPS>(
@@ -660,39 +543,24 @@ where
     }
 }
 
-/// Learns the relation of the transitions of `group` from `projected` with the workers of
-/// `storage`, see [`learn_relation_parallel`].
-fn learn_group_parallel<L>(
-    group: &SymbolicLpsGroup<L>,
-    context: &mut SymbolicContext<L>,
-    storage: &LDDManagerRef,
-    projected: &LDDFunction,
-) -> Result<LDDFunction, MercError>
-where
-    L: LPS + Sync,
-    L::Value: Send,
-    L::Label: Send,
-{
-    context.workers(storage);
-    let SymbolicContext {
-        columns,
-        labels,
-        workers: Some((_, workers)),
-        ..
-    } = context
-    else {
-        unreachable!("the workers were just created");
-    };
-    learn_relation_parallel(group, workers, Interning { columns, labels }, storage, projected)
-}
-
 /// The [`GroupLearner`] of a [`SymbolicLps`] that can be used from every worker, with the
 /// enumeration context of that worker. It learns with [`learn_relation_parallel`].
+///
+/// The enumeration contexts are created on the first use of every worker and kept for the lifetime
+/// of the learner, i.e. one exploration run, since creating a context can be expensive. They may be
+/// thread-affine, so they are dropped on their workers when the learner is dropped.
 pub struct ParallelLearner<'a, L: LPS> {
     groups: &'a [SymbolicLpsGroup<L>],
-    workers: &'a WorkerLocal<<L::Summand as Summand>::Context>,
+    workers: WorkerLocal<<L::Summand as Summand>::Context>,
     interning: Interning<'a, L>,
     storage: &'a LDDManagerRef,
+}
+
+impl<L: LPS> Drop for ParallelLearner<'_, L> {
+    fn drop(&mut self) {
+        let workers = &self.workers;
+        self.storage.workers().broadcast(|_| workers.clear_current());
+    }
 }
 
 impl<L> GroupLearner for ParallelLearner<'_, L>
@@ -706,7 +574,7 @@ where
         // iterates in parallel; the pool's split depth bounds the nested splitting.
         learn_relation_parallel(
             &self.groups[group],
-            self.workers,
+            &self.workers,
             self.interning,
             self.storage,
             projected,
@@ -795,6 +663,17 @@ mod tests {
                 num_positions: bounds.len(),
             }
         }
+
+        /// Like [`Self::new`], with one more summand that reads and writes nothing: a self-loop on
+        /// every state, so that no state is a deadlock.
+        fn with_self_loop(bounds: &[usize]) -> GridLps {
+            let mut lps = GridLps::new(bounds);
+            lps.summands.push(GridSummand {
+                positions: Vec::new(),
+                bound: 0,
+            });
+            lps
+        }
     }
 
     impl LPS for GridLps {
@@ -876,19 +755,12 @@ mod tests {
     ) -> usize {
         let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, threads);
 
-        let mut symbolic =
+        let symbolic =
             SymbolicLps::with_options(&storage, GridLps::new(bounds), options).expect("the encoding is valid");
 
-        let mut context = symbolic.create_context();
-        let states = reachability_with_options(
-            &storage,
-            &mut symbolic,
-            &mut context,
-            reachability_options,
-            &Timing::new(),
-        )
-        .expect("reachability succeeds")
-        .states;
+        let states = reachability_with_options(&storage, &symbolic, reachability_options, &Timing::new())
+            .expect("reachability succeeds")
+            .states;
         ldd_len(&states, &mut LddLenCache::new())
             .exact()
             .expect("the grids are small") as usize
@@ -1068,5 +940,112 @@ mod tests {
             order: VariableOrder::Explicit(vec![0, 1]),
         };
         assert!(SymbolicLps::with_options(&storage, GridLps::new(&[2, 3, 4]), &options).is_err());
+    }
+
+    /// Every strategy, with and without caching, learns the same relations when it completes, also
+    /// for a group that reads and writes nothing, and finds no deadlocks when every state has a
+    /// self-loop.
+    ///
+    /// The relations of separate runs can be compared because they share a manager, and the grid
+    /// interns the values of every position in increasing order whatever the strategy.
+    #[test]
+    #[cfg_attr(miri, ignore)] // miri does not work with oxidd.
+    fn test_learned_relations_agree_across_strategies() {
+        let bounds = [3, 2, 4];
+        let expected_states = bounds.iter().map(|bound| bound + 1).product::<usize>();
+        let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
+
+        let mut expected_relations = None;
+        for strategy in ALL_STRATEGIES {
+            for cached in [false, true] {
+                let symbolic = SymbolicLps::with_options(
+                    &storage,
+                    GridLps::with_self_loop(&bounds),
+                    &SymbolicLpsOptions::default(),
+                )
+                .expect("the encoding is valid");
+                let options = ReachabilityOptions {
+                    strategy,
+                    detect_deadlocks: true,
+                    cached,
+                };
+                let result = reachability_with_options(&storage, &symbolic, &options, &Timing::new())
+                    .expect("reachability succeeds");
+
+                assert!(result.complete);
+                assert_eq!(count(&result.states), expected_states, "{strategy:?}/cached={cached}");
+                let deadlocks = result.deadlocks.expect("detect_deadlocks was requested");
+                assert!(
+                    deadlocks.is_empty(),
+                    "{strategy:?}/cached={cached} reports {} deadlock(s), but every state has a self-loop",
+                    count(&deadlocks)
+                );
+
+                let relations: Vec<_> = result.groups.iter().map(|group| group.relation().clone()).collect();
+                assert!(
+                    relations.iter().all(|relation| !relation.is_empty()),
+                    "{strategy:?}/cached={cached} left a relation empty"
+                );
+                match &expected_relations {
+                    None => expected_relations = Some(relations),
+                    Some(expected) => assert!(
+                        *expected == relations,
+                        "{strategy:?}/cached={cached} learned other relations than {:?}",
+                        ALL_STRATEGIES[0]
+                    ),
+                }
+            }
+        }
+    }
+
+    /// Exploring a [`SymbolicLps`] does not change it: a second exploration finds the same states
+    /// and relations, and the values keep their LDD values.
+    #[test]
+    #[cfg_attr(miri, ignore)] // miri does not work with oxidd.
+    fn test_exploring_twice_gives_the_same_result() {
+        let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 4);
+        let symbolic = SymbolicLps::with_options(
+            &storage,
+            GridLps::with_self_loop(&[4, 3, 5]),
+            &SymbolicLpsOptions::default(),
+        )
+        .expect("the encoding is valid");
+
+        for strategy in [ExplorationStrategy::BreadthFirst, ExplorationStrategy::Saturation] {
+            let options = ReachabilityOptions {
+                strategy,
+                ..ReachabilityOptions::default()
+            };
+            let first = reachability_with_options(&storage, &symbolic, &options, &Timing::new())
+                .expect("reachability succeeds");
+            let values: Vec<Vec<usize>> = (0..symbolic.interning().num_positions())
+                .map(|position| symbolic.interning().values(position))
+                .collect();
+
+            let second = reachability_with_options(&storage, &symbolic, &options, &Timing::new())
+                .expect("reachability succeeds");
+            assert!(first.states == second.states, "{strategy:?}");
+            for (a, b) in first.groups.iter().zip(&second.groups) {
+                assert!(a.relation() == b.relation(), "{strategy:?}");
+            }
+            for (position, values) in values.iter().enumerate() {
+                assert_eq!(*values, symbolic.interning().values(position), "{strategy:?}");
+            }
+        }
+    }
+
+    const ALL_STRATEGIES: [ExplorationStrategy; 5] = [
+        ExplorationStrategy::BreadthFirst,
+        ExplorationStrategy::Chaining,
+        ExplorationStrategy::Fixpoint,
+        ExplorationStrategy::FixpointChaining,
+        ExplorationStrategy::Saturation,
+    ];
+
+    /// The number of vectors in `ldd`.
+    fn count(ldd: &oxidd::ldd::LDDFunction) -> usize {
+        ldd_len(ldd, &mut LddLenCache::new())
+            .exact()
+            .expect("the grids are small") as usize
     }
 }
