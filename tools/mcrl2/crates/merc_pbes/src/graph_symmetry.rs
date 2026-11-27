@@ -91,7 +91,7 @@ enum SdgVertex {
     /// [`VertexKey`]). The term is the first one found with this structure.
     Term(PbesExpression),
 
-    /// The update position `X_{i,k}`, one per PVI vertex and parameter.
+    /// The update variable `X_{i,k}`, one per PVI vertex and parameter.
     Update { pvi: usize, parameter: usize },
 }
 
@@ -126,10 +126,10 @@ enum VertexColour {
     /// `C(Qe:D.phi) = (Q,D)`, generalised to a vector of sorts.
     Quantifier(Quantifier, Vec<SortExpression>),
 
-    /// `C(X(t1,...,tn)) = pvi`.
+    /// `C(X(t1,...,tn)) = X`.
     Pvi(String),
 
-    /// `C(X_{i,k}) = update`.
+    /// `C(X_{i,k}) = upd`.
     Update,
 }
 
@@ -144,7 +144,7 @@ impl fmt::Display for VertexColour {
             VertexColour::Connective(c) => write!(f, "{c}"),
             VertexColour::Quantifier(q, ss) => write!(f, "{q} {}", ss.iter().format(",")),
             VertexColour::Pvi(name) => write!(f, "{name}"),
-            VertexColour::Update => f.write_str("update"),
+            VertexColour::Update => f.write_str("upd"),
         }
     }
 }
@@ -225,37 +225,38 @@ impl fmt::Display for EdgeColour {
 /// merged into one edge whose colour is a set of positions or roles.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 enum EdgeColour {
-    /// The positions `{i | t_i = psi}` of argument `psi` of a non-commutative
-    /// function, e.g. `{1,3}` for `x` in `f(x,y,x)`.
+    /// `{i | t_i = psi}`, the positions of argument `psi` of a non-commutative
+    /// operator, e.g. `{1,3}` for `x` in `f(x,y,x)`.
     Argument(BTreeSet<usize>),
-
-    /// Any other edge: the body of a quantifier or negation.
-    Uncoloured,
-
-    /// The roles of an update vertex's edge, e.g. `{data, par}` when parameter
-    /// `d_k` is passed unchanged.
-    Update(BTreeSet<UpdateRole>),
 
     /// `|{i | t_i = psi}|`, how often argument `psi` occurs in a (flattened)
     /// commutative operator, so that `n + n + m` and `n + m + m` differ. For an
     /// idempotent operator this is always 1, since `a && a && b` and `a && b && b`
     /// are equivalent; this collapsing goes beyond the paper.
     Multiplicity(usize),
+
+    /// `roles(e)`, the roles of an edge leaving an update vertex: `{pos}`, `{dat}`,
+    /// or `{dat,pos}` when parameter `d_k` is passed unchanged.
+    Update(BTreeSet<UpdateRole>),
+
+    /// `⊥`, any other edge: the body of a quantifier or negation, and the edge
+    /// from a PVI to its update vertices.
+    Uncoloured,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 enum UpdateRole {
-    Pvi,
-    Data,
-    Par,
+    /// A data edge `(X_{i,k}, data(X,i,k))`.
+    Dat,
+    /// A position edge `(X_{i,k}, d_k)`.
+    Pos,
 }
 
 impl fmt::Display for UpdateRole {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            UpdateRole::Pvi => "pvi",
-            UpdateRole::Data => "data",
-            UpdateRole::Par => "par",
+            UpdateRole::Dat => "dat",
+            UpdateRole::Pos => "pos",
         })
     }
 }
@@ -712,8 +713,8 @@ impl SdgBuilder {
     }
 
     /// Returns the vertex of a PVI. A new PVI also gets its update vertices
-    /// `X_{i,k}`, with the edges `PVI -> X_{i,k}`, `X_{i,k} -> t_k` and
-    /// `X_{i,k} -> d_k`.
+    /// `X_{i,k}`, with the edges `PVI -> X_{i,k}` (coloured `⊥`), the data edge
+    /// `X_{i,k} -> t_k` and the position edge `X_{i,k} -> d_k`.
     ///
     /// Unlike the paper, equal PVIs share one set of update vertices; duplicate
     /// sets would only add automorphisms that are the identity on parameters.
@@ -767,35 +768,27 @@ impl SdgBuilder {
             );
             trace!("update vertex v{} X_({},{})", update_node.index(), pvi_node.index(), k);
 
-            self.add_or_merge_edge(pvi_node, update_node, EdgeColour::Update([UpdateRole::Pvi].into()));
+            self.add_or_merge_edge(pvi_node, update_node, EdgeColour::Uncoloured);
 
-            // The data and parameter edges coincide when `t_k = d_k`.
+            // The data and position edges coincide when `t_k = d_k`.
             let par_node = NodeIndex::new(k);
-            let mut by_target: BTreeMap<NodeIndex, BTreeSet<UpdateRole>> = BTreeMap::new();
-            by_target.entry(data_node).or_default().insert(UpdateRole::Data);
-            by_target.entry(par_node).or_default().insert(UpdateRole::Par);
-
-            for (target, roles) in by_target {
-                self.add_or_merge_edge(update_node, target, EdgeColour::Update(roles));
-            }
+            self.add_or_merge_edge(update_node, data_node, EdgeColour::Update([UpdateRole::Dat].into()));
+            self.add_or_merge_edge(update_node, par_node, EdgeColour::Update([UpdateRole::Pos].into()));
         }
 
         Ok(pvi_node)
     }
 }
 
-/// Merges the colours of two edges between the same vertices.
+/// Merges the colours of two edges between the same vertices. Only the data and
+/// position edges of an update vertex can coincide; the children of every other
+/// vertex are already grouped by [`by_position`] and [`by_multiplicity`].
 fn merge_edge_colour(a: EdgeColour, b: EdgeColour) -> EdgeColour {
     match (a, b) {
-        (EdgeColour::Argument(mut xs), EdgeColour::Argument(ys)) => {
-            xs.extend(ys);
-            EdgeColour::Argument(xs)
-        }
         (EdgeColour::Update(mut xs), EdgeColour::Update(ys)) => {
             xs.extend(ys);
             EdgeColour::Update(xs)
         }
-        (EdgeColour::Uncoloured, EdgeColour::Uncoloured) => EdgeColour::Uncoloured,
         (a, b) => unreachable!(
             "Cannot merge incompatible edge colours {:?} and {:?} on the same vertex pair",
             a, b
@@ -1459,9 +1452,9 @@ mod tests {
     }
 
     /// A PVI that copies a parameter unchanged (`X(n)` from within `X`'s own
-    /// right-hand side) makes the `data(X,i,k)` and `d_k` update-edge targets
-    /// coincide: the update vertex has exactly one outgoing `{Data, Par}` edge to
-    /// `n`, and one incoming `{Pvi}` edge from the PVI vertex.
+    /// right-hand side) makes the data edge `X_{i,k} -> data(X,i,k)` and the
+    /// position edge `X_{i,k} -> d_k` coincide: the update vertex has exactly one
+    /// outgoing `{dat,pos}` edge to `n`, and one incoming `⊥` edge from the PVI.
     #[test]
     fn test_update_edge_combines_roles_on_parameter_copy() {
         test_logger();
@@ -1475,20 +1468,17 @@ mod tests {
             .expect("there should be exactly one update vertex");
 
         let outgoing: Vec<_> = sdg.graph.edges(update_node).collect();
-        assert_eq!(outgoing.len(), 1, "expected one combined {{Data,Par}} edge");
+        assert_eq!(outgoing.len(), 1, "expected one combined {{dat,pos}} edge");
         assert_eq!(outgoing[0].target(), NodeIndex::new(0));
         assert_eq!(
             *outgoing[0].weight(),
-            EdgeColour::Update([UpdateRole::Data, UpdateRole::Par].into_iter().collect())
+            EdgeColour::Update([UpdateRole::Dat, UpdateRole::Pos].into_iter().collect())
         );
 
         let incoming: Vec<_> = sdg.graph.edges_directed(update_node, Direction::Incoming).collect();
         assert_eq!(incoming.len(), 1, "only the PVI points to its update vertex");
         assert!(matches!(&sdg.colours[incoming[0].source().index()], VertexColour::Pvi(name) if name == "X"));
-        assert_eq!(
-            *incoming[0].weight(),
-            EdgeColour::Update([UpdateRole::Pvi].into_iter().collect())
-        );
+        assert_eq!(*incoming[0].weight(), EdgeColour::Uncoloured);
     }
 
     /// Edges point from a formula to its direct subformulas, so parameters,

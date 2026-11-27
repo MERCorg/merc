@@ -123,10 +123,12 @@ The vertices of the resulting graph are drawn as follows.
 | Ellipse | Red | `&&` / `\|\|` / `!` / `=>` | Boolean connective |
 | Ellipse | Green | `x` | Bound (quantifier-scoped) variable |
 
-Edges between formula nodes are solid; edges are unlabelled for commutative and
-flat operators (e.g. `&&`, `||`) and carry a 1-based position label for
-non-commutative applications. Update edges are dashed and drawn with zero spring
-weight so they do not distort the formula-tree layout.
+Edges are directed from a formula to its direct subformulas, from a PVI to its
+update vertices, and from an update vertex to its data argument and parameter.
+An argument of a non-commutative operator carries its 1-based positions, and an
+argument of a commutative operator its multiplicity `xN` when it occurs more than
+once. The edges leaving an update vertex are dashed and labelled `dat`, `pos`, or
+`dat,pos` when the parameter is passed unchanged.
 
 For a detailed description of the SDG construction and its relation to the
 technical report, see the
