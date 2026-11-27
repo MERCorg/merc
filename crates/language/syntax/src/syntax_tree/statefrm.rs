@@ -146,17 +146,6 @@ impl StateFrmKind {
     }
 }
 
-impl From<StateFrmKind> for StateFrm {
-    /// Wraps a kind into a [StateFrm] with a default (empty) span, for
-    /// synthetic formulas that have no source location.
-    fn from(kind: StateFrmKind) -> Self {
-        Spanned {
-            node: kind,
-            span: Span::default(),
-        }
-    }
-}
-
 impl fmt::Display for StateFrmUnaryOp {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {

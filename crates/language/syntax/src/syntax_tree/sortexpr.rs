@@ -76,16 +76,6 @@ impl SortExpressionKind {
     }
 }
 
-impl From<SortExpressionKind> for SortExpression {
-    /// For synthetic expressions that have no source location.
-    fn from(kind: SortExpressionKind) -> Self {
-        Spanned {
-            node: kind,
-            span: Span::default(),
-        }
-    }
-}
-
 /// Constructor declaration
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub struct ConstructorDecl {

@@ -60,17 +60,6 @@ impl PbesExprKind {
     }
 }
 
-impl From<PbesExprKind> for PbesExpr {
-    /// Wraps a kind into a [PbesExpr] with a default (empty) span, for
-    /// synthetic expressions that have no source location.
-    fn from(kind: PbesExprKind) -> Self {
-        Spanned {
-            node: kind,
-            span: Span::default(),
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum PbesExprBinaryOp {
     Implies,

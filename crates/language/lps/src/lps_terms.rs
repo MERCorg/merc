@@ -21,6 +21,7 @@ use merc_data::BasicSort;
 use merc_data::DataExpression;
 use merc_data::DataVariable;
 use merc_data::SortExpression;
+use merc_data::no_value;
 use merc_macros::merc_derive_terms;
 use merc_macros::merc_term;
 
@@ -65,7 +66,7 @@ mod inner {
         /// `Distribution([], @NoValue)`.
         #[merc_ignore]
         pub fn none() -> Self {
-            let no_value = DataVariable::with_sort("@NoValue", SortExpression::from(BasicSort::new("@NoValue")).copy());
+            let no_value = DataVariable::with_sort(no_value(), SortExpression::from(BasicSort::new(no_value())).copy());
             LPS_SYMBOLS.with(|symbols| Distribution {
                 term: ATerm::with_args(
                     &*symbols.distribution,

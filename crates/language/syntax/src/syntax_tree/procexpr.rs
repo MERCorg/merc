@@ -113,17 +113,6 @@ impl ProcessExprKind {
     }
 }
 
-impl From<ProcessExprKind> for ProcessExpr {
-    /// Wraps a kind into a [ProcessExpr] with a default (empty) span, for
-    /// synthetic expressions that have no source location.
-    fn from(kind: ProcessExprKind) -> Self {
-        Spanned {
-            node: kind,
-            span: Span::default(),
-        }
-    }
-}
-
 impl fmt::Display for ProcExprBinaryOp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

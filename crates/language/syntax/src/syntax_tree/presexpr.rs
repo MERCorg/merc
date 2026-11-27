@@ -80,17 +80,6 @@ impl PresExprKind {
     }
 }
 
-impl From<PresExprKind> for PresExpr {
-    /// Wraps a kind into a [PresExpr] with a default (empty) span, for
-    /// synthetic expressions that have no source location.
-    fn from(kind: PresExprKind) -> Self {
-        Spanned {
-            node: kind,
-            span: Span::default(),
-        }
-    }
-}
-
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum PresExprBinaryOp {
     Implies,

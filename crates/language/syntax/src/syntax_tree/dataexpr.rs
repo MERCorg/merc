@@ -148,16 +148,6 @@ impl DataExprKind {
     }
 }
 
-impl From<DataExprKind> for DataExpr {
-    /// For synthetic expressions that have no source location.
-    fn from(kind: DataExprKind) -> Self {
-        Spanned {
-            node: kind,
-            span: Span::default(),
-        }
-    }
-}
-
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub struct BagElement {
     pub expr: DataExpr,
