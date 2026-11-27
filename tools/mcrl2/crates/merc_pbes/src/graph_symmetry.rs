@@ -150,6 +150,16 @@ impl fmt::Display for VertexColour {
 }
 
 impl VertexColour {
+    fn dot_shape(&self) -> &'static str {
+        match self {
+            VertexColour::Parameter(_) => "box",
+            VertexColour::Update => "diamond",
+            VertexColour::Pvi(_) => "hexagon",
+            VertexColour::Quantifier(..) => "parallelogram",
+            _ => "ellipse",
+        }
+    }
+
     fn dot_fill_colour(&self) -> &'static str {
         match self {
             VertexColour::Parameter(_) => "#aec6cf",
@@ -175,10 +185,12 @@ enum Connective {
 impl fmt::Display for Connective {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Connective::And => "&&",
-            Connective::Or => "||",
-            Connective::Not => "!",
-            Connective::Imp => "=>",
+            // Distinct from the data-level `&&`, `||`, `!` and `=>`, which are
+            // function symbols with a different colour.
+            Connective::And => "∧",
+            Connective::Or => "∨",
+            Connective::Not => "¬",
+            Connective::Imp => "⇒",
         })
     }
 }
@@ -210,8 +222,6 @@ impl fmt::Display for EdgeColour {
             EdgeColour::Uncoloured => Ok(()),
             EdgeColour::Argument(positions) => write!(f, "{}", positions.iter().format(",")),
             EdgeColour::Update(roles) => write!(f, "{}", roles.iter().format(",")),
-            // Multiplicity one is the common case, so leave it unlabelled.
-            EdgeColour::Multiplicity(1) => Ok(()),
             EdgeColour::Multiplicity(count) => write!(f, "x{count}"),
         }
     }
@@ -870,7 +880,50 @@ impl Sdg {
     }
 }
 
-/// Writes the SDG as a Graphviz DOT file. Vertex `p{k}` is GAP point `k`.
+/// The names of the function symbols that occur with more than one sort, whose
+/// sort must be shown to tell their colours apart.
+fn overloaded_names(sdg: &Sdg) -> HashSet<&str> {
+    let mut symbols: HashMap<&str, HashSet<&DataFunctionSymbol>> = HashMap::new();
+    for colour in &sdg.colours {
+        if let VertexColour::Function(symbol) = colour {
+            symbols.entry(symbol.name()).or_default().insert(symbol);
+        }
+    }
+
+    symbols
+        .into_iter()
+        .filter(|(_, symbols)| symbols.len() > 1)
+        .map(|(name, _)| name)
+        .collect()
+}
+
+/// Describes `C(v)` of vertex `i`, including `C_RHS`, such that two vertices get
+/// the same description iff they get the same colour in [`Sdg::to_gap_graph`].
+fn dot_colour(sdg: &Sdg, i: usize, overloaded: &HashSet<&str>) -> String {
+    let mut result = match &sdg.colours[i] {
+        VertexColour::Parameter(sort) => format!("par: {sort}"),
+        VertexColour::BoundVariable { sort, index } => format!("#{index}: {sort}"),
+        VertexColour::Function(symbol) if overloaded.contains(symbol.name()) => {
+            format!("{}: {}", symbol.name(), symbol.sort())
+        }
+        colour => colour.to_string(),
+    };
+
+    if !sdg.rhs[i].is_empty() {
+        let names = sdg.rhs[i].iter().map(|&e| &sdg.equation_names[e]);
+        result.push_str(&format!("\nrhs {{{}}}", names.format(",")));
+    }
+    result
+}
+
+/// Escapes `text` for a double-quoted DOT string.
+fn escape_dot(text: &str) -> String {
+    text.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
+}
+
+/// Writes the SDG as a Graphviz DOT file. Vertex `p{k}` is GAP point `k`, and
+/// the labels of vertices and edges are equal iff their GAP colours are, apart
+/// from the name shown on parameters.
 pub fn write_dot<W>(sdg: &Sdg, w: &mut W) -> Result<(), MercError>
 where
     W: Write,
@@ -878,35 +931,23 @@ where
     writeln!(w, "digraph sdg {{")?;
     writeln!(w, "  node [style=filled];")?;
 
+    let overloaded = overloaded_names(sdg);
     for node in sdg.graph.node_indices() {
         let i = node.index();
         let point = i + 1;
         let vc = &sdg.colours[i];
-        // `C_RHS`, shown only for the right-hand sides of equations.
-        let rhs = if sdg.rhs[i].is_empty() {
-            String::new()
-        } else {
-            format!("\\nrhs {{{}}}", sdg.rhs[i].iter().format(","))
-        };
 
+        let colour = dot_colour(sdg, i, &overloaded);
         let label = match vc {
-            VertexColour::Parameter(_) => sdg.parameters[i].name().to_string(),
-            VertexColour::Update => String::new(),
-            VertexColour::Pvi(name) => name.to_string(),
-            VertexColour::BoundVariable { index, .. } => format!("#{index}"),
-            _ => vc.to_string(),
+            VertexColour::Parameter(_) => escape_dot(&format!("{}\n{colour}", sdg.parameters[i].name())),
+            _ => escape_dot(&colour),
         };
 
-        let shape = match vc {
-            VertexColour::Parameter(_) => "box",
-            VertexColour::Update => "diamond",
-            VertexColour::Pvi(_) => "hexagon",
-            VertexColour::Quantifier(..) => "parallelogram",
-            _ => "ellipse",
-        };
+        let shape = vc.dot_shape();
 
         let fill = vc.dot_fill_colour();
         if matches!(vc, VertexColour::Update) {
+            // All update vertices have the colour `upd`, which the shape shows.
             writeln!(
                 w,
                 "  p{point} [label=\"\", shape=diamond, fillcolor=\"{fill}\", width=0.2, height=0.2, fixedsize=true];"
@@ -914,7 +955,7 @@ where
         } else {
             writeln!(
                 w,
-                "  p{point} [label=\"{label}{rhs}\", shape={shape}, fillcolor=\"{fill}\"];"
+                "  p{point} [label=\"{label}\", shape={shape}, fillcolor=\"{fill}\"];"
             )?;
         }
     }
@@ -922,7 +963,7 @@ where
     for edge in sdg.graph.edge_indices() {
         let (u, v) = sdg.graph.edge_endpoints(edge).unwrap();
         let colour = sdg.graph.edge_weight(edge).unwrap();
-        let elabel = colour.to_string();
+        let elabel = escape_dot(&colour.to_string());
         let style = if matches!(colour, EdgeColour::Update(_)) {
             "style=dashed, "
         } else {
@@ -1183,6 +1224,7 @@ mod tests {
     use petgraph::Direction;
     use petgraph::graph::NodeIndex;
     use petgraph::visit::EdgeRef;
+    use std::collections::HashMap;
     use std::sync::OnceLock;
 
     use test_case::test_case;
@@ -1479,6 +1521,81 @@ mod tests {
         assert_eq!(incoming.len(), 1, "only the PVI points to its update vertex");
         assert!(matches!(&sdg.colours[incoming[0].source().index()], VertexColour::Pvi(name) if name == "X"));
         assert_eq!(*incoming[0].weight(), EdgeColour::Uncoloured);
+    }
+
+    /// The DOT output shows the graph handed to GAP: the same arcs, and labels
+    /// that are equal iff the GAP colours are.
+    #[test_case(include_str!("../../../../../examples/pbes/c.text.pbes"); "c")]
+    #[test_case(include_str!("../../../../../examples/pbes/alloc3.text.pbes"); "alloc3")]
+    #[test_case("pbes nu X(n: Nat, b: Bool) = val(n == n) && val(b == b) && (exists m: Nat . val(m > n) && X(m, !b))
+                    && Y(n, b) && !Y(n, b);
+                   mu Y(n: Nat, b: Bool) = val(n + n + 1 == n) || forall c: Bool . val(c => b);
+              init X(0, true);"; "overloads")]
+    fn test_dot_matches_gap_graph(source: &str) {
+        test_logger();
+        let mut pbes = Pbes::from_text(source).unwrap();
+        pbes.unify_parameters(
+            crate::explore_common::UNIFY_IGNORE_CE_EQUATIONS,
+            crate::explore_common::UNIFY_RESET_PARAMETERS,
+        )
+        .unwrap();
+        let sdg = build_sdg(&pbes).unwrap();
+        let gap = sdg.to_gap_graph();
+
+        // Vertex colours: equal appearance (shape, fill and label) iff equal GAP colours.
+        let overloaded = super::overloaded_names(&sdg);
+        let mut vertex_classes: HashMap<usize, (&str, &str, String)> = HashMap::new();
+        let mut vertex_appearances: HashMap<(&str, &str, String), usize> = HashMap::new();
+        for (i, &colour) in gap.vertex_colours.iter().enumerate() {
+            let vc = &sdg.colours[i];
+            let appearance = (
+                vc.dot_shape(),
+                vc.dot_fill_colour(),
+                super::dot_colour(&sdg, i, &overloaded),
+            );
+            assert_eq!(vertex_classes.entry(colour).or_insert(appearance.clone()), &appearance);
+            assert_eq!(
+                *vertex_appearances.entry(appearance.clone()).or_insert(colour),
+                colour,
+                "{appearance:?} is shown for two GAP colours"
+            );
+        }
+
+        // Arcs and their colours: parse the DOT edges back.
+        let mut dot = Vec::new();
+        super::write_dot(&sdg, &mut dot).unwrap();
+        let dot = String::from_utf8(dot).unwrap();
+        let mut dot_arcs: Vec<(usize, usize, String)> = dot
+            .lines()
+            .filter_map(|line| {
+                let (arc, attributes) = line.trim().split_once(" [")?;
+                let (u, v) = arc.split_once(" -> ")?;
+                let label = attributes.split("label=\"").nth(1)?.split('"').next()?;
+                Some((
+                    u.strip_prefix('p')?.parse().ok()?,
+                    v.strip_prefix('p')?.parse().ok()?,
+                    label.to_string(),
+                ))
+            })
+            .collect();
+        dot_arcs.sort();
+
+        let mut gap_arcs: Vec<(usize, usize, usize)> = Vec::new();
+        for (u, (targets, colours)) in gap.out_neighbours.iter().zip(&gap.edge_colours).enumerate() {
+            for (&v, &colour) in targets.iter().zip(colours) {
+                gap_arcs.push((u + 1, v, colour));
+            }
+        }
+        gap_arcs.sort();
+
+        assert_eq!(dot_arcs.len(), gap_arcs.len());
+        let mut edge_classes: HashMap<usize, &str> = HashMap::new();
+        let mut edge_labels: HashMap<&str, usize> = HashMap::new();
+        for ((du, dv, label), &(gu, gv, colour)) in dot_arcs.iter().zip(&gap_arcs) {
+            assert_eq!((*du, *dv), (gu, gv), "the DOT arcs must be the GAP arcs");
+            assert_eq!(*edge_classes.entry(colour).or_insert(label), label.as_str());
+            assert_eq!(*edge_labels.entry(label).or_insert(colour), colour);
+        }
     }
 
     /// Edges point from a formula to its direct subformulas, so parameters,
