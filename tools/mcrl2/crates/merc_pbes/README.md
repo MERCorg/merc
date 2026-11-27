@@ -110,23 +110,29 @@ dot -Tpdf file.dot -o file.pdf
 dot -Tsvg file.dot -o file.svg
 ```
 
-The vertices of the resulting graph are drawn as follows.
+The DOT file shows exactly the graph handed to GAP: vertex `pK` is GAP point `K`,
+and two vertices (or edges) are drawn alike iff GAP gives them the same colour.
+The only exception is the name on a parameter, which is not part of its colour.
+The vertices are drawn as follows; a right-hand side additionally lists its
+equations as `rhs {X,…}`.
 
 | Shape | Fill colour | Label | Meaning |
 |---|---|---|---|
-| Rectangle | Blue | parameter name | PBES parameter |
+| Rectangle | Blue | name, `par: D` | PBES parameter of sort `D` |
 | Tiny diamond (unlabelled) | Grey | — | Update vertex `X_{i,k}` |
 | Hexagon | Light blue | `X` | Propositional variable instantiation of `X` |
-| Parallelogram | Purple | `forall x:D,…` | Quantifier |
-| Ellipse | Yellow | function name | Data function application |
+| Parallelogram | Purple | `forall D,…` | Quantifier over variables of sorts `D,…` |
+| Ellipse | Yellow | `f`, or `f: S` when `f` is overloaded | Data function application |
 | Ellipse | Orange | number | Machine-number constant |
-| Ellipse | Red | `&&` / `\|\|` / `!` / `=>` | Boolean connective |
-| Ellipse | Green | `x` | Bound (quantifier-scoped) variable |
+| Ellipse | Red | `∧` / `∨` / `¬` / `⇒` | PBES connective |
+| Ellipse | Green | `#i: D` | Bound variable with de Bruijn index `i` |
 
-Edges between formula nodes are solid; edges are unlabelled for commutative and
-flat operators (e.g. `&&`, `||`) and carry a 1-based position label for
-non-commutative applications. Update edges are dashed and drawn with zero spring
-weight so they do not distort the formula-tree layout.
+Edges are directed from a formula to its direct subformulas, from a PVI to its
+update vertices, and from an update vertex to its data argument and parameter.
+An argument of a non-commutative operator carries its 1-based positions, and an
+argument of a commutative operator its multiplicity `xN`. The other edges are
+unlabelled. The edges leaving an update vertex are dashed and labelled `dat`,
+`pos`, or `dat,pos` when the parameter is passed unchanged.
 
 For a detailed description of the SDG construction and its relation to the
 technical report, see the
