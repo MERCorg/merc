@@ -17,6 +17,8 @@ use merc_data::SortCons;
 use merc_data::SortExpression as DataSortExpression;
 use merc_data::is_container_sort;
 use merc_data::is_function_sort;
+use merc_data::is_no_value;
+use merc_data::is_structured_sort;
 use merc_syntax::Assignment;
 use merc_syntax::ComplexSort;
 use merc_syntax::ConstructorDecl;
@@ -86,54 +88,42 @@ pub fn raise_data_expression(expr: &DataExpression) -> DataExpr {
         DataExpressionKind::MachineNumber(number) => DataExprKind::Number(number.value().to_string()).into(),
         DataExpressionKind::Application(_) => raise_application(expr),
         DataExpressionKind::Abstraction(abstraction) => {
-            let variables: Vec<IdDecl> = abstraction
-                .variables()
-                .iter()
-                .map(|variable| {
-                    IdDecl::new(
-                        variable.name().to_string(),
-                        raise_sort(&variable.sort().protect()),
-                        Span::default(),
-                    )
-                })
-                .collect();
-            let body = Box::new(raise_data_expression(&abstraction.body().protect()));
-            match abstraction.binder_type() {
-                BinderType::Lambda => DataExprKind::Lambda { variables, body },
-                BinderType::Forall => DataExprKind::Quantifier {
-                    op: Quantifier::Forall,
-                    variables,
-                    body,
-                },
-                BinderType::Exists => DataExprKind::Quantifier {
-                    op: Quantifier::Exists,
-                    variables,
-                    body,
-                },
-                BinderType::SetComp | BinderType::BagComp => DataExprKind::SetBagComp {
-                    variable: variables
-                        .into_iter()
-                        .next()
-                        .expect("a comprehension binds one variable"),
-                    predicate: body,
-                },
+            let mut variables: Vec<IdDecl> = Vec::new();
+            for variable in abstraction.variables().iter() {
+                let sort = raise_sort(&variable.sort().protect());
+                variables.push(IdDecl::new(variable.name().to_string(), sort, Span::default()));
             }
-            .into()
+            let body = Box::new(raise_data_expression(&abstraction.body().protect()));
+
+            let kind = match abstraction.binder_type() {
+                BinderType::Lambda => DataExprKind::Lambda { variables, body },
+                BinderType::Forall => {
+                    let op = Quantifier::Forall;
+                    DataExprKind::Quantifier { op, variables, body }
+                }
+                BinderType::Exists => {
+                    let op = Quantifier::Exists;
+                    DataExprKind::Quantifier { op, variables, body }
+                }
+                BinderType::SetComp | BinderType::BagComp => {
+                    let [variable] = <[IdDecl; 1]>::try_from(variables).expect("a comprehension binds one variable");
+                    DataExprKind::SetBagComp {
+                        variable,
+                        predicate: body,
+                    }
+                }
+            };
+            kind.into()
         }
-        DataExpressionKind::WhereClause(clause) => DataExprKind::Whr {
-            expr: Box::new(raise_data_expression(&clause.body().protect())),
-            assignments: clause
-                .declarations()
-                .iter()
-                .map(|declaration| {
-                    Assignment::new(
-                        declaration.variable().name().to_string(),
-                        raise_data_expression(&declaration.expression().protect()),
-                    )
-                })
-                .collect(),
+        DataExpressionKind::WhereClause(clause) => {
+            let mut assignments = Vec::new();
+            for declaration in clause.declarations().iter() {
+                let value = raise_data_expression(&declaration.expression().protect());
+                assignments.push(Assignment::new(declaration.variable().name().to_string(), value));
+            }
+            let expr = Box::new(raise_data_expression(&clause.body().protect()));
+            DataExprKind::Whr { expr, assignments }.into()
         }
-        .into(),
     }
 }
 
@@ -205,7 +195,7 @@ fn constructor_chain(expr: &DataExpression, insert: &str, empty: &str) -> Option
 /// Raises a sort of the term representation to the syntax that denotes it, including a structured
 /// sort `struct c(p: D)?r | …`. The result has no spans.
 pub fn raise_sort(sort: &DataSortExpression) -> SortExpression {
-    if sort.get_head_symbol().name() == "SortStruct" {
+    if is_structured_sort(sort) {
         raise_structured_sort(sort)
     } else if is_function_sort(sort) {
         let arrow = SortArrow::from(ATerm::from(sort.clone()));
@@ -238,43 +228,28 @@ pub fn raise_sort(sort: &DataSortExpression) -> SortExpression {
 
 /// Raises a `SortStruct([StructCons(name, [StructProj(projection, sort), …], recogniser), …])`.
 fn raise_structured_sort(sort: &DataSortExpression) -> SortExpression {
-    let constructors = ATermList::<ATerm>::from(sort.arg(0).protect());
-    SortExpressionKind::Struct {
-        inner: constructors
-            .iter()
-            .map(|constructor| {
-                let projections = ATermList::<ATerm>::from(constructor.arg(1).protect());
-                ConstructorDecl {
-                    name: spanned(identifier(&constructor.arg(0).protect()).expect("a constructor has a name")),
-                    args: projections
-                        .iter()
-                        .map(|projection| {
-                            (
-                                identifier(&projection.arg(0).protect()).map(spanned),
-                                raise_sort(&DataSortExpression::from(projection.arg(1).protect())),
-                            )
-                        })
-                        .collect(),
-                    recogniser: identifier(&constructor.arg(2).protect()).map(spanned),
-                }
-            })
-            .collect(),
-    }
-    .into()
-}
+    // The identifier that `term` stores, or `None` for the marker of an absent name.
+    let identifier = |term: ATerm| {
+        let name = term.get_head_symbol().name();
+        (!name.is_empty() && !is_no_value(&term)).then(|| Spanned::from(name.to_string()))
+    };
 
-/// The name `node` without a position.
-fn spanned(node: String) -> Spanned<String> {
-    Spanned {
-        node,
-        span: Span::default(),
-    }
-}
+    let mut constructors = Vec::new();
+    for constructor in ATermList::<ATerm>::from(sort.arg(0).protect()).iter() {
+        let mut args = Vec::new();
+        for projection in ATermList::<ATerm>::from(constructor.arg(1).protect()).iter() {
+            let projection_sort = raise_sort(&DataSortExpression::from(projection.arg(1).protect()));
+            args.push((identifier(projection.arg(0).protect()), projection_sort));
+        }
 
-/// The identifier that `term` stores, or `None` for the marker mCRL2 uses for an absent name.
-fn identifier(term: &ATerm) -> Option<String> {
-    let name = term.get_head_symbol().name().to_string();
-    (!name.is_empty() && name != "@NoValue").then_some(name)
+        constructors.push(ConstructorDecl {
+            name: identifier(constructor.arg(0).protect()).expect("a constructor has a name"),
+            args,
+            recogniser: identifier(constructor.arg(2).protect()),
+        });
+    }
+
+    SortExpressionKind::Struct { inner: constructors }.into()
 }
 
 /// The name of the function symbol at the head of `expr`, when it is a function symbol or an
@@ -302,120 +277,133 @@ fn arguments(expr: &DataExpression) -> Vec<DataExpression> {
 /// sort into a wider one are left out otherwise, since type checking inserts them again.
 fn decode_number(expr: &DataExpression) -> Option<DataExpr> {
     if let Some(value) = decode_natural(expr) {
-        return Some(number_literal(value));
+        return Some(DataExprKind::Number(value.to_string()).into());
     }
 
     let name = head_name(expr)?;
-    match (name.as_str(), arguments(expr).as_slice()) {
-        (C_NEG, [positive]) => Some(
-            DataExprKind::Unary {
-                op: DataExprUnaryOp::Minus,
-                expr: Box::new(raise_data_expression(positive)),
-            }
-            .into(),
-        ),
-        (C_NAT | POS2NAT | C_INT, [inner]) => Some(raise_data_expression(inner)),
+    let kind = match (name.as_str(), arguments(expr).as_slice()) {
+        (C_NEG, [positive]) => DataExprKind::Unary {
+            op: DataExprUnaryOp::Minus,
+            expr: Box::new(raise_data_expression(positive)),
+        },
+        (C_NAT | POS2NAT | C_INT, [inner]) => return Some(raise_data_expression(inner)),
         (C_REAL, [numerator, denominator]) => {
             let numerator = raise_data_expression(numerator);
-            if decode_natural(denominator).is_some_and(|denominator| denominator.is_one()) {
-                Some(numerator)
-            } else {
-                Some(
-                    DataExprKind::Binary {
-                        op: DataExprBinaryOp::Div,
-                        lhs: Box::new(numerator),
-                        rhs: Box::new(raise_data_expression(denominator)),
-                    }
-                    .into(),
-                )
+            if decode_natural(denominator).is_some_and(|denominator| denominator.digits == [1]) {
+                return Some(numerator);
+            }
+
+            DataExprKind::Binary {
+                op: DataExprBinaryOp::Div,
+                lhs: Box::new(numerator),
+                rhs: Box::new(raise_data_expression(denominator)),
             }
         }
-        _ => None,
-    }
+        _ => return None,
+    };
+    Some(kind.into())
 }
 
-/// Decodes a constant `Pos` or `Nat`.
+/// Decodes a constant `Pos` or `Nat`. The constructors are nested once per bit or machine word,
+/// so the chain is walked iteratively, outermost first, and the steps are applied innermost first.
 fn decode_natural(expr: &DataExpression) -> Option<Natural> {
-    if let DataExpressionKind::MachineNumber(word) = expr.kind() {
-        return Some(Natural::from_u64(word.value()));
+    /// A step from a number to the number that contains it.
+    enum Step {
+        /// `2 * value + bit`, for the binary constructor `@cDub(bit, value)`.
+        Bit(u64),
+        /// `2⁶⁴ * value + word`, for the machine word constructor `@concat_digit(value, word)`.
+        Word(u64),
     }
 
-    let name = head_name(expr)?;
-    match (name.as_str(), arguments(expr).as_slice()) {
-        (C0, []) => Some(Natural::from_u64(0)),
-        (C1, []) => Some(Natural::from_u64(1)),
-        (C_DUB, [bit, rest]) => {
-            let bit = match head_name(bit)?.as_str() {
-                "true" => 1,
-                "false" => 0,
-                _ => return None,
-            };
-            let mut value = decode_natural(rest)?;
-            value.mul_add(2, bit);
-            Some(value)
+    let mut steps = Vec::new();
+    let mut current = expr.clone();
+    let mut value = loop {
+        if let DataExpressionKind::MachineNumber(word) = current.kind() {
+            break Natural::from(word.value());
         }
-        (C_NAT | POS2NAT | MOST_SIGNIFICANT_DIGIT | MOST_SIGNIFICANT_DIGIT_NAT, [inner]) => decode_natural(inner),
-        (CONCAT_DIGIT, [rest, word]) => {
-            let DataExpressionKind::MachineNumber(word) = word.kind() else {
-                return None;
-            };
-            let mut value = decode_natural(rest)?;
-            // 2^64 * value + word, in two steps that fit the limb arithmetic.
-            value.mul_add(1 << 32, 0);
-            value.mul_add(1 << 32, word.value());
-            Some(value)
+
+        let name = head_name(&current)?;
+        current = match (name.as_str(), arguments(&current).as_slice()) {
+            (C0, []) => break Natural::from(0),
+            (C1, []) => break Natural::from(1),
+            (C_DUB, [bit, rest]) => {
+                let bit = match head_name(bit)?.as_str() {
+                    "true" => 1,
+                    "false" => 0,
+                    _ => return None,
+                };
+                steps.push(Step::Bit(bit));
+                rest.clone()
+            }
+            (CONCAT_DIGIT, [rest, word]) => {
+                let DataExpressionKind::MachineNumber(word) = word.kind() else {
+                    return None;
+                };
+                steps.push(Step::Word(word.value()));
+                rest.clone()
+            }
+            (C_NAT | POS2NAT | MOST_SIGNIFICANT_DIGIT | MOST_SIGNIFICANT_DIGIT_NAT, [inner]) => inner.clone(),
+            _ => return None,
+        };
+    };
+
+    for step in steps.into_iter().rev() {
+        match step {
+            Step::Bit(bit) => value.mul_add(2, bit),
+            Step::Word(word) => {
+                // In two steps, since a factor of 2⁶⁴ does not fit the digit arithmetic.
+                value.mul_add(1 << 32, 0);
+                value.mul_add(1 << 32, word);
+            }
         }
-        _ => None,
     }
+    Some(value)
 }
 
-fn number_literal(value: Natural) -> DataExpr {
-    DataExprKind::Number(value.to_string()).into()
-}
-
-/// An arbitrarily large natural number, as little-endian limbs in base `10⁹` so that printing it
-/// in decimal is direct.
+/// An arbitrarily large natural number, as little-endian digits in base `10⁹`, so that each digit
+/// prints as nine decimal digits.
 struct Natural {
-    limbs: Vec<u32>,
+    digits: Vec<u32>,
 }
 
-const LIMB_BASE: u128 = 1_000_000_000;
+/// The base of the digits of a [Natural].
+const DIGIT_BASE: u128 = 1_000_000_000;
 
-impl Natural {
-    fn from_u64(value: u64) -> Self {
-        let mut result = Natural { limbs: vec![0] };
+impl From<u64> for Natural {
+    fn from(value: u64) -> Self {
+        let mut result = Natural { digits: vec![0] };
         result.mul_add(1, value);
         result
     }
+}
 
-    fn is_one(&self) -> bool {
-        self.limbs == [1]
-    }
-
+impl Natural {
     /// Sets `self` to `self * factor + addend`.
     fn mul_add(&mut self, factor: u64, addend: u64) {
         let mut carry = addend as u128;
-        for limb in &mut self.limbs {
-            let value = *limb as u128 * factor as u128 + carry;
-            *limb = (value % LIMB_BASE) as u32;
-            carry = value / LIMB_BASE;
+        for digit in &mut self.digits {
+            let value = *digit as u128 * factor as u128 + carry;
+            *digit = (value % DIGIT_BASE) as u32;
+            carry = value / DIGIT_BASE;
         }
+
         while carry > 0 {
-            self.limbs.push((carry % LIMB_BASE) as u32);
-            carry /= LIMB_BASE;
+            self.digits.push((carry % DIGIT_BASE) as u32);
+            carry /= DIGIT_BASE;
         }
-        while self.limbs.len() > 1 && self.limbs.last() == Some(&0) {
-            self.limbs.pop();
+
+        while self.digits.len() > 1 && self.digits.last() == Some(&0) {
+            self.digits.pop();
         }
     }
 }
 
 impl fmt::Display for Natural {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut limbs = self.limbs.iter().rev();
-        write!(f, "{}", limbs.next().expect("a natural has at least one limb"))?;
-        for limb in limbs {
-            write!(f, "{limb:09}")?;
+        let mut digits = self.digits.iter().rev();
+        write!(f, "{}", digits.next().expect("a natural has at least one digit"))?;
+        for digit in digits {
+            write!(f, "{digit:09}")?;
         }
         Ok(())
     }

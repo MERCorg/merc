@@ -24,21 +24,22 @@ fn lower_and_raise(spec_text: &str, expr_text: &str, encoding: NumberEncoding) -
 
 const SPEC: &str = "map f: Nat -> Nat; g: Int # Int -> Bool;";
 
-#[test_case("1", "1" ; "one")]
-#[test_case("0", "0" ; "zero")]
-#[test_case("12345", "12345" ; "number")]
-#[test_case("18446744073709551617", "18446744073709551617" ; "beyond one machine word")]
-#[test_case("123456789012345678901234567890", "123456789012345678901234567890" ; "beyond two machine words")]
-#[test_case("-5 < 3", "-5 < 3" ; "negative")]
-#[test_case("f(2) + 3 * f(4)", "f(2) + 3 * f(4)" ; "precedence")]
-#[test_case("(f(2) + 3) * f(4)", "(f(2) + 3) * f(4)" ; "parentheses kept")]
-#[test_case("!(true && false) || g(1, -2)", "!(true && false) || g(1, -2)" ; "booleans")]
-#[test_case("forall m: Nat. f(m) > 0", "forall m: Nat. f(m) > 0" ; "quantifier")]
-#[test_case("[1, 2] ++ [3]", "[1, 2] ++ [3]" ; "lists")]
-#[test_case("x + 1 whr x = 2 end", "x + 1 whr x = 2 end" ; "where clause")]
+/// Lowering and then raising an expression prints it as it was written.
+#[test_case("1" ; "one")]
+#[test_case("0" ; "zero")]
+#[test_case("12345" ; "number")]
+#[test_case("18446744073709551617" ; "beyond one machine word")]
+#[test_case("123456789012345678901234567890" ; "beyond two machine words")]
+#[test_case("-5 < 3" ; "negative")]
+#[test_case("f(2) + 3 * f(4)" ; "precedence")]
+#[test_case("(f(2) + 3) * f(4)" ; "parentheses kept")]
+#[test_case("!(true && false) || g(1, -2)" ; "booleans")]
+#[test_case("forall m: Nat. f(m) > 0" ; "quantifier")]
+#[test_case("[1, 2] ++ [3]" ; "lists")]
+#[test_case("x + 1 whr x = 2 end" ; "where clause")]
 #[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
-fn test_raise(input: &str, expected: &str) {
+fn test_raise(input: &str) {
     for encoding in [NumberEncoding::Binary, NumberEncoding::MachineWord] {
-        assert_eq!(lower_and_raise(SPEC, input, encoding), expected, "{encoding:?}");
+        assert_eq!(lower_and_raise(SPEC, input, encoding), input, "{encoding:?}");
     }
 }
