@@ -228,36 +228,92 @@ impl fmt::Display for DataExpr {
             ),
             DataExprKind::Set(expressions) => write!(f, "{{ {} }}", expressions.iter().format(", ")),
             DataExprKind::Id(identifier) | DataExprKind::Resolved(identifier, _) => write!(f, "{identifier}"),
-            DataExprKind::Binary { op, lhs, rhs } => write!(f, "({lhs} {op} {rhs})"),
-            DataExprKind::Unary { op, expr } => write!(f, "({op} {expr})"),
+            DataExprKind::Binary { op, lhs, rhs } => {
+                let fixity = self.fixity();
+                let Fixity::Infix(level, assoc) = fixity else {
+                    unreachable!("a binary operator is infix")
+                };
+                write_operand(f, lhs, level, assoc == Assoc::Right, true)?;
+                write!(f, " {op} ")?;
+                write_operand(f, rhs, level, assoc == Assoc::Left, false)
+            }
+            DataExprKind::Unary { op, expr } => {
+                write!(f, "{op}")?;
+                write_operand(f, expr, self.fixity().level(), true, false)
+            }
             DataExprKind::Bool(value) => write!(f, "{value}"),
             DataExprKind::Quantifier { op, variables, body } => {
-                write!(f, "({} {} . {})", op, variables.iter().format(", "), body)
+                write!(f, "{} {}. ", op, variables.iter().format(", "))?;
+                write_operand(f, body, self.fixity().level(), true, false)
             }
             DataExprKind::Lambda { variables, body } => {
-                write!(f, "({} {} . {})", Keyword::Lambda, variables.iter().format(", "), body)
+                write!(f, "{} {}. ", Keyword::Lambda, variables.iter().format(", "))?;
+                write_operand(f, body, self.fixity().level(), true, false)
             }
             DataExprKind::Application { function, arguments } => {
-                if arguments.is_empty() {
-                    write!(f, "{function}")
-                } else {
-                    write!(f, "{}({})", function, arguments.iter().format(", "))
+                write_operand(f, function, self.fixity().level(), true, true)?;
+                if !arguments.is_empty() {
+                    write!(f, "({})", arguments.iter().format(", "))?;
                 }
+                Ok(())
             }
             DataExprKind::Number(value) => write!(f, "{value}"),
-            DataExprKind::FunctionUpdate { expr, update } => write!(f, "{expr}[{update}]"),
+            DataExprKind::FunctionUpdate { expr, update } => {
+                write_operand(f, expr, self.fixity().level(), true, true)?;
+                write!(f, "[{update}]")
+            }
             DataExprKind::SetBagComp { variable, predicate } => write!(f, "{{ {variable} | {predicate} }}"),
             DataExprKind::Whr { expr, assignments } => {
+                write_operand(f, expr, self.fixity().level(), true, true)?;
                 write!(
                     f,
-                    "{} {} {} {}",
-                    expr,
+                    " {} {} {}",
                     Keyword::Whr,
                     assignments.iter().format(", "),
                     Keyword::End
                 )
             }
         }
+    }
+}
+
+/// Writes `operand` of an operator at `level`, between parentheses only when parsing the text
+/// back would otherwise group it differently:
+///  - when it binds weaker than the operator, except for a prefix operator that nothing follows,
+///    since the grammar allows a prefix operator in any operand position;
+///  - when it is an infix operator of the same level and `tie` holds, which is the case for the
+///    operand of a prefix or postfix operator and for the side that the associativity of an infix
+///    operator does not group;
+///  - when the operator continues after it (`followed`) and a prefix operator on its right spine
+///    does not bind tighter than the operator, since that prefix operator would then extend over
+///    the continuation, as `forall` does in `(a && forall x: Nat. b) || c` and `-` in `(-a) * b`.
+fn write_operand(f: &mut fmt::Formatter, operand: &DataExpr, level: u8, tie: bool, followed: bool) -> fmt::Result {
+    let fixity = operand.fixity();
+    let mut parenthesised = match fixity {
+        Fixity::Prefix(_) => false,
+        Fixity::Infix(infix, _) if infix == level => tie,
+        _ => fixity.level() < level,
+    };
+
+    if followed && !parenthesised {
+        let mut current = operand;
+        loop {
+            current = match (current.fixity(), &current.node) {
+                (Fixity::Prefix(prefix), _) if prefix <= level => {
+                    parenthesised = true;
+                    break;
+                }
+                (Fixity::Prefix(_), _) => current.operand().expect("a prefix operator has an operand"),
+                (_, DataExprKind::Binary { rhs, .. }) => rhs,
+                _ => break,
+            };
+        }
+    }
+
+    if parenthesised {
+        write!(f, "({operand})")
+    } else {
+        write!(f, "{operand}")
     }
 }
 
