@@ -23,7 +23,8 @@ exclude = [
 edition = "2024"
 license = "BSL-1.0"
 rust-version = "1.91.0"
-version = "1.0.0"
+# Keep this equal to the release version in the root Cargo.toml.
+version = "3.0.0"
 
 [workspace.dependencies]
 clap = { version = "4.6", features = ["derive"] }
@@ -50,7 +51,7 @@ which = "8.0"
 # The workspace libraries.
 mcrl2 = { path = "crates/mcrl2" }
 mcrl2-macros = { path = "crates/mcrl2-macros" }
-mcrl2-sys = { git = "https://github.com/MERCorg/mCRL2-sys", rev = "82286b2015bf24a5198ffc76731441a0aea333a9" }
+mcrl2-sys = { git = "https://github.com/MERCorg/mCRL2-sys", rev = "9899be69df2e2772a0f45f474fcf9853fab301af" }
 merc_lps = { path = "crates/merc_lps" }
 merc_pbes = { path = "crates/merc_pbes" }
 

@@ -15,7 +15,7 @@ doc = false
 metrics = ["merc_lps/metrics"]
 
 [dependencies]
-mcrl2.workspace = true
+mcrl2 = { workspace = true, features = ["clap"] }
 merc_explore = { workspace = true, features = ["clap"] }
 merc_lps = { workspace = true, features = ["clap"] }
 merc_lts = { workspace = true, features = ["clap"] }
@@ -28,3 +28,7 @@ oxidd.workspace = true
 clap.workspace = true
 env_logger.workspace = true
 log.workspace = true
+
+# The compiling rewriter is only supported on unix platforms, so it is enabled by default on those.
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+mcrl2 = { workspace = true, features = ["jittyc"] }

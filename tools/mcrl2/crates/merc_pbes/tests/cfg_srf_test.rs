@@ -14,6 +14,8 @@ use merc_vpg::ParityGameBuilder;
 use merc_vpg::VertexIndex;
 use merc_vpg::solve_zielonka;
 
+use mcrl2::DataRewriter;
+use mcrl2::RewriteStrategy;
 use merc_pbes::CfgPbesSrfLps;
 use merc_pbes::explore_srf_pbes;
 
@@ -34,8 +36,12 @@ fn assert_cfg_matches_srf(pbes: &Pbes) {
     let mut normalised = pbes.clone();
     normalised.normalize();
 
+    let input_spec = unified_srf(&normalised);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let reference = explore_srf_pbes(
-        unified_srf(&normalised),
+        input_spec,
+        rewriter,
         ExplorationStrategy::Bfs,
         CachingStrategy::None,
         false,
@@ -44,8 +50,12 @@ fn assert_cfg_matches_srf(pbes: &Pbes) {
     )
     .expect("SRF exploration failed");
 
+    let input_spec = unified_srf(&normalised);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let cfg = explore_srf_pbes(
-        unified_srf(&normalised),
+        input_spec,
+        rewriter,
         ExplorationStrategy::Bfs,
         CachingStrategy::None,
         true,
@@ -159,7 +169,10 @@ fn test_cfg_finds_control_flow_parameter() {
     let mut pbes = Pbes::from_text(CFP_PBES).expect("Failed to parse PBES");
     pbes.normalize();
 
-    let lps = CfgPbesSrfLps::new(unified_srf(&pbes)).expect("Failed to build control-flow SRF view");
+    let input_spec = unified_srf(&pbes);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
+    let lps = CfgPbesSrfLps::new(input_spec, rewriter).expect("Failed to build control-flow SRF view");
     assert_eq!(
         lps.control_flow_parameters().len(),
         1,

@@ -36,6 +36,7 @@ use crate::ATerm;
 use crate::ATermList;
 use crate::DataExpression;
 use crate::DataExpressionRef;
+use crate::DataRewriter;
 use crate::DataSpecification;
 use crate::DataVariable;
 
@@ -274,15 +275,17 @@ pub struct LearnSuccessorsContext {
 }
 
 impl LearnSuccessorsContext {
-    /// Creates a new context from the given LPS specification.
+    /// Creates a new context from the given LPS specification, which rewrites
+    /// with a clone of `rewriter`, a rewriter for the data specification of `lps`.
     ///
     /// When the LPS carries a constant substitution recorded by the
     /// `replace_constants_by_variables` preprocessing step, it is seeded into
     /// the context's substitution.
-    pub fn new(lps: &LinearProcessSpecification) -> Self {
+    pub fn new(lps: &LinearProcessSpecification, rewriter: &DataRewriter) -> Self {
         let context = LearnSuccessorsContext {
             context: RefCell::new(mcrl2_lps_create_learn_successors_context(
                 lps.lps.as_ref().expect("The lps is always defined"),
+                rewriter.get(),
             )),
             _marker: PhantomUnsend::default(),
         };
@@ -314,11 +317,14 @@ impl LearnSuccessorsContext {
         }
     }
 
-    /// Creates a new context from a data specification (used when no LPS is available).
-    pub fn from_data_spec(data_spec: &DataSpecification) -> Self {
+    /// Creates a new context from a data specification (used when no LPS is
+    /// available), which rewrites with a clone of `rewriter`, a rewriter for
+    /// `data_spec`.
+    pub fn from_data_spec(data_spec: &DataSpecification, rewriter: &DataRewriter) -> Self {
         LearnSuccessorsContext {
             context: RefCell::new(mcrl2_lps_create_learn_successors_context_from_data_spec(
                 data_spec.get(),
+                rewriter.get(),
             )),
             _marker: PhantomUnsend::default(),
         }

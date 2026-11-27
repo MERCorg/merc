@@ -10,6 +10,7 @@ use mcrl2::ATerm;
 use mcrl2::ATermList;
 use mcrl2::DataExpression;
 use mcrl2::DataExpressionRef;
+use mcrl2::DataRewriter;
 use mcrl2::DataSpecification;
 use mcrl2::DataVariable;
 use mcrl2::LearnSuccessorsContext;
@@ -49,6 +50,7 @@ use crate::explore_common::explore_pbes_parallel_impl;
 /// pruning never changes the resulting parity game.
 pub fn explore_srf_pbes<B: PGBuilder>(
     srf_pbes: SrfPbes,
+    rewriter: DataRewriter,
     strategy: ExplorationStrategy,
     caching: CachingStrategy,
     control_flow: bool,
@@ -56,7 +58,7 @@ pub fn explore_srf_pbes<B: PGBuilder>(
     builder: B,
 ) -> Result<B::PG, MercError> {
     if control_flow {
-        let lps = CfgPbesSrfLps::new(srf_pbes)?;
+        let lps = CfgPbesSrfLps::new(srf_pbes, rewriter)?;
         info!(
             "Control flow analysis identified {} control flow parameter(s)",
             lps.control_flow_parameters().len()
@@ -65,7 +67,7 @@ pub fn explore_srf_pbes<B: PGBuilder>(
         debug!("{}", lps.metrics());
         result
     } else {
-        let lps = PbesSrfLps::new(srf_pbes)?;
+        let lps = PbesSrfLps::new(srf_pbes, rewriter)?;
         explore_srf_lps(&lps, strategy, caching, timing, builder)
     }
 }
@@ -75,8 +77,10 @@ pub fn explore_srf_pbes<B: PGBuilder>(
 ///
 /// As for [`explore_srf_pbes`], `control_flow` layers a [`CfgPbesSrfLps`] on top
 /// of the plain SRF view.
+#[allow(clippy::too_many_arguments)]
 pub fn explore_srf_pbes_parallel<B: PGBuilder>(
     srf_pbes: SrfPbes,
+    rewriter: DataRewriter,
     threads: usize,
     caching: CachingStrategy,
     control_flow: bool,
@@ -85,7 +89,7 @@ pub fn explore_srf_pbes_parallel<B: PGBuilder>(
     builder: B,
 ) -> Result<B::PG, MercError> {
     if control_flow {
-        let lps = CfgPbesSrfLps::new(srf_pbes)?;
+        let lps = CfgPbesSrfLps::new(srf_pbes, rewriter)?;
         info!(
             "Control flow analysis identified {} control flow parameter(s)",
             lps.control_flow_parameters().len()
@@ -94,7 +98,7 @@ pub fn explore_srf_pbes_parallel<B: PGBuilder>(
         debug!("{}", lps.metrics());
         result
     } else {
-        let lps = PbesSrfLps::new(srf_pbes)?;
+        let lps = PbesSrfLps::new(srf_pbes, rewriter)?;
         explore_srf_lps_parallel(&lps, threads, caching, pinned, timing, builder)
     }
 }
@@ -177,6 +181,10 @@ pub struct PbesSrfLps {
 
     /// Data specification used to build each per-thread [`PbesSrfContext`].
     data_spec: DataSpecification,
+
+    /// The data rewriter that every [`LearnSuccessorsContext`] clones, so the
+    /// compiling rewriter compiles the rewrite rules only once.
+    rewriter: DataRewriter,
 
     /// Flat list of summands, one per `(equation, srf_summand)` pair.
     summands: Vec<PbesSrfSummand>,
@@ -263,7 +271,7 @@ impl PbesSrfLps {
     /// Constructs a new [`PbesSrfLps`] from a PBES. Requires that the PBES has
     /// been converted to SRF and that all equations share the same parameter
     /// vector.
-    pub fn new(srf_pbes: SrfPbes) -> Result<Self, MercError> {
+    pub fn new(srf_pbes: SrfPbes, rewriter: DataRewriter) -> Result<Self, MercError> {
         if srf_pbes.equations().is_empty() {
             return Err("PBES has no equations".into());
         }
@@ -445,6 +453,7 @@ impl PbesSrfLps {
         Ok(Self {
             srf: srf_pbes,
             data_spec,
+            rewriter,
             summands,
             equation_summands,
             equation_reachable,
@@ -479,7 +488,7 @@ impl PbesSrfLps {
     /// normal form, independent of the per-thread enumeration contexts created by
     /// [`LPS::create_context`]. Used by [`mcrl2::ControlFlowGraph`].
     pub fn analysis_context(&self) -> LearnSuccessorsContext {
-        LearnSuccessorsContext::from_data_spec(&self.data_spec)
+        LearnSuccessorsContext::from_data_spec(&self.data_spec, &self.rewriter)
     }
 
     /// Whether `equation_index` is reachable from the initial equation via the
@@ -535,7 +544,7 @@ impl LPS for PbesSrfLps {
 
     fn create_context(&self) -> PbesSrfContext {
         PbesSrfContext {
-            context: LearnSuccessorsContext::from_data_spec(&self.data_spec),
+            context: LearnSuccessorsContext::from_data_spec(&self.data_spec, &self.rewriter),
             parameter_values: Vec::with_capacity(self.num_params),
             next_state_buf: vec![0; 1 + self.num_params],
         }

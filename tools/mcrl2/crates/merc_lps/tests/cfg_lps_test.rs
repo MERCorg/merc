@@ -19,6 +19,8 @@ use merc_syntax::random_lps;
 use merc_utilities::Timing;
 use merc_utilities::random_test;
 
+use mcrl2::DataRewriter;
+use mcrl2::RewriteStrategy;
 use merc_lps::Mcrl2MultiActionLabel;
 use merc_lps::explore_lps_explicit;
 
@@ -36,9 +38,13 @@ fn read_preprocessed_lps(lps_path: &Path) -> LinearProcessSpecification {
 /// whose guard cannot hold must never change the explored transition system.
 fn assert_cfg_matches_explicit(lps_path: &Path) {
     let mut reference_builder: LtsBuilderMem<Mcrl2MultiActionLabel> = LtsBuilderMem::new(Vec::new(), Vec::new());
+    let input_spec = read_preprocessed_lps(lps_path);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     explore_lps_explicit(
         &mut reference_builder,
-        read_preprocessed_lps(lps_path),
+        input_spec,
+        rewriter,
         CachingStrategy::None,
         ExplorationStrategy::Dfs,
         false,
@@ -51,9 +57,13 @@ fn assert_cfg_matches_explicit(lps_path: &Path) {
         .unwrap();
 
     let mut cfg_builder: LtsBuilderMem<Mcrl2MultiActionLabel> = LtsBuilderMem::new(Vec::new(), Vec::new());
+    let input_spec = read_preprocessed_lps(lps_path);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     explore_lps_explicit(
         &mut cfg_builder,
-        read_preprocessed_lps(lps_path),
+        input_spec,
+        rewriter,
         CachingStrategy::None,
         ExplorationStrategy::Dfs,
         true,

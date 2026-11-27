@@ -14,6 +14,7 @@ merc_tools.workspace = true
 merc_unsafety.workspace = true
 merc_utilities.workspace = true
 
+clap = { workspace = true, optional = true }
 itertools.workspace = true
 log.workspace = true
 parking_lot.workspace = true
@@ -27,8 +28,11 @@ merc_lowering.workspace = true
 merc_typecheck.workspace = true
 
 [features]
+# Derive the `clap::ValueEnum` trait.
+clap = ["dep:clap"]
+
 # Enables the compiling rewriter option for mCRL2.
-jittyc = []
+jittyc = ["mcrl2-sys/jittyc"]
 
 # Enables the C++ trace option for mCRL2.
 cpptrace = ["mcrl2-sys/cpptrace"]

@@ -11,6 +11,7 @@ use mcrl2::_aterm;
 use mcrl2::ATermStringRef;
 use mcrl2::DataExpression;
 use mcrl2::DataExpressionRef;
+use mcrl2::DataRewriter;
 use mcrl2::DataSpecification;
 use mcrl2::DataVariable;
 use mcrl2::Pbes;
@@ -154,6 +155,10 @@ pub struct PbesLps {
     /// Data specification used to build each per-thread [`PbesContext`].
     data_spec: DataSpecification,
 
+    /// The data rewriter that each per-thread [`PbesContext`] clones, so the
+    /// compiling rewriter compiles the rewrite rules only once.
+    data_rewriter: DataRewriter,
+
     /// Flat list of summands: summand `i` instantiates equation `i` (so a source
     /// state fires exactly the summand named by its equation index `state[0]`),
     /// followed by the two sink summands and the subformula summand.
@@ -264,7 +269,7 @@ pub struct PbesContext {
 }
 
 impl PbesLps {
-    pub fn new(mut pbes: Pbes) -> Result<Self, MercError> {
+    pub fn new(mut pbes: Pbes, data_rewriter: DataRewriter) -> Result<Self, MercError> {
         // `unify_parameters` keeps the original parameters of counter-example
         // equations, which breaks the assumption below that every equation
         // shares the parameters of the first one.
@@ -335,7 +340,7 @@ impl PbesLps {
         // Building a rewriter normalises the data specification *in place*: it
         // imports the system-defined sorts and appends their constructors, which
         // reallocates vectors of aterms.
-        let rewriter = PbesRewriteContext::from_data_spec(&data_spec)?;
+        let rewriter = PbesRewriteContext::from_data_spec(&data_spec, &data_rewriter);
 
         // Rewrite the initial state before interning it.
         let initial_expr = PbesExpression::from(pbes.initial_state());
@@ -419,6 +424,7 @@ impl PbesLps {
         Ok(PbesLps {
             pbes,
             data_spec,
+            data_rewriter,
             summands,
             true_sink_summand,
             false_sink_summand,
@@ -468,11 +474,7 @@ impl LPS for PbesLps {
 
     fn create_context(&self) -> PbesContext {
         PbesContext {
-            // The data specification was already accepted (and normalised) when
-            // this explorer was constructed, so building another rewriter for it
-            // cannot fail here.
-            rewrite: PbesRewriteContext::from_data_spec(&self.data_spec)
-                .expect("the data specification was already accepted during construction"),
+            rewrite: PbesRewriteContext::from_data_spec(&self.data_spec, &self.data_rewriter),
             parameter_values: Vec::with_capacity(self.num_params),
             next_state_buf: Vec::with_capacity(1 + self.num_params),
             chain_stack: PbesFlattenStack::new(),
@@ -757,11 +759,12 @@ where
 /// explorer, so it is deliberately not offered; see [`PbesLps`] for the details.
 pub fn explore_pbes<B: PGBuilder>(
     pbes: Pbes,
+    data_rewriter: DataRewriter,
     strategy: ExplorationStrategy,
     timing: &Timing,
     builder: B,
 ) -> Result<B::PG, MercError> {
-    let lps = PbesLps::new(pbes)?;
+    let lps = PbesLps::new(pbes, data_rewriter)?;
     explore_pbes_impl(&lps, strategy, timing, builder)
 }
 
@@ -771,12 +774,13 @@ pub fn explore_pbes<B: PGBuilder>(
 /// Caching is not offered here either, for the reasons given on [`explore_pbes`].
 pub fn explore_pbes_parallel<B: PGBuilder>(
     pbes: Pbes,
+    data_rewriter: DataRewriter,
     threads: usize,
     pinned: bool,
     timing: &Timing,
     builder: B,
 ) -> Result<B::PG, MercError> {
-    let lps = PbesLps::new(pbes)?;
+    let lps = PbesLps::new(pbes, data_rewriter)?;
     explore_pbes_parallel_impl(&lps, threads, pinned, timing, builder)
 }
 

@@ -13,6 +13,7 @@ use mcrl2::ATermList;
 use mcrl2::ATermSend;
 use mcrl2::DataExpression;
 use mcrl2::DataExpressionRef;
+use mcrl2::DataRewriter;
 use mcrl2::DataVariable;
 use mcrl2::LearnSuccessorsContext;
 use mcrl2::LinearProcessSpecification;
@@ -71,6 +72,7 @@ pub fn lps_progress() -> TimeProgress<(usize, usize)> {
 pub fn explore_lps_explicit<B>(
     builder: &mut B,
     lps: LinearProcessSpecification,
+    rewriter: DataRewriter,
     caching: CachingStrategy,
     strategy: ExplorationStrategy,
     control_flow: bool,
@@ -80,7 +82,7 @@ where
     B: LtsBuilder<Mcrl2MultiActionLabel>,
 {
     if control_flow {
-        let lps = CfgLinearProcessSpecification::new(lps)?;
+        let lps = CfgLinearProcessSpecification::new(lps, rewriter)?;
         info!(
             "Control flow analysis identified {} control flow parameter(s)",
             lps.control_flow_parameters().len()
@@ -89,7 +91,7 @@ where
         debug!("{}", lps.metrics());
         result
     } else {
-        let lps = ExplicitLinearProcessSpecification::new(lps)?;
+        let lps = ExplicitLinearProcessSpecification::new(lps, rewriter)?;
         debug!("{lps:?}");
         explore_lps_explicit_impl(builder, &lps, caching, strategy, timing)
     }
@@ -185,9 +187,11 @@ where
 ///
 /// As for [`explore_lps_explicit`], the LPS is explored as given: preprocessing
 /// it is the caller's responsibility.
+#[allow(clippy::too_many_arguments)]
 pub fn explore_lps_explicit_parallel<B>(
     builder: &mut B,
     lps: LinearProcessSpecification,
+    rewriter: DataRewriter,
     caching: CachingStrategy,
     threads: usize,
     control_flow: bool,
@@ -198,7 +202,7 @@ where
     B: ConcurrentLtsBuilder<Mcrl2MultiActionLabel>,
 {
     if control_flow {
-        let lps = CfgLinearProcessSpecification::new(lps)?;
+        let lps = CfgLinearProcessSpecification::new(lps, rewriter)?;
         info!(
             "Control flow analysis identified {} control flow parameter(s)",
             lps.control_flow_parameters().len()
@@ -207,7 +211,7 @@ where
         debug!("{}", lps.metrics());
         result
     } else {
-        let lps = ExplicitLinearProcessSpecification::new(lps)?;
+        let lps = ExplicitLinearProcessSpecification::new(lps, rewriter)?;
         explore_lps_explicit_parallel_impl(builder, &lps, caching, threads, pinned, timing)
     }
 }
@@ -456,6 +460,10 @@ pub struct ExplicitLinearProcessSpecification {
     /// builds its own [`LearnSuccessorsContext`] from it.
     lps: LinearProcessSpecification,
 
+    /// The data rewriter of the LPS, which every [`LearnSuccessorsContext`]
+    /// clones, so the compiling rewriter compiles its rewrite rules only once.
+    rewriter: DataRewriter,
+
     /// Cached process parameter variables in declaration order.
     process_parameters: Vec<*const _aterm>,
 
@@ -483,7 +491,7 @@ type ValueMapping = ConcurrentIndexedSet<DataExpressionRef<'static>>;
 unsafe impl Sync for ExplicitLinearProcessSpecification {}
 
 impl ExplicitLinearProcessSpecification {
-    pub fn new(lps: LinearProcessSpecification) -> Result<Self, MercError> {
+    pub fn new(lps: LinearProcessSpecification, rewriter: DataRewriter) -> Result<Self, MercError> {
         let parameters = lps.parameters();
         let parameter_terms: Vec<DataVariable> = parameters.to_vec();
         let process_parameters: Vec<*const _aterm> = parameter_terms.iter().map(|param| param.address()).collect();
@@ -505,7 +513,7 @@ impl ExplicitLinearProcessSpecification {
         // Temporary enumeration context used to rewrite the initial state
         // expressions to normal form. Its substitution is seeded with the
         // constant assignments recorded during preprocessing.
-        let context = LearnSuccessorsContext::new(&lps);
+        let context = LearnSuccessorsContext::new(&lps, &rewriter);
 
         let initial_state = lps
             .initial_process()
@@ -533,6 +541,7 @@ impl ExplicitLinearProcessSpecification {
 
         Ok(ExplicitLinearProcessSpecification {
             lps,
+            rewriter,
             summands,
             process_parameters,
             value_mapping,
@@ -548,6 +557,11 @@ impl ExplicitLinearProcessSpecification {
     /// The underlying linear process specification.
     pub fn lps(&self) -> &LinearProcessSpecification {
         &self.lps
+    }
+
+    /// The data rewriter of the LPS, to create a [`LearnSuccessorsContext`] with.
+    pub fn rewriter(&self) -> &DataRewriter {
+        &self.rewriter
     }
 
     /// Recovers the typed value interned at `index` in the shared value mapping,
@@ -733,7 +747,7 @@ impl LPS for ExplicitLinearProcessSpecification {
 
     fn create_context(&self) -> ExplicitContext {
         ExplicitContext {
-            context: LearnSuccessorsContext::new(&self.lps),
+            context: LearnSuccessorsContext::new(&self.lps, &self.rewriter),
             parameter_values: Vec::with_capacity(self.process_parameters.len()),
             next_state_buf: Vec::new(),
         }

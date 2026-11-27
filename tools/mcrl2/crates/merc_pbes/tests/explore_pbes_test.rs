@@ -13,6 +13,8 @@ use merc_vpg::ParityGameBuilder;
 use merc_vpg::VertexIndex;
 use merc_vpg::solve_zielonka;
 
+use mcrl2::DataRewriter;
+use mcrl2::RewriteStrategy;
 use merc_pbes::explore_pbes;
 use merc_pbes::explore_pbes_parallel;
 use merc_pbes::explore_srf_pbes;
@@ -32,8 +34,12 @@ fn assert_general_matches_srf(pbes: &Pbes) {
     let mut normalised = pbes.clone();
     normalised.normalize();
 
+    let input_spec = unified_srf(&normalised);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let game_srf = explore_srf_pbes(
-        unified_srf(&normalised),
+        input_spec,
+        rewriter,
         ExplorationStrategy::Bfs,
         CachingStrategy::None,
         false,
@@ -41,8 +47,11 @@ fn assert_general_matches_srf(pbes: &Pbes) {
         ParityGameBuilder::new(VertexIndex::new(0)),
     )
     .expect("SRF exploration failed");
+    let rewriter = DataRewriter::new(&normalised.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let game_gen = explore_pbes(
         normalised,
+        rewriter,
         ExplorationStrategy::Bfs,
         &Timing::new(),
         ParityGameBuilder::new(VertexIndex::new(0)),
@@ -170,15 +179,22 @@ fn assert_cached_matches_uncached(pbes: &Pbes) {
     let mut normalised = pbes.clone();
     normalised.normalize();
 
+    let input_spec = normalised.clone();
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let game_uncached = explore_pbes(
-        normalised.clone(),
+        input_spec,
+        rewriter,
         ExplorationStrategy::Bfs,
         &Timing::new(),
         ParityGameBuilder::new(VertexIndex::new(0)),
     )
     .expect("uncached exploration failed");
+    let rewriter = DataRewriter::new(&normalised.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let game_cached = explore_pbes(
         normalised,
+        rewriter,
         ExplorationStrategy::Bfs,
         &Timing::new(),
         ParityGameBuilder::new(VertexIndex::new(0)),
@@ -283,8 +299,12 @@ fn assert_parallel_matches_sequential(pbes: &Pbes) {
     let mut normalised = pbes.clone();
     normalised.normalize();
 
+    let input_spec = normalised.clone();
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let sequential = explore_pbes(
-        normalised.clone(),
+        input_spec,
+        rewriter,
         ExplorationStrategy::Bfs,
         &Timing::new(),
         ParityGameBuilder::new(VertexIndex::new(0)),
@@ -293,8 +313,12 @@ fn assert_parallel_matches_sequential(pbes: &Pbes) {
     let (sol_sequential, _) = solve_zielonka(&sequential, false);
 
     for caching in [CachingStrategy::None, CachingStrategy::Local] {
+        let input_spec = normalised.clone();
+        let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+            .expect("the rewriter should be built");
         let parallel = explore_pbes_parallel(
-            normalised.clone(),
+            input_spec,
+            rewriter,
             4,
             false,
             &Timing::new(),
@@ -341,8 +365,11 @@ fn test_parallel_data_param_with_pvi() {
 fn test_initial_state_is_rewritten() {
     let pbes = Pbes::from_text("pbes nu X(n: Nat) = val(n >= 3) || X(n + 1);\ninit X(1 + 1);").expect("parse failed");
 
+    let rewriter = DataRewriter::new(&pbes.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let game = explore_pbes(
         pbes,
+        rewriter,
         ExplorationStrategy::Bfs,
         &Timing::new(),
         ParityGameBuilder::new(VertexIndex::new(0)),
@@ -360,9 +387,12 @@ fn test_preprocess_instantiates_global_variables() {
     let text = "glob g: Nat;\npbes nu X(n: Nat) = val(n >= 3) || X(n + 1);\ninit X(g);";
 
     let unprocessed = Pbes::from_text(text).expect("parse failed");
+    let rewriter = DataRewriter::new(&unprocessed.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     assert!(
         explore_pbes(
             unprocessed,
+            rewriter,
             ExplorationStrategy::Bfs,
             &Timing::new(),
             ParityGameBuilder::new(VertexIndex::new(0)),
@@ -373,8 +403,11 @@ fn test_preprocess_instantiates_global_variables() {
 
     let mut preprocessed = Pbes::from_text(text).expect("parse failed");
     preprocessed.preprocess(&Timing::new()).expect("preprocessing failed");
+    let rewriter = DataRewriter::new(&preprocessed.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     explore_pbes(
         preprocessed,
+        rewriter,
         ExplorationStrategy::Bfs,
         &Timing::new(),
         ParityGameBuilder::new(VertexIndex::new(0)),
@@ -407,8 +440,11 @@ fn test_shared_subformula_is_one_vertex() {
 
     let mut normalised = pbes.clone();
     normalised.normalize();
+    let rewriter = DataRewriter::new(&normalised.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let game = explore_pbes(
         normalised,
+        rewriter,
         ExplorationStrategy::Bfs,
         &Timing::new(),
         ParityGameBuilder::new(VertexIndex::new(0)),

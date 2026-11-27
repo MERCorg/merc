@@ -5,6 +5,7 @@ use oxidd::ldd::LDDFunction;
 use oxidd::ldd::LDDManagerRef;
 
 use mcrl2::ATerm as Mcrl2ATerm;
+use mcrl2::DataRewriter;
 use mcrl2::LinearProcessSpecification;
 use mcrl2::mcrl2_aterm_to_merc;
 use merc_data::DataExpression;
@@ -48,12 +49,13 @@ use crate::explore_explicit::ExplicitLinearProcessSpecification;
 pub fn explore_lps_symbolic<F: FnMut(usize, &LDDFunction) -> ControlFlow<()>>(
     storage: &LDDManagerRef,
     lps: LinearProcessSpecification,
+    rewriter: DataRewriter,
     encoding: &SymbolicLpsOptions,
     options: &ReachabilityOptions,
     timing: &Timing,
     on_iteration: F,
 ) -> Result<ReachabilityResult, MercError> {
-    let lps = ExplicitLinearProcessSpecification::new(lps)?;
+    let lps = ExplicitLinearProcessSpecification::new(lps, rewriter)?;
     let mut symbolic = SymbolicLps::with_options(storage, lps, encoding)?;
 
     debug!("{symbolic:?}");
@@ -79,12 +81,13 @@ pub fn explore_lps_symbolic<F: FnMut(usize, &LDDFunction) -> ControlFlow<()>>(
 pub fn explore_lps_symbolic_to_sym<F: FnMut(usize, &LDDFunction) -> ControlFlow<()>>(
     storage: &LDDManagerRef,
     lps: LinearProcessSpecification,
+    rewriter: DataRewriter,
     encoding: &SymbolicLpsOptions,
     options: &ReachabilityOptions,
     timing: &Timing,
     on_iteration: F,
 ) -> Result<(SymbolicLts<LtsMultiAction<LtsAction>>, Option<LDDFunction>), MercError> {
-    let lps = ExplicitLinearProcessSpecification::new(lps)?;
+    let lps = ExplicitLinearProcessSpecification::new(lps, rewriter)?;
     let mut symbolic = SymbolicLps::with_options(storage, lps, encoding)?;
 
     debug!("{symbolic:?}");
@@ -181,7 +184,9 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
 
+    use mcrl2::DataRewriter;
     use mcrl2::PreprocessOptions;
+    use mcrl2::RewriteStrategy;
     use mcrl2::preprocess;
     use mcrl2::read_lps;
     use merc_io::traced_command;
@@ -338,9 +343,12 @@ mod tests {
         let storage = oxidd::ldd::new_manager(LDD_NODE_CAPACITY, LDD_CACHE_CAPACITY, 1);
         let timing = Timing::new();
 
+        let rewriter = DataRewriter::new(&lps.data_specification(), RewriteStrategy::default())
+            .expect("the rewriter should be built");
         let states = explore_lps_symbolic(
             &storage,
             lps,
+            rewriter,
             &SymbolicLpsOptions::default(),
             &ReachabilityOptions::default(),
             &timing,
@@ -400,10 +408,13 @@ mod tests {
             // 1. merc-lps LDD path: explore the .lps directly via merc's symbolic engine.
             let lps = read_lps(lps_path.to_str().unwrap()).expect("Failed to read LPS");
             let lps = preprocess(&lps, &PreprocessOptions::default()).expect("Failed to preprocess LPS");
+            let rewriter = DataRewriter::new(&lps.data_specification(), RewriteStrategy::default())
+                .expect("the rewriter should be built");
             let lps_ldd_count = count(
                 &explore_lps_symbolic(
                     &storage,
                     lps,
+                    rewriter,
                     &SymbolicLpsOptions::default(),
                     &ReachabilityOptions::default(),
                     &timing,
@@ -454,9 +465,12 @@ mod tests {
             //    valid and round-trips to the same reachable set.
             let lps = read_lps(lps_path.to_str().unwrap()).expect("Failed to read LPS");
             let lps = preprocess(&lps, &PreprocessOptions::default()).expect("Failed to preprocess LPS");
+            let rewriter = DataRewriter::new(&lps.data_specification(), RewriteStrategy::default())
+                .expect("the rewriter should be built");
             let (written_lts, _deadlocks) = explore_lps_symbolic_to_sym(
                 &storage,
                 lps,
+                rewriter,
                 &SymbolicLpsOptions::default(),
                 &ReachabilityOptions::default(),
                 &timing,

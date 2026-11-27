@@ -13,6 +13,8 @@ use mcrl2_sys::data::ffi::mcrl2_data_specification_user_defined_sorts;
 use mcrl2_sys::data::ffi::RewriterCompilingJitty;
 #[cfg(feature = "jittyc")]
 use mcrl2_sys::data::ffi::mcrl2_create_rewriter_jittyc;
+#[cfg(feature = "jittyc")]
+use merc_utilities::MercError;
 
 use crate::ATerm;
 use crate::ATermList;
@@ -115,8 +117,8 @@ pub(crate) struct Mcrl2RewriterJittyCompiling {
 #[cfg(feature = "jittyc")]
 impl Mcrl2RewriterJittyCompiling {
     /// Creates a new compiling Jitty rewriter from the given data specification.
-    pub fn new(data_spec: &DataSpecification) -> Self {
-        let rewriter = mcrl2_create_rewriter_jittyc(data_spec.get());
-        Self { _rewriter: rewriter }
+    pub fn new(data_spec: &DataSpecification) -> Result<Self, MercError> {
+        let rewriter = mcrl2_create_rewriter_jittyc(data_spec.get(), mcrl2_sys::COMPILE_REWRITER_SCRIPT)?;
+        Ok(Self { _rewriter: rewriter })
     }
 }

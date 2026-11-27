@@ -826,8 +826,9 @@ dependencies = [
 
 [[package]]
 name = "mcrl2"
-version = "1.0.0"
+version = "3.0.0"
 dependencies = [
+ "clap",
  "itertools",
  "log",
  "mcrl2-macros",
@@ -848,7 +849,7 @@ dependencies = [
 
 [[package]]
 name = "mcrl2-macros"
-version = "1.0.0"
+version = "3.0.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -858,7 +859,7 @@ dependencies = [
 [[package]]
 name = "mcrl2-sys"
 version = "1.0.0"
-source = "git+https://github.com/MERCorg/mCRL2-sys?rev=82286b2015bf24a5198ffc76731441a0aea333a9#82286b2015bf24a5198ffc76731441a0aea333a9"
+source = "git+https://github.com/MERCorg/mCRL2-sys?rev=9899be69df2e2772a0f45f474fcf9853fab301af#9899be69df2e2772a0f45f474fcf9853fab301af"
 dependencies = [
  "cargo-emit",
  "cc",
@@ -875,7 +876,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "merc-lps"
-version = "1.0.0"
+version = "3.0.0"
 dependencies = [
  "clap",
  "env_logger",
@@ -893,7 +894,7 @@ dependencies = [
 
 [[package]]
 name = "merc-pbes"
-version = "1.0.0"
+version = "3.0.0"
 dependencies = [
  "clap",
  "duct",
@@ -1020,7 +1021,7 @@ dependencies = [
 
 [[package]]
 name = "merc_lps"
-version = "1.0.0"
+version = "3.0.0"
 dependencies = [
  "clap",
  "log",
@@ -1079,7 +1080,7 @@ dependencies = [
 
 [[package]]
 name = "merc_pbes"
-version = "1.0.0"
+version = "3.0.0"
 dependencies = [
  "duct",
  "itertools",
@@ -2473,7 +2474,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "1.0.0"
+version = "3.0.0"
 dependencies = [
  "duct",
 ]

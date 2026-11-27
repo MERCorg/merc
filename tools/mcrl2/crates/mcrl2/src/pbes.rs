@@ -70,6 +70,7 @@ use crate::ATerm;
 use crate::ATermList;
 use crate::ATermString;
 use crate::DataExpression;
+use crate::DataRewriter;
 use crate::DataSpecification;
 use crate::DataVariable;
 use crate::PbesExpression;
@@ -302,17 +303,20 @@ pub struct PbesRewriteContext {
 }
 
 impl PbesRewriteContext {
-    pub fn from_data_spec(data_spec: &DataSpecification) -> Result<Self, MercError> {
+    /// Creates a rewriter for the given data specification, whose data rewriter
+    /// is a clone of `rewriter`, a rewriter for `data_spec`.
+    pub fn from_data_spec(data_spec: &DataSpecification, rewriter: &DataRewriter) -> Self {
         let ctx = mcrl2_pbes_create_rewrite_context(
             data_spec
                 .get()
                 .as_ref()
                 .expect("data_specification UniquePtr should not be null"),
-        )?;
-        Ok(PbesRewriteContext {
+            rewriter.get(),
+        );
+        PbesRewriteContext {
             ctx: RefCell::new(ctx),
             _not_send: PhantomData,
-        })
+        }
     }
 
     /// Sets σ := { `variables[i]` ↦ `values[i]` } for the next rewrite call.

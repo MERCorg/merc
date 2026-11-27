@@ -1,4 +1,5 @@
 use log::debug;
+use mcrl2::DataRewriter;
 use mcrl2::SrfPbes;
 use oxidd::ldd::LDDFunction;
 use oxidd::ldd::LDDManagerRef;
@@ -54,9 +55,11 @@ pub struct SymbolicPbes {
 /// Builds the game from the same `SymbolicContext` reachability ran with; the
 /// value → equation-index mapping in `context.columns()` is only valid for that one context and
 /// must not be recombined with states obtained from a different one.
+#[allow(clippy::too_many_arguments)]
 pub fn explore_pbes_symbolic_game(
     storage: &LDDManagerRef,
     srf_pbes: SrfPbes,
+    rewriter: DataRewriter,
     encoding: &SymbolicLpsOptions,
     strategy: ExplorationStrategy,
     cached: bool,
@@ -68,7 +71,7 @@ pub fn explore_pbes_symbolic_game(
         "explore_pbes_symbolic requires a PBES whose equations share one parameter vector; \
          call `SrfPbes::unify_parameters` on it first"
     );
-    let lps = PbesSrfLps::new(srf_pbes)?;
+    let lps = PbesSrfLps::new(srf_pbes, rewriter)?;
     let mut symbolic = SymbolicLps::with_options(storage, lps, encoding)?;
 
     debug!("{symbolic:?}");
@@ -124,10 +127,11 @@ pub fn explore_pbes_symbolic_game(
 pub fn explore_pbes_symbolic(
     storage: &LDDManagerRef,
     srf_pbes: SrfPbes,
+    rewriter: DataRewriter,
     encoding: &SymbolicLpsOptions,
     strategy: ExplorationStrategy,
     cached: bool,
     timing: &Timing,
 ) -> Result<LDDFunction, MercError> {
-    Ok(explore_pbes_symbolic_game(storage, srf_pbes, encoding, strategy, cached, false, timing)?.vertices)
+    Ok(explore_pbes_symbolic_game(storage, srf_pbes, rewriter, encoding, strategy, cached, false, timing)?.vertices)
 }

@@ -9,6 +9,7 @@ mod log;
 mod lps;
 mod pbes;
 mod pbes_expression;
+mod rewrite_strategy;
 mod visitor;
 
 pub use atermpp::ATerm;
@@ -79,6 +80,9 @@ pub(crate) use global_lock::lock_global;
 
 pub use log::set_reporting_level;
 pub use log::verbosity_to_log_level;
+
+pub use rewrite_strategy::DataRewriter;
+pub use rewrite_strategy::RewriteStrategy;
 
 pub use lps::LearnSuccessorsContext;
 pub use lps::LinearProcessInitializer;

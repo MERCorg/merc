@@ -13,6 +13,8 @@ use merc_vpg::Set;
 use merc_vpg::VertexIndex;
 use merc_vpg::solve_zielonka;
 
+use mcrl2::DataRewriter;
+use mcrl2::RewriteStrategy;
 use merc_pbes::explore_srf_pbes;
 use merc_pbes::explore_srf_pbes_parallel;
 
@@ -84,8 +86,12 @@ fn compare_text_pbes_with_pbessolve_caching(text_pbes_relative_path: &str, cachi
 
     let pbes = Pbes::from_file(pbes_path.to_str().unwrap()).expect("Failed to read PBES");
     let builder = ParityGameBuilder::new(VertexIndex::new(0));
+    let input_spec = unified_srf(&pbes);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let game = explore_srf_pbes(
-        unified_srf(&pbes),
+        input_spec,
+        rewriter,
         ExplorationStrategy::Bfs,
         caching,
         false,
@@ -155,8 +161,12 @@ fn compare_mcrl2_spec_with_pbessolve_caching(
 
     let pbes = Pbes::from_file(pbes_path.to_str().unwrap()).expect("Failed to read PBES");
     let builder = ParityGameBuilder::new(VertexIndex::new(0));
+    let input_spec = unified_srf(&pbes);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let game = explore_srf_pbes(
-        unified_srf(&pbes),
+        input_spec,
+        rewriter,
         ExplorationStrategy::Bfs,
         caching,
         false,
@@ -182,8 +192,12 @@ fn assert_parallel_matches_sequential_pbes(pbes_path: &Path) {
     let pbes = Pbes::from_file(pbes_path.to_str().unwrap()).expect("Failed to read PBES");
 
     let builder = ParityGameBuilder::new(VertexIndex::new(0));
+    let input_spec = unified_srf(&pbes);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let sequential = explore_srf_pbes(
-        unified_srf(&pbes),
+        input_spec,
+        rewriter,
         ExplorationStrategy::Bfs,
         CachingStrategy::None,
         false,
@@ -210,7 +224,10 @@ fn assert_parallel_caching_matches_sequential(
     caching: CachingStrategy,
 ) {
     let builder = ParityGameBuilder::new(VertexIndex::new(0));
-    let parallel = explore_srf_pbes_parallel(unified_srf(pbes), 4, caching, false, false, &Timing::new(), builder)
+    let input_spec = unified_srf(pbes);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
+    let parallel = explore_srf_pbes_parallel(input_spec, rewriter, 4, caching, false, false, &Timing::new(), builder)
         .expect("Parallel exploration failed");
 
     // The parallel explorer numbers vertices sparsely (see `explore_parallel`),

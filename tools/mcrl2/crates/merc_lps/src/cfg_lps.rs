@@ -5,6 +5,7 @@ use mcrl2::ATermList;
 use mcrl2::CfgSummand;
 use mcrl2::ControlFlowGraph;
 use mcrl2::DataExpression;
+use mcrl2::DataRewriter;
 use mcrl2::LearnSuccessorsContext;
 use mcrl2::LinearProcessSpecification;
 use merc_explore::LPS;
@@ -68,13 +69,13 @@ struct SummandCfgCounters {
 
 impl CfgLinearProcessSpecification {
     /// Builds the explicit LPS and runs the control flow graph analysis on top.
-    pub fn new(lps: LinearProcessSpecification) -> Result<Self, MercError> {
-        let inner = ExplicitLinearProcessSpecification::new(lps)?;
+    pub fn new(lps: LinearProcessSpecification, rewriter: DataRewriter) -> Result<Self, MercError> {
+        let inner = ExplicitLinearProcessSpecification::new(lps, rewriter)?;
 
         // Certain preprocessing steps (notably `replace_constants_by_variables`)
         // introduce expressions that must be rewritten; `LearnSuccessorsContext`
         // seeds that substitution from `inner.lps()` itself.
-        let context = LearnSuccessorsContext::new(inner.lps());
+        let context = LearnSuccessorsContext::new(inner.lps(), inner.rewriter());
         let parameters = inner.parameters();
         // Every summand of an explicit LPS is a candidate from every state (see
         // `ExplicitLinearProcessSpecification::prepare`), so none of them is dead

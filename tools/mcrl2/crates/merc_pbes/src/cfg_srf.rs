@@ -5,6 +5,7 @@ use mcrl2::ATermList;
 use mcrl2::CfgSummand;
 use mcrl2::ControlFlowGraph;
 use mcrl2::DataExpression;
+use mcrl2::DataRewriter;
 use mcrl2::SrfPbes;
 use merc_explore::LPS;
 use merc_utilities::MercError;
@@ -72,8 +73,8 @@ struct SummandCfgCounters {
 
 impl CfgPbesSrfLps {
     /// Builds the SRF view and runs the control flow graph analysis on top.
-    pub fn new(srf: SrfPbes) -> Result<Self, MercError> {
-        let inner = PbesSrfLps::new(srf)?;
+    pub fn new(srf: SrfPbes, rewriter: DataRewriter) -> Result<Self, MercError> {
+        let inner = PbesSrfLps::new(srf, rewriter)?;
 
         let context = inner.analysis_context();
         let parameters = inner.parameters();

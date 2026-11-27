@@ -15,6 +15,8 @@ use merc_vpg::PG;
 use merc_vpg::ParityGameBuilder;
 use merc_vpg::VertexIndex;
 
+use mcrl2::DataRewriter;
+use mcrl2::RewriteStrategy;
 use merc_pbes::explore_pbes_symbolic;
 use merc_pbes::explore_srf_pbes;
 
@@ -41,8 +43,12 @@ fn assert_symbolic_matches_explicit(text_pbes_relative_path: &str) {
 
     let pbes = Pbes::from_text_file(text_pbes_path.to_str().unwrap()).expect("Failed to read text PBES");
 
+    let input_spec = unified_srf(&pbes);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let game = explore_srf_pbes(
-        unified_srf(&pbes),
+        input_spec,
+        rewriter,
         ExplorationStrategy::Bfs,
         CachingStrategy::None,
         false,
@@ -57,9 +63,12 @@ fn assert_symbolic_matches_explicit(text_pbes_relative_path: &str) {
     symbolic_srf
         .unify_parameters(true, false)
         .expect("Failed to unify parameters");
+    let rewriter = DataRewriter::new(&symbolic_srf.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let states = explore_pbes_symbolic(
         &storage,
         symbolic_srf,
+        rewriter,
         &SymbolicLpsOptions::default(),
         SymbolicExplorationStrategy::default(),
         false,

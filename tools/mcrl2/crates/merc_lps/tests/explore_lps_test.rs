@@ -3,8 +3,10 @@ use std::io::Cursor;
 use std::path::Path;
 use std::process::Command;
 
+use mcrl2::DataRewriter;
 use mcrl2::LinearProcessSpecification;
 use mcrl2::PreprocessOptions;
+use mcrl2::RewriteStrategy;
 use mcrl2::preprocess;
 use mcrl2::read_lps;
 use merc_explore::CachingStrategy;
@@ -86,9 +88,13 @@ fn compare_with_lps2lts_caching(spec_relative_path: &str, strategy: CachingStrat
         .unwrap();
 
     let mut builder: LtsBuilderMem<Mcrl2MultiActionLabel> = LtsBuilderMem::new(Vec::new(), Vec::new());
+    let input_spec = read_preprocessed_lps(&lps_path);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     explore_lps_explicit(
         &mut builder,
-        read_preprocessed_lps(&lps_path),
+        input_spec,
+        rewriter,
         strategy,
         ExplorationStrategy::Dfs,
         false,
@@ -173,9 +179,13 @@ fn test_mcrl2_explore_abp_lts_format() {
     let data_spec = convert_data_specification(&read_preprocessed_lps(&lps_path));
 
     let mut builder: LtsBuilderMem<Mcrl2MultiActionLabel> = LtsBuilderMem::new(Vec::new(), Vec::new());
+    let input_spec = read_preprocessed_lps(&lps_path);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     let explored_lts = explore_lps_explicit(
         &mut builder,
-        read_preprocessed_lps(&lps_path),
+        input_spec,
+        rewriter,
         CachingStrategy::None,
         ExplorationStrategy::Dfs,
         false,
@@ -306,9 +316,13 @@ fn compare_random_lps_with_lps2lts(strategy: CachingStrategy) {
 
         let reference_lts = read_mcrl2_aut(File::open(&aut_path).unwrap()).expect("Failed to read reference .aut");
         let mut builder: LtsBuilderMem<Mcrl2MultiActionLabel> = LtsBuilderMem::new(Vec::new(), Vec::new());
+        let input_spec = read_preprocessed_lps(&lps_path);
+        let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+            .expect("the rewriter should be built");
         let result_lts = explore_lps_explicit(
             &mut builder,
-            read_preprocessed_lps(&lps_path),
+            input_spec,
+            rewriter,
             strategy,
             ExplorationStrategy::Dfs,
             false,
@@ -349,9 +363,13 @@ fn compare_random_lps_with_lps2lts(strategy: CachingStrategy) {
 fn assert_parallel_matches_sequential(lps_path: &Path) {
     // Sequential reference, relabelled to strings for comparison.
     let mut builder: LtsBuilderMem<Mcrl2MultiActionLabel> = LtsBuilderMem::new(Vec::new(), Vec::new());
+    let input_spec = read_preprocessed_lps(lps_path);
+    let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+        .expect("the rewriter should be built");
     explore_lps_explicit(
         &mut builder,
-        read_preprocessed_lps(lps_path),
+        input_spec,
+        rewriter,
         CachingStrategy::None,
         ExplorationStrategy::Bfs,
         false,
@@ -369,9 +387,13 @@ fn assert_parallel_matches_sequential(lps_path: &Path) {
     let mut buffer = Cursor::new(Vec::new());
     {
         let mut builder = MutexLtsBuilder::new(AutStream::new_mcrl2(&mut buffer).unwrap());
+        let input_spec = read_preprocessed_lps(lps_path);
+        let rewriter = DataRewriter::new(&input_spec.data_specification(), RewriteStrategy::default())
+            .expect("the rewriter should be built");
         explore_lps_explicit_parallel(
             &mut builder,
-            read_preprocessed_lps(lps_path),
+            input_spec,
+            rewriter,
             CachingStrategy::None,
             4,
             false,
