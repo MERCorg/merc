@@ -210,6 +210,8 @@ impl fmt::Display for EdgeColour {
             EdgeColour::Uncoloured => Ok(()),
             EdgeColour::Argument(positions) => write!(f, "{}", positions.iter().format(",")),
             EdgeColour::Update(roles) => write!(f, "{}", roles.iter().format(",")),
+            // Multiplicity one is the common case, so leave it unlabelled.
+            EdgeColour::Multiplicity(1) => Ok(()),
             EdgeColour::Multiplicity(count) => write!(f, "x{count}"),
         }
     }
@@ -227,15 +229,17 @@ enum EdgeColour {
     /// function, e.g. `{1,3}` for `x` in `f(x,y,x)`.
     Argument(BTreeSet<usize>),
 
-    /// An argument of a commutative function, or any other edge.
+    /// Any other edge: the body of a quantifier or negation.
     Uncoloured,
 
     /// The roles of an update vertex's edge, e.g. `{data, par}` when parameter
     /// `d_k` is passed unchanged.
     Update(BTreeSet<UpdateRole>),
 
-    /// How often an operand occurs in a flattened non-idempotent chain, so that
-    /// `n + n + m` and `n + m + m` differ.
+    /// `|{i | t_i = psi}|`, how often argument `psi` occurs in a (flattened)
+    /// commutative operator, so that `n + n + m` and `n + m + m` differ. For an
+    /// idempotent operator this is always 1, since `a && a && b` and `a && b && b`
+    /// are equivalent; this collapsing goes beyond the paper.
     Multiplicity(usize),
 }
 
@@ -443,15 +447,22 @@ fn by_position(arguments: &[NodeIndex]) -> Vec<(NodeIndex, EdgeColour)> {
         .collect()
 }
 
-/// The children of a commutative operator, without positions.
-fn uncoloured(arguments: &[NodeIndex]) -> Vec<(NodeIndex, EdgeColour)> {
-    arguments
-        .iter()
-        .copied()
-        .collect::<BTreeSet<_>>()
+/// The children of a commutative operator, see [`EdgeColour::Multiplicity`].
+fn by_multiplicity(arguments: &[NodeIndex], idempotent: bool) -> Vec<(NodeIndex, EdgeColour)> {
+    let mut by_child: BTreeMap<NodeIndex, usize> = BTreeMap::new();
+    for &child in arguments {
+        *by_child.entry(child).or_default() += 1;
+    }
+
+    by_child
         .into_iter()
-        .map(|child| (child, EdgeColour::Uncoloured))
+        .map(|(child, count)| (child, EdgeColour::Multiplicity(if idempotent { 1 } else { count })))
         .collect()
+}
+
+/// The single child of a quantifier or negation, see [`EdgeColour::Uncoloured`].
+fn single_child(child: NodeIndex) -> Vec<(NodeIndex, EdgeColour)> {
+    vec![(child, EdgeColour::Uncoloured)]
 }
 
 impl SdgBuilder {
@@ -571,7 +582,11 @@ impl SdgBuilder {
                 arguments.push(self.visit(leaf)?);
             }
 
-            Ok(self.intern_node(&term, VertexColour::Connective(colour), uncoloured(&arguments)))
+            Ok(self.intern_node(
+                &term,
+                VertexColour::Connective(colour),
+                by_multiplicity(&arguments, true),
+            ))
         } else if is_pbes_imp(&r) {
             let imp = PbesImpRef::from(r);
             let lhs = self.visit(imp.lhs())?;
@@ -586,7 +601,7 @@ impl SdgBuilder {
             let not = PbesNotRef::from(r);
             let body = self.visit(not.body())?;
 
-            Ok(self.intern_node(&term, VertexColour::Connective(Connective::Not), uncoloured(&[body])))
+            Ok(self.intern_node(&term, VertexColour::Connective(Connective::Not), single_child(body)))
         } else if is_pbes_forall(&r) {
             let forall = PbesForallRef::from(r);
             let sorts = forall.variables().iter().map(|v| v.sort().protect()).collect();
@@ -595,7 +610,7 @@ impl SdgBuilder {
             Ok(self.intern_node(
                 &term,
                 VertexColour::Quantifier(Quantifier::Forall, sorts),
-                uncoloured(&[body]),
+                single_child(body),
             ))
         } else if is_pbes_exists(&r) {
             let exists = PbesExistsRef::from(r);
@@ -605,7 +620,7 @@ impl SdgBuilder {
             Ok(self.intern_node(
                 &term,
                 VertexColour::Quantifier(Quantifier::Exists, sorts),
-                uncoloured(&[body]),
+                single_child(body),
             ))
         } else if is_pbes_propositional_variable_instantiation(&r) {
             self.visit_pvi(&term)
@@ -637,26 +652,17 @@ impl SdgBuilder {
                     is_application(t) && DataApplicationRef::from(t.copy()).data_function_symbol().name() == name
                 });
 
-                let mut multiplicity: BTreeMap<NodeIndex, usize> = BTreeMap::new();
+                let mut arguments = Vec::new();
                 for leaf in &leaves {
-                    let child = self.visit(leaf.copy().into())?;
-                    *multiplicity.entry(child).or_default() += 1;
+                    arguments.push(self.visit(leaf.copy().into())?);
                 }
 
                 let idempotent = IDEMPOTENT_FUNCTION_SYMBOLS.contains(&name.as_str());
-                let children = multiplicity
-                    .into_iter()
-                    .map(|(child, count)| {
-                        let colour = if idempotent {
-                            EdgeColour::Uncoloured
-                        } else {
-                            EdgeColour::Multiplicity(count)
-                        };
-                        (child, colour)
-                    })
-                    .collect();
-
-                Ok(self.intern_node(&term, VertexColour::Function(head), children))
+                Ok(self.intern_node(
+                    &term,
+                    VertexColour::Function(head),
+                    by_multiplicity(&arguments, idempotent),
+                ))
             } else {
                 let mut arguments = Vec::new();
                 for argument in application.data_arguments() {
@@ -664,7 +670,7 @@ impl SdgBuilder {
                 }
 
                 let children = if is_commutative(&name, arity) {
-                    uncoloured(&arguments)
+                    by_multiplicity(&arguments, false)
                 } else {
                     by_position(&arguments)
                 };
@@ -695,7 +701,7 @@ impl SdgBuilder {
             };
 
             let body = self.visit_binder(abstraction.variables().iter(), abstraction.body().into())?;
-            Ok(self.intern_node(&term, VertexColour::Quantifier(quantifier, sorts), uncoloured(&[body])))
+            Ok(self.intern_node(&term, VertexColour::Quantifier(quantifier, sorts), single_child(body)))
         } else if is_where_clause(&r) {
             Err(MercError::from(
                 "where clauses are not supported in the symmetry detection graph construction",
@@ -1415,10 +1421,10 @@ mod tests {
         assert_eq!(*edges[0].weight(), EdgeColour::Argument([1, 2].into_iter().collect()));
     }
 
-    /// A commutative function applied twice to the same argument (`n ==
-    /// n`) still produces exactly one (uncoloured) edge.
+    /// A commutative function applied twice to the same argument (`n == n`)
+    /// has one edge to `n`, coloured with the multiplicity 2.
     #[test]
-    fn test_commutative_repeated_argument_stays_uncoloured() {
+    fn test_commutative_repeated_argument_gets_multiplicity() {
         test_logger();
         let pbes = Pbes::from_text("pbes mu X(n: Nat) = val(n == n); init X(0);").unwrap();
         let sdg = build_sdg(&pbes).unwrap();
@@ -1433,7 +1439,23 @@ mod tests {
 
         let edges: Vec<_> = sdg.graph.edges(eq_node).collect();
         assert_eq!(edges.len(), 1, "n == n should reach 'n' via exactly one edge");
-        assert_eq!(*edges[0].weight(), EdgeColour::Uncoloured);
+        assert_eq!(edges[0].target(), NodeIndex::new(0));
+        assert_eq!(*edges[0].weight(), EdgeColour::Multiplicity(2));
+    }
+
+    /// The operands of an idempotent operator all have multiplicity 1, so
+    /// `val(n) && val(n) && val(m)` and `val(n) && val(m)` are the same vertex.
+    #[test]
+    fn test_idempotent_operator_ignores_multiplicity() {
+        test_logger();
+        let pbes = Pbes::from_text(
+            "pbes mu X(n: Bool, m: Bool) = val(n) && val(n) && val(m);
+                  mu Y(n: Bool, m: Bool) = val(n) && val(m);
+             init X(true, true);",
+        )
+        .unwrap();
+        let sdg = build_sdg(&pbes).unwrap();
+        assert!(sdg.rhs.iter().any(|set| *set == [0, 1].into_iter().collect()));
     }
 
     /// A PVI that copies a parameter unchanged (`X(n)` from within `X`'s own
