@@ -27,6 +27,8 @@ use merc_macros::merc_ignore;
 use merc_macros::merc_term;
 
 use crate::DATA_SYMBOLS;
+use crate::SortArrow;
+use crate::SortArrowRef;
 use crate::SortExpression;
 use crate::SortExpressionRef;
 use crate::is_data_application;
@@ -38,6 +40,7 @@ use crate::is_data_machine_number;
 use crate::is_data_variable;
 use crate::is_data_where_clause;
 use crate::is_data_whr_decl;
+use crate::is_function_sort;
 
 /// The kind of a binder in a `DataAbstraction`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -154,14 +157,44 @@ mod inner {
 
         /// Returns the sort of a data expression.
         ///
-        /// Only defined for function symbols and variables. Panics for applications (the result
-        /// sort requires traversing the SortArrow chain), machine numbers, binders, and where
-        /// clauses.
+        /// # Panics
+        ///
+        /// Panics when [DataExpression::try_data_sort] returns `None`.
         pub fn data_sort(&self) -> SortExpression {
+            self.try_data_sort()
+                .unwrap_or_else(|| panic!("data_sort not defined for {self}"))
+        }
+
+        /// Returns the sort of a data expression, or `None` if it cannot be determined from the
+        /// term alone: for machine numbers, set and bag comprehensions, and applications whose
+        /// head does not have a function sort.
+        ///
+        /// The sort of an application is the codomain of the sort of its head, of a lambda the
+        /// function sort from its bound variables to its body, of a quantifier `Bool`, and of a
+        /// where clause that of its body.
+        pub fn try_data_sort(&self) -> Option<SortExpression> {
             match self.kind() {
-                DataExpressionKind::FunctionSymbol(symbol) => symbol.sort().protect(),
-                DataExpressionKind::Variable(variable) => variable.sort().protect(),
-                _ => panic!("data_sort not implemented for {self}"),
+                DataExpressionKind::FunctionSymbol(symbol) => Some(symbol.sort().protect()),
+                DataExpressionKind::Variable(variable) => Some(variable.sort().protect()),
+                DataExpressionKind::Application(application) => {
+                    let head = DataExpressionRef::from(application.term.arg(0)).try_data_sort()?;
+                    is_function_sort(&head).then(|| SortArrowRef::from(Term::copy(&head)).codomain().protect())
+                }
+                DataExpressionKind::Abstraction(binder) => match binder.binder_type() {
+                    BinderType::Forall | BinderType::Exists => Some(SortExpression::bool()),
+                    BinderType::Lambda => {
+                        let domain: Vec<SortExpression> = binder
+                            .variables()
+                            .iter()
+                            .map(|variable| variable.sort().protect())
+                            .collect();
+                        let codomain = binder.body().try_data_sort()?;
+                        Some(SortArrow::new(&domain, &codomain).into())
+                    }
+                    BinderType::SetComp | BinderType::BagComp => None,
+                },
+                DataExpressionKind::WhereClause(clause) => clause.body().try_data_sort(),
+                DataExpressionKind::MachineNumber(_) => None,
             }
         }
 
@@ -411,7 +444,7 @@ mod inner {
         /// Assumes the term is an integer term, which is guaranteed by the constructor
         /// and [`is_data_machine_number`]. The cast reinterprets the stored `i64` bit
         /// pattern as `u64`, recovering values in `[0, 2^64-1]`.
-        pub(crate) fn value(&self) -> u64 {
+        pub fn value(&self) -> u64 {
             Into::<ATermIntRef<'_>>::into(self.term.copy()).value() as u64
         }
     }
@@ -845,11 +878,15 @@ mod tests {
     use crate::is_data_machine_number;
     use crate::is_data_variable;
 
+    use super::DataAbstraction;
     use super::DataApplication;
     use super::DataEquation;
     use super::DataExpression;
     use super::DataFunctionSymbol;
     use super::DataVariable;
+    use super::MachineNumber;
+    use crate::BinderType;
+    use crate::SortArrow;
 
     #[test]
     fn test_function_symbol_with_sort() {
@@ -924,6 +961,24 @@ mod tests {
         assert!(is_data_variable(&expr));
         assert_eq!(expr.data_sort().name(), "@no_value@");
         assert_eq!(expr.data_arguments().count(), 0);
+    }
+
+    #[test]
+    fn test_try_data_sort() {
+        let one = DataFunctionSymbol::with_sort("1", SortExpression::pos().copy());
+        let f = DataFunctionSymbol::with_signature("f", &[SortExpression::pos()], &SortExpression::nat());
+        let application: DataExpression = DataApplication::with_args(&f, &[DataExpression::from(one)]).into();
+        assert_eq!(application.try_data_sort(), Some(SortExpression::nat()));
+
+        let x = DataVariable::with_sort("x", SortExpression::pos().copy());
+        let lambda: DataExpression = DataAbstraction::new(BinderType::Lambda, &[x], application).into();
+        assert_eq!(
+            lambda.try_data_sort(),
+            Some(SortArrow::new(&[SortExpression::pos()], &SortExpression::nat()).into())
+        );
+
+        let number: DataExpression = MachineNumber::new(42).into();
+        assert_eq!(number.try_data_sort(), None);
     }
 
     #[test]

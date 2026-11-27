@@ -4,9 +4,11 @@
 use std::ops::ControlFlow;
 
 use rand::RngExt;
+use test_case::test_case;
 
 use merc_syntax::ActFrmKind;
 use merc_syntax::Bound;
+use merc_syntax::DataExpr;
 use merc_syntax::PbesExprKind;
 use merc_syntax::ProcExprBinaryOp;
 use merc_syntax::ProcessExprKind;
@@ -298,4 +300,28 @@ fn random_pbes_print_parse_fixpoint() {
             .unwrap_or_else(|e| panic!("failed to reparse generated PBES:\n{printed}\nerror: {e}"));
         assert_eq!(printed, format!("{reparsed}"), "PBES print/parse not a fixpoint");
     });
+}
+
+/// Printing a data expression writes only the parentheses that its grouping requires, and
+/// parsing the printed text gives back the same expression.
+#[test_case("a + b * c", "a + b * c" ; "precedence")]
+#[test_case("(a + b) * c", "(a + b) * c" ; "weaker operand")]
+#[test_case("a - (b - c)", "a - (b - c)" ; "left associative")]
+#[test_case("(a |> b) |> c", "(a |> b) |> c" ; "right associative")]
+#[test_case("-(a * b)", "-(a * b)" ; "prefix over same level infix")]
+#[test_case("(-a) * b", "(-a) * b" ; "prefix in same level infix")]
+#[test_case("-a + b", "-a + b" ; "prefix in weaker infix")]
+#[test_case("-a * b", "-(a * b)" ; "prefix extends over same level infix")]
+#[test_case("!(a && b) || c", "!(a && b) || c" ; "negation")]
+#[test_case("(a && (forall x: Nat. b)) || c", "(a && forall x: Nat. b) || c" ; "binder captures the rest")]
+#[test_case("a && (forall x: Nat. b)", "a && forall x: Nat. b" ; "binder at the end")]
+#[test_case("(lambda x: Nat. x)(1)", "(lambda x: Nat. x)(1)" ; "applied lambda")]
+#[test_case("(x + 1) whr x = 2 end", "x + 1 whr x = 2 end" ; "where clause")]
+#[test_case("a + (x whr x = 2 end)", "a + (x whr x = 2 end)" ; "where clause operand")]
+#[test_case("(forall x: Nat. b) whr b = true end", "forall x: Nat. b whr b = true end" ; "binder before where clause")]
+#[cfg_attr(miri, ignore)] // pest calls into psm, which miri does not support.
+fn data_expression_minimal_parentheses(input: &str, printed: &str) {
+    let expr = DataExpr::parse(input).expect("the input should parse");
+    assert_eq!(expr.to_string(), printed);
+    assert_eq!(DataExpr::parse(printed).expect("the printed form should parse"), expr);
 }

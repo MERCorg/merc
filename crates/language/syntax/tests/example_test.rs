@@ -4,21 +4,23 @@ use std::path::Path;
 use merc_syntax::UntypedPbes;
 use test_case::test_case;
 
+use merc_syntax::OffsetSpans;
 use merc_syntax::UntypedDataSpecification;
 use merc_syntax::UntypedProcessSpecification;
 use merc_syntax::UntypedStateFrmSpec;
 use merc_utilities::MercError;
+use merc_utilities::Span;
 use merc_utilities::check_snapshot;
 use merc_utilities::test_logger;
 
 /// Bump this whenever the stored snapshot format changes (e.g. the pretty-printer output
 /// changes) to force every snapshot in `tests/snapshot` to be regenerated instead of compared.
 /// See [merc_utilities::check_snapshot].
-const SNAPSHOT_VERSION: u32 = 1;
+const SNAPSHOT_VERSION: u32 = 2;
 
 /// Asserts that the printed form reparses and prints identically. This catches
 /// grammar / printer mismatches on real specifications.
-fn check_roundtrip<T, F>(printed: &str, parse: F)
+fn check_roundtrip<T, F>(printed: &str, parse: F) -> T
 where
     T: fmt::Display,
     F: Fn(&str) -> Result<T, MercError>,
@@ -26,6 +28,21 @@ where
     let reparsed =
         parse(printed).unwrap_or_else(|e| panic!("printed output failed to reparse:\n{printed}\nerror: {e}"));
     assert_eq!(printed, format!("{reparsed}"), "print/parse is not a fixpoint");
+    reparsed
+}
+
+/// Like [check_roundtrip], but also asserts that the reparsed syntax tree equals `spec` up to
+/// spans, which catches parentheses the printer leaves out although the grouping requires them.
+fn check_reparse<T, F>(spec: &T, parse: F)
+where
+    T: fmt::Display + fmt::Debug + PartialEq + Clone + OffsetSpans,
+    F: Fn(&str) -> Result<T, MercError>,
+{
+    let mut reparsed = check_roundtrip(&format!("{spec}"), parse);
+    let mut spec = spec.clone();
+    spec.map_spans(&mut |span| *span = Span::default());
+    reparsed.map_spans(&mut |span| *span = Span::default());
+    assert_eq!(spec, reparsed, "printing changes the syntax tree");
 }
 
 #[cfg_attr(miri, ignore)]
@@ -386,7 +403,7 @@ fn test_parse_mcrl2_modal_formula(input: &str, snapshot_file: &str) {
         Ok(spec) => {
             check_snapshot(&spec, Path::new(snapshot_file), SNAPSHOT_VERSION)
                 .expect("Could not read or write the tests/snapshot file");
-            check_roundtrip(&format!("{spec}"), UntypedStateFrmSpec::parse);
+            check_reparse(&spec, UntypedStateFrmSpec::parse);
         }
         Err(err) => panic!("{}", err),
     }
@@ -485,7 +502,7 @@ fn test_parse_mcrl2_dataspec(input: &str, snapshot_file: &str) {
         Ok(spec) => {
             check_snapshot(&spec, Path::new(snapshot_file), SNAPSHOT_VERSION)
                 .expect("Could not read or write the tests/snapshot file");
-            check_roundtrip(&format!("{spec}"), UntypedDataSpecification::parse);
+            check_reparse(&spec, UntypedDataSpecification::parse);
         }
         Err(err) => panic!("{}", err),
     }

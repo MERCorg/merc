@@ -26,23 +26,43 @@ pub(crate) fn merc_derive_terms_impl(_attributes: TokenStream, input: TokenStrea
                         // assertion function. When present it must be a bare
                         // identifier; anything else is reported as a compile
                         // error rather than silently dropping the check.
-                        let assertion = if attr.meta.require_list().is_ok() {
+                        let name_string = object.ident.to_string();
+                        let name_for_try = object.ident.clone();
+                        let generics_for_try = object.generics.clone();
+                        let (assertion, try_from_term) = if attr.meta.require_list().is_ok() {
                             match attr.parse_args::<syn::Ident>() {
                                 Ok(assertion) => {
                                     let assertion_msg = format!("{assertion}");
-                                    quote!(
-                                        debug_assert!(#assertion(&term), "Term {:?} does not satisfy {}", term, #assertion_msg)
+                                    (
+                                        quote!(
+                                            debug_assert!(#assertion(&term), "Term {:?} does not satisfy {}", term, #assertion_msg)
+                                        ),
+                                        quote!(
+                                            impl #generics_for_try #name_for_try #generics_for_try {
+                                                /// Converts `term`, reporting a term of the wrong shape as an error.
+                                                /// For terms that are known to be valid, use `From<ATerm>` instead,
+                                                /// which only asserts this.
+                                                #[allow(dead_code)]
+                                                pub fn try_from_term(term: ATerm) -> ::std::result::Result<Self, ::std::string::String> {
+                                                    if #assertion(&term) {
+                                                        Ok(#name_for_try { term })
+                                                    } else {
+                                                        Err(format!("Expected a {}, found {}", #name_string, term))
+                                                    }
+                                                }
+                                            }
+                                        ),
                                     )
                                 }
                                 Err(error) => {
                                     let message =
                                         format!("merc_term expects a single assertion function identifier: {error}");
-                                    quote!(compile_error!(#message))
+                                    (quote!(compile_error!(#message)), quote!())
                                 }
                             }
                         } else {
                             // Bare `#[merc_term]` without arguments: no assertion.
-                            quote!()
+                            (quote!(), quote!())
                         };
 
                         // Add the expected derive macros to the input struct.
@@ -107,6 +127,8 @@ pub(crate) fn merc_derive_terms_impl(_attributes: TokenStream, input: TokenStrea
                         // the conversion from and to an ATerm.
                         let name_ref = format_ident!("{}Ref", object.ident);
                         let generated: TokenStream = quote!(
+                            #try_from_term
+
                             impl #generics #name #generics {
                                 pub fn copy #generics_ref(&'a self) -> #name_ref #generics_ref {
                                     self.term.copy().into()

@@ -26,7 +26,6 @@ use crate::TypeCheckContext;
 use crate::for_each_expr_node;
 use crate::is_system_generated_name;
 use crate::resolve_sort;
-use crate::unreachable_not_a_value_sort;
 
 /// The typing of a document's data specification (or of one expression): one
 /// [`TypedNode`] per checked expression node, in generation order, keyed by
@@ -558,7 +557,7 @@ pub(crate) fn push_binder_declaration(
 /// Every produced node gets [`Span::default`].
 fn sort_expression(ctx: &TypeCheckContext, spec: &UntypedDataSpecification, id: ResolvedSortId) -> SortExpression {
     match ctx.sorts.get(id) {
-        ResolvedSort::Unit => unreachable_not_a_value_sort("Unit"),
+        ResolvedSort::Unit => unreachable!("Unit never denotes the sort of a data expression"),
         ResolvedSort::Primitive(sort) => SortExpressionKind::Simple(*sort).into(),
         ResolvedSort::Container { op, subsort } => {
             SortExpressionKind::Complex(*op, Box::new(sort_expression(ctx, spec, *subsort))).into()
@@ -572,6 +571,6 @@ fn sort_expression(ctx: &TypeCheckContext, spec: &UntypedDataSpecification, id: 
             let name = ctx.sort_display_name(spec, *def).into_owned();
             SortExpressionKind::Resolved(name, *def).into()
         }
-        ResolvedSort::TypeVar(_) => unreachable_not_a_value_sort("Var"),
+        ResolvedSort::TypeVar(_) => unreachable!("a type variable never denotes the sort of a data expression"),
     }
 }

@@ -21,27 +21,32 @@ use crate::binding::BindingChain;
 use crate::binding::BindingGuard;
 use crate::binding::SingleSubstitution;
 
-/// Applies [the one-point rule](https://mercorg.github.io/merc-website/developer/rewriting/enumeration/#the-one-point-rule) to a fixpoint,
-/// for a quantifier of `kind` over `vars`, or a `sum` as [`QuantifierKind::Exists`].
+/// Applies [the one-point
+/// rule](https://mercorg.github.io/merc-website/developer/rewriting/enumeration/#the-one-point-rule)
+/// to a fixpoint, for a quantifier of `kind` over `vars`, or a `sum` as
+/// [`QuantifierKind::Exists`].
 ///
-/// The [`Enumerator`](crate::Enumerator) never applies the rule itself, so this is a
-/// preprocessing step for the caller.
+/// The [`Enumerator`](crate::Enumerator) never applies the rule itself, so this
+/// is a preprocessing step for the caller.
 ///
 /// `condition` is the goal body to search for one-point (dis)equations over
 /// `vars`, rewritten to its residual form in place. `rest` is *not* searched
 /// but still has each eliminated variable's binding substituted in. This is
 /// useful for summands for example. Returns the variables that were not
-/// eliminated, in `vars` order.
+/// eliminated, in `vars` order, and the eliminated variables with their values.
 ///
 /// `condition` must already be in normal form, so that the `e` of a matched
 /// equation can be substituted without rewriting it again.
+///
+/// Returns a tuple containing the remaining variables that were not eliminated
+/// and the eliminated variables with their corresponding values.
 pub fn simplify_one_point<R: RewriteEngine>(
     rewriter: &mut R,
     kind: QuantifierKind,
     vars: &[DataVariable],
     condition: &mut DataExpression,
     rest: &mut [DataExpression],
-) -> Vec<DataVariable> {
+) -> (Vec<DataVariable>, Vec<(DataVariable, DataExpression)>) {
     let mut arena = BindingArena::default();
     arena.chain.write(|guard| {
         let (remaining_vars, residual, bindings) =
@@ -64,7 +69,7 @@ pub fn simplify_one_point<R: RewriteEngine>(
             *term = rewriter.rewrite_with(term, &substitution);
         }
 
-        remaining_vars
+        (remaining_vars, eliminated.into_iter().zip(values).collect())
     })
 }
 

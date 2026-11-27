@@ -93,6 +93,13 @@ const _: () = assert!(std::mem::size_of::<Option<ATermRef>>() == std::mem::size_
 unsafe impl Send for ATermRef<'_> {}
 unsafe impl Sync for ATermRef<'_> {}
 
+/// Same as [Term::copy], so that references can be stored in containers that require [Clone].
+impl Clone for ATermRef<'_> {
+    fn clone(&self) -> Self {
+        self.copy()
+    }
+}
+
 impl ATermRef<'_> {
     /// Creates a new term reference from the given [ATermIndex].
     ///
@@ -483,6 +490,27 @@ impl Drop for ATermSend {
         // `Drop` runs exactly once, so the root is unprotected exactly once.
         unsafe {
             guard.unprotect(self.root);
+        }
+    }
+}
+
+impl Clone for ATermSend {
+    /// Protects the term again, in the send protection set of the current thread.
+    fn clone(&self) -> Self {
+        let protection_set = THREAD_TERM_POOL.with(|tp| tp.send_term_protection_set().clone());
+        // SAFETY: `self` keeps the term protected during this call, so the index stays valid, and
+        // inserting the copy into the send-term protection set makes it a GC root until the clone
+        // is dropped.
+        let term: ATermRef<'static> = unsafe { ATermRef::from_index(self.term.shared()) };
+        let root = protection_set
+            .lock()
+            .expect("Lock poisoned!")
+            .protect(unsafe { self.term.shared().copy() });
+
+        Self {
+            term,
+            root,
+            protection_set,
         }
     }
 }

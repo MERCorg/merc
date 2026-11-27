@@ -72,17 +72,6 @@ impl ActFrmKind {
     }
 }
 
-impl From<ActFrmKind> for ActFrm {
-    /// Wraps a kind into an [ActFrm] with a default (empty) span, for
-    /// synthetic formulas that have no source location.
-    fn from(kind: ActFrmKind) -> Self {
-        Spanned {
-            node: kind,
-            span: Span::default(),
-        }
-    }
-}
-
 impl fmt::Display for ActFrm {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self.node {

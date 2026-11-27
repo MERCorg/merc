@@ -343,9 +343,16 @@ impl<'a, C: Transmutable> Deref for ProtectedReadGuard<'a, C> {
 
 #[cfg(test)]
 mod tests {
+    use merc_unsafety::ConcurrentIndexedSet;
+
     use crate::ATerm;
+    use crate::ATermInt;
     use crate::ATermRef;
     use crate::Protected;
+    use crate::ProtectedSend;
+    use crate::Symbol;
+    use crate::Term;
+    use crate::storage::THREAD_TERM_POOL;
 
     #[test]
     fn test_aterm_container() {
@@ -358,6 +365,39 @@ mod tests {
 
         for _ in 0..1000 {
             container.write(|write| write.push(t.get()));
+        }
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // This test runs too slow under miri.
+    fn test_concurrent_set_shared_between_threads() {
+        // Terms that only the shared set keeps alive must survive garbage collection, while other
+        // threads insert into it concurrently.
+        let set = ProtectedSend::<ConcurrentIndexedSet<ATermRef<'static>>>::default();
+        let symbol = Symbol::new("shared_set", 1);
+
+        std::thread::scope(|scope| {
+            for thread in 0..4 {
+                let set = &set;
+                let symbol = &symbol;
+                scope.spawn(move || {
+                    for value in 0..1000 {
+                        let term = ATerm::with_args(symbol, &[ATermInt::new(thread * 1000 + value)]);
+                        set.read().insert(term.copy());
+                    }
+                    THREAD_TERM_POOL.with(|tp| tp.force_collect_garbage());
+                });
+            }
+        });
+
+        THREAD_TERM_POOL.with(|tp| tp.force_collect_garbage());
+
+        let read = set.read();
+        assert_eq!(read.len(), 4000);
+        for term in read.iter() {
+            let term = term.protect();
+            assert_eq!(term.get_head_symbol(), symbol.copy());
+            assert!(ATermInt::from(term.arg(0).protect()).value() < 4000);
         }
     }
 }

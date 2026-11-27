@@ -5,6 +5,7 @@ mod innermost_rewriter;
 mod naive_rewriter;
 mod quantifier;
 mod rewrite_specification;
+mod rewriter;
 mod sabre_rewriter;
 mod set_automaton;
 
@@ -20,6 +21,8 @@ pub use quantifier::NoQuantifierEnumerator;
 pub use rewrite_specification::Condition;
 pub use rewrite_specification::RewriteSpecification;
 pub use rewrite_specification::Rule;
+pub use rewriter::DataRewriter;
+pub use rewriter::Rewriter;
 pub use sabre_rewriter::RewriteEngine;
 pub use sabre_rewriter::RewritingStatistics;
 pub use sabre_rewriter::SabreRewriter;

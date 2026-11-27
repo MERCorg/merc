@@ -3,6 +3,7 @@
 use std::collections::VecDeque;
 
 use merc_collections::IndexedSet;
+use merc_unsafety::ConcurrentIndexedSet;
 
 use crate::SymbolRef;
 use crate::aterm::ATermRef;
@@ -103,6 +104,29 @@ impl<T: Markable> Markable for IndexedSet<T> {
 
     fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
         self.iter().any(|(_, v)| v.contains_symbol(symbol))
+    }
+
+    fn len(&self) -> usize {
+        self.len()
+    }
+}
+
+/// Marking runs with exclusive access to the term pool, while inserting a term into the set from
+/// another thread requires shared access (see [crate::ProtectedSend::read]), so the two never
+/// overlap.
+impl<T: Markable, S> Markable for ConcurrentIndexedSet<T, S> {
+    fn mark(&self, marker: &mut Marker) {
+        for value in self.iter() {
+            value.mark(marker);
+        }
+    }
+
+    fn contains_term(&self, term: &ATermRef<'_>) -> bool {
+        self.iter().any(|v| v.contains_term(term))
+    }
+
+    fn contains_symbol(&self, symbol: &SymbolRef<'_>) -> bool {
+        self.iter().any(|v| v.contains_symbol(symbol))
     }
 
     fn len(&self) -> usize {

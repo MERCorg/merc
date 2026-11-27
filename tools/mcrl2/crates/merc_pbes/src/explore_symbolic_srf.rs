@@ -75,12 +75,7 @@ pub fn explore_pbes_symbolic_game(
 
     // `with_options` wraps the LPS in a `PermutedLps` to realise `--reorder`, so the equation
     // index (position 0 of the unpermuted state vector) is not necessarily at level 0.
-    let level = symbolic
-        .lps()
-        .order()
-        .iter()
-        .position(|&position| position == 0)
-        .expect("the equation index (position 0) must appear somewhere in the permutation");
+    let level = symbolic.lps().position_of(0);
 
     let options = ReachabilityOptions {
         strategy,

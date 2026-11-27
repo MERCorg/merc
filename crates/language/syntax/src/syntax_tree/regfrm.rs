@@ -48,17 +48,6 @@ impl RegFrmKind {
     }
 }
 
-impl From<RegFrmKind> for RegFrm {
-    /// Wraps a kind into a [RegFrm] with a default (empty) span, for
-    /// synthetic formulas that have no source location.
-    fn from(kind: RegFrmKind) -> Self {
-        Spanned {
-            node: kind,
-            span: Span::default(),
-        }
-    }
-}
-
 impl fmt::Display for RegFrm {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match &self.node {

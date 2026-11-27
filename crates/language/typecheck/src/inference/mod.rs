@@ -29,8 +29,6 @@ pub use resolved_sort::ResolvedSortId;
 pub use resolved_sort::ResolvedSortTag;
 #[cfg(feature = "internal")]
 pub use resolved_sort::SortInterner;
-#[cfg(feature = "internal")]
-pub use resolved_sort::unreachable_not_a_value_sort;
 pub(crate) use resolved_sort::*;
 pub(crate) use typed_display::*;
 pub(crate) use unification::*;

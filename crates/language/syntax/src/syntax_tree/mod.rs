@@ -264,6 +264,16 @@ pub enum Fixity {
     Primary,
 }
 
+impl Fixity {
+    /// The precedence level, where a primary expression binds tighter than every operator.
+    pub fn level(self) -> u8 {
+        match self {
+            Fixity::Prefix(level) | Fixity::Postfix(level) | Fixity::Infix(level, _) => level,
+            Fixity::Primary => u8::MAX,
+        }
+    }
+}
+
 /// Implemented by every `*Kind` enum whose values are Pratt-parsed.
 pub trait Operator: Sized + TakeRecursiveChildren {
     /// Returns the fixity and precedence level of this operator.

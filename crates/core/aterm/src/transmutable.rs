@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::mem::transmute;
 
 use merc_collections::IndexedSet;
+use merc_unsafety::ConcurrentIndexedSet;
 
 use crate::SymbolRef;
 use crate::aterm::ATermRef;
@@ -127,6 +128,25 @@ where
 
     unsafe fn transmute_lifetime_mut<'a>(&mut self) -> &'a mut Self::Target<'a> {
         unsafe { transmute::<&mut Self, &'a mut IndexedSet<T::Target<'a>>>(self) }
+    }
+}
+
+unsafe impl<T: Transmutable, S> Transmutable for ConcurrentIndexedSet<T, S>
+where
+    for<'a> T::Target<'a>: Sized,
+{
+    type Target<'a>
+        = ConcurrentIndexedSet<T::Target<'a>, S>
+    where
+        T: 'a,
+        S: 'a;
+
+    unsafe fn transmute_lifetime<'a>(&self) -> &'a Self::Target<'a> {
+        unsafe { transmute::<&Self, &'a ConcurrentIndexedSet<T::Target<'a>, S>>(self) }
+    }
+
+    unsafe fn transmute_lifetime_mut<'a>(&mut self) -> &'a mut Self::Target<'a> {
+        unsafe { transmute::<&mut Self, &'a mut ConcurrentIndexedSet<T::Target<'a>, S>>(self) }
     }
 }
 

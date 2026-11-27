@@ -4,11 +4,9 @@ use std::convert::Infallible;
 use std::fmt;
 use std::ops::ControlFlow;
 
-use merc_aterm::ATerm;
 use merc_aterm::ATermRef;
 use merc_aterm::Symb;
 use merc_aterm::Term;
-use merc_data::BinderType;
 use merc_data::DataAbstractionRef;
 use merc_data::DataApplicationRef;
 use merc_data::DataExpressionRef;
@@ -16,14 +14,6 @@ use merc_data::DataExpressionVisitor;
 use merc_data::DataVariable;
 use merc_data::DataVariableRef;
 use merc_data::DataWhereClauseRef;
-use merc_data::SortArrow;
-use merc_data::SortExpression;
-use merc_data::is_data_application;
-use merc_data::is_data_binder;
-use merc_data::is_data_function_symbol;
-use merc_data::is_data_variable;
-use merc_data::is_data_where_clause;
-use merc_data::is_function_sort;
 use merc_utilities::Step;
 use merc_utilities::Visit;
 
@@ -248,7 +238,8 @@ impl Checker<'_> {
         let parameters = declaration.parameters().to_vec();
         let matches = arguments.len() == parameters.len()
             && arguments.iter().zip(parameters.iter()).all(|(argument, parameter)| {
-                data_expression_sort(&DataExpressionRef::from(argument.copy()))
+                DataExpressionRef::from(argument.copy())
+                    .try_data_sort()
                     .is_none_or(|sort| sort.copy() == parameter.sort())
             });
         if !matches {
@@ -409,36 +400,6 @@ fn first_duplicate_name(variables: &[DataVariable]) -> Option<String> {
         .iter()
         .find(|variable| !names.insert(variable.name()))
         .map(|variable| variable.name().to_string())
-}
-
-/// The sort of `expr`, or `None` if it cannot be determined from the term alone, as for machine
-/// numbers and set or bag comprehensions.
-fn data_expression_sort(expr: &DataExpressionRef<'_>) -> Option<SortExpression> {
-    if is_data_variable(expr) || is_data_function_symbol(expr) {
-        Some(expr.data_sort())
-    } else if is_data_application(expr) {
-        let head = data_expression_sort(&DataExpressionRef::from(Term::copy(expr).arg(0)))?;
-        is_function_sort(&head).then(|| SortArrow::from(ATerm::from(head)).codomain().protect())
-    } else if is_data_binder(expr) {
-        let binder = DataAbstractionRef::from(Term::copy(expr));
-        match binder.binder_type() {
-            BinderType::Forall | BinderType::Exists => Some(SortExpression::bool()),
-            BinderType::Lambda => {
-                let domain: Vec<SortExpression> = binder
-                    .variables()
-                    .iter()
-                    .map(|variable| variable.sort().protect())
-                    .collect();
-                let codomain = data_expression_sort(&binder.body())?;
-                Some(SortArrow::new(&domain, &codomain).into())
-            }
-            BinderType::SetComp | BinderType::BagComp => None,
-        }
-    } else if is_data_where_clause(expr) {
-        data_expression_sort(&DataExpressionRef::from(Term::copy(expr).arg(0)))
-    } else {
-        None
-    }
 }
 
 #[cfg(test)]

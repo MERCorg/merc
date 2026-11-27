@@ -197,8 +197,8 @@ mod tests {
         );
     }
 
-    #[test_case("lambda n: Nat . n + 1", "(lambda n: Nat . +(n, 1))"; "lambda body")]
-    #[test_case("forall n: Nat . n == n", "(forall n: Nat . ==(n, n))"; "quantifier body")]
+    #[test_case("lambda n: Nat . n + 1", "lambda n: Nat. +(n, 1)"; "lambda body")]
+    #[test_case("forall n: Nat . n == n", "forall n: Nat. ==(n, n)"; "quantifier body")]
     #[test_case("x + y whr y = z ++ w end", "+(x, y) whr y = ++(z, w) end"; "whr expression and assignments")]
     #[test_case("{ x + y }", "{ +(x, y) }"; "set element")]
     #[test_case("{ x: n + 1 }", "{ x: +(n, 1) }"; "bag element and multiplicity")]

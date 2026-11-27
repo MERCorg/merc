@@ -54,6 +54,16 @@ impl<T: TakeRecursiveChildren + Default> Spanned<T> {
     }
 }
 
+/// Wraps a synthetic `node`, which has no source location.
+impl<T: TakeRecursiveChildren> From<T> for Spanned<T> {
+    fn from(node: T) -> Self {
+        Spanned {
+            node,
+            span: Span::default(),
+        }
+    }
+}
+
 /// Wraps `node` together with its source `span`.
 pub fn respan<T: TakeRecursiveChildren>(span: Span, node: T) -> Spanned<T> {
     Spanned { node, span }

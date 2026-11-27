@@ -15,6 +15,10 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Derives the `clap::ValueEnum` trait.
+clap = ["dep:clap"]
+
 [dependencies]
 merc_aterm.workspace = true
 merc_data.workspace = true
@@ -28,6 +32,8 @@ env_logger.workspace = true
 log.workspace = true
 itertools.workspace = true
 rand.workspace = true
+
+clap = { workspace = true, optional = true }
 
 [dev-dependencies]
 merc_syntax.workspace = true

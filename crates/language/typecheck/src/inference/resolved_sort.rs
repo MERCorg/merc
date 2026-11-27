@@ -145,11 +145,6 @@ fn primitive_partial_cmp(lhs: Sort, rhs: Sort) -> Option<Ordering> {
     }
 }
 
-/// Panics: neither `Unit` nor `TypeVar` ever denotes a data-expression's own resolved sort..
-pub fn unreachable_not_a_value_sort(variant: &str) -> ! {
-    unreachable!("{variant} never denotes a data-expression's own resolved sort")
-}
-
 /// Returns whether the container constructor is `Set` or `FSet`.
 fn is_any_set(op: ComplexSort) -> bool {
     matches!(op, ComplexSort::Set | ComplexSort::FSet)
